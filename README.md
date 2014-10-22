@@ -117,4 +117,4 @@ Hello, world!
  [INFO] All halted
 ```
 
-Don't mind debug messages, focus on sweet and nice like in the middle. Oh this is good! :)
+Don't mind debug messages, focus on sweet and nice line in the middle. Oh this is good! :)
