@@ -1,0 +1,99 @@
+#!/usr/bin/python
+
+import optparse
+import os.path
+import struct
+import sys
+import types
+
+import cpu
+import irq
+import io
+import mm
+import mm.binary
+import cpu.compile
+import util
+
+from mm import UInt8, UInt16
+from cpu.instructions import ins2str
+from cpu.errors import CPUException
+
+from util import *
+
+def main():
+  parser = optparse.OptionParser()
+
+  parser.add_option('-v', dest = 'verbosity', action = 'count', default = 0, help = 'Verbosity level')
+
+  parser.add_option('-i', dest = 'file_in', default = None, help = 'Input file')
+  parser.add_option('-o', dest = 'file_out', default = None, help = 'Output file')
+
+  parser.add_option('-f', dest = 'force', default = False, action = 'store_true', help = 'Force overwrite of the output file')
+  parser.add_option('-b', dest = 'base', default = mm.MEM_FIRST_BOOT_IP, help = 'Base address of code segment')
+
+  options, args = parser.parse_args()
+
+  util.set_verbosity(options.verbosity)
+
+  if not options.file_in:
+    parser.print_help()
+    sys.exit(1)
+
+  info('Input file: %s' % options.file_in)
+  with open(options.file_in, 'r') as f_in:
+    buffer = f_in.readlines()
+
+  (csb, cs), (dsb, ds), symbols = cpu.compile.compile_buffer(buffer, text_base = int(options.base))
+
+  ssb = UInt16(cpu.compile.align_to_next_page(dsb.u16 + len(ds)))
+
+  if os.path.exists(options.file_out) and not options.force:
+    error('Output file %s already exists, use -f to force overwrite' % options.file_out)
+    sys.exit(1)
+
+  info('Output file: %s' % options.file_out)
+
+  with mm.binary.File(options.file_out, 'w') as f_out:
+    debug('Create file header')
+    h_file = f_out.create_header()
+
+    debug('Create TEXT section:  base=0x%X, size=0x%X' % (csb.u16, len(cs)))
+    h_text = f_out.create_section()
+    h_text.type = mm.binary.SectionTypes.TEXT
+    h_text.base = csb.u16
+
+    debug('Create DATA section:  base=0x%X, size=0x%X' % (dsb.u16, len(ds)))
+    h_data = f_out.create_section()
+    h_data.type = mm.binary.SectionTypes.DATA
+    h_data.base = dsb.u16
+
+    debug('Create STACK section: base=0x%X' % ssb.u16)
+    h_stack = f_out.create_section()
+    h_stack.type = mm.binary.SectionTypes.STACK
+    h_stack.base = ssb.u16
+
+    debug('Create SYMBOLS section')
+    h_symbols = f_out.create_section()
+    h_symbols.type = mm.binary.SectionTypes.SYMBOLS
+
+    symbol_entries = []
+    for name, addr, size in symbols:
+      entry = mm.binary.SymbolEntry()
+      symbol_entries.append(entry)
+
+      entry.set_name(name)
+      entry.address = addr
+      entry.size = size
+      entry.section = h_data.index
+
+    f_out.set_content(h_text, cs)
+    f_out.set_content(h_data, ds)
+    f_out.set_content(h_symbols, symbol_entries)
+
+    f_out.save()
+
+  info('Source file successfully translated and saved')
+
+if __name__ == '__main__':
+  main()
+

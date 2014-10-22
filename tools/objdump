@@ -1,0 +1,115 @@
+#!/usr/bin/python
+
+import optparse
+import struct
+import sys
+import types
+
+import cpu
+import irq
+import io
+import mm
+import cpu.instructions
+import mm.binary
+import util
+
+from mm import UInt8, UInt16
+from cpu.instructions import ins2str
+from cpu.errors import CPUException
+from util import *
+
+def main():
+  parser = optparse.OptionParser()
+
+  parser.add_option('-v', dest = 'verbosity', action = 'count', default = 0, help = 'Verbosity level')
+
+  parser.add_option('-i', dest = 'file_in', default = None, help = 'Input file')
+
+  parser.add_option('-d', dest = 'disassemble', default = False, action = 'store_true', help = 'Disassemble TEXT sections')
+
+  options, args = parser.parse_args()
+
+  util.set_verbosity(options.verbosity)
+
+  if not options.file_in:
+    parser.print_help()
+    sys.exit(1)
+
+  info('Input file: %s' % options.file_in)
+
+  with mm.binary.File(options.file_in, 'r') as f_in:
+    f_in.load()
+
+    info()
+
+    f_header = f_in.get_header()
+    info('=== File header ===')
+    info('  Magic:    0x%X' % f_header.magic)
+    info('  Version:  %i' % f_header.version)
+    info('  Sections: %i' % f_header.sections)
+
+    info()
+
+    info('=== Sections ===')
+
+    for i in range(0, f_header.sections):
+      header, content = f_in.get_section(i)
+
+      info()
+      info('* Section #%i' % header.index)
+      info('  Type:   %s' % mm.binary.SECTION_TYPES[header.type])
+      info('  Flags:  0x%X' % header.flags)
+      info('  Base:   0x%X' % header.base)
+      info('  Size:   0x%X' % header.size)
+      info('  Offset: 0x%X' % header.offset)
+
+      if not options.disassemble:
+        continue
+
+      if header.type == mm.binary.SectionTypes.TEXT:
+        info()
+
+        j = 0
+        while j < header.size:
+          ins = content[j]
+          j += 1
+
+          desc = cpu.instructions.INSTRUCTIONS[ins.nullary.opcode]
+
+          ins = getattr(ins, desc.binary_format)
+          operands = []
+
+          for k in range(0, len(desc.args)):
+            operand_type = desc.args[k]
+
+            if operand_type == 'r':
+              operands.append('r%i' % getattr(ins, 'reg%i' % (k + 1)))
+
+            elif operand_type == 'l':
+              value = content[j]
+              j += 1
+
+              operands.append('0x%X' % value.u16)
+
+          info('  ', desc.mnemonic.split(' ')[0], ', '.join(operands))
+
+      if header.type == mm.binary.SectionTypes.SYMBOLS:
+        info()
+
+        j = 0
+        while j < header.size:
+          entry = content[j]
+          j += 1
+
+          _header, _content = f_in.get_section(entry.section)
+          symbol_content = ''.join(['%s' % chr(c) for c in _content[entry.address - _header.base:entry.address - _header.base + entry.size]])
+
+          info('  ', 'Name:    %s' % entry.get_name())
+          info('  ', 'Address: 0x%X' % entry.address)
+          info('  ', 'Size:    0x%X' % entry.size)
+          info('  ', 'Section: %i' % entry.section)
+          info('  ', 'Content: "%s"' % symbol_content)
+
+if __name__ == '__main__':
+  main()
+

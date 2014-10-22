@@ -1,0 +1,68 @@
+#! /usr/bin/python
+
+import optparse
+import sys
+import time
+
+import cpu
+import cpu.compile
+import irq
+import irq.timer
+import irq.conio
+import io
+import io.conio
+import mm
+import util
+
+from util import *
+
+def main():
+  parser = optparse.OptionParser()
+
+  parser.add_option('-v', dest = 'verbosity', action = 'count', default = 0, help = 'Verbosity level')
+
+  parser.add_option('-b', dest = 'bin_in', default = None, help = 'Binary file to run')
+
+  parser.add_option('-i', dest = 'file_in', default = None, help = 'Input file')
+  parser.add_option('-o', dest = 'file_out', default = None, help = 'Output file')
+
+  options, args = parser.parse_args()
+
+  util.set_verbosity(options.verbosity)
+
+  MM = mm.MemoryController()
+  CPUS = [cpu.CPU(0, cores = 1, memory_controller = MM)]
+
+  conio = io.conio.ConsoleIOHandler(CPUS[0])
+  irq.conio.Console(CPUS[0], 0, conio)
+  irq.timer.Timer(CPUS[0], 50)
+
+  MM.boot()
+
+  if options.bin_in:
+    MM.load_file(options.bin_in)
+
+  else:
+    buff = [
+      'loada r0, 0',
+      'hlt r1'
+    ]
+
+    (csb, cs), (dsb, ds), symbols = cpu.compile.compile_buffer(buff)
+    MM.place_cs(csb, cs)
+
+  for i in range(0, len(CPUS)):
+    CPUS[i].boot(privileged = True if i == 0 else False)
+
+  while True:
+    if len([c for c in CPUS if c.thread.is_alive()]) == 0:
+      info('All halted')
+      break
+
+    time.sleep(cpu.CPU_SLEEP_QUANTUM)
+
+  sys.stdout.flush()
+
+if __name__ == '__main__':
+  main()
+
