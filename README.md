@@ -35,7 +35,7 @@ Simple virtual CPU/machine
 
 # Example
 
-Lets use "Hello, world!" example - short code that prints quite unusual message:
+Let's use "Hello, world!" example - short code that prints quite unusual message:
 
 ```
 $ cat examples/hello-world.asm
@@ -118,3 +118,66 @@ Hello, world!
 ```
 
 Don't mind debug messages, focus on sweet and nice line in the middle. Oh this is good! :)
+
+Let's see some dump...
+
+```
+$ tools/objdump -i hello-world.bin -vvv -d
+ [INFO] Input file: hello-world.bin 
+ [INFO] 
+ [INFO] === File header === 
+ [INFO]   Magic:    0xDEAD 
+ [INFO]   Version:  1 
+ [INFO]   Sections: 4 
+ [INFO] 
+ [INFO] === Sections === 
+ [INFO] 
+ [INFO] * Section #0 
+ [INFO]   Type:   TEXT 
+ [INFO]   Flags:  0x0 
+ [INFO]   Base:   0x500 
+ [INFO]   Size:   0x15 
+ [INFO]   Offset: 0x36 
+ [INFO] 
+ [INFO]    loada r1, 0xE  
+ [INFO]    loada r2, 0x600  
+ [INFO]    loada r3, 0x100  
+ [INFO]    load r2, r4 b 
+ [INFO]    out r4, r3 b 
+ [INFO]    inc r2  
+ [INFO]    dec r1  
+ [INFO]    jnz 0x50C  
+ [INFO]    loada r2, 0xA  
+ [INFO]    out r2, r3 b 
+ [INFO]    loada r2, 0xD  
+ [INFO]    out r2, r3 b 
+ [INFO]    loada r1, 0x0  
+ [INFO]    hlt r1  
+ [INFO] 
+ [INFO] * Section #1 
+ [INFO]   Type:   DATA 
+ [INFO]   Flags:  0x0 
+ [INFO]   Base:   0x600 
+ [INFO]   Size:   0xD 
+ [INFO]   Offset: 0x60 
+ [INFO] 
+ [INFO] * Section #2 
+ [INFO]   Type:   STACK 
+ [INFO]   Flags:  0x0 
+ [INFO]   Base:   0x700 
+ [INFO]   Size:   0x0 
+ [INFO]   Offset: 0x0 
+ [INFO] 
+ [INFO] * Section #3 
+ [INFO]   Type:   SYMBOLS 
+ [INFO]   Flags:  0x0 
+ [INFO]   Base:   0x0 
+ [INFO]   Size:   0x1 
+ [INFO]   Offset: 0x6D 
+ [INFO] 
+ [INFO]    Name:    &message
+ [INFO]    Address: 0x600
+ [INFO]    Size:    0xD
+ [INFO]    Section: 1
+ [INFO]    Content: "Hello, world!"
+```
