@@ -166,8 +166,11 @@ class CPUCore(object):
     CS        = lambda: self.registers.cs
     DS        = lambda: self.registers.ds
 
-    CS_ADDR = lambda addr: (CS().u16 & 0xFF) | addr
-    DS_ADDR = lambda addr: (DS().u16 & 0xFF) | addr
+    CS_ADDR = lambda addr: addr
+    DS_ADDR = lambda addr: addr
+
+    #CS_ADDR = lambda addr: (CS().u16 & 0xFF) | addr
+    #DS_ADDR = lambda addr: (DS().u16 & 0xFF) | addr
 
     def IP_IN():
       addr = CS_ADDR(IP().u16)
