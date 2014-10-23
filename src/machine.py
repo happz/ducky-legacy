@@ -43,8 +43,8 @@ class Machine(object):
     for _cpu in self.cpus:
      for _core in _cpu.cores:
        if len(binaries):
-         csr, csb, dsr, dsb, sp = self.memory.load_file(binaries[0])
-         
+         csr, csb, dsr, dsb, sp = self.memory.load_file(binaries.pop(0))
+
        else:
          from mm import UInt16
          
