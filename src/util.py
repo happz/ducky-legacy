@@ -1,5 +1,6 @@
 import colorama
 import enum
+import threading
 
 __all__ = ['debug', 'warn', 'error', 'info', 'quiet']
 
@@ -31,19 +32,22 @@ VERBOSITY = VerbosityLevels.ERROR
 def set_verbosity(level):
   global VERBOSITY
 
-  VERBOSITY = level
+  VERBOSITY = level + 1
+
+STDOUT_LOCK = threading.Lock()
 
 def log(lvl, *args):
   if lvl > VERBOSITY:
     return
 
-  print COLORS[lvl],
-  print '[%s]' % LEVELS[lvl],
-  for arg in args:
-    print arg,
+  with STDOUT_LOCK:
+    print COLORS[lvl],
+    print '[%s]' % LEVELS[lvl],
+    for arg in args:
+      print arg,
 
-  print colorama.Fore.RESET + colorama.Back.RESET + colorama.Style.RESET_ALL,
-  print
+    print colorama.Fore.RESET + colorama.Back.RESET + colorama.Style.RESET_ALL,
+    print
 
 def debug(*args):
   log(VerbosityLevels.DEBUG, *args)

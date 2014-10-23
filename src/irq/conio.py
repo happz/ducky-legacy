@@ -4,14 +4,12 @@ import sys
 import irq
 
 class Console(irq.IRQSource):
-  def __init__(self, cpu, batch, io, *args, **kwargs):
-    super(Console, self).__init__(cpu, *args, **kwargs)
+  def __init__(self, batch, io, *args, **kwargs):
+    super(Console, self).__init__(*args, **kwargs)
 
     self.steps = 0
     self.batch = batch
     self.io = io
-
-    self.irq = self.cpu.register_irq_source(irq.IRQList.CONIO, self)
 
   def on_tick(self):
     self.steps += 1

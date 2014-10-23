@@ -69,29 +69,23 @@ def main():
       if header.type == mm.binary.SectionTypes.TEXT:
         info()
 
+        csp = UInt16(header.base)
         j = 0
         while j < header.size:
           ins = content[j]
+          next_cell = content[j + 1] if (j + 1) < header.size else None
+
+          csp_str = '0x%X' % csp.u16
+
+          csp.u16 += 2
           j += 1
 
-          desc = cpu.instructions.INSTRUCTIONS[ins.nullary.opcode]
+          ins, additional_operands = cpu.instructions.disassemble_instruction(ins, next_cell)
+          info('  ', '0x%X' % csp.u16, ins)
 
-          ins = getattr(ins, desc.binary_format)
-          operands = []
-
-          for k in range(0, len(desc.args)):
-            operand_type = desc.args[k]
-
-            if operand_type == 'r':
-              operands.append('r%i' % getattr(ins, 'reg%i' % (k + 1)))
-
-            elif operand_type == 'l':
-              value = content[j]
-              j += 1
-
-              operands.append('0x%X' % value.u16)
-
-          info('  ', desc.mnemonic.split(' ')[0], ', '.join(operands), 'b' if ins.byte == 1 else '')
+          if additional_operands:
+            csp.u16 += 2 * additional_operands
+            j += additional_operands
 
       if header.type == mm.binary.SectionTypes.SYMBOLS:
         info()

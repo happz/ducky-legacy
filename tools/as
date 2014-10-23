@@ -29,7 +29,7 @@ def main():
   parser.add_option('-o', dest = 'file_out', default = None, help = 'Output file')
 
   parser.add_option('-f', dest = 'force', default = False, action = 'store_true', help = 'Force overwrite of the output file')
-  parser.add_option('-b', dest = 'base', default = mm.MEM_FIRST_BOOT_IP, help = 'Base address of code segment')
+  parser.add_option('-b', dest = 'base', default = 0, help = 'Base address of code segment')
 
   options, args = parser.parse_args()
 
@@ -43,9 +43,7 @@ def main():
   with open(options.file_in, 'r') as f_in:
     buffer = f_in.readlines()
 
-  (csb, cs), (dsb, ds), symbols = cpu.compile.compile_buffer(buffer, text_base = int(options.base))
-
-  ssb = UInt16(cpu.compile.align_to_next_page(dsb.u16 + len(ds)))
+  (csb, cs), (dsb, ds), symbols = cpu.compile.compile_buffer(buffer, csb = UInt16(int(options.base)))
 
   if os.path.exists(options.file_out) and not options.force:
     error('Output file %s already exists, use -f to force overwrite' % options.file_out)
@@ -67,10 +65,9 @@ def main():
     h_data.type = mm.binary.SectionTypes.DATA
     h_data.base = dsb.u16
 
-    debug('Create STACK section: base=0x%X' % ssb.u16)
+    debug('Create STACK section')
     h_stack = f_out.create_section()
     h_stack.type = mm.binary.SectionTypes.STACK
-    h_stack.base = ssb.u16
 
     debug('Create SYMBOLS section')
     h_symbols = f_out.create_section()

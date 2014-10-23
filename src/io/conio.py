@@ -18,8 +18,6 @@ class ConsoleIOHandler(io.IOHandler):
 
     self.is_privileged = True
 
-    self.cpu.register_port(0x100, self)
-
   def add_to_buffer(self, s):
     for c in s:
       self.__buffer.append(ord(c))

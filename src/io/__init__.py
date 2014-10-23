@@ -8,10 +8,8 @@ class IOPorts(enum.Enum):
   PORT_COUNT = 65536
 
 class IOHandler(object):
-  def __init__(self, cpu):
+  def __init__(self):
     super(IOHandler, self).__init__()
-
-    self.cpu = cpu
 
     self.is_protected = False
 

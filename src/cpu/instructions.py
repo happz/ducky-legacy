@@ -5,6 +5,7 @@ import re
 
 from ctypes import c_ubyte, c_ushort, Structure, Union
 
+from util import *
 from mm import UInt16
 
 class Opcodes(enum.IntEnum):
@@ -105,6 +106,30 @@ def ins2str(ins):
 
   return '; '.join(['%s=%s' % (key, value) for key, value in props.items()])
 
+def disassemble_instruction(ins, next_cell):
+  if type(ins) == InstructionBinaryFormat:
+    opcode = ins.nullary.opcode
+    desc = INSTRUCTIONS[opcode]
+    ins = getattr(ins, desc.binary_format)
+  else:
+    desc = INSTRUCTIONS[ins.opcode]
+
+  operands = []
+
+  additional_operands = 0
+
+  for k in range(0, len(desc.args)):
+    operand_type = desc.args[k]
+
+    if operand_type == 'r':
+      operands.append('r%i' % getattr(ins, 'reg%i' % (k + 1)))
+
+    elif operand_type == 'l':
+      operands.append('0x%X' % next_cell.u16)
+      additional_operands += 1
+
+  return (desc.mnemonic.split(' ')[0] + ' ' + ', '.join(operands) + (' b' if ins.byte == 1 else ''), additional_operands)
+
 class InstructionDescriptor(object):
   mnemonic      = None
   pattern       = None
@@ -129,6 +154,8 @@ class InstructionDescriptor(object):
 
     match = self.pattern.match(line).groups()
 
+    debug('line: "%s"' % line)
+
     for i in range(0, len(self.args)):
       # register
       if self.args[i] == 'r':
@@ -136,6 +163,7 @@ class InstructionDescriptor(object):
 
       # label
       if self.args[i] == 'l':
+        debug('label operand: %s' % str(match))
         if match[i]:
           refers_to = UInt16(int(match[i], base = 16))
         elif match[i + 4]:
@@ -152,7 +180,7 @@ class InstructionDescriptor(object):
     return [I] if not refers_to else [I, refers_to]
 
 p_r  = r'r(\d{1,2})'
-p_l  = r'(?:(0x(\d+))|(\d+)|(&[a-zA-Z][a-zA-Z0-9]*)|([a-zA-Z][a-zA-Z0-9]*))'
+p_l  = r'(?:(0x([0-9a-fA-F]+))|(\d+)|(&[a-zA-Z_][a-zA-Z0-9_]*)|([a-zA-Z_][a-zA-Z0-9_]*))'
 p_rr = r'' + p_r + ', ' + p_r
 p_rl = r'' + p_r + ', ' + p_l
 

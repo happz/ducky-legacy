@@ -24,28 +24,25 @@ class Registers(enum.IntEnum):
   R15 = 15
 
   # Some registers have special meaning and/or usage
+  CS    = 11 # Code Segment register
+  DS    = 12 # Data Segment register
   FLAGS = 13 # Flags
   SP    = 14 # Stack pointer
   IP    = 15 # Instruction pointer
 
   # First special register
-  REGISTER_SPECIAL = 13
+  REGISTER_SPECIAL = 11
 
   # How many registers do we have? This many...
   REGISTER_COUNT = 16
 
 PROTECTED_REGISTERS = [
-  13, 14, 15
+  11, 12, 13, 14, 15
 ]
 
 RESETABLE_REGISTERS = [
   0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15
 ]
-
-class Flags(enum.Enum):
-  PRIVILEGED_MODE = 0
-  HWINT_ENABLED   = 1
-  EQ              = 2
 
 class Register(mm.UInt16):
   pass
@@ -111,6 +108,8 @@ class RegisterSet(object):
   def __iter__(self):
     return iter([getattr(self, reg) for reg in self.registers])
 
+  cs    = property(lambda self: self[Registers.CS])
+  ds    = property(lambda self: self[Registers.DS])
   flags = property(lambda self: self[Registers.FLAGS])
   sp    = property(lambda self: self[Registers.SP])
   ip    = property(lambda self: self[Registers.IP])

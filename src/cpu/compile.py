@@ -21,9 +21,11 @@ from util import *
 def align_to_next_page(addr):
   return (((addr & mm.PAGE_MASK) >> mm.PAGE_SHIFT) + 1) * mm.PAGE_SIZE
 
-def compile_buffer(buffer, text_base = mm.MEM_FIRST_BOOT_IP, data_base = None):
-  ins_pass1  = []
-  data_pass1 = []
+def compile_buffer(buffer, csb = None, dsb = None):
+  csb = csb or UInt16(mm.MEM_FIRST_BOOT)
+
+  cs_pass1  = []
+  ds_pass1 = []
 
   debug('Pass #1')
 
@@ -39,7 +41,7 @@ def compile_buffer(buffer, text_base = mm.MEM_FIRST_BOOT_IP, data_base = None):
       name = line[5:comma_index]
       value = line[comma_index + 3:-1]
 
-      data_pass1.append((name, value))
+      ds_pass1.append((name, value))
       continue
 
     # label, instruction, 2nd pass flags
@@ -47,6 +49,7 @@ def compile_buffer(buffer, text_base = mm.MEM_FIRST_BOOT_IP, data_base = None):
 
     if line[-1] == ':':
       labeled = line[0:-1]
+      debug('Label: label=%s' % labeled)
       continue
 
     # Find instruction descriptor
@@ -62,46 +65,46 @@ def compile_buffer(buffer, text_base = mm.MEM_FIRST_BOOT_IP, data_base = None):
 
     for i in range(0, len(emited_ins)):
       if labeled and i == 0:
-        ins_pass1.append((labeled, emited_ins[i]))
+        cs_pass1.append((labeled, emited_ins[i]))
       else:
-        ins_pass1.append((None, emited_ins[i]))
+        cs_pass1.append((None, emited_ins[i]))
 
     labeled = None
 
-  for name, value in data_pass1:
+  for name, value in ds_pass1:
     debug('Data entry: "%s"="%s"' % (name, value))
 
-  for ins in ins_pass1:
+  for ins in cs_pass1:
     debug('Instruction: label=%s, ins=%s' % ins)
 
-  cs = []
-  csb = UInt16(text_base)
+  cs_pass2 = []
   csp = UInt16(csb.u16)
 
-  ds = []
-  dsb = UInt16(data_base or align_to_next_page(csb.u16 + len(ins_pass1) * 2))
+  ds_pass2 = []
+  dsb = dsb or UInt16(align_to_next_page(csb.u16 + len(cs_pass1) * 2))
   dsp = UInt16(dsb.u16)
 
   debug('CSB: 0x%X' % csb.u16)
   debug('DSB: 0x%X' % dsb.u16)
 
   references = {}
-
   symbols = []
 
   debug('Pass #2')
 
-  for name, value in data_pass1:
+  pass3_required = False
+
+  for name, value in ds_pass1:
     references['&' + name] = UInt16(dsp.u16)
     symbols.append(('&' + name, dsp.u16, UInt16(len(value)).u16))
 
     debug('0x%X: data entry "%s", size 0x%X' % (dsp.u16, name, len(value)))
 
     for i in range(0, len(value)):
-      ds.append(UInt8(ord(value[i])))
+      ds_pass2.append(UInt8(ord(value[i])))
       dsp.u16 += 1
 
-  for label, ins in ins_pass1:
+  for label, ins in cs_pass1:
     csp_str = '0x%X:' % csp.u16
 
     if label:
@@ -109,10 +112,15 @@ def compile_buffer(buffer, text_base = mm.MEM_FIRST_BOOT_IP, data_base = None):
       debug(csp_str, 'label entry "%s" created' % label)
 
     if type(ins) == types.StringType:
-      cs.append(references[ins])
-      debug(csp_str, 'reference "%s" replaced with 0x%X' % (ins, references[ins].u16))
+      if ins in references:
+        cs_pass2.append(references[ins])
+        debug(csp_str, 'reference "%s" replaced with 0x%X' % (ins, references[ins].u16))
+      else:
+        pass3_required = True
+        cs_pass2.append(ins)
+        debug(csp_str, 'reference "%s" unknown, fix in the next pass' % ins)
     else:
-      cs.append(ins)
+      cs_pass2.append(ins)
 
       if type(ins) == cpu.instructions.InstructionBinaryFormat:
         debug(csp_str, ins2str(ins))
@@ -121,13 +129,31 @@ def compile_buffer(buffer, text_base = mm.MEM_FIRST_BOOT_IP, data_base = None):
 
     csp.u16 += 2
 
-  debug('CSB: 0x%X, size: 0x%X' % (csb.u16, len(cs)))
-  debug('DSB: 0x%X, size: 0x%X' % (dsb.u16, len(ds)))
+  if pass3_required:
+    debug('Pass #3')
+
+    cs_pass3 = []
+
+    for ins in cs_pass2:
+      if type(ins) != types.StringType:
+        cs_pass3.append(ins)
+        continue
+
+      cs_pass3.append(references[ins])
+      debug(csp_str, 'reference "%s" replaced with 0x%X' % (ins, references[ins].u16))
+
+    ds_pass3 = ds_pass2[:]
+  else:
+    cs_pass3 = cs_pass2[:]
+    ds_pass3 = ds_pass2[:]
+
+  debug('CSB: 0x%X, size: 0x%X' % (csb.u16, len(cs_pass3)))
+  debug('DSB: 0x%X, size: 0x%X' % (dsb.u16, len(ds_pass3)))
 
   info('Bytecode translation completed')
 
   return (
-    (csb, cs),
-    (dsb, ds),
+    (csb, cs_pass3),
+    (dsb, ds_pass2),
     symbols
   )

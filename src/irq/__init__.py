@@ -7,18 +7,13 @@ class IRQList(enum.IntEnum):
   IRQ_COUNT = 16
 
 class IRQSource(object):
-  def __init__(self, cpu):
+  def __init__(self):
     super(IRQSource, self).__init__()
 
     self.irq = None
-
-    self.cpu = cpu
     self.is_maskable = True
 
   def on_tick(self):
-    pass
-
-  def on_trigger(self, core):
     pass
 
 class IRQSourceSet(object):
