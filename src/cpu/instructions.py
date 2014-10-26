@@ -42,6 +42,9 @@ class Opcodes(enum.IntEnum):
   OR = 30
   XOR = 31
   NOT = 32
+  CMP = 33
+  JS  = 34
+  JNS = 35
 
 class InstructionFlags(enum.IntEnum):
   BYTE = 0
@@ -125,7 +128,7 @@ def disassemble_instruction(ins, next_cell):
       operands.append('r%i' % getattr(ins, 'reg%i' % (k + 1)))
 
     elif operand_type == 'l':
-      operands.append('0x%X' % next_cell.u16)
+      operands.append('0x%04X' % next_cell.u16)
       additional_operands += 1
 
   return (desc.mnemonic.split(' ')[0] + ' ' + ', '.join(operands) + (' b' if ins.byte == 1 else ''), additional_operands)
@@ -180,7 +183,7 @@ class InstructionDescriptor(object):
     return [I] if not refers_to else [I, refers_to]
 
 p_r  = r'r(\d{1,2})'
-p_l  = r'(?:(0x([0-9a-fA-F]+))|(\d+)|(&[a-zA-Z_][a-zA-Z0-9_]*)|([a-zA-Z_][a-zA-Z0-9_]*))'
+p_l  = r'(?:(0x([0-9a-fA-F]+))|(\d+)|(&[a-zA-Z_][a-zA-Z0-9_]*)|([a-zA-Z_][a-zA-Z0-9_-]*))'
 p_rr = r'' + p_r + ', ' + p_r
 p_rl = r'' + p_r + ', ' + p_l
 
@@ -304,7 +307,7 @@ class Ins_JMP(InstructionDescriptor):
 class Ins_JE(InstructionDescriptor):
   mnemonic = 'je [label]'
   pattern = r'je ' + p_l
-  args = ';'
+  args = 'l'
   binary_format = 'nullary'
   opcode = Opcodes.JE
 
@@ -412,6 +415,27 @@ class Ins_NOT(InstructionDescriptor):
   binary_format = 'unary'
   opcode = Opcodes.NOT
 
+class Ins_CMP(InstructionDescriptor):
+  mnemonic = 'cmp <reg>, <reg>'
+  pattern = r'cmp ' + p_rr
+  args = 'rr'
+  binary_format = 'binary'
+  opcode = Opcodes.CMP
+
+class Ins_JS(InstructionDescriptor):
+  mnemonic = 'js [label]'
+  pattern = r'js ' + p_l
+  args = 'l'
+  binary_format = 'nullary'
+  opcode = Opcodes.JS
+
+class Ins_JNS(InstructionDescriptor):
+  mnemonic = 'jns [label]'
+  pattern = r'jns ' + p_l
+  args = 'l'
+  binary_format = 'nullary'
+  opcode = Opcodes.JNS
+
 INSTRUCTIONS = [
   Ins_NOP(),
   Ins_INT(),
@@ -445,7 +469,10 @@ INSTRUCTIONS = [
   Ins_AND(),
   Ins_OR(),
   Ins_XOR(),
-  Ins_NOT()
+  Ins_NOT(),
+  Ins_CMP(),
+  Ins_JS(),
+  Ins_JNS()
 ]
 
 PATTERNS = [id.pattern for id in INSTRUCTIONS]

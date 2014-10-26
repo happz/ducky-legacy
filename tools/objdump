@@ -75,13 +75,13 @@ def main():
           ins = content[j]
           next_cell = content[j + 1] if (j + 1) < header.size else None
 
-          csp_str = '0x%X' % csp.u16
+          csp_str = '0x%04X' % csp.u16
 
           csp.u16 += 2
           j += 1
 
           ins, additional_operands = cpu.instructions.disassemble_instruction(ins, next_cell)
-          info('  ', '0x%X' % csp.u16, ins)
+          info('  ', csp_str, ins)
 
           if additional_operands:
             csp.u16 += 2 * additional_operands

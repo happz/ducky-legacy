@@ -468,7 +468,7 @@ class MemoryController(object):
           stack_page = self.get_page(self.alloc_page(dsr))
           stack_page.mme_update('read', 1)
           stack_page.mme_update('write', 1)
-          sp.u16 = stack_page.index * PAGE_SIZE + PAGE_SIZE - 2
+          sp.u16 = stack_page.index * PAGE_SIZE + PAGE_SIZE
 
     return (csr, csb, dsr, dsb, sp)
 

@@ -58,7 +58,8 @@ class RealFlagsRegister(ctypes.LittleEndianStructure):
     ('hwint',      ctypes.c_ubyte, 1),
     ('eq',         ctypes.c_ubyte, 1),
     ('z',          ctypes.c_ubyte, 1),
-    ('o',          ctypes.c_ubyte, 1)
+    ('o',          ctypes.c_ubyte, 1),
+    ('s',          ctypes.c_ubyte, 1)
   ]
 
 class FlagsRegister(ctypes.Union):

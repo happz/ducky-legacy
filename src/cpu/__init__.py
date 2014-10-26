@@ -41,26 +41,28 @@ def get_service_routine(routine_name, csb, dsb):
 
   return (csb, cs, dsb, ds)
 
-def log_cpu_core_state(core):
+def log_cpu_core_state(core, logger = None):
+  logger = logger or debug
+
   cpuid_prefix = '#%i:#%i: ' % (core.cpu.id, core.id)
 
   for reg in range(0, Registers.REGISTER_SPECIAL):
-    info(cpuid_prefix, 'reg%i=0x%X' % (reg, core.REG(reg).u16))
+    logger(cpuid_prefix, 'reg%i=0x%X' % (reg, core.REG(reg).u16))
 
-  info(cpuid_prefix, 'cs=0x%X' % core.CS().u16)
-  info(cpuid_prefix, 'ds=0x%X' % core.DS().u16)
-  info(cpuid_prefix, 'ip=0x%X' % core.IP().u16)
-  info(cpuid_prefix, 'sp=0x%X' % core.SP().u16)
-  info(cpuid_prefix, 'priv=%i, hwint=%i' % (core.FLAGS().privileged, core.FLAGS().hwint))
-  info(cpuid_prefix, 'eq=%i, z=%i, o=%i' % (core.FLAGS().eq, core.FLAGS().z, core.FLAGS().o))
-  info(cpuid_prefix, 'thread=%s, keep_running=%s' % (core.thread.name, core.keep_running))
-  info(cpuid_prefix, 'exit_code=%i' % core.exit_code)
+  logger(cpuid_prefix, 'cs=0x%X' % core.CS().u16)
+  logger(cpuid_prefix, 'ds=0x%X' % core.DS().u16)
+  logger(cpuid_prefix, 'ip=0x%X' % core.IP().u16)
+  logger(cpuid_prefix, 'sp=0x%X' % core.SP().u16)
+  logger(cpuid_prefix, 'priv=%i, hwint=%i' % (core.FLAGS().privileged, core.FLAGS().hwint))
+  logger(cpuid_prefix, 'eq=%i, z=%i, o=%i' % (core.FLAGS().eq, core.FLAGS().z, core.FLAGS().o))
+  logger(cpuid_prefix, 'thread=%s, keep_running=%s' % (core.thread.name, core.keep_running))
+  logger(cpuid_prefix, 'exit_code=%i' % core.exit_code)
 
   if core.current_instruction:
     ins, additional_operands = instructions.disassemble_instruction(core.current_instruction, core.memory.read_u16(core.CS().u16 + core.IP().u16, privileged = True))
-    info(cpuid_prefix, 'current=%s' % ins)
+    logger(cpuid_prefix, 'current=%s' % ins)
   else:
-    info(cpuid_prefix, 'current=')
+    logger(cpuid_prefix, 'current=')
 
 class CPUCore(object):
   def __init__(self, coreid, cpu, memory_controller):
@@ -115,17 +117,22 @@ class CPUCore(object):
     self.FLAGS().eq = 0
     self.FLAGS().z = 0
     self.FLAGS().o = 0
+    self.FLAGS().s = 0
 
     self.IP().u16 = new_ip
 
   def __push(self, *regs):
     for reg in regs:
       self.SP().u16 -= 2
+
+      debug('__push: save %s (0x%04X) to 0x%04X' % (reg, self.REG(reg).u16, self.SP().u16))
+
       self.MEM_OUT(self.SP().u16, self.REG(reg).u16)
 
   def __pop(self, *regs):
     for reg in regs:
       self.REG(reg).u16 = self.MEM_IN(self.SP().u16).u16
+      debug('__pop: load %s (0x%04X) from 0x%04X' % (reg, self.REG(reg).u16, self.SP().u16))
       self.SP().u16 += 2
 
   def __do_interupt(self, new_ip):
@@ -181,6 +188,8 @@ class CPUCore(object):
       IP().u16 += 2
       return ret
 
+    saved_IP = IP().u16
+
     # Read next instruction
     ins = instructions.InstructionBinaryFormat()
     ins.generic.ins = IP_IN().u16
@@ -214,6 +223,7 @@ class CPUCore(object):
       def __enter__(self):
         FLAGS().z = 0
         FLAGS().o = 0
+        FLAGS().s = 0
 
       def __exit__(self, *args, **kwargs):
         if self.dst.u16 == 0:
@@ -222,6 +232,10 @@ class CPUCore(object):
         #  FLAGS().o = 1
 
         return False
+
+    disassemble_next_cell = self.memory.read_u16(CS_ADDR(IP().u16), privileged = True)
+    info('0x%04X: %s' % (saved_IP, instructions.disassemble_instruction(self.current_instruction, disassemble_next_cell)[0]))
+    log_cpu_core_state(self)
 
     if   opcode == Opcodes.NOP:
       pass
@@ -232,7 +246,7 @@ class CPUCore(object):
     elif opcode == Opcodes.RETINT:
       __check_protected_ins()
 
-      self.__pop(Registers.IP, Registers.FLAGS)
+      self.__do_retint()
 
     elif opcode == Opcodes.CLI:
       __check_protected_ins()
@@ -264,14 +278,14 @@ class CPUCore(object):
     elif opcode == Opcodes.LOAD:
       __check_protected_reg(ins.reg1)
 
-      with AFLAGS_CTX(REGI2()):
-        addr = DS_ADDR(REGI1().u16)
+      with AFLAGS_CTX(REGI1()):
+        addr = DS_ADDR(REGI2().u16)
 
         if ins.byte:
-          REGI2().u16 = 0
-          REGI2().u16 = MEM_IN8(addr).u8
+          REGI1().u16 = 0
+          REGI1().u16 = MEM_IN8(addr).u8
         else:
-          REGI2().u16 = MEM_IN16(addr).u16
+          REGI1().u16 = MEM_IN16(addr).u16
 
     elif opcode == Opcodes.STORE:
       addr = DS_ADDR(REGI2().u16)
@@ -339,8 +353,6 @@ class CPUCore(object):
     elif opcode == Opcodes.CALL:
       new_ip = IP_IN().u16
 
-      debug('CALL 0x%X' % new_ip)
-
       self.__push(Registers.IP)
       IP().u16 = new_ip
 
@@ -360,23 +372,19 @@ class CPUCore(object):
         REGI2().u16 = self.cpu.machine.ports[port.u16].read_u16(port).u16
 
     elif opcode == Opcodes.OUT:
-      port = REGI2()
+      port = REGI1()
 
       __check_protected_port(port)
 
-      debug('OUT %u, %u' % (port.u16, REGI1().u16))
-
       if ins.byte:
-        self.cpu.machine.ports[port.u16].write_u8(port, UInt8(REGI1().u16))
+        self.cpu.machine.ports[port.u16].write_u8(port, UInt8(REGI2().u16))
       else:
-        self.cpu.machine.ports[port.u16].write_u16(port, REGI1())
+        self.cpu.machine.ports[port.u16].write_u16(port, REGI2())
 
     elif opcode == Opcodes.LOADA:
       __check_protected_reg(ins.reg1)
 
       value = IP_IN().u16
-
-      debug('LOADA r%i, 0x%X' % (ins.reg1, value))
 
       with AFLAGS_CTX(REGI1()):
         REGI1().u16 = value
@@ -436,8 +444,39 @@ class CPUCore(object):
       with AFLAGS_CTX(REGI1()):
         REGI1().u16 = ~REGI1().u16
 
+    elif opcode == Opcodes.CMP:
+      FLAGS().eq = 0
+      FLAGS().s = 0
+
+      if   REGI1().u16 == REGI2().u16:
+        FLAGS().eq = 1
+
+      elif REGI1().u16  < REGI2().u16:
+        FLAGS().s = 1
+
+      elif REGI1().u16  > REG2().u16:
+        pass
+
+    elif opcode == Opcodes.JS:
+      if FLAGS().s:
+        IP().u16 = IP_IN().u16
+      else:
+        IP().u16 += 2
+
+      FLAGS().s = 0
+
+    elif opcode == Opcodes.JNS:
+      if not FLAGS().s:
+        IP().u16 = IP_IN().u16
+      else:
+        IP().u16 += 2
+
+      FLAGS().s = 0
+
     else:
       raise CPUException('Unknown opcode: %i' % opcode)
+
+    debug('Opcode exit: %s' % opcode)
 
   def loop(self):
     while self.keep_running:

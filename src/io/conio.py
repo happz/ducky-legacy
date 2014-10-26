@@ -8,6 +8,7 @@ except ImportError:
 
 import io
 
+from util import *
 from mm import UInt8
 
 class ConsoleIOHandler(io.IOHandler):
@@ -29,4 +30,6 @@ class ConsoleIOHandler(io.IOHandler):
     return UInt8(self.__buffer.pop(0))
 
   def write_u8_256(self, value):
+    debug('conio.write_u8_256: value=%i' % value.u8)
+
     sys.stdout.write('%s' % chr(value.u8))
