@@ -473,6 +473,9 @@ class CPUCore(object):
 
       FLAGS().s = 0
 
+    elif opcode == Opcodes.MOV:
+      REGI1().u16 = REGI2().u16
+
     else:
       raise CPUException('Unknown opcode: %i' % opcode)
 

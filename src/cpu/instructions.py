@@ -45,6 +45,7 @@ class Opcodes(enum.IntEnum):
   CMP = 33
   JS  = 34
   JNS = 35
+  MOV = 36
 
 class InstructionFlags(enum.IntEnum):
   BYTE = 0
@@ -436,6 +437,13 @@ class Ins_JNS(InstructionDescriptor):
   binary_format = 'nullary'
   opcode = Opcodes.JNS
 
+class Ins_MOV(InstructionDescriptor):
+  mnemonic = 'mov <reg>, <reg>'
+  pattern = r'mov ' + p_rr
+  args = 'rr'
+  binary_format = 'binary'
+  opcode = Opcodes.MOV
+
 INSTRUCTIONS = [
   Ins_NOP(),
   Ins_INT(),
@@ -472,7 +480,8 @@ INSTRUCTIONS = [
   Ins_NOT(),
   Ins_CMP(),
   Ins_JS(),
-  Ins_JNS()
+  Ins_JNS(),
+  Ins_MOV()
 ]
 
 PATTERNS = [id.pattern for id in INSTRUCTIONS]
