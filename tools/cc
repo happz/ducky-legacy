@@ -1,0 +1,924 @@
+#!/usr/bin/python
+
+import collections
+import optparse
+import pycparser
+import pycparser.c_ast
+import sys
+
+import util
+
+from util import *
+
+INST_PREFIX = '  '
+INSTS = []
+
+class CompilationError(Exception):
+  def __init__(self, coord, *args, **kwargs):
+    super(CompilationError, self).__init__(*args, **kwargs)
+
+    self.coord = coord
+
+  def __repr__(self):
+    location = ('[%s:%i]: ' % (self.coord.file, self.coord.line)) if self.coord else ''
+
+    return location + '%s' % (self.coord.file, self.coord.line, self.msg)
+
+def dump_insts(insts):
+  for inst in insts:
+    print inst
+
+def emit_log(msg):
+  global options
+
+  if options.comments:
+    emit_inst('# %s' % msg)
+
+def emit_label(label):
+  emit_inst('%s:' % label)
+
+def emit_data(name, value):
+  global INSTS
+  INSTS.insert(0, 'data %s, %s' % (name, value))
+
+def emit_inst(inst):
+  if len(inst) and inst[0] not in ('_', '#'):
+    inst = INST_PREFIX + inst
+
+  global INSTS
+  INSTS.append(inst)
+  debug('inst', inst)
+
+def decode_type(type_node):
+  type_name = ''
+  type_node = type_node.type.type
+  while not hasattr(type_node, 'names'):
+    type_node = getattr(type_node, 'type')
+    type_name += '*'
+  return ' '.join(type_node.names) + type_name
+
+def decode_constant(const_node):
+  c_type = const_node.type
+  c_value = const_node.value
+
+  return (c_type, c_value)
+
+class RegisterRental(object):
+  def __init__(self, block):
+    super(RegisterRental, self).__init__()
+
+    self.block = block
+    self.borrowed_registers = {}
+
+  def get(self, callback = None):
+    reg = self.block.allocate_register()
+    self.borrowed_registers[reg] = True
+
+    if callback:
+      callback(reg)
+
+    return reg
+
+  def get_and_save(self):
+    return self.get(callback = lambda reg: emit_inst('push %s' % reg))
+
+  def put(self, reg, callback = None):
+    if callback:
+      callback(reg)
+
+    del self.borrowed_registers[reg]
+    self.block.deallocate_register()
+
+  def put_all(self, callback = None):
+    regs = self.borrowed_registers.keys()[:]
+
+    for reg in regs:
+      self.put(reg, callback = callback)
+
+  def put_and_restore(self, reg):
+    self.put(reg, callback = lambda _reg: emit_inst('pop %s' % _reg))
+
+  def put_all_and_restore(self):
+    self.put_all(callback = lambda _reg: emit_inst('pop %s' % _reg))
+
+def emit_routine_call(block, node):
+  callee_name = node.name.name
+  callee_arguments = []
+
+  emit_log('emit routine call ==> %s' % callee_name)
+
+  CalleeArgument = collections.namedtuple('CalleeArgument', ['v_name', 'type', 'value', 'reg'])
+
+  register_rental = RegisterRental(block)
+
+  emit_log('scan callee arguments')
+
+  for expr in node.args.exprs:
+    if isinstance(expr, pycparser.c_ast.Constant):
+      c_type, c_value = decode_constant(expr)
+
+      if c_type == 'int':
+        # integer constant - set type and value, will be LOADAed into propert argument register later
+        emit_log('CA: -- integer constant')
+        callee_arguments.append(CalleeArgument(None, c_type, c_value, None))
+
+      elif c_type == 'string':
+        emit_log('CA: -- string constant')
+
+        if callee_name == '__asm__' and len(callee_arguments) == 0:
+          # the first argument to __asm__ - not needed to save it anywhere
+          emit_log('CA: skipped, __asm__ call and this is asm')
+          callee_arguments.append(CalleeArgument(None, c_type, c_value, None))
+          continue
+
+        # string constant - load data address into borrowed register and set callee argument
+        emit_data('some_data', c_value)
+
+        emit_log('CA: borrow register and load it with address')
+
+        reg = register_rental.get_and_save()
+        emit_inst('loada %s, &%s' % (reg, 'some_data'))
+        callee_arguments.append(CalleeArgument(None, None, None, reg))
+
+      else:
+        raise CompilationError(expr.coord, 'Unhandled constant: %s %s' % (c_type, c_value))
+
+    elif isinstance(expr, pycparser.c_ast.ID):
+      # named variable - just return variable object
+      emit_log('CA: -- named variable %s' % expr.name)
+      callee_arguments.append(CalleeArgument(expr.name, None, None, None))
+
+    elif isinstance(expr, pycparser.c_ast.ArrayRef):
+      # array reference - borrow register and load into it address that is referred
+      v_var = block.get_variable(expr.name.name)
+      emit_log('CA: -- array ref to %s' % v_var.name)
+
+      # load register with subscript value - either borrow one or get it borrowed
+      emit_log('decode subscript')
+      reg = register_rental.get_and_save()
+      emit_log('borrowed register is %s' % reg)
+
+      if expr.subscript.__class__ not in COLLAPSABLE_BRANCH_CLASSES:
+        decode_rvalue(block, expr.subscript, reg)
+
+      else:
+        if isinstance(expr.subscript, pycparser.c_ast.ID):
+          i_reg = collapse_ID(block, expr.subscript)[0]
+
+        elif isinstance(expr.subscript, pycparser.c_ast.Constant):
+          i_reg = collapse_constant(block, expr.subscript, register_rental.get_and_save)[0]
+
+        else:
+          raise CompilationError(cond.left.coord, 'Unhandled array subscript: %s' % expr.subscript)
+
+        emit_inst('mov %s, %s' % (reg, i_reg))
+
+      # add variable address to subscript - all arrays are uint8 from out point of view, right now
+      emit_log('shift with base address')
+      emit_inst('add %s, %s' % (reg, v_var.reg))
+      emit_log('load value from referenced address')
+      emit_inst('load %s, %s b' % (reg, reg))
+
+      callee_arguments.append(CalleeArgument(None, None, None, reg))
+
+    else:
+      raise CompilationError(expr.coord, 'Unhandled FuncCall argument: %s' % expr)
+
+  if callee_name == '__asm__':
+    asm_inst = callee_arguments[0][2][1:-1]
+
+    if len(callee_arguments) > 1:
+      callee_argument_index = 0
+
+      for callee_argument in callee_arguments[1:]:
+        if callee_argument.v_name:
+          v_var = block.get_variable(callee_argument.v_name)
+          __src = v_var.reg
+
+        elif callee_argument.type and callee_argument.value:
+          __src = callee_argument.value
+
+        elif callee_argument.reg:
+          __src = callee_argument.reg
+
+        else:
+          raise CompilationError(None, 'Unhandled callee argument: %s' % callee_argument)
+
+        __dst = '$%i' % callee_argument_index
+
+        debug('asm: replace %s with register %s' % (__dst, __src))
+        asm_inst = asm_inst.replace(__dst, __src)
+        callee_argument_index += 1
+
+      emit_inst(asm_inst)
+
+  else:
+    emit_log('start loading arguments into registers')
+
+    # prepare arguments
+    current_argument_cnt = 1
+
+    for callee_argument in callee_arguments:
+      areg = 'r%i' % current_argument_cnt
+      current_argument_cnt += 1
+      emit_log('save argument register')
+      emit_inst('push %s' % areg)
+
+      emit_log('copy prepared argument into register')
+      if callee_argument.v_name:
+        v_var = block.get_variable(callee_argument.v_name)
+        emit_inst('mov %s, %s' % (areg, v_var.reg))
+
+      elif callee_argument.type and callee_argument.value:
+        emit_inst('loada %s, %s' % (areg, callee_argument.value))
+
+      elif callee_argument.reg:
+        emit_inst('mov %s, %s' % (areg, callee_argument.reg))
+
+    emit_inst('call %s' % mangle_fn_name(callee_name))
+
+    emit_log('restore saved argument registers')
+    callee_arguments.reverse()
+    for callee_argument in callee_arguments:
+      current_argument_cnt -= 1
+      areg = 'r%i' % current_argument_cnt
+      emit_inst('pop %s' % areg)
+
+  emit_log('return borrowed registers and restore them')
+  register_rental.put_all_and_restore()
+
+  emit_log('emit routine call <== %s' % callee_name)
+
+COLLAPSABLE_BRANCH_CLASSES = (pycparser.c_ast.ID, pycparser.c_ast.Constant, pycparser.c_ast.FuncCall)
+
+def collapse_ID(block, node):
+  debug('collapse_ID: named variable %s' % node.name)
+  return (block.get_variable(node.name).reg, False)
+
+def collapse_constant(block, node, borrower):
+  c_type, c_value = decode_constant(node)
+
+  debug('collapse_constant: constant (%s) %s' % (c_type, c_value))
+
+  if c_type == 'int':
+    reg = borrower()
+
+    emit_inst('push %s' % reg)
+    emit_inst('loada %s, %s' % (reg, c_value))
+
+    return (reg, True)
+
+  raise CompilationError(node.coord, 'Unhandled constat type: %s' % c_type)
+
+def decode_rvalue(block, rvalue_node, dreg):
+  def __collapse_node(node, dreg):
+    debug('__collapse_node: node=%s, dreg=%s' % (node, dreg))
+
+    register_rental = RegisterRental(block)
+
+    def __collapse_leaf_branch(b_node):
+      debug('__collapse_leaf_branch: ==> %s' % b_node)
+
+      if isinstance(b_node, pycparser.c_ast.ID):
+        debug('__collapse_leaf_branch: named variable %s' % b_node.name)
+        return collapse_ID(block, b_node)[0]
+
+      if isinstance(b_node, pycparser.c_ast.Constant):
+        debug('__collapse_leaf_branch: constant %s %s' % (b_node.type, b_node.value))
+        return collapse_constant(block, b_node, register_rental.get_and_save)[0]
+
+      elif isinstance(b_node, pycparser.c_ast.FuncCall):
+        emit_routine_call(block, b_node)
+        reg = 'r0'
+
+      else:
+        raise CompilationError(b_node.coord, 'Unhandled left branch of leaf node: %s' % b_node)
+
+      debug('__collapse_leaf_branch: <== %s' % reg)
+      return reg
+
+    if isinstance(node, pycparser.c_ast.UnaryOp):
+      debug('__collapse_node: UnaryOp')
+
+      lclass = node.expr.__class__
+      debug('__collapse_node: branch: %s' % lclass)
+
+      if lclass not in COLLAPSABLE_BRANCH_CLASSES:
+        lreg = dreg
+
+        debug('__collapse_node: walkable node, dreg=%s' % lreg)
+
+        __collapse_node(node.expr, lreg)
+
+      else:
+        debug('__collapse_node: collapsable node')
+        lreg = __collapse_leaf_branch(node.expr)
+
+    elif isinstance(node, pycparser.c_ast.BinaryOp):
+      debug('__collapse_node: binary op')
+
+      lclass = node.left.__class__
+      debug('__collapsable_node: left branch: %s' % lclass)
+
+      if lclass not in COLLAPSABLE_BRANCH_CLASSES:
+        lreg = dreg
+
+        debug('__collapse_node: left branch walkable node, dreg=%s' % lreg)
+        __collapse_node(node.left, dreg)
+
+      else:
+        debug('__collapse_node: left branch collapsable node')
+
+        lreg = __collapse_leaf_branch(node.left)
+
+      rclass = node.right.__class__
+      debug('__collapse_node: right branch: %s' % rclass)
+
+      if rclass not in COLLAPSABLE_BRANCH_CLASSES:
+        rreg = register_rental.get_and_save()
+
+        debug('__collapse_node: right branch walkable node, dreg=%s' % rreg)
+        __collapse_node(node.right, rreg)
+
+      else:
+        debug('__collapse_node: right branch collapsable node')
+
+        rreg = __collapse_leaf_branch(node.right)
+
+    elif isinstance(node, pycparser.c_ast.FuncCall):
+      emit_routine_call(block, node)
+      lreg = 'r0'
+
+    elif isinstance(node, pycparser.c_ast.ID):
+      debug('__collapse_leaf: named variable %s' % node.name)
+      reg = block.get_variable(node.name).reg
+
+    else:
+      raise CompilationError(node.coord, 'Unhandled node: %s' % node)
+
+    debug('__collapse_node: apply operation %s' % node.op)
+
+    if   node.op == '+':
+      emit_inst('add %s, %s' % (rreg, lreg))
+
+    elif node.op == '-':
+      emit_inst('sub %s, %s' % (rreg, lreg))
+
+    elif node.op == '++':
+      emit_inst('inc %s' % lreg)
+
+    elif node.op == '--':
+      emit_inst('dec %s' % lreg)
+
+    elif node.op == '*':
+      emit_inst('mul %s, %s' % (lreg, rreg))
+
+    elif node.op == '/':
+      emit_inst('div %s, %s' % (lreg, rreg))
+
+    else:
+      raise CompilationError(node.coord, 'Unhandled operation: %s' % node.op)
+
+    if dreg != lreg:
+      emit_inst('move %s, %s' % (lreg, dreg))
+
+    register_rental.borrowed_registers.keys(callback = lambda reg: emit_inst('pop %s' % reg))
+
+    debug('__collapse_node: finished, moving back')
+
+  __collapse_node(rvalue_node, dreg)
+
+def create_label(stmt):
+  if isinstance(stmt, pycparser.c_ast.If):
+    l = 'if'
+
+  elif isinstance(stmt, pycparser.c_ast.For):
+    l = 'for'
+
+  return '__' + l + '_' + stmt.coord.file.replace('/', '_').replace('.', '_') + '_' + str(stmt.coord.line) + '__'
+
+def emit_cond(block, stmt, false_label = None):
+  cond = stmt.cond
+
+  cond_label = create_label(stmt)
+
+  prolog_label = cond_label + 'prolog__'
+  true_label = cond_label + 'true__'
+  false_label = false_label or cond_label + 'false__'
+  epilog_label = cond_label + 'epilog__'
+
+  # transcript condition
+  debug('left branch: %s' % cond.left)
+  debug('right branch: %s' % cond.right)
+
+  emit_inst(prolog_label + ':')
+
+  register_rental = RegisterRental(block)
+
+  if cond.left.__class__ not in COLLAPSABLE_BRANCH_CLASSES:
+    lreg = register_rental.get_and_save()
+    lvalue = decode_rvalue(block, cond.left, lreg)
+
+  else:
+    if isinstance(cond.left, pycparser.c_ast.ID):
+      lreg = collapse_ID(block, cond.left)[0]
+
+    elif isinstance(cond.left, pycparser.c_ast.Constant):
+      lreg = collapse_constant(block, cond.left, register_rental.get_and_save)[0]
+
+    else:
+      raise CompilationError(cond.left.coord, 'Unhandled left branch leaf: %s' % cond.left)
+
+  if cond.right.__class__ not in COLLAPSABLE_BRANCH_CLASSES:
+    rreg = register_rental.get_and_save()
+    rvalue = decode_rvalue(block, stmt.cond.right, rreg)
+
+  else:
+    if isinstance(cond.right, pycparser.c_ast.ID):
+      rreg = collapse_ID(block, cond.right)[0]
+
+    elif isinstance(cond.right, pycparser.c_ast.Constant):
+      rreg = collapse_constant(block, cond.right, register_rental.get_and_save)[0]
+
+    else:
+      raise CompilationError(cond.right.coord, 'Unhandled left branch leaf: %s' % cond.right)
+
+  emit_inst('cmp %s, %s' % (lreg, rreg))
+
+  if cond.op == '==':
+    emit_inst('jne %s' % false_label)
+
+  elif cond.op == '>':
+    emit_inst('je %s' % false_label)
+    emit_inst('js %s' % false_label)
+
+  elif cond.op == '<':
+    emit_inst('je %s' % false_label)
+    emit_inst('jns %s' % false_label)
+
+  elif cond.op == '>=':
+    emit_inst('js %s' % false_label)
+
+  elif cond.op == '<=':
+    emit_inst('js %s' % true_label)
+    emit_inst('je %s' % true_label)
+    emit_inst('jmp %s' % false_label)
+
+  else:
+    raise CompilationError(cond.coord, 'Unhandled cond op: %s' % cond.op)
+
+  register_rental.put_all_and_restore()
+
+  return (prolog_label, true_label, false_label, epilog_label)
+
+def emit_cond_branch(block, stmt, label):
+  emit_inst(label + ':')
+
+  if not stmt:
+    return
+
+  b_block = Block(block, CompoundWrapper(stmt) if not isinstance(stmt, pycparser.c_ast.Compound) else stmt)
+  b_block.prolog()
+  b_block.body()
+  b_block.epilog()
+
+class CompoundWrapper(object):
+  def __init__(self, *items):
+    super(CompoundWrapper, self).__init__()
+
+    self.block_items = items[:]
+
+class Variable(object):
+  def __init__(self, v_name, v_type, v_reg, init_value = None):
+    super(Variable, self).__init__()
+
+    self.name = v_name
+    self.type = v_type
+    self.reg = v_reg
+    self.init_value = init_value
+
+class WithInterimReg(object):
+  def __init__(self, block):
+    super(WithInterimReg, self).__init__()
+
+    self.block = block
+    self.reg = None
+
+  def __enter__(self):
+    self.reg = self.block.allocate_register()
+    emit_inst('push %s' % self.reg)
+    return self.reg
+
+  def __exit__(self, *args):
+    emit_inst('pop %s' % self.reg)
+    self.block.deallocate_register()
+    return False
+
+class Block(object):
+  def __init__(self, parent, node):
+    super(Block, self).__init__()
+
+    self.parent = parent
+    self.node = node
+
+    self.clobbered_registers = []
+    self.init_registers = []
+
+    self.variables = {}
+    self.registers = {}
+
+    self.argument_register = 1
+    self.occupied_registers = 0
+
+  def allocate_register(self):
+    debug('allocate_register')
+
+    occupied_registers = 0
+
+    block = self
+    while block:
+      occupied_registers += block.occupied_registers
+      block = block.parent
+
+    # 11 registers - r0 for return value = max 10 registers
+    if occupied_registers == 10:
+      raise CompilationError(None, 'All registers are occupied, quiting!')
+
+    self.occupied_registers += 1
+    reg = 'r%i' % (occupied_registers + 1)
+
+    debug('register allocated: %s' % reg)
+
+    return reg
+
+  def deallocate_register(self):
+    debug('register deallocated')
+
+    self.occupied_registers -= 1
+
+  def declare_variable(self, v_name, v_type, reg = None):
+    reg = reg or self.allocate_register()
+
+    debug('variable added: %s %s, register %s' % (v_type, v_name, reg))
+    emit_log('variable %s stored in %s' % (v_name, reg))
+
+    self.variables[v_name] = Variable(v_name, v_type, reg)
+    self.registers[reg] = v_name
+
+    return self.variables[v_name]
+
+  def declare_argument(self, v_name, v_type):
+    if self.parent:
+      raise CompilationError(None, 'Block has parent but arguments specified - impossible?')
+
+    self.declare_variable(v_name, v_type, reg = 'r%i' % self.argument_register)
+    self.argument_register += 1
+    self.occupied_registers += 1
+
+  def get_variable(self, v_name):
+    block = self
+    while block:
+      if v_name in block.variables:
+        return block.variables[v_name]
+      block = block.parent
+
+    raise CompilationError(None, 'Undefined variable: %s' % v_name)
+
+  def assign_set_int(self, lreg, c_value):
+    emit_inst('loada %s, %s' % (lreg, c_value))
+
+  def assign_inc_int(self, lreg):
+    emit_inst('inc %s' % lreg)
+
+  def assign_dec_int(self, lreg):
+    emit_inst('dec %s' % lreg)
+
+  def assign_add_const_int(self, lreg, c_value):
+    with WithInterimReg(self) as i_reg:
+      emit_inst('loada %s, %s' % (i_reg, c_value))
+      emit_inst('add %s, %s' % (i_reg, lreg))
+
+  def assign_sub_const_int(self, lreg, c_value):
+    with WithInterimReg(self) as i_reg:
+      emit_inst('loada %s, %s' % (i_reg, c_value))
+      emit_inst('sub %s, %s' % (i_reg, lreg))
+
+  def prolog(self):
+    debug('new block entered: parent=%s, node=%s' % (self.parent, self.node))
+
+    if not self.node.block_items:
+      return
+
+    # Pass #1 - allocate space for local variables
+    for stmt in self.node.block_items:
+      if not isinstance(stmt, pycparser.c_ast.Decl):
+        continue
+
+      debug('AST: Decl')
+
+      v_name = stmt.name
+      debug('local declared: %s' % v_name)
+
+      v_type = decode_type(stmt)
+
+      v_var = self.declare_variable(v_name, v_type)
+      debug('mark %s as clobbered' % v_var.reg)
+      self.clobbered_registers.append(v_var)
+
+      if not stmt.init:
+        continue
+
+      debug('local %s has init section' % v_name)
+
+      if isinstance(stmt.init, pycparser.c_ast.Constant):
+        debug('AST: Constant')
+
+        c_type, c_value = decode_constant(stmt.init)
+
+        if c_type == 'int':
+          debug('local %s initialized with %s %s' % (v_name, c_type, c_value))
+          v_var.init_value = c_value
+          self.init_registers.append(v_var)
+
+        else:
+          raise CompilationError(stmt.init.coord, 'Unhandled const init type: %s' % c_type)
+
+      else:
+        raise CompilationError(stmt.init.coord, 'Unhandled variable init: %s' % str(stmt.init))
+
+    # Save registers clobbered by local variables
+    for v_var in self.clobbered_registers:
+      emit_inst('push %s' % v_var.reg)
+
+    # Initialize local variables
+    for v_var in self.init_registers:
+      emit_inst('loada %s, %s' % (v_var.reg, v_var.init_value))
+
+  def body(self):
+    # Pass #2
+    debug('pass #2')
+
+    if not self.node.block_items:
+      return
+
+    for stmt in self.node.block_items:
+      # local variables were already processed
+      if isinstance(stmt, pycparser.c_ast.Decl):
+        debug('AST: Decl - ignored in pass #2')
+        continue
+
+      if isinstance(stmt, pycparser.c_ast.FuncCall):
+        debug('AST: FuncCall')
+
+        emit_routine_call(self, stmt)
+
+      elif isinstance(stmt, pycparser.c_ast.Compound):
+        debug('AST: Compound')
+
+        block = Block(self, stmt)
+        block.prolog()
+        block.body()
+        block.epilog()
+
+      elif isinstance(stmt, pycparser.c_ast.If):
+        debug('AST: If')
+
+        label_prolog, label_true, label_false, label_epilog = emit_cond(self, stmt)
+
+        emit_cond_branch(self, stmt.iftrue, label_true)
+        emit_inst('jmp %s' % label_epilog)
+        emit_cond_branch(self, stmt.iffalse, label_false)
+        emit_inst(label_epilog + ':')
+
+      elif isinstance(stmt, pycparser.c_ast.Assignment):
+        debug('AST: Assignment')
+
+        if isinstance(stmt.lvalue, pycparser.c_ast.ID):
+          lreg = self.get_variable(stmt.lvalue.name).reg
+        else:
+          raise CompilationError(stmt.coord, 'unhandled assignment: lvalue=%s' % stmt.lvalue)
+
+        if isinstance(stmt.rvalue, pycparser.c_ast.Constant):
+          c_type, c_value = decode_constant(stmt.rvalue)
+
+          if stmt.op == '=':
+            if c_type == 'int':
+              self.assign_set_int(lreg, c_value)
+
+            else:
+              raise CompilationError(stmt.coord, 'unhandled assignment: op=%s, rvalue=const, c_type=%s' % (stmt.op, c_type))
+
+          elif stmt.op == '-=':
+            if c_type == 'int':
+              if c_value == '0':
+                pass
+
+              elif c_value == '1':
+                self.assign_dec_int(lreg)
+
+              else:
+                self.assign_sub_const_int(lreg, c_value)
+
+            else:
+              raise CompilationError(stmt.coord, 'unhandled assignment: op=%s, rvalue=const, c_type=%s' % (stmt.op, c_type))
+
+          elif stmt.op == '+=':
+            if c_type == 'int':
+              if c_value == '0':
+                pass
+
+              elif c_value == '1':
+                self.assign_inc_int(lreg)
+
+              else:
+                self.assign_add_const_int(lreg, c_value)
+
+            else:
+              raise CompilationError(stmt.coord, 'unhandled assignment: op=%s, rvalue=const, c_type=%s' % (stmt.op, c_type))
+
+        else:
+          decode_rvalue(self, stmt.rvalue, lreg)
+
+      elif isinstance(stmt, pycparser.c_ast.UnaryOp):
+        debug('AST: UnaryOp')
+
+        if isinstance(stmt.expr, pycparser.c_ast.ID):
+          lreg = self.get_variable(stmt.expr.name).reg
+        else:
+          raise CompilationError(stmt.expr.coord, 'unhandled unary op: lvalue=%s' % stmt.expr)
+
+        if stmt.op == 'p--':
+          self.assign_dec_int(lreg)
+
+        elif stmt.op == '--':
+          self.assign_dec_int(lreg)
+
+        elif stmt.op == '++':
+          self.assign_inc_int(lreg)
+
+        elif stmt.op == 'p++':
+          self.assign_inc_int(lreg)
+
+        else:
+          raise CompilationError(stmt.coord, 'Unhandled unary op: op=%s' % stmt.op)
+
+      elif isinstance(stmt, pycparser.c_ast.Return):
+        if isinstance(stmt.expr, pycparser.c_ast.Constant):
+          c_type, c_value = decode_constant(stmt.expr)
+
+          # pop all clobbered registers from parent blocks
+          if c_type == 'int':
+            emit_inst('loada r0, ' + c_value)
+
+          else:
+            raise CompilationError(stmt.coord, 'unhandled return: rvalue=const, c_type=%s, %s' % c_t)
+
+      elif isinstance(stmt, pycparser.c_ast.For):
+        debug('AST: For')
+
+        label = create_label(stmt)
+
+        label_prolog = '%sloop_prolog__' % label
+        label_epilog = '%sloop_epilog__' % label
+
+        debug('loop: emit prolog label')
+        emit_log('loop prolog')
+        emit_label(label_prolog)
+
+        debug('loop: emit init block')
+        emit_log('loop init')
+        if isinstance(stmt.init, pycparser.c_ast.ExprList):
+          compound = CompoundWrapper(*stmt.init.exprs)
+        else:
+          compound = CompoundWrapper(stmt.init)
+
+        b_block = Block(self, compound)
+        b_block.prolog()
+        b_block.body()
+        b_block.epilog()
+
+        emit_log('loop cond')
+        label_cond_prolog, label_cond_true_branch, label_cond_false_branch, label_cond_epilog = emit_cond(self, stmt, false_label = label_epilog)
+
+        debug('loop: emit loop body')
+        emit_log('loop body')
+        b_block = Block(self, CompoundWrapper(stmt.stmt) if not isinstance(stmt.stmt, pycparser.c_ast.Compound) else stmt.stmt)
+        b_block.prolog()
+        b_block.body()
+        b_block.epilog()
+
+        debug('loop: emit next block')
+        emit_log('loop next')
+
+        if isinstance(stmt.next, pycparser.c_ast.ExprList):
+          compound = CompoundWrapper(*stmt.next.exprs)
+        else:
+          compound = CompoundWrapper(stmt.next)
+
+        b_block = Block(self, compound)
+        b_block.prolog()
+        b_block.body()
+        b_block.epilog()
+
+        # retest condition
+        debug('loop: emit jump to condition')
+        emit_log('loop jump')
+        emit_inst('jmp %s' % label_cond_prolog)
+
+        # emit epilog label
+        debug('loop: emit epilog label')
+        emit_log('loop epilog')
+        emit_label(label_epilog)
+
+      else:
+        raise CompilationError(stmt.coord, 'unhandled statement: %s' % str(stmt))
+
+  def epilog(self):
+    self.clobbered_registers.reverse()
+    for v_var in self.clobbered_registers:
+      emit_inst('pop %s' % v_var.reg)
+
+    debug('block left: parent=%s, node=%s' % (self.parent, self.node))
+
+def handle_TypeDef(node):
+  pass
+
+def mangle_fn_name(s):
+  return '__fn_%s_prolog__' % s
+
+def handle_FuncDef(node):
+  fn_decl = node.decl
+  fn_body = node.body
+
+  fn_name = fn_decl.name
+
+  debug('[emit instructions for function "%s"]' % fn_name)
+  emit_inst('')
+
+  emit_log('Function "%s" starts here' % fn_name)
+  emit_inst(mangle_fn_name(fn_name) + ':')
+
+  main_block = Block(None, fn_body)
+
+  for param in fn_decl.type.args.params:
+    debug('argument declared: %s' % param.name)
+
+    main_block.declare_argument(param.name, decode_type(param))
+
+  main_block.prolog()
+  main_block.body()
+  main_block.epilog()
+
+  emit_inst('ret')
+  emit_log('Function "%s" ends here' % fn_name)
+
+
+def compile_file(file_in, file_out):
+  global INSTS
+  INSTS = []
+
+  ast = pycparser.parse_file(file_in, use_cpp = True, cpp_args = r'-I/data/git/pycparser/utils/fake_libc_include')
+
+  emit_log('prepare main arguments')
+  emit_inst('call %s' % mangle_fn_name('main'))
+  emit_inst('hlt r0')
+
+  for node in ast.ext:
+    if isinstance(node, pycparser.c_ast.Typedef):
+      # create type
+      handle_TypeDef(node)
+
+    elif isinstance(node, pycparser.c_ast.FuncDef):
+      # create function
+      handle_FuncDef(node)
+
+  info('Generated instructions:')
+  dump_insts(INSTS)
+
+  with open(file_out, 'w') as f_out:
+    for inst in INSTS:
+      print >> f_out, inst
+
+def main():
+  parser = optparse.OptionParser()
+
+  parser.add_option('-v', dest = 'verbosity', action = 'count', default = 0, help = 'Verbosity level')
+  parser.add_option('-c', dest = 'comments',  action = 'store_true', default = False, help = 'Add comments into output')
+
+  parser.add_option('-i', dest = 'file_in', default = None, help = 'Input file')
+  parser.add_option('-o', dest = 'file_out', default = None, help = 'Output file')
+
+  global options
+  options, args = parser.parse_args()
+
+  util.set_verbosity(options.verbosity)
+
+  if not options.file_in or not options.file_out:
+    parser.print_help()
+    sys.exit(1)
+
+  compile_file(options.file_in, options.file_out)
+
+if __name__ == '__main__':
+  main()
+
