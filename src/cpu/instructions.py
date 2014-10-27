@@ -146,6 +146,8 @@ class InstructionDescriptor(object):
     self.pattern = re.compile(self.pattern)
 
   def emit_instruction(self, line):
+    debug('emit_instruction: %s' % line)
+
     I = InstructionBinaryFormat()
     I.generic.ins = 0
 
@@ -155,8 +157,6 @@ class InstructionDescriptor(object):
     refers_to = None
 
     match = self.pattern.match(line).groups()
-
-    debug('line: "%s"' % line)
 
     for i in range(0, len(self.args)):
       # register
