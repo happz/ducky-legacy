@@ -5,10 +5,10 @@ import struct
 import sys
 import types
 
-#import cpu
+import cpu
 import irq
 import io
-#import mm
+import mm
 import cpu.instructions
 import mm.binary
 
