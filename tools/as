@@ -74,14 +74,23 @@ def main():
     h_symbols.type = mm.binary.SectionTypes.SYMBOLS
 
     symbol_entries = []
-    for name, addr, size in symbols:
+    for s_name, s_addr, s_size, s_type in symbols:
       entry = mm.binary.SymbolEntry()
       symbol_entries.append(entry)
 
-      entry.set_name(name)
-      entry.address = addr
-      entry.size = size
+      entry.set_name(s_name)
+      entry.address = s_addr
+      entry.size = s_size.u16
       entry.section = h_data.index
+
+      if s_type == 'int':
+        entry.type == mm.binary.SymbolDataTypes.INT
+      elif s_type == 'char':
+        entry.type == mm.binary.SymbolDataTypes.CHAR
+      elif s_type == 'string':
+        entry.type = mm.binary.SymbolDataTypes.STRING
+      else:
+        raise CPUException('Unknown symbol data type: %s' % s_type)
 
     f_out.set_content(h_text, cs)
     f_out.set_content(h_data, ds)

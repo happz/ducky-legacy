@@ -1,9 +1,9 @@
-data message, "Hello, world!"
+  .type message, string
+  .string "Hello, world!"
 
 main:
   loada r1, &message
-  loada r2, 13
-  call __fn_writeln_prolog
+  call __fn_writesn_prolog
   hlt r0
 
 __outb_prolog:
@@ -12,36 +12,34 @@ __outb_prolog:
   out r1, r2 b
   ret
 
-__fn_writeln_prolog:
+__fn_writesn_prolog:
   # > r1: string address
-  # > r2: string length
-  #   r3: current byte
-  #   r4: port
-  push r3
-  push r4
-  loada r4, 0x100
-__fn_writeln_loop:
-  load r3, r1 b
-  push r1
-  mov r1, r4
+  #   r2: current byte
+  #   r3: port
   push r2
-  mov r2, r3
+  push r3
+  loada r3, 0x100
+__fn_writesn_loop:
+  load r2, r1 b
+  jz __fn_writesn_write_nl
+  push r1
+  mov r1, r3
   call __outb_prolog
-  pop r2
   pop r1
   inc r1
-  dec r2
-  jnz __fn_writeln_loop
+  jmp __fn_writesn_loop
+__fn_writesn_write_nl:
   push r1
-  mov r1, r4
+  loada r1, 0x100
   # \n
   loada r2, 0xA b
   call __outb_prolog
+  # \r
   loada r2, 0xD b
   call __outb_prolog
   pop r1
   loada r0, 0
-  pop r4
   pop r3
+  pop r2
   ret
 

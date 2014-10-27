@@ -82,7 +82,8 @@ class IdleLoopServiceRoutine(ServiceRoutine):
 
 class InterruptCounterRoutine(ServiceRoutine):
   code = [
-    'data counter, "0"',
+    '  .type counter, int',
+    '  .int 0',
     'entry:',
     '  push r0',
     '  push r1',

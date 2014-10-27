@@ -13,7 +13,7 @@ import cpu.instructions
 import mm.binary
 import util
 
-from mm import UInt8, UInt16
+from mm import UInt8, UInt16, ADDR_FMT, UINT16_FMT, UINT8_FMT, SIZE_FMT
 from cpu.instructions import ins2str
 from cpu.errors import CPUException
 from util import *
@@ -59,9 +59,9 @@ def main():
       info('* Section #%i' % header.index)
       info('  Type:   %s' % mm.binary.SECTION_TYPES[header.type])
       info('  Flags:  0x%X' % header.flags)
-      info('  Base:   0x%X' % header.base)
-      info('  Size:   0x%X' % header.size)
-      info('  Offset: 0x%X' % header.offset)
+      info('  Base:   %s' % ADDR_FMT(header.base))
+      info('  Size:   %s' % SIZE_FMT(header.size))
+      info('  Offset: %s' % ADDR_FMT(header.offset))
 
       if not options.disassemble:
         continue
@@ -75,7 +75,7 @@ def main():
           ins = content[j]
           next_cell = content[j + 1] if (j + 1) < header.size else None
 
-          csp_str = '0x%04X' % csp.u16
+          csp_str = ADDR_FMT(csp.u16)
 
           csp.u16 += 2
           j += 1
@@ -96,13 +96,23 @@ def main():
           j += 1
 
           _header, _content = f_in.get_section(entry.section)
-          symbol_content = ''.join(['%s' % chr(c.u8) for c in _content[entry.address - _header.base:entry.address - _header.base + entry.size]])
 
           info('  ', 'Name:    %s' % entry.get_name())
-          info('  ', 'Address: 0x%X' % entry.address)
-          info('  ', 'Size:    0x%X' % entry.size)
+          info('  ', 'Address: %s' % ADDR_FMT(entry.address))
+          info('  ', 'Size:    %s' % SIZE_FMT(entry.size))
           info('  ', 'Section: %i' % entry.section)
-          info('  ', 'Content: "%s"' % symbol_content)
+          info('  ', 'Type:    %s' % mm.binary.SYMBOL_DATA_TYPES[entry.type])
+
+          if entry.type == mm.binary.SymbolDataTypes.INT:
+            symbol_content = UInt16(0)
+            symbol_content.u16 = _content[entry.address - _header.base].u8 | (_content[entry.address - _header.base + 1].u8 << 8)
+            symbol_content = '%i' % symbol_content.u16
+
+          elif entry.type == mm.binary.SymbolDataTypes.STRING:
+            symbol_content = '"' + ''.join(['%s' % chr(c.u8) for c in _content[entry.address - _header.base:entry.address - _header.base + entry.size]]) + '"'
+
+          info('  ', 'Content: %s' % symbol_content)
+          info('  ')
 
 if __name__ == '__main__':
   main()

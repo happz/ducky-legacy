@@ -7,6 +7,7 @@ import cpu.errors
 from mm import UInt8, UInt16, UInt32
 from util import *
 from ctypes import LittleEndianStructure, c_uint, c_ushort, c_ubyte, sizeof
+from cpu.errors import CPUException
 
 class SectionTypes(enum.IntEnum):
   TEXT    = 0
@@ -16,6 +17,15 @@ class SectionTypes(enum.IntEnum):
 
 SECTION_TYPES = [
   'TEXT', 'DATA', 'STACK', 'SYMBOLS'
+]
+
+class SymbolDataTypes(enum.IntEnum):
+  INT    = 0
+  CHAR   = 1
+  STRING = 2
+
+SYMBOL_DATA_TYPES = [
+  'int', 'char', 'string'
 ]
 
 SYMBOL_NAME_LIMIT = 255
@@ -47,6 +57,7 @@ class SymbolEntry(LittleEndianStructure):
     ('address', c_ushort),
     ('size',    c_ushort),
     ('section', c_ubyte),
+    ('type',    c_ubyte)
   ]
 
   def get_name(self):
@@ -184,6 +195,7 @@ class File(file):
           se.address = self.read_u16().u16
           se.size = self.read_u16().u16
           se.section = self.read_u8().u8
+          se.type = self.read_u8().u8
 
         else:
           ins = cpu.instructions.InstructionBinaryFormat()
@@ -260,6 +272,7 @@ class File(file):
           self.write_u16(se.address)
           self.write_u16(se.size)
           self.write_u8(se.section)
+          self.write_u8(se.type)
 
         elif type(content[j]) == UInt16:
           self.write_u16(content[j].u16)
@@ -268,5 +281,5 @@ class File(file):
           self.write_u8(content[j].u8)
 
         else:
-          assert False
+          raise CPUException('Unhandled content item: "%s" (%s)' % (content[j], type(content[j])))
 

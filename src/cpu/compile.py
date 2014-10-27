@@ -16,7 +16,7 @@ from mm import UInt8, UInt16, UINT8_FMT, UINT16_FMT, SEGM_FMT, ADDR_FMT, SIZE_FM
 from cpu.instructions import ins2str
 from cpu.errors import CPUException
 
-from util import debug, info
+from util import debug, info, warn
 
 def align_to_next_page(addr):
   return (((addr & PAGE_MASK) >> PAGE_SHIFT) + 1) * PAGE_SIZE
@@ -26,32 +26,127 @@ def compile_buffer(buff, csb = None, dsb = None):
 
   cs_pass1  = []
   ds_pass1 = []
+  symbols = {}
 
   debug('Pass #1')
 
   labeled = []
 
-  for line in buff:
-    line = line.strip()
-    if not line or line[0] == '#':
+  def __get_line():
+    while len(buff):
+      line = buff.pop(0)
+
+      if not line:
+        continue
+
+      line = line.strip()
+
+      # Skip comments and empty lines
+      if not line or line[0] in ('#', '/'):
+        continue
+
+      debug('new line from buffer: %s' % line)
+      return line
+
+    else:
+      return None
+
+  def __expand_pseudoop(line, tokens):
+    # Don't use line.split() - it will split by spaces all strings, even variable's value...
+    first_space = line.index(' ')
+
+    if   tokens == 1:
+      return (line[first_space:].strip(),)
+
+    elif tokens == 2:
+      second_space = line.index(' ', first_space + 1)
+
+      return (line[first_space:second_space].strip()[:-1], line[second_space:].strip())
+
+    else:
+      raise CPUException('Unhandled number of tokens: %s - %i' % (line, tokens))
+
+  def __handle_symbol_variable(v_name, v_type):
+    v_size  = None # if not set, default value will be set according to the type
+    v_value = None # if not set, default value will be used
+
+    def __emit_variable(v_name, v_size, v_value):
+      if v_type == 'int':
+        v_value = v_value or '0'
+        v_value = UInt16(int(v_value))
+        v_size  = UInt16(2)
+
+      elif v_type == 'char':
+        v_value = v_value or '\0'
+        v_value = UInt8(ord(v_value))
+        v_size  = UInt16(1)
+
+      elif v_type == 'string':
+        v_value = v_value or ""
+        v_value = [UInt8(ord(c)) for c in v_value] + [UInt8(0)]
+        v_size  = UInt16(len(v_value))
+
+      variable_desc = (v_name, v_size, v_value, v_type)
+      symbols[v_name] = variable_desc
+      ds_pass1.append(variable_desc)
+
+    while len(buff):
+      line = __get_line()
+
+      handled_pseudoops = ('.size', '.%s' % v_type)
+
+      if not line or line.startswith('.type') or not line.startswith(handled_pseudoops):
+        # create variable
+        __emit_variable(v_name, v_size, v_value)
+
+        # return current line and start from the beginning
+        buff.insert(0, line)
+        return
+
+      if line.startswith('.size'):
+        v_size = __expand_pseudoop(line, 1)[0]
+
+      elif line.startswith('.%s' % v_type):
+        if v_type == 'int':
+          v_value = int(__expand_pseudoop(line, 1)[0])
+        elif v_type == 'string':
+          v_value = __expand_pseudoop(line, 1)[0][1:-1] # omit enclosing quotes
+        else:
+          raise CPUException('Unknown variable type: %s' % v_type)
+
+  def __handle_symbol_function():
+    pass
+
+  labels = []
+
+  while len(buff):
+    line = __get_line()
+
+    if not line:
+      break
+
+    # starts new object
+    if line.startswith('.type'):
+      v_name, v_type = __expand_pseudoop(line, 2)
+
+      if v_type == 'function':
+        __handle_symbol_function()
+
+      else:
+        __handle_symbol_variable(v_name, v_type)
+
       continue
 
-    if line.startswith('data'):
-      comma_index = line.find(',')
-      name = line[5:comma_index]
-      value = line[comma_index + 3:-1]
-
-      ds_pass1.append((name, value))
+    if line.endswith(':'):
+      label = line[:-1]
+      debug('label encountered: "%s"' % label)
+      labels.append(label)
       continue
+
+    debug('line: %s' % line)
 
     # label, instruction, 2nd pass flags
     emited_ins = None
-
-    if line[-1] == ':':
-      label = line[0:-1]
-      debug('label encountered: "%s"' % label)
-      labeled.append(label)
-      continue
 
     # Find instruction descriptor
     for i in range(0, len(cpu.instructions.PATTERNS)):
@@ -65,16 +160,16 @@ def compile_buffer(buff, csb = None, dsb = None):
     emited_ins = ID.emit_instruction(line)
 
     for i in range(0, len(emited_ins)):
-      if len(labeled) and i == 0:
-        cs_pass1.append((labeled, emited_ins[i]))
-        labeled = []
+      if len(labels) and i == 0:
+        cs_pass1.append((labels, emited_ins[i]))
+        labels = []
       else:
         cs_pass1.append((None, emited_ins[i]))
 
-    labeled = []
+    labels = []
 
-  for name, value in ds_pass1:
-    debug('Data entry: "%s"="%s"' % (name, value))
+  for v_name, v_size, v_value, v_type in ds_pass1:
+    debug('Data entry: v_name=%s, v_size=%u"' % (v_name, v_size.u16))
 
   for ins in cs_pass1:
     debug('Instruction: labeled=%s, ins=%s' % ins)
@@ -96,15 +191,30 @@ def compile_buffer(buff, csb = None, dsb = None):
 
   pass3_required = False
 
-  for name, value in ds_pass1:
-    references['&' + name] = UInt16(dsp.u16)
-    symbols.append(('&' + name, dsp.u16, UInt16(len(value)).u16))
+  for v_name, v_size, v_value, v_type in ds_pass1:
+    references['&' + v_name] = UInt16(dsp.u16)
+    symbols.append((v_name, dsp.u16, v_size, v_type))
 
-    debug('%s: data entry "%s", size %s' % (ADDR_FMT(dsp.u16), name, SIZE_FMT(len(value))))
+    debug('%s: data entry %s, size %s, type %s' % (ADDR_FMT(dsp.u16), v_name, SIZE_FMT(v_size.u16), type(v_value)))
 
-    for i in range(0, len(value)):
-      ds_pass2.append(UInt8(ord(value[i])))
-      dsp.u16 += 1
+    if type(v_value) == UInt16:
+      ds_pass2.append(UInt8(v_value.u16 & 0x00FF))
+      ds_pass2.append(UInt8((v_value.u16 & 0xFF00) >> 8))
+      dsp.u16 += 2
+
+    elif type(v_value) == UInt8:
+      ds_pass2.append(UInt8(v_value.u8))
+      ds_pass2.append(UInt8(0))
+      dsp.u16 += 2
+
+    elif type(v_value) == types.ListType:
+      for i in range(0, v_size.u16):
+        ds_pass2.append(v_value[i])
+        dsp.u16 += 1
+
+      if v_size.u16 % 2 != 0:
+        ds_pass2.append(UInt8(0))
+        dsp.u16 += 1
 
   for labeled, ins in cs_pass1:
     csp_str = ADDR_FMT(csp.u16)
