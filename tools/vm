@@ -1,8 +1,10 @@
 #! /usr/bin/python
 
 import optparse
+import signal
 import sys
 import time
+import threading
 
 import cpu
 import cpu.compile
@@ -36,9 +38,19 @@ def main():
 
   M = machine.Machine(cpus = int(options.cpus), cores = int(options.cores), binaries = options.bin_in)
 
-  M.boot()
+  def sigint_handler(signal, frame):
+    info('VM interrupted by user')
+
+    M.halt()
+
+  signal.signal(signal.SIGINT, sigint_handler)
 
   sys.stdout.flush()
+
+  M.boot()
+
+  while M.thread.is_alive():
+    time.sleep(cpu.CPU_SLEEP_QUANTUM * 10)
 
 if __name__ == '__main__':
   main()

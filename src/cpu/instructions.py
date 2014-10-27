@@ -5,8 +5,8 @@ import re
 
 from ctypes import c_ubyte, c_ushort, Structure, Union
 
-from util import *
-from mm import UInt16
+from util import debug
+from mm import UInt16, UINT16_FMT
 
 class Opcodes(enum.IntEnum):
   NOP = 0
@@ -85,8 +85,6 @@ class InstructionBinaryFormat(Union):
   ]
 
 def ins2str(ins):
-  orig_ins = ins
-
   if type(ins) == InstructionBinaryFormat:
     opcode = ins.nullary.opcode
     desc = INSTRUCTIONS[opcode]
@@ -129,7 +127,7 @@ def disassemble_instruction(ins, next_cell):
       operands.append('r%i' % getattr(ins, 'reg%i' % (k + 1)))
 
     elif operand_type == 'l':
-      operands.append('0x%04X' % next_cell.u16)
+      operands.append(UINT16_FMT(next_cell.u16))
       additional_operands += 1
 
   return (desc.mnemonic.split(' ')[0] + ' ' + ', '.join(operands) + (' b' if ins.byte == 1 else ''), additional_operands)
@@ -484,5 +482,5 @@ INSTRUCTIONS = [
   Ins_MOV()
 ]
 
-PATTERNS = [id.pattern for id in INSTRUCTIONS]
+PATTERNS = [descriptor.pattern for descriptor in INSTRUCTIONS]
 

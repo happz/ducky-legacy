@@ -3,6 +3,7 @@ import enum
 import cpu
 
 from util import *
+from mm import UINT8_FMT, UINT16_FMT
 
 class IOPorts(enum.Enum):
   PORT_COUNT = 65536
@@ -32,20 +33,20 @@ class IOHandler(object):
   def write_u8(self, port, value):
     handler_name = 'write_u8_%i' % port.u16
 
-    debug('write_u8: port=0x%X, value=0x%X' % (port.u16, value.u8))
+    debug('write_u8: port=%s, value=%s' % (UINT16_FMT(port.u16), UINT8_FMT(value.u8)))
 
     if not hasattr(self, handler_name):
-      raise cpu.AccessViolationError('Unable to write to port: port=%i' % port.u16)
+      raise cpu.AccessViolationError('Unable to write to port: port=%s' % UINT16_FMT(port.u16))
 
     getattr(self, handler_name)(value)
 
   def write_u16(self, port, value):
     handler_name = 'write_u16_%i' % port.u16
 
-    debug('write_u16: port=0x%X, value=0x%X' % (port.u16, value.u16))
+    debug('write_u16: port=%s, value=%s' % (UINT16_FMT(port.u16), UINT16_FMT(value.u16)))
 
     if not hasattr(self, handler_name):
-      raise cpu.AccessViolationError('Unable to write to port: port=%i' % port.u16)
+      raise cpu.AccessViolationError('Unable to write to port: port=%s' % UINT16_FMT(port.u16))
 
     getattr(self, handler_name)(value)
 

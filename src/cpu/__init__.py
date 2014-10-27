@@ -9,7 +9,9 @@ import mm
 import io
 import irq
 
-from mm import UInt8, UInt16
+from mm import UInt8, UInt16, UInt24
+from mm import SEGM_FMT, ADDR_FMT, UINT8_FMT, UINT16_FMT
+from mm import segment_addr_to_addr
 
 from registers import Registers
 from instructions import Opcodes
@@ -17,56 +19,115 @@ from instructions import Opcodes
 from errors import CPUException, AccessViolationError, InvalidResourceError
 from util import *
 
-CPU_SLEEP_QUANTUM = 0.1
+from ctypes import LittleEndianStructure, Union, c_ubyte, c_ushort, c_uint
 
-SERVICE_ROUTINES = {
-  'halt': [
+CPU_SLEEP_QUANTUM = 0.05
+
+class InterruptVector(LittleEndianStructure):
+  _pack_ = 0
+  _fields_ = [
+    ('cs', c_ushort),
+    ('ip', c_ushort)
+  ]
+
+#
+# Service routines
+# Very short routines with just one purpose - used in case there's no binary specified fo core
+#
+
+class ServiceRoutine(object):
+  code = None
+
+  def __init__(self):
+    super(ServiceRoutine, self).__init__()
+
+    self.translated = False
+
+    self.page = None
+    self.csb = None
+    self.cs  = None
+    self.dsb = None
+    self.ds  = None
+
+  def translate(self, memory):
+    if self.translated:
+      return
+
+    import cpu.compile
+
+    cs = UInt8(mm.SEGMENT_PROTECTED)
+    ds = UInt8(cs.u8)
+    self.page = memory.get_page(memory.alloc_page(segment = cs))
+    self.csb = UInt16(self.page.base_address)
+    self.dsb = UInt16(self.page.base_address + mm.PAGE_SIZE / 2)
+
+    (csb, cs), (dsb, ds), symbols = cpu.compile.compile_buffer(self.code, csb = self.csb, dsb = self.dsb)
+
+    self.cs = cs
+    self.ds = ds
+    self.translated = True
+
+class HaltServiceRoutine(ServiceRoutine):
+  code = [
     '  loada r0, 0',
     '  hlt r0'
-  ],
-  'idle_loop': [
+  ]
+
+class IdleLoopServiceRoutine(ServiceRoutine):
+  code = [
     'main:',
     '  idle',
     '  jmp main'
   ]
+
+class InterruptCounterRoutine(ServiceRoutine):
+  code = [
+    'data counter, "0"',
+    'entry:',
+    '  push r0',
+    '  push r1',
+    '  loada r0, &counter',
+    '  load r1, r0',
+    '  inc r1',
+    '  store r0, r1',
+    '  pop r1',
+    '  pop r0',
+    '  retint'
+
+  ]
+
+SERVICE_ROUTINES = {
+  'halt': HaltServiceRoutine(),
+  'idle_loop': IdleLoopServiceRoutine(),
+  'interrupt_counter': InterruptCounterRoutine()
 }
-
-def get_service_routine(routine_name, csb, dsb):
-  if routine_name not in SERVICE_ROUTINES:
-    raise CPUException('Unknown service routine requested: "%s"' % routine_name)
-
-  import cpu.compile
-  buff = SERVICE_ROUTINES[routine_name]
-  (csb, cs), (dsb, ds), symbols = cpu.compile.compile_buffer(buff, csb = csb, dsb = dsb)
-
-  return (csb, cs, dsb, ds)
 
 def log_cpu_core_state(core, logger = None):
   logger = logger or debug
 
-  cpuid_prefix = '#%i:#%i: ' % (core.cpu.id, core.id)
-
   for reg in range(0, Registers.REGISTER_SPECIAL):
-    logger(cpuid_prefix, 'reg%i=0x%X' % (reg, core.REG(reg).u16))
+    logger(core.cpuid_prefix, 'reg%i=%s' % (reg, UINT16_FMT(core.REG(reg).u16)))
 
-  logger(cpuid_prefix, 'cs=0x%X' % core.CS().u16)
-  logger(cpuid_prefix, 'ds=0x%X' % core.DS().u16)
-  logger(cpuid_prefix, 'ip=0x%X' % core.IP().u16)
-  logger(cpuid_prefix, 'sp=0x%X' % core.SP().u16)
-  logger(cpuid_prefix, 'priv=%i, hwint=%i' % (core.FLAGS().privileged, core.FLAGS().hwint))
-  logger(cpuid_prefix, 'eq=%i, z=%i, o=%i' % (core.FLAGS().eq, core.FLAGS().z, core.FLAGS().o))
-  logger(cpuid_prefix, 'thread=%s, keep_running=%s' % (core.thread.name, core.keep_running))
-  logger(cpuid_prefix, 'exit_code=%i' % core.exit_code)
+  logger(core.cpuid_prefix, 'cs=%s' % SEGM_FMT(core.CS().u16))
+  logger(core.cpuid_prefix, 'ds=%s' % SEGM_FMT(core.DS().u16))
+  logger(core.cpuid_prefix, 'ip=%s' % UINT16_FMT(core.IP().u16))
+  logger(core.cpuid_prefix, 'sp=%s' % UINT16_FMT(core.SP().u16))
+  logger(core.cpuid_prefix, 'priv=%i, hwint=%i' % (core.FLAGS().privileged, core.FLAGS().hwint))
+  logger(core.cpuid_prefix, 'eq=%i, z=%i, o=%i' % (core.FLAGS().eq, core.FLAGS().z, core.FLAGS().o))
+  logger(core.cpuid_prefix, 'thread=%s, keep_running=%s, idle=%s' % (core.thread.name, core.keep_running, core.idle))
+  logger(core.cpuid_prefix, 'exit_code=%i' % core.exit_code)
 
   if core.current_instruction:
-    ins, additional_operands = instructions.disassemble_instruction(core.current_instruction, core.memory.read_u16(core.CS().u16 + core.IP().u16, privileged = True))
-    logger(cpuid_prefix, 'current=%s' % ins)
+    ins, _ = instructions.disassemble_instruction(core.current_instruction, core.memory.read_u16(core.CS_ADDR(core.IP().u16), privileged = True))
+    logger(core.cpuid_prefix, 'current=%s' % ins)
   else:
-    logger(cpuid_prefix, 'current=')
+    logger(core.cpuid_prefix, 'current=')
 
 class CPUCore(object):
   def __init__(self, coreid, cpu, memory_controller):
     super(CPUCore, self).__init__()
+
+    self.cpuid_prefix = '#%u:#%u: ' % (cpu.id, coreid)
 
     self.id = coreid
     self.cpu = cpu
@@ -80,9 +141,12 @@ class CPUCore(object):
     self.thread = None
     self.idle = False
 
-    self.__irq_queue = Queue.Queue()
-
     self.exit_code = 0
+
+  def die(self, exc):
+    error(str(exc))
+    log_cpu_core_state(self)
+    self.keep_running = False
 
   def FLAGS(self):
     return self.registers.flags.flags
@@ -108,6 +172,12 @@ class CPUCore(object):
   def DS(self):
     return self.registers.ds
 
+  def CS_ADDR(self, address):
+    return segment_addr_to_addr(self.CS().u16 & 0xFF, address)
+
+  def DS_ADDR(self, address):
+    return segment_addr_to_addr(self.DS().u16 & 0xFF, address)
+
   def reset(self, new_ip = 0):
     for reg in registers.RESETABLE_REGISTERS:
       self.REG(reg).u16 = 0
@@ -124,31 +194,46 @@ class CPUCore(object):
   def __push(self, *regs):
     for reg in regs:
       self.SP().u16 -= 2
+      sp = UInt24(self.DS_ADDR(self.SP().u16))
 
-      debug('__push: save %s (0x%04X) to 0x%04X' % (reg, self.REG(reg).u16, self.SP().u16))
+      debug(self.cpuid_prefix, '__push: save %s (%s) to %s' % (reg, UINT16_FMT(self.REG(reg).u16), ADDR_FMT(sp.u24)))
 
-      self.MEM_OUT(self.SP().u16, self.REG(reg).u16)
+      self.MEM_OUT(sp.u24, self.REG(reg).u16)
 
   def __pop(self, *regs):
     for reg in regs:
-      self.REG(reg).u16 = self.MEM_IN(self.SP().u16).u16
-      debug('__pop: load %s (0x%04X) from 0x%04X' % (reg, self.REG(reg).u16, self.SP().u16))
+      sp = UInt24(self.DS_ADDR(self.SP().u16))
+
+      self.REG(reg).u16 = self.MEM_IN(sp.u24).u16
+
+      debug(self.cpuid_prefix, '__pop: load %s (%s) from %s' % (reg, UINT16_FMT(self.REG(reg).u16), ADDR_FMT(sp.u24)))
       self.SP().u16 += 2
 
-  def __do_interupt(self, new_ip):
+  def __do_interrupt(self, table_address, index):
+    debug(self.cpuid_prefix, '__do_interrupt: table=%s, index=%i' % (ADDR_FMT(table_address.u24), index))
+
     self.__push(Registers.FLAGS, Registers.IP, Registers.DS, Registers.CS)
-    self.registers.ip.u16 = new_ip.u16
+
     self.privileged = 1
 
+    self.CS().u16 = self.memory.read_u16(table_address.u24 + index * 4).u16
+    self.IP().u16 = self.memory.read_u16(table_address.u24 + index * 4 + 2).u16
+
+    debug(self.cpuid_prefix, '__do_interrupt: registers saved and new CS:IP loaded')
+
   def __do_int(self, index):
-    self.__do_interrupt(self.memory.read_u16(self.memory.header.int_table_address + index * 2))
+    self.do_interrupt(self.memory.read_u16(self.memory.header.int_table_address + index * 2))
 
   def __do_irq(self, index):
-    self.__do_interrupt(self.memory.read_u16(self.memory.header.irq_table_address + index * 2))
+    debug(self.cpuid_prefix, '__do_irq: %s' % index)
+
+    self.__do_interrupt(UInt24(self.memory.header.irq_table_address), index)
+    self.FLAGS().hwint = 0
     self.idle = False
 
+    debug(self.cpuid_prefix, '__do_irq: CPU state prepared to handle IRQ')
+
   def __do_retint(self):
-    __check_protected_ins()
     self.__pop(Registers.CS, Registers.DS, Registers.IP, Registers.FLAGS)
 
   @property
@@ -166,24 +251,21 @@ class CPUCore(object):
     REGI2     = lambda: self.registers[ins.reg2]
     MEM_IN8   = lambda addr: self.memory.read_u8(addr)
     MEM_IN16  = lambda addr: self.memory.read_u16(addr)
-    MEM_OUT8  = lambda addr, val: self.memory.write_u8(addr, value)
-    MEM_OUT16 = lambda addr, val: self.memory.write_u16(addr, value)
+    MEM_OUT8  = lambda addr, val: self.memory.write_u8(addr, val)
+    MEM_OUT16 = lambda addr, val: self.memory.write_u16(addr, val)
     IP        = lambda: self.registers.ip
     FLAGS     = lambda: self.registers.flags.flags
     CS        = lambda: self.registers.cs
     DS        = lambda: self.registers.ds
 
-    CS_ADDR = lambda addr: addr
-    DS_ADDR = lambda addr: addr
-
-    #CS_ADDR = lambda addr: (CS().u16 & 0xFF) | addr
-    #DS_ADDR = lambda addr: (DS().u16 & 0xFF) | addr
+    CS_ADDR = lambda addr: segment_addr_to_addr(self.CS().u16 & 0xFF, addr)
+    DS_ADDR = lambda addr: segment_addr_to_addr(self.DS().u16 & 0xFF, addr)
 
     def IP_IN():
       addr = CS_ADDR(IP().u16)
       ret = MEM_IN16(addr)
 
-      debug('IP_IN: cs=0x%X, ip=0x%X, addr=0x%X, value=0x%X' % (CS().u16, IP().u16, addr, ret.u16))
+      debug(self.cpuid_prefix, 'IP_IN: cs=%s, ip=%s, addr=%s, value=%s' % (SEGM_FMT(CS().u16), ADDR_FMT(IP().u16), ADDR_FMT(addr), UINT16_FMT(ret.u16)))
 
       IP().u16 += 2
       return ret
@@ -191,6 +273,8 @@ class CPUCore(object):
     saved_IP = IP().u16
 
     # Read next instruction
+    debug(self.cpuid_prefix, '"Load new instruction" phase')
+
     ins = instructions.InstructionBinaryFormat()
     ins.generic.ins = IP_IN().u16
 
@@ -234,8 +318,10 @@ class CPUCore(object):
         return False
 
     disassemble_next_cell = self.memory.read_u16(CS_ADDR(IP().u16), privileged = True)
-    info('0x%04X: %s' % (saved_IP, instructions.disassemble_instruction(self.current_instruction, disassemble_next_cell)[0]))
+    info(self.cpuid_prefix, '%s: %s' % (UINT16_FMT(saved_IP), instructions.disassemble_instruction(self.current_instruction, disassemble_next_cell)[0]))
     log_cpu_core_state(self)
+
+    debug(self.cpuid_prefix, '"Execute instruction" phase')
 
     if   opcode == Opcodes.NOP:
       pass
@@ -262,10 +348,8 @@ class CPUCore(object):
       __check_protected_ins()
 
       self.exit_code = REGI1().u16
-      self.keep_running = False
 
-      info('Core #%i:%i halt!' % (self.cpu.id, self.id))
-      log_cpu_core_state(self)
+      self.halt()
 
     elif opcode == Opcodes.PUSH:
       self.__push(ins.reg1)
@@ -288,12 +372,12 @@ class CPUCore(object):
           REGI1().u16 = MEM_IN16(addr).u16
 
     elif opcode == Opcodes.STORE:
-      addr = DS_ADDR(REGI2().u16)
+      addr = DS_ADDR(REGI1().u16)
 
       if ins.byte:
-        MEM_OUT8(addr, REGI1().u16 & 0xFF)
+        MEM_OUT8(addr, REGI2().u16 & 0xFF)
       else:
-        MEM_OUT16(addr, REGI1().u16)
+        MEM_OUT16(addr, REGI2().u16)
 
     elif opcode == Opcodes.INC:
       __check_protected_reg(ins.reg1)
@@ -400,8 +484,6 @@ class CPUCore(object):
       REGI1().u16 = UInt8(self.cpu.id).u8 << 8 | UInt8(self.id).u8
 
     elif opcode == Opcodes.IDLE:
-      __check_protected_ins()
-
       self.idle = True
 
     elif opcode == Opcodes.JZ:
@@ -454,7 +536,7 @@ class CPUCore(object):
       elif REGI1().u16  < REGI2().u16:
         FLAGS().s = 1
 
-      elif REGI1().u16  > REG2().u16:
+      elif REGI1().u16  > REGI2().u16:
         pass
 
     elif opcode == Opcodes.JS:
@@ -479,48 +561,72 @@ class CPUCore(object):
     else:
       raise CPUException('Unknown opcode: %i' % opcode)
 
-    debug('Opcode exit: %s' % opcode)
-
   def loop(self):
+    info(self.cpuid_prefix, 'booted')
+    log_cpu_core_state(self)
+
     while self.keep_running:
       irq_source = None
+      irq_queue  = self.cpu.machine.queued_irqs
 
       if self.idle:
-        irq_source = self.__irq_queue.get(True)
+        debug(self.cpuid_prefix, 'idle => wait for irq to happen')
+        irq_source = irq_queue.get(True)
+
       elif self.registers.flags.flags.hwint:
+        debug(self.cpuid_prefix, 'running => check for irq in queue')
+
         try:
-          irq_source = self.__irq_queue.get(False)
+          irq_source = irq_queue.get(False)
         except Queue.Empty:
           pass
 
       if irq_source:
-        self.__do_irq(irq_source.irq)
-        self.__irq_queue.task_done()
+        debug(self.cpuid_prefix, ' IRQ encountered: %s' % irq_source.irq)
+
+        try:
+          self.__do_irq(irq_source.irq)
+        except CPUException, e:
+          self.die(e)
+          break
+
+        irq_queue.task_done()
+
+      if not self.keep_running:
+        break
 
       try:
         self.step()
       except CPUException, e:
-        error(str(e))
-        log_cpu_core_state(self)
-        self.keep_running = False
+        self.die(e)
+        break
+
+    info(self.cpuid_prefix, 'halted')
+    log_cpu_core_state(self)
 
   def boot(self, init_state):
-    csr, csb, dsr, dsb, sp, privileged = init_state
+    cs, csb, ds, dsb, sp, privileged = init_state
 
-    self.REG(Registers.CS).u16 = csr.u16
-    self.REG(Registers.DS).u16 = dsr.u16
+    self.REG(Registers.CS).u16 = cs.u8
+    self.REG(Registers.DS).u16 = ds.u8
     self.REG(Registers.IP).u16 = csb.u16
     self.REG(Registers.SP).u16 = sp.u16
     self.FLAGS().privileged = 1 if privileged else 0
 
     self.thread = threading.Thread(target = self.loop, name = 'Core #%i:#%i' % (self.cpu.id, self.id))
-    info('Core #%i:#%i boot!' % (self.cpu.id, self.id))
-    log_cpu_core_state(self)
     self.thread.start()
+
+  def halt(self):
+    self.keep_running = False
+
+    info(self.cpuid_prefix, 'asked to halt')
+    log_cpu_core_state(self)
 
 class CPU(object):
   def __init__(self, machine, cpuid, cores = 1, memory_controller = None):
     super(CPU, self).__init__()
+
+    self.cpuid_prefix = '#%i:' % cpuid
 
     self.machine = machine
     self.id = cpuid
@@ -534,19 +640,30 @@ class CPU(object):
     self.exit_code = 0
 
   def loop(self):
+    info(self.cpuid_prefix, 'booted')
+
     while self.keep_running:
       time.sleep(CPU_SLEEP_QUANTUM * 10)
 
       if len([core for core in self.cores if core.thread.is_alive()]) == 0:
-        info('CPU #%i halt!' % self.id)
         break
 
-  def boot(self, init_states, bsp = False):
-    mm_header = self.memory.header
+    info(self.cpuid_prefix, 'halted')
 
+  def boot(self, init_states):
     for core in self.cores:
       core.boot(init_states.pop(0))
 
     self.thread = threading.Thread(target = self.loop, name = 'CPU #%i' % self.id)
     self.thread.start()
+
+  def halt(self):
+    for core in self.cores:
+      core.halt()
+
+    irq_queue = self.machine.queued_irqs
+
+    for _ in self.cores:
+      debug(self.cpuid_prefix, 'qsize: %i, maxsize: %i' % (irq_queue.qsize(), irq_queue.maxsize))
+      irq_queue.put(None)
 

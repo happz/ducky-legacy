@@ -5,33 +5,33 @@ import struct
 import sys
 import types
 
-import cpu
+#import cpu
 import irq
 import io
-import mm
+#import mm
 import cpu.instructions
 import mm.binary
 
-from mm import UInt8, UInt16
+from mm import UInt8, UInt16, UINT8_FMT, UINT16_FMT, SEGM_FMT, ADDR_FMT, SIZE_FMT, PAGE_MASK, PAGE_SHIFT, PAGE_SIZE
 from cpu.instructions import ins2str
 from cpu.errors import CPUException
 
-from util import *
+from util import debug, info
 
 def align_to_next_page(addr):
-  return (((addr & mm.PAGE_MASK) >> mm.PAGE_SHIFT) + 1) * mm.PAGE_SIZE
+  return (((addr & PAGE_MASK) >> PAGE_SHIFT) + 1) * PAGE_SIZE
 
-def compile_buffer(buffer, csb = None, dsb = None):
-  csb = csb or UInt16(mm.MEM_FIRST_BOOT)
+def compile_buffer(buff, csb = None, dsb = None):
+  csb = csb or UInt16(0)
 
   cs_pass1  = []
   ds_pass1 = []
 
   debug('Pass #1')
 
-  labeled = None
+  labeled = []
 
-  for line in buffer:
+  for line in buff:
     line = line.strip()
     if not line or line[0] == '#':
       continue
@@ -48,8 +48,9 @@ def compile_buffer(buffer, csb = None, dsb = None):
     emited_ins = None
 
     if line[-1] == ':':
-      labeled = line[0:-1]
-      debug('Label: label=%s' % labeled)
+      label = line[0:-1]
+      debug('label encountered: "%s"' % label)
+      labeled.append(label)
       continue
 
     # Find instruction descriptor
@@ -64,18 +65,19 @@ def compile_buffer(buffer, csb = None, dsb = None):
     emited_ins = ID.emit_instruction(line)
 
     for i in range(0, len(emited_ins)):
-      if labeled and i == 0:
+      if len(labeled) and i == 0:
         cs_pass1.append((labeled, emited_ins[i]))
+        labeled = []
       else:
         cs_pass1.append((None, emited_ins[i]))
 
-    labeled = None
+    labeled = []
 
   for name, value in ds_pass1:
     debug('Data entry: "%s"="%s"' % (name, value))
 
   for ins in cs_pass1:
-    debug('Instruction: label=%s, ins=%s' % ins)
+    debug('Instruction: labeled=%s, ins=%s' % ins)
 
   cs_pass2 = []
   csp = UInt16(csb.u16)
@@ -84,8 +86,8 @@ def compile_buffer(buffer, csb = None, dsb = None):
   dsb = dsb or UInt16(align_to_next_page(csb.u16 + len(cs_pass1) * 2))
   dsp = UInt16(dsb.u16)
 
-  debug('CSB: 0x%X' % csb.u16)
-  debug('DSB: 0x%X' % dsb.u16)
+  debug('CSB: %s' % ADDR_FMT(csb.u16))
+  debug('DSB: %s' % ADDR_FMT(dsb.u16))
 
   references = {}
   symbols = []
@@ -98,23 +100,24 @@ def compile_buffer(buffer, csb = None, dsb = None):
     references['&' + name] = UInt16(dsp.u16)
     symbols.append(('&' + name, dsp.u16, UInt16(len(value)).u16))
 
-    debug('0x%X: data entry "%s", size 0x%X' % (dsp.u16, name, len(value)))
+    debug('%s: data entry "%s", size %s' % (ADDR_FMT(dsp.u16), name, SIZE_FMT(len(value))))
 
     for i in range(0, len(value)):
       ds_pass2.append(UInt8(ord(value[i])))
       dsp.u16 += 1
 
-  for label, ins in cs_pass1:
-    csp_str = '0x%X:' % csp.u16
+  for labeled, ins in cs_pass1:
+    csp_str = ADDR_FMT(csp.u16)
 
-    if label:
-      references[label] = UInt16(csp.u16)
-      debug(csp_str, 'label entry "%s" created' % label)
+    if labeled:
+      for label in labeled:
+        references[label] = UInt16(csp.u16)
+        debug(csp_str, 'label entry "%s" created' % label)
 
     if type(ins) == types.StringType:
       if ins in references:
         cs_pass2.append(references[ins])
-        debug(csp_str, 'reference "%s" replaced with 0x%X' % (ins, references[ins].u16))
+        debug(csp_str, 'reference "%s" replaced with %s' % (ins, ADDR_FMT(references[ins].u16)))
       else:
         pass3_required = True
         cs_pass2.append(ins)
@@ -125,7 +128,7 @@ def compile_buffer(buffer, csb = None, dsb = None):
       if type(ins) == cpu.instructions.InstructionBinaryFormat:
         debug(csp_str, ins2str(ins))
       else:
-        debug(csp_str, '0x%X' % ins.u16)
+        debug(csp_str, UINT16_FMT(ins.u16))
 
     csp.u16 += 2
 
@@ -140,15 +143,15 @@ def compile_buffer(buffer, csb = None, dsb = None):
         continue
 
       cs_pass3.append(references[ins])
-      debug(csp_str, 'reference "%s" replaced with 0x%X' % (ins, references[ins].u16))
+      debug(csp_str, 'reference "%s" replaced with %s' % (ins, ADDR_FMT(references[ins].u16)))
 
     ds_pass3 = ds_pass2[:]
   else:
     cs_pass3 = cs_pass2[:]
     ds_pass3 = ds_pass2[:]
 
-  debug('CSB: 0x%X, size: 0x%X' % (csb.u16, len(cs_pass3)))
-  debug('DSB: 0x%X, size: 0x%X' % (dsb.u16, len(ds_pass3)))
+  debug('CSB: %s, size: %s' % (ADDR_FMT(csb.u16), SIZE_FMT(len(cs_pass3))))
+  debug('DSB: %s, size: %s' % (ADDR_FMT(dsb.u16), SIZE_FMT(len(ds_pass3))))
 
   info('Bytecode translation completed')
 
