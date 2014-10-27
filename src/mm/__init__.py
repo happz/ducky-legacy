@@ -491,6 +491,9 @@ class MemoryController(object):
       elif type(i) == UInt16:
         value = i
 
+      else:
+        raise CPUException('Unknown value to be loaded into memory: %s' % i)
+
       self.write_u16(sp.u24, value.u16, privileged = True)
       sp.u24 += 2
 
