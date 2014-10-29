@@ -33,3 +33,8 @@ class ConsoleIOHandler(io.IOHandler):
     debug('conio.write_u8_256: value=%s' % UINT8_FMT(value.u8))
 
     sys.stdout.write('%s' % chr(value.u8))
+
+  def write_u8_257(self, value):
+    debug('conio.write_u8_257: value=%s' % UINT8_FMT(value.u8))
+
+    sys.stderr.write('%s' % chr(value.u8))

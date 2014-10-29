@@ -37,6 +37,7 @@ class Machine(object):
 
     conio = io.conio.ConsoleIOHandler()
     self.register_port(0x100, conio)
+    self.register_port(0x101, conio)
 
     self.register_irq_source(irq.IRQList.CONIO, irq.conio.Console(0, conio))
     self.register_irq_source(irq.IRQList.TIMER, irq.timer.Timer(10))
