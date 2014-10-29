@@ -1,6 +1,7 @@
 #!/usr/bin/python
 
 import collections
+import enum
 import optparse
 import pycparser
 import pycparser.c_ast
@@ -840,11 +841,23 @@ class Block(object):
 
     debug('block left: parent=%s, node=%s' % (self.parent, self.node))
 
-def handle_TypeDef(node):
-  pass
-
 def mangle_fn_name(s):
   return '__fn_%s_prolog__' % s
+
+class CodeState(object):
+  pass
+
+class CodeVisitor(pycparser.c_ast.NodeVisitor):
+  def __init__(self, code_state, *args, **kwargs):
+    super(CodeVisitor, self).__init__(*args, **kwargs)
+
+    self.code_state = code_state
+
+  def visit_Typedef(self, node):
+    pass
+
+  def visit_FuncDef(self, node):
+    handle_FuncDef(node)
 
 def handle_FuncDef(node):
   fn_decl = node.decl
@@ -872,7 +885,6 @@ def handle_FuncDef(node):
   emit_inst('ret')
   emit_log('Function "%s" ends here' % fn_name)
 
-
 def compile_file(file_in, file_out):
   global INSTS
   INSTS = []
@@ -883,14 +895,9 @@ def compile_file(file_in, file_out):
   emit_inst('call %s' % mangle_fn_name('main'))
   emit_inst('hlt r0')
 
-  for node in ast.ext:
-    if isinstance(node, pycparser.c_ast.Typedef):
-      # create type
-      handle_TypeDef(node)
+  code_state = CodeState()
 
-    elif isinstance(node, pycparser.c_ast.FuncDef):
-      # create function
-      handle_FuncDef(node)
+  CodeVisitor(code_state).visit(ast)
 
   info('Generated instructions:')
   dump_insts(INSTS)
