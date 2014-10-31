@@ -39,91 +39,73 @@ Let's use "Hello, world!" example - short code that prints quite unusual message
 
 ```
 $ cat examples/hello-world.asm
-data message, "Hello, world!"
+  .type message, string
+  .string "Hello, world!"
+
 main:
-  loada r1, 14
-  loada r2, &message
+  loada r1, &message
+  calli __fn_writesn_prolog
+  hlt r0
+
+__outb_prolog:
+  # > r1: port
+  # > r2: byte
+  out r1, r2 b
+  ret
+
+__fn_writesn_prolog:
+  # > r1: string address
+  #   r2: current byte
+  #   r3: port
+  push r2
+  push r3
   loada r3, 0x100
-loop:
-  load r2, r4 b
-  out r4, r3 b
-  inc r2
-  dec r1
-  jnz loop
-  loada r2, 10
-  out r2, r3 b
-  loada r2, 13
-  out r2, r3 b
-  loada r1, 0
-  hlt r1
+__fn_writesn_loop:
+  load r2, r1 b
+  jz __fn_writesn_write_nl
+  push r1
+  mov r1, r3
+  calli __outb_prolog
+  pop r1
+  inc r1
+  jmp __fn_writesn_loop
+__fn_writesn_write_nl:
+  push r1
+  loada r1, 0x100
+  # \n
+  loada r2, 0xA b
+  call __outb_prolog
+  # \r
+  loada r2, 0xD b
+  call __outb_prolog
+  pop r1
+  loada r0, 0
+  pop r3
+  pop r2
+  ret
 ```
 
 Translate it into bytecode:
 
 ```
-$ tools/as -vvv -f -i examples/hello-world.asm -o hello-world.bin
- [INFO] Input file: examples/hello-world.asm
- [INFO] Bytecode translation completed
- [INFO] Output file: hello-world.bin
- [INFO] Source file successfully translated and saved
+$ tools/as -f -i examples/hello-world.asm -o hello-world.bin
 ```
 
 And fire a virtual machine:
 
 ```
-$ tools/vm -vvv -b hello-world.bin
- [INFO] CPU #0:0 boot!
- [INFO] #0:#0:  reg0=0x0
- [INFO] #0:#0:  reg1=0x0
- [INFO] #0:#0:  reg2=0x0
- [INFO] #0:#0:  reg3=0x0
- [INFO] #0:#0:  reg4=0x0
- [INFO] #0:#0:  reg5=0x0
- [INFO] #0:#0:  reg6=0x0
- [INFO] #0:#0:  reg7=0x0
- [INFO] #0:#0:  reg8=0x0
- [INFO] #0:#0:  reg9=0x0
- [INFO] #0:#0:  reg10=0x0
- [INFO] #0:#0:  reg11=0x0
- [INFO] #0:#0:  reg12=0x0
- [INFO] #0:#0:  ip=0x500
- [INFO] #0:#0:  sp=0x0
- [INFO] #0:#0:  priv=1, hwint=1
- [INFO] #0:#0:  eq=0, z=0, o=0
- [INFO] #0:#0:  thread=CPU #0:#0, keep_running=True
- [INFO] #0:#0:  exit_code=0
+$ tools/vm -b hello-world.bin          
 Hello, world!
- [INFO] CPU #0:0 halt!
- [INFO] #0:#0:  reg0=0x0
- [INFO] #0:#0:  reg1=0x0
- [INFO] #0:#0:  reg2=0xD
- [INFO] #0:#0:  reg3=0x100
- [INFO] #0:#0:  reg4=0x0
- [INFO] #0:#0:  reg5=0x0
- [INFO] #0:#0:  reg6=0x0
- [INFO] #0:#0:  reg7=0x0
- [INFO] #0:#0:  reg8=0x0
- [INFO] #0:#0:  reg9=0x0
- [INFO] #0:#0:  reg10=0x0
- [INFO] #0:#0:  reg11=0x0
- [INFO] #0:#0:  reg12=0x0
- [INFO] #0:#0:  ip=0x52A
- [INFO] #0:#0:  sp=0x0
- [INFO] #0:#0:  priv=1, hwint=1
- [INFO] #0:#0:  eq=0, z=1, o=0
- [INFO] #0:#0:  thread=CPU #0:#0, keep_running=False
- [INFO] #0:#0:  exit_code=0
- [INFO] CPU #0 halt!
- [INFO] All halted
+ [ERRR] Instruction not allowed in unprivileged mode: opcode=18 
+$
 ```
 
-Don't mind debug messages, focus on sweet and nice line in the middle. Oh this is good! :)
+Don't mind the error message - the last instruction is ```hlt```, which is not allowed in non-privileged mode. Which is the default mode from the start of common binaries.
 
 Let's see some dump...
 
 ```
 $ tools/objdump -i hello-world.bin -vvv -d
- [INFO] Input file: hello-world.bin 
  [INFO] 
  [INFO] === File header === 
  [INFO]   Magic:    0xDEAD 
@@ -135,49 +117,94 @@ $ tools/objdump -i hello-world.bin -vvv -d
  [INFO] * Section #0 
  [INFO]   Type:   TEXT 
  [INFO]   Flags:  0x0 
- [INFO]   Base:   0x500 
- [INFO]   Size:   0x15 
- [INFO]   Offset: 0x36 
+ [INFO]   Base:   0x000000 
+ [INFO]   Size:   57 
+ [INFO]   Offset: 0x000036 
  [INFO] 
- [INFO]    loada r1, 0xE  
- [INFO]    loada r2, 0x600  
- [INFO]    loada r3, 0x100  
- [INFO]    load r2, r4 b 
- [INFO]    out r4, r3 b 
- [INFO]    inc r2  
- [INFO]    dec r1  
- [INFO]    jnz 0x50C  
- [INFO]    loada r2, 0xA  
- [INFO]    out r2, r3 b 
- [INFO]    loada r2, 0xD  
- [INFO]    out r2, r3 b 
- [INFO]    loada r1, 0x0  
- [INFO]    hlt r1  
+ [INFO]    0x000000 calli 0x0000A8 
+ [INFO]    0x000004 hlt r0 
+ [INFO]    0x000008 outb r1, r2 
+ [INFO]    0x00000C ret 
+ [INFO]    0x000010 push r4 
+ [INFO]    0x000014 push r5 
+ [INFO]    0x000018 li r5, 0x0100 
+ [INFO]    0x00001C li r4, 0x0000 
+ [INFO]    0x000020 cmp r4, r3 
+ [INFO]    0x000024 be 0x000064 
+ [INFO]    0x000028 bns 0x000064 
+ [INFO]    0x00002C push r6 
+ [INFO]    0x000030 mov r6, r4 
+ [INFO]    0x000034 add r6, r2 
+ [INFO]    0x000038 lb r6, r6 
+ [INFO]    0x00003C push r1 
+ [INFO]    0x000040 mov r1, r5 
+ [INFO]    0x000044 push r2 
+ [INFO]    0x000048 mov r2, r6 
+ [INFO]    0x00004C calli 0x000008 
+ [INFO]    0x000050 pop r2 
+ [INFO]    0x000054 pop r1 
+ [INFO]    0x000058 pop r6 
+ [INFO]    0x00005C inc r4 
+ [INFO]    0x000060 j 0x000020 
+ [INFO]    0x000064 push r1 
+ [INFO]    0x000068 mov r1, r5 
+ [INFO]    0x00006C push r2 
+ [INFO]    0x000070 li r2, 0x000A 
+ [INFO]    0x000074 calli 0x000008 
+ [INFO]    0x000078 pop r2 
+ [INFO]    0x00007C pop r1 
+ [INFO]    0x000080 push r1 
+ [INFO]    0x000084 mov r1, r5 
+ [INFO]    0x000088 push r2 
+ [INFO]    0x00008C li r2, 0x000D 
+ [INFO]    0x000090 calli 0x000008 
+ [INFO]    0x000094 pop r2 
+ [INFO]    0x000098 pop r1 
+ [INFO]    0x00009C pop r5 
+ [INFO]    0x0000A0 pop r4 
+ [INFO]    0x0000A4 ret 
+ [INFO]    0x0000A8 push r3 
+ [INFO]    0x0000AC li r3, 0x0100 
+ [INFO]    0x0000B0 push r1 
+ [INFO]    0x0000B4 li r1, 0x0000 
+ [INFO]    0x0000B8 push r2 
+ [INFO]    0x0000BC mov r2, r3 
+ [INFO]    0x0000C0 push r3 
+ [INFO]    0x0000C4 li r3, 0x000D 
+ [INFO]    0x0000C8 calli 0x000010 
+ [INFO]    0x0000CC pop r3 
+ [INFO]    0x0000D0 pop r2 
+ [INFO]    0x0000D4 pop r1 
+ [INFO]    0x0000D8 pop r3 
+ [INFO]    0x0000DC li r0, 0x0000 
+ [INFO]    0x0000E0 ret 
  [INFO] 
  [INFO] * Section #1 
  [INFO]   Type:   DATA 
  [INFO]   Flags:  0x0 
- [INFO]   Base:   0x600 
- [INFO]   Size:   0xD 
- [INFO]   Offset: 0x60 
+ [INFO]   Base:   0x000100 
+ [INFO]   Size:   14 
+ [INFO]   Offset: 0x00011A 
  [INFO] 
  [INFO] * Section #2 
  [INFO]   Type:   STACK 
  [INFO]   Flags:  0x0 
- [INFO]   Base:   0x700 
- [INFO]   Size:   0x0 
- [INFO]   Offset: 0x0 
+ [INFO]   Base:   0x000000 
+ [INFO]   Size:   0 
+ [INFO]   Offset: 0x000000 
  [INFO] 
  [INFO] * Section #3 
  [INFO]   Type:   SYMBOLS 
  [INFO]   Flags:  0x0 
- [INFO]   Base:   0x0 
- [INFO]   Size:   0x1 
- [INFO]   Offset: 0x6D 
+ [INFO]   Base:   0x000000 
+ [INFO]   Size:   1 
+ [INFO]   Offset: 0x000128 
  [INFO] 
- [INFO]    Name:    &message
- [INFO]    Address: 0x600
- [INFO]    Size:    0xD
- [INFO]    Section: 1
- [INFO]    Content: "Hello, world!"
+ [INFO]    Name:    some_data 
+ [INFO]    Address: 0x000100 
+ [INFO]    Size:    14 
+ [INFO]    Section: 1 
+ [INFO]    Type:    string 
+ [INFO]    Content: "Hello, world!" 
+ [INFO]
 ```
