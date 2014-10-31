@@ -76,7 +76,7 @@ class SymbolEntry(LittleEndianStructure):
     self.name[i + 1] = 0
 
 SECTION_ITEM_SIZE = [
-  2, 1, 0, sizeof(SymbolEntry)
+  sizeof(cpu.instructions.InstBinaryFormat_Master), sizeof(UInt8), 0, sizeof(SymbolEntry)
 ]
 
 class File(file):
@@ -198,13 +198,9 @@ class File(file):
           se.type = self.read_u8().u8
 
         else:
-          ins = cpu.instructions.InstructionBinaryFormat()
-          ins.generic.ins = self.read_u16().u16
-          content.append(ins)
-
-          if 'l' in cpu.instructions.INSTRUCTIONS[ins.nullary.opcode].args:
-            content.append(self.read_u16())
-            i += 1
+          inst = cpu.instructions.InstBinaryFormat_Master()
+          inst.overall.u32 = self.read_u32().u32
+          content.append(inst)
 
         i += 1
 
@@ -261,8 +257,9 @@ class File(file):
       self.seek(header.offset)
 
       for j in range(0, len(content)):
-        if type(content[j]) == cpu.instructions.InstructionBinaryFormat:
-          self.write_u16(content[j].generic.ins)
+        if content[j].__class__.__name__.startswith('InstBinaryFormat_'):
+          master = cpu.instructions.convert_to_master(content[j])
+          self.write_u32(master.overall.u32)
 
         elif type(content[j]) == SymbolEntry:
           se = content[j]

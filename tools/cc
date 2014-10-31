@@ -40,7 +40,9 @@ def emit_label(label):
 
 def emit_data(name, value):
   global INSTS
-  INSTS.insert(0, 'data %s, %s' % (name, value))
+
+  INSTS.insert(0, '  .type %s, string' % name)
+  INSTS.insert(1, '  .string %s' % value)
 
 def emit_inst(inst):
   if len(inst) and inst[0] not in ('_', '#'):
@@ -138,7 +140,7 @@ def emit_routine_call(block, node):
         emit_log('CA: borrow register and load it with address')
 
         reg = register_rental.get_and_save()
-        emit_inst('loada %s, &%s' % (reg, 'some_data'))
+        emit_inst('li %s, &%s' % (reg, 'some_data'))
         callee_arguments.append(CalleeArgument(None, None, None, reg))
 
       else:
@@ -178,7 +180,7 @@ def emit_routine_call(block, node):
       emit_log('shift with base address')
       emit_inst('add %s, %s' % (reg, v_var.reg))
       emit_log('load value from referenced address')
-      emit_inst('load %s, %s b' % (reg, reg))
+      emit_inst('lb %s, %s' % (reg, reg))
 
       callee_arguments.append(CalleeArgument(None, None, None, reg))
 
@@ -231,12 +233,12 @@ def emit_routine_call(block, node):
         emit_inst('mov %s, %s' % (areg, v_var.reg))
 
       elif callee_argument.type and callee_argument.value:
-        emit_inst('loada %s, %s' % (areg, callee_argument.value))
+        emit_inst('li %s, %s' % (areg, callee_argument.value))
 
       elif callee_argument.reg:
         emit_inst('mov %s, %s' % (areg, callee_argument.reg))
 
-    emit_inst('call %s' % mangle_fn_name(callee_name))
+    emit_inst('calli %s' % mangle_fn_name(callee_name))
 
     emit_log('restore saved argument registers')
     callee_arguments.reverse()
@@ -265,7 +267,7 @@ def collapse_constant(block, node, borrower):
     reg = borrower()
 
     emit_inst('push %s' % reg)
-    emit_inst('loada %s, %s' % (reg, c_value))
+    emit_inst('lw %s, %s' % (reg, c_value))
 
     return (reg, True)
 
@@ -381,7 +383,7 @@ def decode_rvalue(block, rvalue_node, dreg):
       raise CompilationError(node.coord, 'Unhandled operation: %s' % node.op)
 
     if dreg != lreg:
-      emit_inst('move %s, %s' % (lreg, dreg))
+      emit_inst('mov %s, %s' % (lreg, dreg))
 
     register_rental.borrowed_registers.keys(callback = lambda reg: emit_inst('pop %s' % reg))
 
@@ -447,23 +449,23 @@ def emit_cond(block, stmt, false_label = None):
   emit_inst('cmp %s, %s' % (lreg, rreg))
 
   if cond.op == '==':
-    emit_inst('jne %s' % false_label)
+    emit_inst('bne %s' % false_label)
 
   elif cond.op == '>':
-    emit_inst('je %s' % false_label)
-    emit_inst('js %s' % false_label)
+    emit_inst('be %s' % false_label)
+    emit_inst('bs %s' % false_label)
 
   elif cond.op == '<':
-    emit_inst('je %s' % false_label)
-    emit_inst('jns %s' % false_label)
+    emit_inst('be %s' % false_label)
+    emit_inst('bns %s' % false_label)
 
   elif cond.op == '>=':
-    emit_inst('js %s' % false_label)
+    emit_inst('bs %s' % false_label)
 
   elif cond.op == '<=':
-    emit_inst('js %s' % true_label)
-    emit_inst('je %s' % true_label)
-    emit_inst('jmp %s' % false_label)
+    emit_inst('bs %s' % true_label)
+    emit_inst('be %s' % true_label)
+    emit_inst('j %s' % false_label)
 
   else:
     raise CompilationError(cond.coord, 'Unhandled cond op: %s' % cond.op)
@@ -586,7 +588,7 @@ class Block(object):
     raise CompilationError(None, 'Undefined variable: %s' % v_name)
 
   def assign_set_int(self, lreg, c_value):
-    emit_inst('loada %s, %s' % (lreg, c_value))
+    emit_inst('li %s, %s' % (lreg, c_value))
 
   def assign_inc_int(self, lreg):
     emit_inst('inc %s' % lreg)
@@ -596,12 +598,12 @@ class Block(object):
 
   def assign_add_const_int(self, lreg, c_value):
     with WithInterimReg(self) as i_reg:
-      emit_inst('loada %s, %s' % (i_reg, c_value))
+      emit_inst('li %s, %s' % (i_reg, c_value))
       emit_inst('add %s, %s' % (i_reg, lreg))
 
   def assign_sub_const_int(self, lreg, c_value):
     with WithInterimReg(self) as i_reg:
-      emit_inst('loada %s, %s' % (i_reg, c_value))
+      emit_inst('li %s, %s' % (i_reg, c_value))
       emit_inst('sub %s, %s' % (i_reg, lreg))
 
   def prolog(self):
@@ -653,7 +655,7 @@ class Block(object):
 
     # Initialize local variables
     for v_var in self.init_registers:
-      emit_inst('loada %s, %s' % (v_var.reg, v_var.init_value))
+      emit_inst('li %s, %s' % (v_var.reg, v_var.init_value))
 
   def body(self):
     # Pass #2
@@ -687,7 +689,7 @@ class Block(object):
         label_prolog, label_true, label_false, label_epilog = emit_cond(self, stmt)
 
         emit_cond_branch(self, stmt.iftrue, label_true)
-        emit_inst('jmp %s' % label_epilog)
+        emit_inst('j %s' % label_epilog)
         emit_cond_branch(self, stmt.iffalse, label_false)
         emit_inst(label_epilog + ':')
 
@@ -769,7 +771,7 @@ class Block(object):
 
           # pop all clobbered registers from parent blocks
           if c_type == 'int':
-            emit_inst('loada r0, ' + c_value)
+            emit_inst('li r0, ' + c_value)
 
           else:
             raise CompilationError(stmt.coord, 'unhandled return: rvalue=const, c_type=%s, %s' % c_t)
@@ -824,7 +826,7 @@ class Block(object):
         # retest condition
         debug('loop: emit jump to condition')
         emit_log('loop jump')
-        emit_inst('jmp %s' % label_cond_prolog)
+        emit_inst('j %s' % label_cond_prolog)
 
         # emit epilog label
         debug('loop: emit epilog label')
@@ -892,7 +894,7 @@ def compile_file(file_in, file_out):
   ast = pycparser.parse_file(file_in, use_cpp = True, cpp_args = r'-I/data/git/pycparser/utils/fake_libc_include')
 
   emit_log('prepare main arguments')
-  emit_inst('call %s' % mangle_fn_name('main'))
+  emit_inst('calli %s' % mangle_fn_name('main'))
   emit_inst('hlt r0')
 
   code_state = CodeState()

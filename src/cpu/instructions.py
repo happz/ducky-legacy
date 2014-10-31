@@ -3,484 +3,883 @@ import ctypes
 import enum
 import re
 
-from ctypes import c_ubyte, c_ushort, Structure, Union
+from ctypes import LittleEndianStructure, Union, c_uint
 
 from util import debug
-from mm import UInt16, UINT16_FMT
+from mm import UInt32, UInt16, UINT16_FMT, ADDR_FMT
 
 class Opcodes(enum.IntEnum):
-  NOP = 0
-  INT = 1
-  RETINT = 2
-  CLI = 3
-  STI = 4
-  HLT = 5
-  PUSH = 6
-  POP = 7
-  LOAD = 8
-  STORE = 9
-  INC = 10
-  DEC = 11
-  ADD = 12
-  SUB = 13
-  MUL = 14
-  DIV = 15
-  JMP = 16
-  JE = 17
-  JNE = 18
-  CALL = 19
-  RET = 20
-  IN = 21
-  OUT = 22
-  LOADA = 23
-  RST = 24
-  CPUID = 25
-  IDLE = 26
-  JZ = 27
-  JNZ = 28
-  AND = 29
-  OR = 30
-  XOR = 31
-  NOT = 32
-  CMP = 33
-  JS  = 34
-  JNS = 35
-  MOV = 36
+  NOP    = 0
 
-class InstructionFlags(enum.IntEnum):
-  BYTE = 0
+  #
+  # Memory load/store operations
+  #
+  LW     =  1
+  LB     =  2
+  LBU    =  3
+  LI     =  4
+  STW    =  5
+  STB    =  6
+  STBU   =  7
+  MOV    =  8
+  SWP    =  9
 
-f_ins      = ('ins',    c_ushort)
-f_opcode   = ('opcode', c_ubyte, 6)
-f_byte     = ('byte',   c_ubyte, 1)
-f_flag     = ('flag',   c_ubyte, 1)
-f_reg1     = ('reg1',   c_ubyte, 4)
-f_reg2     = ('reg2',   c_ubyte, 4)
-f_padding4 = ('__padding__', c_ubyte, 4)
-f_padding8 = ('__padding__', c_ubyte, 8)
+  # 2
+  INT    = 10
+  RETINT = 11
 
-class GenericInstruction(Structure):
-  _pack_ = 0
-  _fields_ = [f_ins]
+  # 2
+  CALL   = 12
+  CALLI  = 13
+  RET    = 14
 
-class NullaryInstruction(Structure):
-  _pack_ = 0
-  _fields_ = [f_opcode, f_byte, f_flag, f_padding8]
+  # 5
+  CLI    = 15
+  STI    = 16
+  RST    = 17
+  HLT    = 18
+  IDLE   = 19
 
-class UnaryInstruction(Structure):
-  _pack_ = 0
-  _fields_ = [f_opcode, f_byte, f_flag, f_reg1, f_padding4]
+  # 2
+  PUSH   = 20
+  POP    = 21
 
-class BinaryInstruction(Structure):
-  _pack_ = 0
-  _fields_ = [f_opcode, f_byte, f_flag, f_reg1, f_reg2]
+  # 4
+  INC    = 22
+  DEC    = 23
+  ADD    = 24
+  SUB    = 25
+  ADDI   = 26
+  SUBI   = 27
 
-class InstructionBinaryFormat(Union):
+  # 6
+  AND    = 28
+  OR     = 29
+  XOR    = 30
+  NOT    = 31
+  SHIFTL = 32
+  SHIFTR = 33
+
+  # 2
+  OUT    = 34
+  IN     = 35
+  OUTB   = 36
+  INB    = 37
+
+  # 5
+  CMP    = 38
+  J      = 39
+  JR     = 40
+  BE     = 41
+  BNE    = 42
+  BZ     = 43
+  BNZ    = 44
+  BS     = 45
+  BNS    = 46
+  BER    = 47
+  BNER   = 48
+  BZR    = 49
+  BNZR   = 50
+  BSR    = 51
+  BNSR   = 52
+
+class GenericInstBinaryFormat_Overall(LittleEndianStructure):
   _pack_ = 0
   _fields_ = [
-    ('generic', GenericInstruction),
-    ('nullary', NullaryInstruction),
-    ('unary',   UnaryInstruction),
-    ('binary',  BinaryInstruction)
+    ('u32', c_uint)
   ]
 
-def ins2str(ins):
-  if type(ins) == InstructionBinaryFormat:
-    opcode = ins.nullary.opcode
-    desc = INSTRUCTIONS[opcode]
+class GenericInstBinaryFormat_Opcode(LittleEndianStructure):
+  _pack_ = 0
+  _fields_ = [
+    ('opcode', c_uint, 6),
+    ('__padding__', c_uint, 26)
+  ]
 
-    ins = getattr(ins, desc.binary_format)
+def decode_instruction(inst):
+  if type(inst) == UInt32:
+    master = InstBinaryFormat_Master()
+    master.overall.u32 = inst.u32
+    inst = master
 
-  opcode = ins.opcode
-  desc = INSTRUCTIONS[opcode]
+  if type(inst) == InstBinaryFormat_Master:
+    return getattr(inst, OPCODE_TO_DESC_MAP[inst.opcode.opcode].binary_format_name)
 
-  props = collections.OrderedDict()
+  return inst
 
-  props['ins'] = '%s' % desc.mnemonic
-  props['opcode'] = ins.opcode
-  props['byte']   = ins.byte
+def convert_to_master(inst):
+  if isinstance(inst, InstBinaryFormat_Master):
+    return inst
 
-  if desc.binary_format in ('unary', 'binary'):
-    props['reg1'] = 'r%i' % ins.reg1
+  master = InstBinaryFormat_Master()
+  setattr(master, inst.__class__.__name__, inst)
+  return master
 
-  if desc.binary_format in ('binary',):
-    props['reg2'] = 'r%i' % ins.reg2
+def disassemble_instruction(inst):
+  inst = decode_instruction(inst)
+  desc = OPCODE_TO_DESC_MAP[inst.opcode]
 
-  return '; '.join(['%s=%s' % (key, value) for key, value in props.items()])
+  operands = desc.disassemble_operands(inst)
 
-def disassemble_instruction(ins, next_cell):
-  if type(ins) == InstructionBinaryFormat:
-    opcode = ins.nullary.opcode
-    desc = INSTRUCTIONS[opcode]
-    ins = getattr(ins, desc.binary_format)
-  else:
-    desc = INSTRUCTIONS[ins.opcode]
+  return (desc.mnemonic + ' ' + ', '.join(operands)) if len(operands) else desc.mnemonic
 
-  operands = []
+PATTERN_REGISTER   = r'r(\d{1,2})'
+PATTERN_JUMP_LABEL = r'([a-zA-Z_][a-zA-Z0-9_-]*)'
+PATTERN_IMMEDIATE  = r'(?:(0x([0-9a-fA-F]+))|(\d+)|(&[a-zA-Z_][a-zA-Z0-9_]*)|([a-zA-Z_][a-zA-Z0-9_-]*))'
 
-  additional_operands = 0
-
-  for k in range(0, len(desc.args)):
-    operand_type = desc.args[k]
-
-    if operand_type == 'r':
-      operands.append('r%i' % getattr(ins, 'reg%i' % (k + 1)))
-
-    elif operand_type == 'l':
-      operands.append(UINT16_FMT(next_cell.u16))
-      additional_operands += 1
-
-  return (desc.mnemonic.split(' ')[0] + ' ' + ', '.join(operands) + (' b' if ins.byte == 1 else ''), additional_operands)
-
-class InstructionDescriptor(object):
+class InstDescriptor(object):
   mnemonic      = None
-  pattern       = None
-  args          = ''
-  binary_format = 'generic'
   opcode        = None
-  byte          = False
+  operands      = None
+  binary_format = None
+
+  pattern       = None
+  binary_format_name = None
+
+  def create_binary_format_class(self):
+    fields = []
+
+    fields_desc = self.binary_format.split(',') if self.binary_format else []
+
+    if not len(fields_desc) or not fields_desc[0].startswith('opcode'):
+      fields_desc.insert(0, 'opcode:6')
+
+    for field in fields_desc:
+      field = field.split(':')
+      fields.append((field[0], c_uint, int(field[1])))
+
+    self.binary_format_name = 'InstBinaryFormat_%s' % self.mnemonic
+    self.binary_format = type(self.binary_format_name, (ctypes.LittleEndianStructure,), {'_pack_': 0, '_fields_': fields})
 
   def __init__(self):
-    super(InstructionDescriptor, self).__init__()
+    super(InstDescriptor, self).__init__()
 
-    self.pattern = re.compile(self.pattern)
+    pattern = self.mnemonic
+
+    if self.operands:
+      operands = []
+
+      for o in self.operands:
+        if   o == 'r':
+          operands.append(PATTERN_REGISTER)
+
+        elif o == 'j':
+          operands.append(PATTERN_JUMP_LABEL)
+
+        elif o == 'i':
+          operands.append(PATTERN_IMMEDIATE)
+
+        else:
+          raise Exception('Unknown operand %s in %s' % (o, self.__class__))
+
+      pattern += ' ' + ', '.join(operands)
+
+    self.pattern = re.compile(pattern)
+
+    self.create_binary_format_class()
+
+  def assemble_operands(self, inst, operands):
+    pass
+
+  def fix_refers_to(self, inst, refers_to):
+    pass
+
+  def disassemble_operands(self, inst):
+    return []
 
   def emit_instruction(self, line):
     debug('emit_instruction: %s' % line)
 
-    I = InstructionBinaryFormat()
-    I.generic.ins = 0
+    master = InstBinaryFormat_Master()
+    master.overall.u16 = 0
 
-    record = getattr(I, self.binary_format)
-    record.opcode = self.opcode
+    debug('emit_instruction: binary format is %s' % self.binary_format_name)
+    debug('emit_instruction: desc is %s' % self)
 
-    refers_to = None
+    real = getattr(master, self.binary_format_name)
+    real.opcode = self.opcode
 
     match = self.pattern.match(line).groups()
+    debug('emit_instruction: match=%s' % str(match))
 
-    for i in range(0, len(self.args)):
-      # register
-      if self.args[i] == 'r':
-        setattr(record, 'reg%i' % (i + 1), int(match[i]))
+    operands = []
 
-      # label
-      if self.args[i] == 'l':
-        debug('label operand: %s' % str(match))
-        if match[i]:
-          refers_to = UInt16(int(match[i], base = 16))
-        elif match[i + 4]:
-          refers_to = match[i + 4]
-        elif match[i + 3]:
-          refers_to = match[i + 3]
-        else:
-          refers_to = UInt16()
-          refers_to.u16 = int(match[i + 2])
+    if self.operands and len(self.operands):
+      for i in range(0, len(self.operands)):
+        operand = self.operands[i]
 
-    if self.byte and line.endswith(' b'):
-      record.byte = 1
+        # register
+        if operand == 'r':
+          operands.append(match[i])
 
-    return [I] if not refers_to else [I, refers_to]
+        elif operand == 'j':
+          operands.append(match[i])
 
-p_r  = r'r(\d{1,2})'
-p_l  = r'(?:(0x([0-9a-fA-F]+))|(\d+)|(&[a-zA-Z_][a-zA-Z0-9_]*)|([a-zA-Z_][a-zA-Z0-9_-]*))'
-p_rr = r'' + p_r + ', ' + p_r
-p_rl = r'' + p_r + ', ' + p_l
+        elif operand == 'i':
+          # this is tricky - absolute number (hexa or dec) or address label (&foo) or label (foo:)
 
-class Ins_NOP(InstructionDescriptor):
+          debug('immediate operand: %s - position %i' % (str(match), i))
+
+          if match[i]:
+            operands.append(str(int(match[i], base = 16)))
+
+          elif match[i + 4]:
+            operands.append(match[i + 4])
+
+          elif match[i + 3]:
+            operands.append(match[i + 3])
+
+          else:
+            operands.append(str(int(match[i + 2])))
+
+    else:
+      pass
+
+    self.assemble_operands(real, operands)
+
+    for flag in [f for f in dir(self) if f.startswith('flag_')]:
+      setattr(real, flag.split('_')[1], getattr(self, flag))
+
+    return real
+
+#p_l  = r'(?:(0x([0-9a-fA-F]+))|(\d+)|(&[a-zA-Z_][a-zA-Z0-9_]*)|([a-zA-Z_][a-zA-Z0-9_-]*))'
+
+class Inst_NOP(InstDescriptor):
   mnemonic = 'nop'
-  pattern = r'nop'
-  binary_format = 'nullary'
   opcode = Opcodes.NOP
 
-class Ins_INT(InstructionDescriptor):
-  mnemonic = 'int <reg>'
-  pattern = r'int ' + p_r
-  args = 'r'
-  binary_format = 'unary'
-  opcode = Opcodes.INT
 
-class Ins_RETINT(InstructionDescriptor):
+#
+# Interrupts
+#
+class Inst_INT(InstDescriptor):
+  mnemonic      = 'int'
+  opcode        = Opcodes.INT
+  operands      = 'r'
+  binary_format = 'r_int:5'
+
+  def assemble_operands(self, inst, operands):
+    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
+
+    inst.r_int = int(operands[0])
+
+  def disassemble_operands(self, inst):
+    return ['r%i' % inst.r_int]
+
+class Inst_RETINT(InstDescriptor):
   mnemonic = 'retint'
-  pattern = r'retint'
-  binary_format = 'nullary'
-  opcode = Opcodes.RETINT
+  opcode   = Opcodes.RETINT
 
-class Ins_CLI(InstructionDescriptor):
+#
+# Routines
+#
+class Inst_CALL(InstDescriptor):
+  mnemonic      = 'call'
+  opcode        = Opcodes.CALL
+  operands      = 'r'
+  binary_format = 'r_dst:5'
+
+  def assemble_operands(self, inst, operands):
+    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
+
+    inst.r_dst = int(operands[0])
+
+  def disassemble_operands(self, inst):
+    return ['r%i' % inst.r_dst]
+
+class Inst_CALLI(InstDescriptor):
+  mnemonic      = 'calli'
+  opcode        = Opcodes.CALLI
+  operands      = 'i'
+  binary_format = 'immediate:16'
+
+  def assemble_operands(self, inst, operands):
+    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
+
+    inst.immediate = 0
+    inst.refers_to = operands[0]
+
+  def fix_refers_to(self, inst, refers_to):
+    debug('fix_refers_to: inst=%s, refers_to=%s' % (inst, UINT16_FMT(refers_to)))
+
+    inst.immediate = int(refers_to)
+    inst.refers_to = None
+
+  def disassemble_operands(self, inst):
+    return [inst.refers_to] if hasattr(inst, 'refers_to') and inst.refers_to else [ADDR_FMT(inst.immediate)]
+
+class Inst_RET(InstDescriptor):
+  mnemonic      = 'ret'
+  opcode        = Opcodes.RET
+
+#
+# CPU
+#
+class Inst_CLI(InstDescriptor):
   mnemonic = 'cli'
-  pattern = r'cli'
-  binary_format = 'nullary'
   opcode = Opcodes.CLI
 
-class Ins_STI(InstructionDescriptor):
+class Inst_STI(InstDescriptor):
   mnemonic = 'sti'
-  pattern = r'sti'
-  binary_format = 'nullary'
   opcode = Opcodes.STI
 
-class Ins_HLT(InstructionDescriptor):
-  mnemonic = 'hlt <reg>'
-  pattern = r'hlt ' + p_r
-  binary_format = 'unary'
-  args = 'r'
+class Inst_HLT(InstDescriptor):
+  mnemonic = 'hlt'
   opcode = Opcodes.HLT
+  operands = 'r'
+  binary_format = 'r_code:5'
 
-class Ins_PUSH(InstructionDescriptor):
-  mnemonic = 'push <reg>'
-  pattern = r'push ' + p_r
-  args = 'r'
-  binary_format = 'unary'
-  opcode = Opcodes.PUSH
+  def assemble_operands(self, inst, operands):
+    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
 
-class Ins_POP(InstructionDescriptor):
-  mnemonic = 'pop <reg>'
-  pattern = r'pop ' + p_r
-  args = 'r'
-  binary_format = 'unary'
-  opcode = Opcodes.POP
+    inst.r_code = int(operands[0])
 
-class Ins_LOAD(InstructionDescriptor):
-  mnemonic = 'load <reg>, <reg>'
-  pattern = r'load ' + p_rr
-  args = 'rr'
-  binary_format = 'binary'
-  opcode = Opcodes.LOAD
-  byte = True
+  def disassemble_operands(self, inst):
+    return ['r%i' % inst.r_code]
 
-class Ins_STORE(InstructionDescriptor):
-  mnemonic = 'store <reg>, <reg>'
-  pattern = r'store ' + p_rr
-  args = 'rr'
-  binary_format = 'binary'
-  opcode = Opcodes.STORE
-  byte = True
-
-class Ins_INC(InstructionDescriptor):
-  mnemonic = 'inc <reg>'
-  pattern = r'inc ' + p_r
-  args = 'r'
-  binary_format = 'unary'
-  opcode = Opcodes.INC
-
-class Ins_DEC(InstructionDescriptor):
-  mnemonic = 'dec <reg>'
-  pattern = r'dec ' + p_r
-  args = 'r'
-  binary_format = 'unary'
-  opcode = Opcodes.DEC
-
-class Ins_ADD(InstructionDescriptor):
-  mnemonic = 'add <reg>, <reg>'
-  pattern = r'add ' + p_rr
-  args = 'rr'
-  binary_format = 'binary'
-  opcode = Opcodes.ADD
-
-class Ins_SUB(InstructionDescriptor):
-  mnemonic = 'sub <reg>, <reg>'
-  pattern = r'sub ' + p_rr
-  args = 'rr'
-  binary_format = 'binary'
-  opcode = Opcodes.SUB
-
-class Ins_MUL(InstructionDescriptor):
-  mnemonic = 'mul <reg>, <reg>'
-  pattern = r'mul ' + p_rr
-  args = 'rr'
-  binary_format = 'binary'
-  opcode = Opcodes.MUL
-
-class Ins_DIV(InstructionDescriptor):
-  mnemonic = 'div <reg>, <reg>'
-  pattern = r'div ' + p_rr
-  args = 'rr'
-  binary_format = 'binary'
-  opcode = Opcodes.DIV
-
-class Ins_JMP(InstructionDescriptor):
-  mnemonic = 'jmp [label]'
-  pattern = r'jmp ' + p_l
-  args = 'l'
-  binary_format = 'nullary'
-  opcode = Opcodes.JMP
-
-class Ins_JE(InstructionDescriptor):
-  mnemonic = 'je [label]'
-  pattern = r'je ' + p_l
-  args = 'l'
-  binary_format = 'nullary'
-  opcode = Opcodes.JE
-
-class Ins_JNE(InstructionDescriptor):
-  mnemonic = 'jne [label]'
-  pattern = r'jne ' + p_l
-  args = 'l'
-  binary_format = 'nullary'
-  opcode = Opcodes.JNE
-
-class Ins_CALL(InstructionDescriptor):
-  mnemonic = 'call [label]'
-  pattern = r'call ' + p_l
-  args = 'l'
-  binary_format = 'nullary'
-  opcode = Opcodes.CALL
-
-class Ins_RET(InstructionDescriptor):
-  mnemonic = 'ret'
-  pattern = r'ret'
-  binary_format = 'nullary'
-  opcode = Opcodes.RET
-
-class Ins_IN(InstructionDescriptor):
-  mnemonic = 'in <reg>, <reg>'
-  pattern = r'in ' + p_rr
-  args = 'rr'
-  binary_format = 'binary'
-  opcode = Opcodes.IN
-  byte = True
-
-class Ins_OUT(InstructionDescriptor):
-  mnemonic = 'out <reg>, <reg>'
-  pattern = r'out ' + p_rr
-  args = 'rr'
-  binary_format = 'binary'
-  opcode = Opcodes.OUT
-  byte = True
-
-class Ins_LOADA(InstructionDescriptor):
-  mnemonic = 'loada <reg>, [label]'
-  pattern = r'loada ' + p_rl
-  args = 'rl'
-  binary_format = 'binary'
-  opcode = Opcodes.LOADA
-
-class Ins_RST(InstructionDescriptor):
+class Inst_RST(InstDescriptor):
   mnemonic = 'rst'
-  pattern = r'rst'
-  binary_format = 'nullary'
   opcode = Opcodes.RST
 
-class Ins_CPUID(InstructionDescriptor):
-  mnemonic = 'cpuid <reg>'
-  pattern = r'cpuid ' + p_r
-  args = 'r'
-  binary_format = 'unary'
-  opcode = Opcodes.CPUID
-
-class Ins_IDLE(InstructionDescriptor):
+class Inst_IDLE(InstDescriptor):
   mnemonic = 'idle'
-  pattern = r'idle'
-  binary_format = 'nullary'
   opcode = Opcodes.IDLE
 
-class Ins_JZ(InstructionDescriptor):
-  mnemonic = 'jz [label]'
-  pattern = r'jz ' + p_l
-  args = 'l'
-  binary_format = 'nullary'
-  opcode = Opcodes.JZ
+#
+# Stack
+#
+class Inst_PUSH(InstDescriptor):
+  mnemonic = 'push'
+  opcode = Opcodes.PUSH
+  operands = 'r'
+  binary_format = 'r_src:5'
 
-class Ins_JNZ(InstructionDescriptor):
-  mnemonic = 'jnz [label]'
-  pattern = r'jnz ' + p_l
-  args = 'l'
-  binary_format = 'nullary'
-  opcode = Opcodes.JNZ
+  def assemble_operands(self, inst, operands):
+    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
 
-class Ins_AND(InstructionDescriptor):
-  mnemonic = 'and <reg>, <reg>'
-  pattern = r'and ' + p_rr
-  args = 'rr'
-  binary_format = 'binary'
-  opcode = Opcodes.AND
+    inst.r_src = int(operands[0])
 
-class Ins_OR(InstructionDescriptor):
-  mnemonic = 'or <reg>, <reg>'
-  pattern = r'or ' + p_rr
-  args = 'rr'
-  binary_format = 'binary'
-  opcode = Opcodes.OR
+  def disassemble_operands(self, inst):
+    return ['r%i' % inst.r_src]
 
-class Ins_XOR(InstructionDescriptor):
-  mnemonic = 'xor <reg>, <reg>'
-  pattern = r'xor ' + p_rr
-  args = 'rr'
-  binary_format = 'binary'
-  opcode = Opcodes.XOR
+class Inst_POP(InstDescriptor):
+  mnemonic = 'pop'
+  opcode = Opcodes.POP
+  operands = 'r'
+  binary_format = 'r_dst:5'
 
-class Ins_NOT(InstructionDescriptor):
-  mnemonic = 'not <reg>'
-  pattern = r'not ' + p_r
-  args = 'r'
-  binary_format = 'unary'
-  opcode = Opcodes.NOT
+  def assemble_operands(self, inst, operands):
+    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
 
-class Ins_CMP(InstructionDescriptor):
-  mnemonic = 'cmp <reg>, <reg>'
-  pattern = r'cmp ' + p_rr
-  args = 'rr'
-  binary_format = 'binary'
+    inst.r_dst = int(operands[0])
+
+  def disassemble_operands(self, inst):
+    return ['r%i' % inst.r_dst]
+
+#
+# Arithmetic
+#
+class Inst_INC(InstDescriptor):
+  mnemonic = 'inc'
+  opcode = Opcodes.INC
+  operands = 'r'
+  binary_format = 'r_dst:5'
+
+  def assemble_operands(self, inst, operands):
+    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
+
+    inst.r_dst = int(operands[0])
+
+  def disassemble_operands(self, inst):
+    return ['r%i' % inst.r_dst]
+
+class Inst_DEC(InstDescriptor):
+  mnemonic = 'dec'
+  opcode = Opcodes.DEC
+  operands = 'r'
+  binary_format = 'r_dst:5'
+
+  def assemble_operands(self, inst, operands):
+    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
+
+    inst.r_dst = int(operands[0])
+
+  def disassemble_operands(self, inst):
+    return ['r%i' % inst.r_dst]
+
+class Inst_ADD(InstDescriptor):
+  mnemonic = 'add'
+  opcode = Opcodes.ADD
+  operands = 'rr'
+  binary_format = 'r_dst:5,r_add:5'
+
+  def assemble_operands(self, inst, operands):
+    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
+
+    inst.r_dst = int(operands[0])
+    inst.r_add = int(operands[1])
+
+  def disassemble_operands(self, inst):
+    return ['r%i' % inst.r_dst, 'r%i' % inst.r_add]
+
+class Inst_SUB(InstDescriptor):
+  mnemonic = 'sub'
+  opcode = Opcodes.SUB
+  operands = 'rr'
+  binary_format = 'r_dst:5,r_sub:5'
+
+  def assemble_operands(self, inst, operands):
+    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
+
+    inst.r_dst = int(operands[0])
+    inst.r_sub = int(operands[1])
+
+  def disassemble_operands(self, inst):
+    return ['r%i' % inst.r_dst, 'r%i' % inst.r_sub]
+
+class Inst_ADDI(InstDescriptor):
+  mnemonic = 'addi'
+  opcode = Opcodes.ADDI
+  operands = 'ri'
+  binary_format = 'r_dst:5,immediate:16'
+
+  def assemble_operands(self, inst, operands):
+    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
+
+    inst.r_dst = int(operands[0])
+    inst.r_immediate = int(operands[1])
+
+  def disassemble_operands(self, inst):
+    return ['r%i' % inst.r_dst, UINT16_FMT(inst.immediate)]
+
+class Inst_SUBI(InstDescriptor):
+  mnemonic = 'subi'
+  opcode = Opcodes.SUBI
+  operands = 'ri'
+  binary_format = 'r_dst:5,immediate:16'
+
+  def assemble_operands(self, inst, operands):
+    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
+
+    inst.r_dst = int(operands[0])
+    inst.immediate = int(operands[1])
+
+  def disassemble_operands(self, inst):
+    return ['r%i' % inst.r_dst, UINT16_FMT(inst.immediate)]
+
+#
+# Conditional and unconditional jumps
+#
+class Inst_CMP(InstDescriptor):
+  mnemonic = 'cmp'
   opcode = Opcodes.CMP
+  operands = 'rr'
+  binary_format = 'reg1:5,reg2:5'
 
-class Ins_JS(InstructionDescriptor):
-  mnemonic = 'js [label]'
-  pattern = r'js ' + p_l
-  args = 'l'
-  binary_format = 'nullary'
-  opcode = Opcodes.JS
+  def assemble_operands(self, inst, operands):
+    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
 
-class Ins_JNS(InstructionDescriptor):
-  mnemonic = 'jns [label]'
-  pattern = r'jns ' + p_l
-  args = 'l'
-  binary_format = 'nullary'
-  opcode = Opcodes.JNS
+    inst.reg1 = int(operands[0])
+    inst.reg2 = int(operands[1])
 
-class Ins_MOV(InstructionDescriptor):
-  mnemonic = 'mov <reg>, <reg>'
-  pattern = r'mov ' + p_rr
-  args = 'rr'
-  binary_format = 'binary'
+  def disassemble_operands(self, inst):
+    return ['r%i' % inst.reg1, 'r%i' % inst.reg2]
+
+class Inst_BaseOffsetJump(InstDescriptor):
+  operands      = 'j'
+  binary_format = 'immediate:16'
+
+  def assemble_operands(self, inst, operands):
+    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
+
+    inst.refers_to = operands[0]
+
+  def fix_refers_to(self, inst, refers_to):
+    debug('fix_refers_to: inst=%s, refers_to=%s' % (inst, UINT16_FMT(refers_to)))
+
+    inst.immediate = int(refers_to)
+    inst.refers_to = None
+
+  def disassemble_operands(self, inst):
+    return [inst.refers_to] if hasattr(inst, 'refers_to') and inst.refers_to else [ADDR_FMT(inst.immediate)]
+
+class Inst_J(Inst_BaseOffsetJump):
+  mnemonic = 'j'
+  opcode   = Opcodes.J
+
+class Inst_BE(Inst_BaseOffsetJump):
+  mnemonic = 'be'
+  opcode   = Opcodes.BE
+
+class Inst_BNE(Inst_BaseOffsetJump):
+  mnemonic = 'bne'
+  opcode   = Opcodes.BNE
+
+class Inst_BNS(Inst_BaseOffsetJump):
+  mnemonic = 'bns'
+  opcode   = Opcodes.BNS
+
+class Inst_BNZ(Inst_BaseOffsetJump):
+  mnemonic = 'bnz'
+  opcode   = Opcodes.BNZ
+
+class Inst_BS(Inst_BaseOffsetJump):
+  mnemonic = 'bs'
+  opcode   = Opcodes.BS
+
+class Inst_BZ(Inst_BaseOffsetJump):
+  mnemonic = 'bz'
+  opcode   = Opcodes.BZ
+
+class Inst_BaseRegisterJump(InstDescriptor):
+  operands      = 'r'
+  binary_format = 'r_address:5'
+
+  def assemble_operands(self, inst, operands):
+    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
+
+    inst.r_address = int(operands[0])
+
+  def disassemble_operands(self, inst):
+    return ['r%i' % inst.r_address]
+
+class Inst_JR(Inst_BaseRegisterJump):
+  mnemonic = 'jr'
+  opcode   = Opcodes.JR
+
+class Inst_BER(Inst_BaseRegisterJump):
+  mnemonic = 'ber'
+  opcode   = Opcodes.BER
+
+class Inst_BNER(Inst_BaseRegisterJump):
+  mnemonic = 'bner'
+  opcode   = Opcodes.BNER
+
+class Inst_BNSR(Inst_BaseRegisterJump):
+  mnemonic = 'bnsr'
+  opcode   = Opcodes.BNSR
+
+class Inst_BNZR(Inst_BaseRegisterJump):
+  mnemonic = 'bnzr'
+  opcode   = Opcodes.BNZR
+
+class Inst_BSR(Inst_BaseRegisterJump):
+  mnemonic = 'bsr'
+  opcode   = Opcodes.BSR
+
+class Inst_BZR(Inst_BaseRegisterJump):
+  mnemonic = 'bzr'
+  opcode   = Opcodes.BZR
+
+#
+# IO
+#
+class Inst_IN(InstDescriptor):
+  mnemonic      = 'in'
+  opcode        = Opcodes.IN
+  operands      = 'rr'
+  binary_format = 'r_port:5,r_dst:5'
+
+  def assemble_operands(self, inst, operands):
+    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
+
+    inst.r_port = int(operands[0])
+    inst.r_dst = int(operands[1])
+
+  def disassemble_operands(self, inst):
+    return ['r%i' % inst.r_port, 'r%i' % inst.r_dst]
+
+class Inst_INB(Inst_IN):
+  mnemonic      = 'inb'
+  opcode = Opcodes.INB
+
+class Inst_OUT(InstDescriptor):
+  mnemonic      = 'out'
+  opcode        = Opcodes.OUT
+  operands      = 'rr'
+  binary_format = 'byte:1,r_port:5,r_src:5'
+
+  def assemble_operands(self, inst, operands):
+    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
+
+    inst.r_port = int(operands[0])
+    inst.r_src = int(operands[1])
+
+  def disassemble_operands(self, inst):
+    return ['r%i' % inst.r_port, 'r%i' % inst.r_src]
+
+class Inst_OUTB(Inst_OUT):
+  mnemonic      = 'outb'
+  opcode = Opcodes.OUTB
+
+#
+# Bit operations
+#
+class Inst_AND(InstDescriptor):
+  mnemonic = 'and'
+  opcode = Opcodes.AND
+  operands = 'rr'
+  binary_format = 'r_dst:5,r_mask:5'
+
+  def assemble_operands(self, inst, operands):
+    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
+
+    inst.r_dst = int(operands[0])
+    inst.r_mask = int(operands[1])
+
+  def disassemble_operands(self, inst):
+    return ['r%i' % inst.r_dst, 'r%i' % inst.r_mask]
+
+class Inst_OR(InstDescriptor):
+  mnemonic = 'or'
+  opcode = Opcodes.OR
+  operands = 'rr'
+  binary_format = 'r_dst:5,r_mask:5'
+
+  def assemble_operands(self, inst, operands):
+    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
+
+    inst.r_dst = int(operands[0])
+    inst.r_mask = int(operands[1])
+
+  def disassemble_operands(self, inst):
+    return ['r%i' % inst.r_dst, 'r%i' % inst.r_mask]
+
+class Inst_XOR(InstDescriptor):
+  mnemonic = 'xor'
+  opcode = Opcodes.XOR
+  operands = 'rr'
+  binary_format = 'r_dst:5,r_mask:5'
+
+  def assemble_operands(self, inst, operands):
+    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
+
+    inst.r_dst = int(operands[0])
+    inst.r_mask = int(operands[1])
+
+  def disassemble_operands(self, inst):
+    return ['r%i' % inst.r_dst, 'r%i' % inst.r_mask]
+
+class Inst_NOT(InstDescriptor):
+  mnemonic = 'not'
+  opcode = Opcodes.NOT
+  operands = 'r'
+  binary_format = 'r_dst:5'
+
+  def assemble_operands(self, inst, operands):
+    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
+
+    inst.r_dst = int(operands[0])
+
+  def disassemble_operands(self, inst):
+    return ['r%i' % inst.r_dst]
+
+class Inst_BaseShift(InstDescriptor):
+  operands = 'ri'
+  binary_format = 'r_dst:5,immediate:4'
+
+  def assemble_operands(self, inst, operands):
+    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
+
+    inst.r_dst = int(operands[0])
+    inst.immediate = int(operands[1])
+
+  def disassemble_operands(self, inst):
+    return ['r%i' % inst.r_dst, '%i' % inst.immediate]
+
+class Inst_SHIFTL(Inst_BaseShift):
+  mnemonic = 'shiftl'
+  opcode = Opcodes.SHIFTL
+
+class Inst_SHIFTR(Inst_BaseShift):
+  mnemonic = 'shiftr'
+  opcode = Opcodes.SHIFTR
+
+#
+# Memory load/store operations
+#
+class Inst_BaseLoad(InstDescriptor):
+  operands = 'rr'
+  binary_format = 'r_dst:5,r_address:5'
+
+  def assemble_operands(self, inst, operands):
+    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
+
+    inst.r_dst = int(operands[0])
+    inst.r_address = int(operands[1])
+
+  def disassemble_operands(self, inst):
+    return ['r%i' % inst.r_dst, 'r%i' % inst.r_address]
+
+class Inst_LW(Inst_BaseLoad):
+  mnemonic = 'lw'
+  opcode = Opcodes.LW
+
+class Inst_LB(Inst_BaseLoad):
+  mnemonic = 'lb'
+  opcode = Opcodes.LB
+
+class Inst_LBU(Inst_BaseLoad):
+  mnemonic = 'lbu'
+  opcode = Opcodes.LBU
+
+class Inst_LI(Inst_BaseLoad):
+  mnemonic    = 'li'
+  opcode = Opcodes.LI
+  operands = 'ri'
+  binary_format = 'r_dst:5,immediate:16'
+
+  def assemble_operands(self, inst, operands):
+    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
+
+    inst.r_dst = int(operands[0])
+
+    if operands[1].startswith('&'):
+      inst.refers_to = operands[1]
+    else:
+      inst.immediate = int(operands[1])
+
+  def fix_refers_to(self, inst, refers_to):
+    debug('fix_refers_to: inst=%s, refers_to=%s' % (inst, UINT16_FMT(refers_to)))
+
+    inst.immediate = int(refers_to)
+    inst.refers_to = None
+
+  def disassemble_operands(self, inst):
+    r_dst = 'r%i' % inst.r_dst
+
+    return [r_dst, inst.refers_to] if hasattr(inst, 'refers_to') and inst.refers_to else [r_dst, UINT16_FMT(inst.immediate)]
+
+class Inst_BaseStore(InstDescriptor):
+  operands = 'rr'
+  binary_format = 'r_src:5,r_address:5'
+
+  def assemble_operands(self, inst, operands):
+    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
+
+    inst.r_src = int(operands[1])
+    inst.r_address = int(operands[0])
+
+  def disassemble_operands(self, inst):
+    return ['r%i' % inst.r_src, 'r%i' % inst.r_address]
+
+class Inst_STW(Inst_BaseStore):
+  mnemonic    = 'stw'
+  opcode = Opcodes.STW
+
+class Inst_STB(Inst_BaseStore):
+  mnemonic    = 'stb'
+  opcode = Opcodes.STB
+
+class Inst_STBU(Inst_BaseStore):
+  mnemonic = 'stbu'
+  opcode = Opcodes.STBU
+
+class Inst_MOV(InstDescriptor):
+  mnemonic = 'mov'
   opcode = Opcodes.MOV
+  operands = 'rr'
+  binary_format = 'r_dst:5,r_src:5'
+
+  def assemble_operands(self, inst, operands):
+    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
+
+    inst.r_dst = int(operands[0])
+    inst.r_src = int(operands[1])
+
+  def disassemble_operands(self, inst):
+    return ['r%i' % inst.r_dst, 'r%i' % inst.r_src]
+
+class Inst_SWP(InstDescriptor):
+  mnemonic = 'swp'
+  opcode = Opcodes.SWP
+  operands = 'rr'
+  binary_format = 'reg1:5,reg2:5'
+
+  def assemble_operands(self, inst, operands):
+    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
+
+    inst.reg1 = int(operands[0])
+    inst.reg2 = int(operands[1])
+
+  def disassemble_operands(self, inst):
+    return ['r%i' % inst.reg1, 'r%i' % inst.reg2]
 
 INSTRUCTIONS = [
-  Ins_NOP(),
-  Ins_INT(),
-  Ins_RETINT(),
-  Ins_CLI(),
-  Ins_STI(),
-  Ins_HLT(),
-  Ins_PUSH(),
-  Ins_POP(),
-  Ins_LOAD(),
-  Ins_STORE(),
-  Ins_INC(),
-  Ins_DEC(),
-  Ins_ADD(),
-  Ins_SUB(),
-  Ins_MUL(),
-  Ins_DIV(),
-  Ins_JMP(),
-  Ins_JE(),
-  Ins_JNE(),
-  Ins_CALL(),
-  Ins_RET(),
-  Ins_IN(),
-  Ins_OUT(),
-  Ins_LOADA(),
-  Ins_RST(),
-  Ins_CPUID(),
-  Ins_IDLE(),
-  Ins_JZ(),
-  Ins_JNZ(),
-  Ins_AND(),
-  Ins_OR(),
-  Ins_XOR(),
-  Ins_NOT(),
-  Ins_CMP(),
-  Ins_JS(),
-  Ins_JNS(),
-  Ins_MOV()
+Inst_NOP(),
+Inst_INT(),
+Inst_RETINT(),
+Inst_CALL(),
+Inst_CALLI(),
+Inst_RET(),
+Inst_CLI(),
+Inst_STI(),
+Inst_HLT(),
+Inst_RST(),
+Inst_IDLE(),
+Inst_PUSH(),
+Inst_POP(),
+Inst_INC(),
+Inst_DEC(),
+Inst_ADD(),
+Inst_SUB(),
+Inst_ADDI(),
+Inst_SUBI(),
+Inst_CMP(),
+Inst_J(),
+Inst_BE(),
+Inst_BNE(),
+Inst_BNS(),
+Inst_BNZ(),
+Inst_BS(),
+Inst_BZ(),
+Inst_JR(),
+Inst_BE(),
+Inst_BNE(),
+Inst_BNS(),
+Inst_BNZ(),
+Inst_BS(),
+Inst_BZ(),
+Inst_IN(),
+Inst_INB(),
+Inst_OUT(),
+Inst_OUTB(),
+Inst_AND(),
+Inst_OR(),
+Inst_XOR(),
+Inst_NOT(),
+Inst_SHIFTL(),
+Inst_SHIFTR(),
+Inst_LW(),
+Inst_LB(),
+Inst_LBU(),
+Inst_LI(),
+Inst_STW(),
+Inst_STB(),
+Inst_STBU(),
+Inst_MOV(),
+Inst_SWP()
 ]
 
-PATTERNS = [descriptor.pattern for descriptor in INSTRUCTIONS]
+def __create_binary_format_master_class():
+  fields = [
+    ('overall', GenericInstBinaryFormat_Overall),
+    ('opcode',  GenericInstBinaryFormat_Opcode)
+  ]
 
+  for desc in INSTRUCTIONS:
+    fields.append((desc.binary_format_name, desc.binary_format))
+
+  return type('InstBinaryFormat_Master', (ctypes.Union,), {'_pack_': 0, '_fields_': fields})
+
+def __create_opcode_map():
+  opcode_map = {}
+
+  for desc in INSTRUCTIONS:
+    opcode_map[desc.opcode] = desc
+
+  return opcode_map
+
+InstBinaryFormat_Master = __create_binary_format_master_class()
+
+OPCODE_TO_DESC_MAP = __create_opcode_map()

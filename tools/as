@@ -15,7 +15,6 @@ import cpu.compile
 import util
 
 from mm import UInt8, UInt16
-from cpu.instructions import ins2str
 from cpu.errors import CPUException
 
 from util import *

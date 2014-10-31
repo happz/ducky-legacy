@@ -6,7 +6,7 @@ typedef unsigned short uint16_t;
 
 static void outb(uint16_t port, uint8_t b)
 {
-  __asm__("out $0, $1 b", port, b);
+  __asm__("outb $0, $1", port, b);
 }
 
 static void writeln(int fd, unsigned char *ptr, unsigned int len)

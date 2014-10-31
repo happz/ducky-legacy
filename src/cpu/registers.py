@@ -4,6 +4,8 @@ import types
 
 import mm
 
+from util import *
+
 class Registers(enum.IntEnum):
   # 16 16bit registers available
   R00 =  0
@@ -22,27 +24,39 @@ class Registers(enum.IntEnum):
   R13 = 13
   R14 = 14
   R15 = 15
+  R16 = 16
+  R17 = 17
+  R18 = 18
+  R19 = 19
+  R20 = 20
+  R21 = 21
+  R22 = 22
+  R23 = 23
+  R24 = 24
+  R25 = 25
+  R26 = 26
+  R27 = 27
+  R28 = 28
+  R29 = 29
+  R30 = 30
+  R31 = 31
 
   # Some registers have special meaning and/or usage
-  CS    = 11 # Code Segment register
-  DS    = 12 # Data Segment register
-  FLAGS = 13 # Flags
-  SP    = 14 # Stack pointer
-  IP    = 15 # Instruction pointer
+  CS    = 32 # Code Segment register
+  DS    = 33 # Data Segment register
+  FLAGS = 34 # Flags
+  SP    = 35 # Stack pointer
+  IP    = 36 # Instruction pointer
 
   # First special register
-  REGISTER_SPECIAL = 11
+  REGISTER_SPECIAL = 32
 
   # How many registers do we have? This many...
-  REGISTER_COUNT = 16
+  REGISTER_COUNT = 37
 
-PROTECTED_REGISTERS = [
-  11, 12, 13, 14, 15
-]
+PROTECTED_REGISTERS = range(Registers.REGISTER_SPECIAL, Registers.REGISTER_COUNT)
 
-RESETABLE_REGISTERS = [
-  0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15
-]
+RESETABLE_REGISTERS = [i for i in range(0, Registers.REGISTER_COUNT) if i != Registers.FLAGS]
 
 class Register(mm.UInt16):
   pass
@@ -77,7 +91,7 @@ class RegisterSet(object):
 
     self.__register_map = []
     for register_name in self.registers:
-      register_class = Register if register_name != 'r13' else FlagsRegister
+      register_class = Register if register_name != 'r34' else FlagsRegister
 
       setattr(self, register_name, register_class())
       self.__register_map.append(getattr(self, register_name))
@@ -86,7 +100,7 @@ class RegisterSet(object):
     return Registers.REGISTER_COUNT
 
   def __getitem__(self, reg):
-    if type(reg) == types.IntType:
+    if type(reg) in (types.IntType, types.LongType):
       if reg < 0 or reg >= Registers.REGISTER_COUNT:
         raise IndexError('Unknown register index: %i' % reg)
 

@@ -13,7 +13,6 @@ import cpu.instructions
 import mm.binary
 
 from mm import UInt8, UInt16, UINT8_FMT, UINT16_FMT, SEGM_FMT, ADDR_FMT, SIZE_FMT, PAGE_MASK, PAGE_SHIFT, PAGE_SIZE
-from cpu.instructions import ins2str
 from cpu.errors import CPUException
 
 from util import debug, info, warn
@@ -149,24 +148,27 @@ def compile_buffer(buff, csb = None, dsb = None):
     emited_ins = None
 
     # Find instruction descriptor
-    for i in range(0, len(cpu.instructions.PATTERNS)):
-      if not cpu.instructions.PATTERNS[i].match(line):
+    for desc in cpu.instructions.INSTRUCTIONS:
+      if not desc.pattern.match(line):
         continue
-      ID = cpu.instructions.INSTRUCTIONS[i]
       break
+
     else:
       raise CPUException('Unknown pattern: line="%s"' % line)
 
-    emited_ins = ID.emit_instruction(line)
+    emited_inst = desc.emit_instruction(line)
 
-    for i in range(0, len(emited_ins)):
-      if len(labels) and i == 0:
-        cs_pass1.append((labels, emited_ins[i]))
-        labels = []
-      else:
-        cs_pass1.append((None, emited_ins[i]))
+    if len(labels):
+      cs_pass1.append((labels, emited_inst))
+
+    else:
+      cs_pass1.append((None, emited_inst))
+
+    emited_inst.desc = desc
 
     labels = []
+
+    debug('emitted instruction: %s' % cpu.instructions.disassemble_instruction(emited_inst))
 
   for v_name, v_size, v_value, v_type in ds_pass1:
     debug('Data entry: v_name=%s, v_size=%u"' % (v_name, v_size.u16))
@@ -216,7 +218,7 @@ def compile_buffer(buff, csb = None, dsb = None):
         ds_pass2.append(UInt8(0))
         dsp.u16 += 1
 
-  for labeled, ins in cs_pass1:
+  for labeled, inst in cs_pass1:
     csp_str = ADDR_FMT(csp.u16)
 
     if labeled:
@@ -224,38 +226,37 @@ def compile_buffer(buff, csb = None, dsb = None):
         references[label] = UInt16(csp.u16)
         debug(csp_str, 'label entry "%s" created' % label)
 
-    if type(ins) == types.StringType:
-      if ins in references:
-        cs_pass2.append(references[ins])
-        debug(csp_str, 'reference "%s" replaced with %s' % (ins, ADDR_FMT(references[ins].u16)))
+    if inst.desc.operands and ('i' in inst.desc.operands or 'j' in inst.desc.operands) and hasattr(inst, 'refers_to') and inst.refers_to:
+      if inst.refers_to in references:
+        refers_to = inst.refers_to
+        inst.desc.fix_refers_to(inst, references[inst.refers_to].u16)
+        debug(csp_str, 'reference "%s" replaced with %s' % (refers_to, ADDR_FMT(references[refers_to].u16)))
+
       else:
         pass3_required = True
-        cs_pass2.append(ins)
-        debug(csp_str, 'reference "%s" unknown, fix in the next pass' % ins)
-    else:
-      cs_pass2.append(ins)
+        debug(csp_str, 'reference "%s" unknown, fix in the next pass' % inst.refers_to)
 
-      if type(ins) == cpu.instructions.InstructionBinaryFormat:
-        debug(csp_str, ins2str(ins))
-      else:
-        debug(csp_str, UINT16_FMT(ins.u16))
+    cs_pass2.append(inst)
 
-    csp.u16 += 2
+    debug(csp_str, cpu.instructions.disassemble_instruction(inst))
+    csp.u16 += 4
 
   if pass3_required:
     debug('Pass #3')
 
     cs_pass3 = []
 
-    for ins in cs_pass2:
-      if type(ins) != types.StringType:
-        cs_pass3.append(ins)
-        continue
+    for inst in cs_pass2:
+      if hasattr(inst, 'refers_to') and inst.refers_to:
+        refers_to = inst.refers_to
 
-      cs_pass3.append(references[ins])
-      debug(csp_str, 'reference "%s" replaced with %s' % (ins, ADDR_FMT(references[ins].u16)))
+        inst.desc.fix_refers_to(inst, references[inst.refers_to].u16)
+        debug(csp_str, 'reference "%s" replaced with %s' % (refers_to, ADDR_FMT(references[refers_to].u16)))
+
+      cs_pass3.append(inst)
 
     ds_pass3 = ds_pass2[:]
+
   else:
     cs_pass3 = cs_pass2[:]
     ds_pass3 = ds_pass2[:]

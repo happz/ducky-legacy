@@ -14,7 +14,6 @@ import mm.binary
 import util
 
 from mm import UInt8, UInt16, ADDR_FMT, UINT16_FMT, UINT8_FMT, SIZE_FMT
-from cpu.instructions import ins2str
 from cpu.errors import CPUException
 from util import *
 
@@ -72,20 +71,13 @@ def main():
         csp = UInt16(header.base)
         j = 0
         while j < header.size:
-          ins = content[j]
-          next_cell = content[j + 1] if (j + 1) < header.size else None
-
+          inst = content[j]
           csp_str = ADDR_FMT(csp.u16)
 
-          csp.u16 += 2
+          csp.u16 += 4
           j += 1
 
-          ins, additional_operands = cpu.instructions.disassemble_instruction(ins, next_cell)
-          info('  ', csp_str, ins)
-
-          if additional_operands:
-            csp.u16 += 2 * additional_operands
-            j += additional_operands
+          info('  ', csp_str, cpu.instructions.disassemble_instruction(inst))
 
       if header.type == mm.binary.SectionTypes.SYMBOLS:
         info()

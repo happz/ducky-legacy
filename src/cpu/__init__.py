@@ -69,7 +69,7 @@ class ServiceRoutine(object):
 
 class HaltServiceRoutine(ServiceRoutine):
   code = [
-    '  loada r0, 0',
+    '  li r0, 0',
     '  hlt r0'
   ]
 
@@ -77,7 +77,7 @@ class IdleLoopServiceRoutine(ServiceRoutine):
   code = [
     'main:',
     '  idle',
-    '  jmp main'
+    '  j main'
   ]
 
 class InterruptCounterRoutine(ServiceRoutine):
@@ -87,10 +87,10 @@ class InterruptCounterRoutine(ServiceRoutine):
     'entry:',
     '  push r0',
     '  push r1',
-    '  loada r0, &counter',
-    '  load r1, r0',
+    '  li r0, &counter',
+    '  lw r1, r0',
     '  inc r1',
-    '  store r0, r1',
+    '  stw r0, r1',
     '  pop r1',
     '  pop r0',
     '  retint'
@@ -119,8 +119,8 @@ def log_cpu_core_state(core, logger = None):
   logger(core.cpuid_prefix, 'exit_code=%i' % core.exit_code)
 
   if core.current_instruction:
-    ins, _ = instructions.disassemble_instruction(core.current_instruction, core.memory.read_u16(core.CS_ADDR(core.IP().u16), privileged = True))
-    logger(core.cpuid_prefix, 'current=%s' % ins)
+    inst = instructions.disassemble_instruction(core.current_instruction)
+    logger(core.cpuid_prefix, 'current=%s' % inst)
   else:
     logger(core.cpuid_prefix, 'current=')
 
@@ -248,12 +248,12 @@ class CPUCore(object):
   def step(self):
     # Check HW interrupt sources
     REG       = lambda reg: self.registers[reg]
-    REGI1     = lambda: self.registers[ins.reg1]
-    REGI2     = lambda: self.registers[ins.reg2]
     MEM_IN8   = lambda addr: self.memory.read_u8(addr)
     MEM_IN16  = lambda addr: self.memory.read_u16(addr)
+    MEM_IN32  = lambda addr: self.memory.read_u32(addr)
     MEM_OUT8  = lambda addr, val: self.memory.write_u8(addr, val)
     MEM_OUT16 = lambda addr, val: self.memory.write_u16(addr, val)
+    MEM_OUT32 = lambda addr, val: self.memory.write_u32(addr, val)
     IP        = lambda: self.registers.ip
     FLAGS     = lambda: self.registers.flags.flags
     CS        = lambda: self.registers.cs
@@ -264,25 +264,20 @@ class CPUCore(object):
 
     def IP_IN():
       addr = CS_ADDR(IP().u16)
-      ret = MEM_IN16(addr)
+      ret = MEM_IN32(addr)
 
-      debug(self.cpuid_prefix, 'IP_IN: cs=%s, ip=%s, addr=%s, value=%s' % (SEGM_FMT(CS().u16), ADDR_FMT(IP().u16), ADDR_FMT(addr), UINT16_FMT(ret.u16)))
+      debug(self.cpuid_prefix, 'IP_IN: cs=%s, ip=%s, addr=%s, value=%s' % (SEGM_FMT(CS().u16), ADDR_FMT(IP().u16), ADDR_FMT(addr), UINT16_FMT(ret.u32)))
 
-      IP().u16 += 2
+      IP().u16 += 4
       return ret
 
     saved_IP = IP().u16
 
     # Read next instruction
-    debug(self.cpuid_prefix, '"Load new instruction" phase')
+    debug(self.cpuid_prefix, '"FETCH" phase')
 
-    ins = instructions.InstructionBinaryFormat()
-    ins.generic.ins = IP_IN().u16
-
-    opcode = ins.nullary.opcode
-    ins = getattr(ins, instructions.INSTRUCTIONS[opcode].binary_format)
-
-    self.current_instruction = ins
+    self.current_instruction = inst = instructions.decode_instruction(IP_IN())
+    opcode = self.current_instruction.opcode
 
     def __check_protected_ins():
       if not self.privileged:
@@ -300,10 +295,10 @@ class CPUCore(object):
         raise AccessViolationError('Access to port not allowed in unprivileged mode: opcode=%i, port=%u' % (opcode, port))
 
     class AFLAGS_CTX(object):
-      def __init__(self, dst):
+      def __init__(self, reg):
         super(AFLAGS_CTX, self).__init__()
 
-        self.dst = dst
+        self.reg = reg
 
       def __enter__(self):
         FLAGS().z = 0
@@ -311,29 +306,96 @@ class CPUCore(object):
         FLAGS().s = 0
 
       def __exit__(self, *args, **kwargs):
-        if self.dst.u16 == 0:
+        debug('actx_exit: reg=%s' % UINT16_FMT(self.reg.u16))
+
+        if self.reg.u16 == 0:
           FLAGS().z = 1
-        #if self.dst.u16 overflown:
+        #if self.dst.u16 overflow:
         #  FLAGS().o = 1
 
         return False
 
-    disassemble_next_cell = self.memory.read_u16(CS_ADDR(IP().u16), privileged = True)
-    info(self.cpuid_prefix, '%s: %s' % (UINT16_FMT(saved_IP), instructions.disassemble_instruction(self.current_instruction, disassemble_next_cell)[0]))
+    debug(self.cpuid_prefix, '"EXECUTE" phase: %s %s' % (UINT16_FMT(saved_IP), instructions.disassemble_instruction(self.current_instruction)))
     log_cpu_core_state(self)
-
-    debug(self.cpuid_prefix, '"Execute instruction" phase')
 
     if   opcode == Opcodes.NOP:
       pass
 
-    elif   opcode == Opcodes.INT:
+    elif opcode == Opcodes.LW:
+      __check_protected_reg(inst.r_dst)
+
+      with AFLAGS_CTX(REG(inst.r_dst)):
+        addr = DS_ADDR(REG(inst.r_address).u16)
+
+        REG(inst.r_dst).u16 = MEM_IN16(addr).u16
+
+    elif opcode == Opcodes.LB:
+      __check_protected_reg(inst.r_dst)
+
+      with AFLAGS_CTX(REG(inst.r_dst)):
+        addr = DS_ADDR(REG(inst.r_address).u16)
+
+        REG(inst.r_dst).u16 = MEM_IN8(addr).u8
+
+    elif opcode == Opcodes.LBU:
+      __check_protected_reg(inst.r_dst)
+
+      with AFLAGS_CTX(REG(inst.r_dst)):
+        addr = DS_ADDR(REG(inst.r_address).u16)
+
+        REG(inst.r_dst).u16 = MEM_IN16(addr).u16
+
+    elif opcode == Opcodes.LI:
+      __check_protected_reg(inst.r_dst)
+
+      with AFLAGS_CTX(REG(inst.r_dst)):
+        REG(inst.r_dst).u16 = inst.immediate
+
+    elif opcode == Opcodes.STW:
+      addr = DS_ADDR(REG(inst.r_address).u16)
+
+      MEM_OUT16(addr, REG(inst.r_src).u16)
+
+    elif opcode == Opcodes.STB:
+      addr = DS_ADDR(REG(inst.r_address).u16)
+
+      MEM_OUT8(addr, REG(inst.r_dst).u16 & 0xFF)
+
+    elif opcode == Opcodes.STBU:
+      addr = DS_ADDR(REG(inst.r_address).u16)
+
+      MEM_OUT8(addr, (REG(inst.r_dst).u16 & 0xFF00) >> 8)
+
+    elif opcode == Opcodes.MOV:
+      REG(inst.r_dst).u16 = REG(inst.r_src).u16
+
+    elif opcode == Opcodes.SWP:
+      v = UInt16(REG(inst.r_dst).u16)
+      REG(inst.reg1).u16 = REG(inst.reg2).u16
+      REG(inst.reg2).u16 = v.u16
+
+    elif opcode == Opcodes.INT:
       self.__do_int(REGI1().u16)
 
     elif opcode == Opcodes.RETINT:
       __check_protected_ins()
 
       self.__do_retint()
+
+    elif opcode == Opcodes.CALL:
+      new_ip = REG(inst.r_dst).u16
+
+      self.__push(Registers.IP)
+      IP().u16 = new_ip
+
+    elif opcode == Opcodes.CALLI:
+      new_ip = inst.immediate
+
+      self.__push(Registers.IP)
+      IP().u16 = new_ip
+
+    elif opcode == Opcodes.RET:
+      self.__pop(Registers.IP)
 
     elif opcode == Opcodes.CLI:
       __check_protected_ins()
@@ -348,216 +410,218 @@ class CPUCore(object):
     elif opcode == Opcodes.HLT:
       __check_protected_ins()
 
-      self.exit_code = REGI1().u16
+      self.exit_code = REG(inst.r_code).u16
 
       self.halt()
-
-    elif opcode == Opcodes.PUSH:
-      self.__push(ins.reg1)
-
-    elif opcode == Opcodes.POP:
-      __check_protected_reg(ins.reg1)
-
-      self.__pop(ins.reg1)
-
-    elif opcode == Opcodes.LOAD:
-      __check_protected_reg(ins.reg1)
-
-      with AFLAGS_CTX(REGI1()):
-        addr = DS_ADDR(REGI2().u16)
-
-        if ins.byte:
-          REGI1().u16 = 0
-          REGI1().u16 = MEM_IN8(addr).u8
-        else:
-          REGI1().u16 = MEM_IN16(addr).u16
-
-    elif opcode == Opcodes.STORE:
-      addr = DS_ADDR(REGI1().u16)
-
-      if ins.byte:
-        MEM_OUT8(addr, REGI2().u16 & 0xFF)
-      else:
-        MEM_OUT16(addr, REGI2().u16)
-
-    elif opcode == Opcodes.INC:
-      __check_protected_reg(ins.reg1)
-
-      with AFLAGS_CTX(REGI1()):
-        REGI1().u16 += 1
-
-    elif opcode == Opcodes.DEC:
-      __check_protected_reg(ins.reg1)
-
-      with AFLAGS_CTX(REGI1()):
-        REGI1().u16 -= 1
-
-    elif opcode == Opcodes.ADD:
-      __check_protected_reg(ins.reg1)
-
-      with AFLAGS_CTX(REGI1()):
-        REGI1().u16 += REGI2().u16
-
-    elif opcode == Opcodes.SUB:
-      __check_protected_reg(ins.reg1)
-
-      with AFLAGS_CTX(REGI1()):
-        REGI1().u16 -= REGI2().u16
-
-    elif opcode == Opcodes.MUL:
-      __check_protected_reg(ins.reg1)
-
-      with AFLAGS_CTX(REGI1()):
-        REGI1().u16 *= REGI2().u16
-
-    elif opcode == Opcodes.DIV:
-      __check_protected_reg(ins.reg1)
-
-      with AFLAGS_CTX(REGI1()):
-        REGI1().u16 /= REGI2().u16
-
-    elif opcode == Opcodes.JMP:
-      IP().u16 = IP_IN().u16
-
-    elif opcode == Opcodes.JE:
-      if FLAGS().eq:
-        IP().u16 = IP_IN().u16
-      else:
-        IP().u16 += 2
-
-      FLAGS().eq = 0
-
-    elif opcode == Opcodes.JNE:
-      if not FLAGS().eq:
-        IP().u16 = IP_IN().u16
-      else:
-        IP().u16 += 2
-
-      FLAGS().eq = 0
-
-    elif opcode == Opcodes.CALL:
-      new_ip = IP_IN().u16
-
-      self.__push(Registers.IP)
-      IP().u16 = new_ip
-
-    elif opcode == Opcodes.RET:
-      self.__pop(Registers.IP)
-
-    elif opcode == Opcodes.IN:
-      port = REGI1()
-
-      __check_protected_port(port)
-      __check_protected_reg(ins.reg2)
-
-      if ins.byte:
-        REGI2().u16 = 0
-        REGI2().u16 = UInt16(self.cpu.machine.ports[port.u16].read_u8(port).u8).u16
-      else:
-        REGI2().u16 = self.cpu.machine.ports[port.u16].read_u16(port).u16
-
-    elif opcode == Opcodes.OUT:
-      port = REGI1()
-
-      __check_protected_port(port)
-
-      if ins.byte:
-        self.cpu.machine.ports[port.u16].write_u8(port, UInt8(REGI2().u16))
-      else:
-        self.cpu.machine.ports[port.u16].write_u16(port, REGI2())
-
-    elif opcode == Opcodes.LOADA:
-      __check_protected_reg(ins.reg1)
-
-      value = IP_IN().u16
-
-      with AFLAGS_CTX(REGI1()):
-        REGI1().u16 = value
 
     elif opcode == Opcodes.RST:
       __check_protected_ins()
 
       self.reset()
 
-    elif opcode == Opcodes.CPUID:
-      __check_protected_reg(ins.reg1)
-
-      REGI1().u16 = UInt8(self.cpu.id).u8 << 8 | UInt8(self.id).u8
-
     elif opcode == Opcodes.IDLE:
       self.idle = True
 
-    elif opcode == Opcodes.JZ:
-      if FLAGS().z:
-        IP().u16 = IP_IN().u16
-      else:
-        IP().u16 += 2
+    elif opcode == Opcodes.PUSH:
+      self.__push(inst.r_src)
 
-      FLAGS().z = 0
+    elif opcode == Opcodes.POP:
+      __check_protected_reg(inst.r_dst)
 
-    elif opcode == Opcodes.JNZ:
-      if not FLAGS().z:
-        IP().u16 = IP_IN().u16
-      else:
-        IP().u16 += 2
+      self.__pop(inst.r_dst)
 
-      FLAGS().z = 0
+    elif opcode == Opcodes.INC:
+      __check_protected_reg(inst.r_dst)
+
+      with AFLAGS_CTX(REG(inst.r_dst)):
+        REG(inst.r_dst).u16 += 1
+
+    elif opcode == Opcodes.DEC:
+      __check_protected_reg(inst.r_dst)
+
+      with AFLAGS_CTX(REG(inst.r_dst)):
+        REG(inst.r_dst).u16 -= 1
+
+    elif opcode == Opcodes.ADD:
+      __check_protected_reg(inst.r_dst)
+
+      with AFLAGS_CTX(REG(inst.r_dst)):
+        REG(inst.r_dst).u16 += REG(inst.r_add).u16
+
+    elif opcode == Opcodes.SUB:
+      __check_protected_reg(ins.r_dst)
+
+      with AFLAGS_CTX(REG(inst.r_dst)):
+        REG(inst.r_dst).u16 -= REG(inst.r_sub).u16
+
+    elif opcode == Opcodes.ADDI:
+      __check_protected_reg(ins.r_dst)
+
+      with AFLAGS_CTX(REG(inst.r_dst)):
+        REG(inst.r_dst).u16 += inst.immediate
+
+    elif opcode == Opcodes.SUBI:
+      __check_protected_reg(ins.r_dst)
+
+      with AFLAGS_CTX(REG(inst.r_dst)):
+        REG(inst.r_dst).u16 -= inst.immediate
 
     elif opcode == Opcodes.AND:
-      __check_protected_reg(ins.reg1)
+      __check_protected_reg(inst.r_dst)
 
-      with AFLAGS_CTX(REGI1()):
-        REGI1().u16 &= REGI2().u16
+      with AFLAGS_CTX(REG(inst.r_dst)):
+        REG(inst.r_dst).u16 &= REG(inst.r_mask).u16
 
     elif opcode == Opcodes.OR:
-      __check_protected_reg(ins.reg1)
+      __check_protected_reg(inst.r_dst)
 
-      with AFLAGS_CTX(REGI1()):
-        REGI1().u16 |= REGI2().u16
+      with AFLAGS_CTX(REG(inst.r_dst)):
+        REG(inst.r_dst).u16 |= REG(inst.r_mask).u16
 
     elif opcode == Opcodes.XOR:
-      __check_protected_reg(ins.reg1)
+      __check_protected_reg(inst.r_dst)
 
-      with AFLAGS_CTX(REGI1()):
-        REGI1().u16 ^= REGI2().u16
-    
+      with AFLAGS_CTX(REG(inst.r_dst)):
+        REG(inst.r_dst).u16 ^= REG(inst.r_mask).u16
+
     elif opcode == Opcodes.NOT:
-      __check_protected_reg(ins.reg1)
+      __check_protected_reg(ins.r_dst)
 
-      with AFLAGS_CTX(REGI1()):
-        REGI1().u16 = ~REGI1().u16
+      with AFLAGS_CTX(REG(inst.r_dst)):
+        REG(inst.r_dst).u16 = ~REG(inst.r_dst).u16
+
+    elif opcode == Opcodes.SHIFTL:
+      __check_protected_reg(ins.r_dst)
+
+      with AFLAGS_CTX(REG(inst.r_dst)):
+        REG(inst.r_dst).u16 <<= REG(inst.immediate)
+
+    elif opcode == Opcodes.SHIFTR:
+      __check_protected_reg(ins.r_dst)
+
+      with AFLAGS_CTX(REG(inst.r_dst)):
+        REG(inst.r_dst).u16 >>= REG(inst.immediate)
+
+    elif opcode == Opcodes.IN:
+      port = REG(inst.r_port)
+
+      __check_protected_port(port)
+      __check_protected_reg(inst.r_dst)
+
+      REG(inst.r_port).u16 = self.cpu.machine.ports[port.u16].read_u16(port).u16
+
+    elif opcode == Opcodes.INB:
+      port = REG(inst.r_port)
+
+      __check_protected_port(port)
+      __check_protected_reg(inst.r_dst)
+
+      REG(inst.r_dst).u16 = UInt16(self.cpu.machine.ports[port.u16].read_u8(port).u8).u16
+
+    elif opcode == Opcodes.OUT:
+      port = REG(inst.r_port)
+
+      __check_protected_port(port)
+
+      self.cpu.machine.ports[port.u16].write_u16(port, REG(inst.r_src))
+
+    elif opcode == Opcodes.OUTB:
+      port = REG(inst.r_port)
+
+      __check_protected_port(port)
+
+      self.cpu.machine.ports[port.u16].write_u8(port, UInt8(REG(inst.r_src).u16))
 
     elif opcode == Opcodes.CMP:
       FLAGS().eq = 0
       FLAGS().s = 0
 
-      if   REGI1().u16 == REGI2().u16:
+      if   REG(inst.reg1).u16 == REG(inst.reg2).u16:
         FLAGS().eq = 1
 
-      elif REGI1().u16  < REGI2().u16:
+      elif REG(inst.reg1).u16  < REG(inst.reg2).u16:
         FLAGS().s = 1
 
-      elif REGI1().u16  > REGI2().u16:
+      elif REG(inst.reg1).u16  > REG(inst.reg2).u16:
         pass
 
-    elif opcode == Opcodes.JS:
-      if FLAGS().s:
-        IP().u16 = IP_IN().u16
-      else:
-        IP().u16 += 2
+    elif opcode == Opcodes.J:
+      IP().u16 = UInt16(inst.immediate).u16
+
+    elif opcode == Opcodes.JR:
+      IP().u16 = REG(inst.r_address).u16
+
+    elif opcode == Opcodes.BE:
+      if FLAGS().eq == 1:
+        IP().u16 = UInt16(inst.immediate).u16
+
+      FLAGS().eq = 0
+
+    elif opcode == Opcodes.BNE:
+      if FLAGS().eq == 0:
+        IP().u16 = UInt16(inst.immediate).u16
+
+      FLAGS().eq = 0
+
+    elif opcode == Opcodes.BZ:
+      if FLAGS().z == 1:
+        IP().u16 = UInt16(inst.immediate).u16
+
+      FLAGS().z = 0
+
+    elif opcode == Opcodes.BNZ:
+      if FLAGS().z == 0:
+        IP().u16 = UInt16(inst.immediate).u16
+
+      FLAGS().z = 0
+
+    elif opcode == Opcodes.BS:
+      if FLAGS().s == 1:
+        IP().u16 = UInt16(inst.immediate).u16
 
       FLAGS().s = 0
 
-    elif opcode == Opcodes.JNS:
-      if not FLAGS().s:
-        IP().u16 = IP_IN().u16
-      else:
-        IP().u16 += 2
+    elif opcode == Opcodes.BNS:
+      if FLAGS().s == 0:
+        IP().u16 = UInt16(inst.immediate).u16
 
       FLAGS().s = 0
 
-    elif opcode == Opcodes.MOV:
-      REGI1().u16 = REGI2().u16
+    elif opcode == Opcodes.BER:
+      if FLAGS().eq == 1:
+        IP().u16 = REG(inst.r_address).u16
+
+      FLAGS().eq = 0
+
+    elif opcode == Opcodes.BNER:
+      if FLAGS().eq == 0:
+        IP().u16 = REG(inst.r_address).u16
+
+      FLAGS().eq = 0
+
+    elif opcode == Opcodes.BZR:
+      if FLAGS().z == 1:
+        IP().u16 = REG(inst.r_address).u16
+
+      FLAGS().z = 0
+
+    elif opcode == Opcodes.BNZR:
+      if FLAGS().z == 0:
+        IP().u16 = REG(inst.r_address).u16
+
+      FLAGS().z = 0
+
+    elif opcode == Opcodes.BSR:
+      if FLAGS().s == 1:
+        IP().u16 = REG(inst.r_address).u16
+
+      FLAGS().s = 0
+
+    elif opcode == Opcodes.BNSR:
+      if FLAGS().s == 0:
+        IP().u16 = REG(inst.r_address).u16
+
+      FLAGS().s = 0
 
     else:
       raise CPUException('Unknown opcode: %i' % opcode)

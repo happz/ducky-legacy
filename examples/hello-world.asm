@@ -3,7 +3,7 @@
 
 main:
   loada r1, &message
-  call __fn_writesn_prolog
+  calli __fn_writesn_prolog
   hlt r0
 
 __outb_prolog:
@@ -24,7 +24,7 @@ __fn_writesn_loop:
   jz __fn_writesn_write_nl
   push r1
   mov r1, r3
-  call __outb_prolog
+  calli __outb_prolog
   pop r1
   inc r1
   jmp __fn_writesn_loop
