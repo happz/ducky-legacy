@@ -5,14 +5,12 @@ import threading
 import cpu
 import mm
 
-from cpu.errors import *
-from util import *
+from cpu.errors import InvalidResourceError
+from util import debug, info
 from mm import SEGM_FMT, ADDR_FMT
 
 import irq
-import io.conio
-import irq.timer
-import irq.conio
+import io
 
 class Machine(object):
   def __init__(self, cpus = 1, cores = 1, memory_size = None, binaries = None):
@@ -90,24 +88,24 @@ class Machine(object):
            % (SEGM_FMT(csr.u8), ADDR_FMT(csb.u16), SEGM_FMT(dsr.u8), ADDR_FMT(dsb.u16), ADDR_FMT(sp.u16)))
         self.init_states.append((csr, csb, dsr, dsb, sp, False))
 
-  def register_irq_source(self, irq, src, reassign = False):
-    if self.irq_sources[irq]:
+  def register_irq_source(self, index, src, reassign = False):
+    if self.irq_sources[index]:
       if not reassign:
-        raise InvalidResourceError('IRQ already assigned: %i' % irq)
+        raise InvalidResourceError('IRQ already assigned: %i' % index)
 
       for i in range(0, len(self.irq_sources)):
         if not self.irq_sources[i]:
-          irq = i
+          index = i
           break
       else:
-        raise InvalidResourceError('IRQ already assigned, no available free IRQ: %i' % irq)
+        raise InvalidResourceError('IRQ already assigned, no available free IRQ: %i' % index)
 
-    self.irq_sources[irq] = src
-    src.irq = irq
-    return irq
+    self.irq_sources[index] = src
+    src.irq = index
+    return index
 
-  def unregister_irq_source(self, irq):
-    self.irq_sources[irq] = None
+  def unregister_irq_source(self, index):
+    self.irq_sources[index] = None
 
   def register_port(self, port, handler):
     if port in self.ports:

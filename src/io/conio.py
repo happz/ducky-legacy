@@ -8,7 +8,7 @@ except ImportError:
 
 import io
 
-from util import *
+from util import debug
 from mm import UInt8, UINT8_FMT
 
 class ConsoleIOHandler(io.IOHandler):

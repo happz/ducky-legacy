@@ -185,6 +185,7 @@ class InstDescriptor(object):
     pass
 
   def disassemble_operands(self, inst):
+    # pylint: disable-msg=W0613
     return []
 
   def emit_instruction(self, line):

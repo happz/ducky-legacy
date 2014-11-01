@@ -2,10 +2,10 @@ import enum
 
 import cpu
 
-from util import *
+from util import debug
 from mm import UINT8_FMT, UINT16_FMT
 
-class IOPorts(enum.Enum):
+class IOPorts(enum.IntEnum):
   PORT_COUNT = 65536
 
 class IOHandler(object):

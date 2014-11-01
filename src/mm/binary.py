@@ -5,7 +5,7 @@ import cpu.instructions
 import cpu.errors
 
 from mm import UInt8, UInt16, UInt32
-from util import *
+from util import debug, error
 from ctypes import LittleEndianStructure, c_uint, c_ushort, c_ubyte, sizeof
 from cpu.errors import CPUException
 
@@ -71,6 +71,9 @@ class SymbolEntry(LittleEndianStructure):
       assert False
 
   def set_name(self, name):
+    # Avoid using undefined variable in case range does not start (len(name) == 0)
+    i = 0
+
     for i in range(0, len(name)):
       self.name[i] = ord(name[i])
     self.name[i + 1] = 0

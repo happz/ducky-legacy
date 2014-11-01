@@ -9,8 +9,6 @@ import cpu
 import irq
 import io
 import mm
-import cpu.instructions
-import mm.binary
 
 from mm import UInt8, UInt16, UINT8_FMT, UINT16_FMT, SEGM_FMT, ADDR_FMT, SIZE_FMT, PAGE_MASK, PAGE_SHIFT, PAGE_SIZE
 from cpu.errors import CPUException
@@ -20,7 +18,7 @@ from util import debug, info, warn
 def align_to_next_page(addr):
   return (((addr & PAGE_MASK) >> PAGE_SHIFT) + 1) * PAGE_SIZE
 
-def compile_buffer(buff, csb = None, dsb = None):
+def translate_buffer(buff, csb = None, dsb = None):
   csb = csb or UInt16(0)
 
   cs_pass1  = []
@@ -145,7 +143,7 @@ def compile_buffer(buff, csb = None, dsb = None):
     debug('line: %s' % line)
 
     # label, instruction, 2nd pass flags
-    emited_ins = None
+    emited_inst = None
 
     # Find instruction descriptor
     for desc in cpu.instructions.INSTRUCTIONS:
@@ -156,15 +154,15 @@ def compile_buffer(buff, csb = None, dsb = None):
     else:
       raise CPUException('Unknown pattern: line="%s"' % line)
 
+    # pylint: disable-msg=W0631
     emited_inst = desc.emit_instruction(line)
+    emited_inst.desc = desc
 
     if len(labels):
       cs_pass1.append((labels, emited_inst))
 
     else:
       cs_pass1.append((None, emited_inst))
-
-    emited_inst.desc = desc
 
     labels = []
 

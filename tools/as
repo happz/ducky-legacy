@@ -11,7 +11,7 @@ import irq
 import io
 import mm
 import mm.binary
-import cpu.compile
+import cpu.assemble
 import util
 
 from mm import UInt8, UInt16
@@ -42,7 +42,7 @@ def main():
   with open(options.file_in, 'r') as f_in:
     buffer = f_in.readlines()
 
-  (csb, cs), (dsb, ds), symbols = cpu.compile.compile_buffer(buffer, csb = UInt16(int(options.base)))
+  (csb, cs), (dsb, ds), symbols = cpu.assemble.translate_buffer(buffer, csb = UInt16(int(options.base)))
 
   if os.path.exists(options.file_out) and not options.force:
     error('Output file %s already exists, use -f to force overwrite' % options.file_out)

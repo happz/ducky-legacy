@@ -3,6 +3,7 @@ import sys
 import threading
 import time
 
+import assemble
 import instructions
 import registers
 import mm
@@ -17,7 +18,7 @@ from registers import Registers
 from instructions import Opcodes
 
 from errors import CPUException, AccessViolationError, InvalidResourceError
-from util import *
+from util import debug, info, warn, error
 
 from ctypes import LittleEndianStructure, Union, c_ubyte, c_ushort, c_uint
 
@@ -53,15 +54,13 @@ class ServiceRoutine(object):
     if self.translated:
       return
 
-    import cpu.compile
-
     cs = UInt8(mm.SEGMENT_PROTECTED)
     ds = UInt8(cs.u8)
     self.page = memory.get_page(memory.alloc_page(segment = cs))
     self.csb = UInt16(self.page.base_address)
     self.dsb = UInt16(self.page.base_address + mm.PAGE_SIZE / 2)
 
-    (csb, cs), (dsb, ds), symbols = cpu.compile.compile_buffer(self.code, csb = self.csb, dsb = self.dsb)
+    (_, cs), (_, ds), _ = assemble.translate_buffer(self.code, csb = self.csb, dsb = self.dsb)
 
     self.cs = cs
     self.ds = ds
@@ -197,6 +196,8 @@ class CPUCore(object):
       self.SP().u16 -= 2
       sp = UInt24(self.DS_ADDR(self.SP().u16))
 
+      # pylint: disable-msg=E1101
+      # "Instance of 'UInt24' has no 'u24' member"
       debug(self.cpuid_prefix, '__push: save %s (%s) to %s' % (reg, UINT16_FMT(self.REG(reg).u16), ADDR_FMT(sp.u24)))
 
       self.MEM_OUT(sp.u24, self.REG(reg).u16)
@@ -205,6 +206,8 @@ class CPUCore(object):
     for reg in regs:
       sp = UInt24(self.DS_ADDR(self.SP().u16))
 
+      # pylint: disable-msg=E1101
+      # "Instance of 'UInt24' has no 'u24' member"
       self.REG(reg).u16 = self.MEM_IN(sp.u24).u16
 
       debug(self.cpuid_prefix, '__pop: load %s (%s) from %s' % (reg, UINT16_FMT(self.REG(reg).u16), ADDR_FMT(sp.u24)))
@@ -223,7 +226,7 @@ class CPUCore(object):
     debug(self.cpuid_prefix, '__do_interrupt: registers saved and new CS:IP loaded')
 
   def __do_int(self, index):
-    self.do_interrupt(self.memory.read_u16(self.memory.header.int_table_address + index * 2))
+    self.__do_interrupt(self.memory.header.int_table_address, index)
 
   def __do_irq(self, index):
     debug(self.cpuid_prefix, '__do_irq: %s' % index)
@@ -237,30 +240,34 @@ class CPUCore(object):
   def __do_retint(self):
     self.__pop(Registers.CS, Registers.DS, Registers.IP, Registers.FLAGS)
 
-  @property
-  def privileged(self):
+  # Do it this way to avoid pylint' confusion
+  def __get_privileged(self):
     return self.FLAGS().privileged
 
-  @privileged.setter
-  def privileged(self, value):
+  def __set_privileged(self, value):
     self.FLAGS().privileged = value
 
+  privileged = property(__get_privileged, __set_privileged)
+
   def step(self):
-    # Check HW interrupt sources
+    # pylint: disable-msg=R0912,R0914,R0915
+    # "Too many branches"
+    # "Too many local variables"
+    # "Too many statements"
+
     REG       = lambda reg: self.registers[reg]
     MEM_IN8   = lambda addr: self.memory.read_u8(addr)
     MEM_IN16  = lambda addr: self.memory.read_u16(addr)
     MEM_IN32  = lambda addr: self.memory.read_u32(addr)
     MEM_OUT8  = lambda addr, val: self.memory.write_u8(addr, val)
     MEM_OUT16 = lambda addr, val: self.memory.write_u16(addr, val)
-    MEM_OUT32 = lambda addr, val: self.memory.write_u32(addr, val)
     IP        = lambda: self.registers.ip
     FLAGS     = lambda: self.registers.flags.flags
     CS        = lambda: self.registers.cs
     DS        = lambda: self.registers.ds
 
-    CS_ADDR = lambda addr: segment_addr_to_addr(self.CS().u16 & 0xFF, addr)
-    DS_ADDR = lambda addr: segment_addr_to_addr(self.DS().u16 & 0xFF, addr)
+    CS_ADDR = lambda addr: segment_addr_to_addr(CS().u16 & 0xFF, addr)
+    DS_ADDR = lambda addr: segment_addr_to_addr(DS().u16 & 0xFF, addr)
 
     def IP_IN():
       addr = CS_ADDR(IP().u16)
@@ -375,7 +382,7 @@ class CPUCore(object):
       REG(inst.reg2).u16 = v.u16
 
     elif opcode == Opcodes.INT:
-      self.__do_int(REGI1().u16)
+      self.__do_int(REG(inst.r_int).u16)
 
     elif opcode == Opcodes.RETINT:
       __check_protected_ins()
@@ -449,19 +456,19 @@ class CPUCore(object):
         REG(inst.r_dst).u16 += REG(inst.r_add).u16
 
     elif opcode == Opcodes.SUB:
-      __check_protected_reg(ins.r_dst)
+      __check_protected_reg(inst.r_dst)
 
       with AFLAGS_CTX(REG(inst.r_dst)):
         REG(inst.r_dst).u16 -= REG(inst.r_sub).u16
 
     elif opcode == Opcodes.ADDI:
-      __check_protected_reg(ins.r_dst)
+      __check_protected_reg(inst.r_dst)
 
       with AFLAGS_CTX(REG(inst.r_dst)):
         REG(inst.r_dst).u16 += inst.immediate
 
     elif opcode == Opcodes.SUBI:
-      __check_protected_reg(ins.r_dst)
+      __check_protected_reg(inst.r_dst)
 
       with AFLAGS_CTX(REG(inst.r_dst)):
         REG(inst.r_dst).u16 -= inst.immediate
@@ -485,19 +492,19 @@ class CPUCore(object):
         REG(inst.r_dst).u16 ^= REG(inst.r_mask).u16
 
     elif opcode == Opcodes.NOT:
-      __check_protected_reg(ins.r_dst)
+      __check_protected_reg(inst.r_dst)
 
       with AFLAGS_CTX(REG(inst.r_dst)):
         REG(inst.r_dst).u16 = ~REG(inst.r_dst).u16
 
     elif opcode == Opcodes.SHIFTL:
-      __check_protected_reg(ins.r_dst)
+      __check_protected_reg(inst.r_dst)
 
       with AFLAGS_CTX(REG(inst.r_dst)):
         REG(inst.r_dst).u16 <<= REG(inst.immediate)
 
     elif opcode == Opcodes.SHIFTR:
-      __check_protected_reg(ins.r_dst)
+      __check_protected_reg(inst.r_dst)
 
       with AFLAGS_CTX(REG(inst.r_dst)):
         REG(inst.r_dst).u16 >>= REG(inst.immediate)
@@ -670,7 +677,7 @@ class CPUCore(object):
     log_cpu_core_state(self)
 
   def boot(self, init_state):
-    cs, csb, ds, dsb, sp, privileged = init_state
+    cs, csb, ds, _, sp, privileged = init_state
 
     self.REG(Registers.CS).u16 = cs.u8
     self.REG(Registers.DS).u16 = ds.u8

@@ -4,8 +4,6 @@ import types
 
 import mm
 
-from util import *
-
 class Registers(enum.IntEnum):
   # 16 16bit registers available
   R00 =  0

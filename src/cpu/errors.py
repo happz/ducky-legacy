@@ -1,4 +1,4 @@
-__all__ = ['CPUException', 'AccessViolationError', 'InvalidResourceError']
+__all__ = ['CPUException', 'AccessViolationError', 'InvalidResourceError', 'MalformedBinaryError']
 
 class CPUException(Exception):
   pass

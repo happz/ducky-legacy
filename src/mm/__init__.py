@@ -4,8 +4,8 @@ import mmap
 
 from ctypes import LittleEndianStructure, Union, c_ubyte, c_ushort, c_uint
 
-from cpu.errors import *
-from util import *
+from cpu.errors import InvalidResourceError, AccessViolationError
+from util import debug
 
 ###
 ### Memory layout
@@ -63,7 +63,7 @@ class UInt16(LittleEndianStructure):
 class UInt24(LittleEndianStructure):
   _pack_ = 0
   _fields_ = [
-    ('u24', c_uint)
+    ('u24', c_uint, 24)
   ]
 
 class UInt32(LittleEndianStructure):
@@ -236,7 +236,7 @@ class MemoryPage(object):
   def clear(self, privileged = False):
     debug('mp.clear: page=%s, priv=%s' % (PAGE_FMT(self.index), privileged))
 
-    privileged or self.check_access(offset, 'write')
+    privileged or self.check_access(self.base_address, 'write')
 
     self.do_clear()
 
@@ -380,7 +380,7 @@ class MMapArea(object):
 
     self.address = address
     self.size = size
-    self.file_path
+    self.file_path = file_path
     self.ptr = ptr
     self.pages_start = pages_start
     self.pages_cnt = pages_cnt
@@ -624,7 +624,6 @@ class MemoryController(object):
 
     self.for_each_page(pages_start, pages_cnt, __assert_page_missing)
 
-    mmap_fileno = self.__get_mmap_fileno(file_path)
     mmap_flags = mmap.MAP_SHARED if shared else mmap.MAP_PRIVATE
 
     mmap_prot = 0
@@ -634,14 +633,14 @@ class MemoryController(object):
       mmap_prot |= mmap.PROT_WRITE
 
     ptr = mmap.mmap(
-      self.__opened_mmap_files[file_path].fileno(),
+      self.__get_mmap_fileno(file_path),
       size,
       flags = mmap_flags,
       prot = mmap_prot,
       offset = offset)
 
     def __create_mmap_page(page_index, area_index):
-      self.__pages[i] = MMapMemoryPage(self, page_index, ptr, area_index * PAGE_SIZE)
+      self.__pages[page_index] = MMapMemoryPage(self, page_index, ptr, area_index * PAGE_SIZE)
 
     self.for_each_page(pages_start, pages_cnt, __create_mmap_page)
 
@@ -657,7 +656,7 @@ class MemoryController(object):
   def unmmap_area(self, mmap_area):
     self.mme_reset_pages(mmap_area.pages_start, mmap_area.pages_cnt)
 
-    def __remove_mmap_page(page_index, area_index):
+    def __remove_mmap_page(page_index, _):
       del self.__pages[page_index]
 
     self.for_each_page(mmap_area.pages_start, mmap_area.pages_cnt, __remove_mmap_page)
