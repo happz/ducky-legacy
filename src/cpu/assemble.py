@@ -135,7 +135,7 @@ def translate_buffer(buff, csb = None, dsb = None):
       continue
 
     if line.endswith(':'):
-      label = line[:-1]
+      label = '@' + line[:-1]
       debug('label encountered: "%s"' % label)
       labels.append(label)
       continue
