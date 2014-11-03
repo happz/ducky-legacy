@@ -43,43 +43,43 @@ $ cat examples/hello-world.asm
   .string "Hello, world!"
 
 main:
-  loada r1, &message
-  calli __fn_writesn_prolog
+  li r1, &message
+  calli @writesn
   hlt r0
 
-__outb_prolog:
+outb:
   # > r1: port
   # > r2: byte
-  out r1, r2 b
+  outb r1, r2 b
   ret
 
-__fn_writesn_prolog:
+writesn:
   # > r1: string address
   #   r2: current byte
   #   r3: port
   push r2
   push r3
-  loada r3, 0x100
+  li r3, 0x100
 __fn_writesn_loop:
-  load r2, r1 b
-  jz __fn_writesn_write_nl
+  lb r2, r1
+  bz @__fn_writesn_write_nl
   push r1
   mov r1, r3
-  calli __outb_prolog
+  calli @outb
   pop r1
   inc r1
-  jmp __fn_writesn_loop
+  j @__fn_writesn_loop
 __fn_writesn_write_nl:
   push r1
-  loada r1, 0x100
+  li r1, 0x100
   # \n
-  loada r2, 0xA b
-  call __outb_prolog
+  li r2, 0xA
+  calli @outb
   # \r
-  loada r2, 0xD b
-  call __outb_prolog
+  li r2, 0xD
+  calli @outb
   pop r1
-  loada r0, 0
+  li r0, 0
   pop r3
   pop r2
   ret
@@ -106,105 +106,90 @@ Let's see some dump...
 
 ```
 $ tools/objdump -i hello-world.bin -vvv -d
+ [INFO] Input file: hello-world.bin 
  [INFO] 
  [INFO] === File header === 
  [INFO]   Magic:    0xDEAD 
  [INFO]   Version:  1 
- [INFO]   Sections: 4 
+ [INFO]   Sections: 3 
  [INFO] 
  [INFO] === Sections === 
  [INFO] 
  [INFO] * Section #0 
+ [INFO]   Name:   .text 
  [INFO]   Type:   TEXT 
- [INFO]   Flags:  0x0 
+ [INFO]   Flags:  R-X (0x5) 
  [INFO]   Base:   0x000000 
- [INFO]   Size:   57 
- [INFO]   Offset: 0x000036 
+ [INFO]   Size:   27 
+ [INFO]   Offset: 0x00008A 
  [INFO] 
- [INFO]    0x000000 calli 0x0000A8 
- [INFO]    0x000004 hlt r0 
- [INFO]    0x000008 outb r1, r2 
- [INFO]    0x00000C ret 
- [INFO]    0x000010 push r4 
- [INFO]    0x000014 push r5 
- [INFO]    0x000018 li r5, 0x0100 
- [INFO]    0x00001C li r4, 0x0000 
- [INFO]    0x000020 cmp r4, r3 
- [INFO]    0x000024 be 0x000064 
- [INFO]    0x000028 bns 0x000064 
- [INFO]    0x00002C push r6 
- [INFO]    0x000030 mov r6, r4 
- [INFO]    0x000034 add r6, r2 
- [INFO]    0x000038 lb r6, r6 
- [INFO]    0x00003C push r1 
- [INFO]    0x000040 mov r1, r5 
- [INFO]    0x000044 push r2 
- [INFO]    0x000048 mov r2, r6 
- [INFO]    0x00004C calli 0x000008 
- [INFO]    0x000050 pop r2 
- [INFO]    0x000054 pop r1 
- [INFO]    0x000058 pop r6 
- [INFO]    0x00005C inc r4 
- [INFO]    0x000060 j 0x000020 
- [INFO]    0x000064 push r1 
- [INFO]    0x000068 mov r1, r5 
- [INFO]    0x00006C push r2 
- [INFO]    0x000070 li r2, 0x000A 
- [INFO]    0x000074 calli 0x000008 
- [INFO]    0x000078 pop r2 
- [INFO]    0x00007C pop r1 
- [INFO]    0x000080 push r1 
- [INFO]    0x000084 mov r1, r5 
- [INFO]    0x000088 push r2 
- [INFO]    0x00008C li r2, 0x000D 
- [INFO]    0x000090 calli 0x000008 
- [INFO]    0x000094 pop r2 
- [INFO]    0x000098 pop r1 
- [INFO]    0x00009C pop r5 
- [INFO]    0x0000A0 pop r4 
- [INFO]    0x0000A4 ret 
- [INFO]    0x0000A8 push r3 
- [INFO]    0x0000AC li r3, 0x0100 
- [INFO]    0x0000B0 push r1 
- [INFO]    0x0000B4 li r1, 0x0000 
- [INFO]    0x0000B8 push r2 
- [INFO]    0x0000BC mov r2, r3 
- [INFO]    0x0000C0 push r3 
- [INFO]    0x0000C4 li r3, 0x000D 
- [INFO]    0x0000C8 calli 0x000010 
- [INFO]    0x0000CC pop r3 
- [INFO]    0x0000D0 pop r2 
- [INFO]    0x0000D4 pop r1 
- [INFO]    0x0000D8 pop r3 
- [INFO]    0x0000DC li r0, 0x0000 
- [INFO]    0x0000E0 ret 
+ [INFO]    0x000000 li r1, 0x0100 
+ [INFO]    0x000004 calli 0x000014 
+ [INFO]    0x000008 hlt r0 
+ [INFO]    0x00000C outb r1, r2 
+ [INFO]    0x000010 ret 
+ [INFO]    0x000014 push r2 
+ [INFO]    0x000018 push r3 
+ [INFO]    0x00001C li r3, 0x0100 
+ [INFO]    0x000020 lb r2, r1 
+ [INFO]    0x000024 bz 0x000040 
+ [INFO]    0x000028 push r1 
+ [INFO]    0x00002C mov r1, r3 
+ [INFO]    0x000030 calli 0x00000C 
+ [INFO]    0x000034 pop r1 
+ [INFO]    0x000038 inc r1 
+ [INFO]    0x00003C j 0x000020 
+ [INFO]    0x000040 push r1 
+ [INFO]    0x000044 li r1, 0x0100 
+ [INFO]    0x000048 li r2, 0x000A 
+ [INFO]    0x00004C calli 0x00000C 
+ [INFO]    0x000050 li r2, 0x000D 
+ [INFO]    0x000054 calli 0x00000C 
+ [INFO]    0x000058 pop r1 
+ [INFO]    0x00005C li r0, 0x0000 
+ [INFO]    0x000060 pop r3 
+ [INFO]    0x000064 pop r2 
+ [INFO]    0x000068 ret 
  [INFO] 
  [INFO] * Section #1 
+ [INFO]   Name:   .data 
  [INFO]   Type:   DATA 
- [INFO]   Flags:  0x0 
+ [INFO]   Flags:  RW- (0x3) 
  [INFO]   Base:   0x000100 
  [INFO]   Size:   14 
- [INFO]   Offset: 0x00011A 
+ [INFO]   Offset: 0x0000F6 
  [INFO] 
  [INFO] * Section #2 
- [INFO]   Type:   STACK 
- [INFO]   Flags:  0x0 
- [INFO]   Base:   0x000000 
- [INFO]   Size:   0 
- [INFO]   Offset: 0x000000 
- [INFO] 
- [INFO] * Section #3 
+ [INFO]   Name:   .symtab 
  [INFO]   Type:   SYMBOLS 
- [INFO]   Flags:  0x0 
+ [INFO]   Flags:  --- (0x0) 
  [INFO]   Base:   0x000000 
- [INFO]   Size:   1 
- [INFO]   Offset: 0x000128 
+ [INFO]   Size:   4 
+ [INFO]   Offset: 0x000104 
  [INFO] 
- [INFO]    Name:    some_data 
+ [INFO]    Name:    message 
  [INFO]    Address: 0x000100 
  [INFO]    Size:    14 
  [INFO]    Section: 1 
  [INFO]    Type:    string 
  [INFO]    Content: "Hello, world!" 
- [INFO]
+ [INFO]    
+ [INFO]    Name:    main 
+ [INFO]    Address: 0x000000 
+ [INFO]    Size:    0 
+ [INFO]    Section: 0 
+ [INFO]    Type:    function 
+ [INFO]    
+ [INFO]    Name:    outb 
+ [INFO]    Address: 0x00000C 
+ [INFO]    Size:    0 
+ [INFO]    Section: 0 
+ [INFO]    Type:    function 
+ [INFO]    
+ [INFO]    Name:    writesn 
+ [INFO]    Address: 0x000014 
+ [INFO]    Size:    0 
+ [INFO]    Section: 0 
+ [INFO]    Type:    function 
+ [INFO]    
 ```
