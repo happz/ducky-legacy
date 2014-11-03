@@ -3,16 +3,16 @@
 
 main:
   li r1, &message
-  calli @__fn_writesn_prolog
+  calli @writesn
   hlt r0
 
-__outb_prolog:
+outb:
   # > r1: port
   # > r2: byte
   outb r1, r2 b
   ret
 
-__fn_writesn_prolog:
+writesn:
   # > r1: string address
   #   r2: current byte
   #   r3: port
@@ -24,7 +24,7 @@ __fn_writesn_loop:
   bz @__fn_writesn_write_nl
   push r1
   mov r1, r3
-  calli @__outb_prolog
+  calli @outb
   pop r1
   inc r1
   j @__fn_writesn_loop
@@ -33,10 +33,10 @@ __fn_writesn_write_nl:
   li r1, 0x100
   # \n
   li r2, 0xA
-  calli @__outb_prolog
+  calli @outb
   # \r
   li r2, 0xD
-  calli @__outb_prolog
+  calli @outb
   pop r1
   li r0, 0
   pop r3
