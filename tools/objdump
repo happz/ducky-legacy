@@ -1,5 +1,6 @@
 #!/usr/bin/python
 
+import ctypes
 import optparse
 import struct
 import sys
@@ -56,8 +57,14 @@ def main():
 
       info()
       info('* Section #%i' % header.index)
+      info('  Name:   %s' % header.get_name())
       info('  Type:   %s' % mm.binary.SECTION_TYPES[header.type])
-      info('  Flags:  0x%X' % header.flags)
+      flags = [
+        'R' if header.flags.readable == 1 else '-',
+        'W' if header.flags.writable == 1 else '-',
+        'X' if header.flags.executable == 1 else '-'
+      ]
+      info('  Flags:  %s (0x%X)' % (''.join(flags), ctypes.cast(ctypes.byref(header.flags), ctypes.POINTER(ctypes.c_ubyte)).contents.value))
       info('  Base:   %s' % ADDR_FMT(header.base))
       info('  Size:   %s' % SIZE_FMT(header.size))
       info('  Offset: %s' % ADDR_FMT(header.offset))
@@ -95,6 +102,8 @@ def main():
           info('  ', 'Section: %i' % entry.section)
           info('  ', 'Type:    %s' % mm.binary.SYMBOL_DATA_TYPES[entry.type])
 
+          symbol_content = None
+
           if entry.type == mm.binary.SymbolDataTypes.INT:
             symbol_content = UInt16(0)
             symbol_content.u16 = _content[entry.address - _header.base].u8 | (_content[entry.address - _header.base + 1].u8 << 8)
@@ -103,7 +112,8 @@ def main():
           elif entry.type == mm.binary.SymbolDataTypes.STRING:
             symbol_content = '"' + ''.join(['%s' % chr(c.u8) for c in _content[entry.address - _header.base:entry.address - _header.base + entry.size]]) + '"'
 
-          info('  ', 'Content: %s' % symbol_content)
+          if symbol_content:
+            info('  ', 'Content: %s' % symbol_content)
           info('  ')
 
 if __name__ == '__main__':

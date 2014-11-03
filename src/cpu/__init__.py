@@ -76,7 +76,7 @@ class IdleLoopServiceRoutine(ServiceRoutine):
   code = [
     'main:',
     '  idle',
-    '  j main'
+    '  j @main'
   ]
 
 class InterruptCounterRoutine(ServiceRoutine):
@@ -93,7 +93,6 @@ class InterruptCounterRoutine(ServiceRoutine):
     '  pop r1',
     '  pop r0',
     '  retint'
-
   ]
 
 SERVICE_ROUTINES = {
@@ -111,6 +110,7 @@ def log_cpu_core_state(core, logger = None):
   logger(core.cpuid_prefix, 'cs=%s' % SEGM_FMT(core.CS().u16))
   logger(core.cpuid_prefix, 'ds=%s' % SEGM_FMT(core.DS().u16))
   logger(core.cpuid_prefix, 'ip=%s' % UINT16_FMT(core.IP().u16))
+  logger(core.cpuid_prefix, 'fp=%s' % UINT16_FMT(core.FP().u16))
   logger(core.cpuid_prefix, 'sp=%s' % UINT16_FMT(core.SP().u16))
   logger(core.cpuid_prefix, 'priv=%i, hwint=%i' % (core.FLAGS().privileged, core.FLAGS().hwint))
   logger(core.cpuid_prefix, 'eq=%i, z=%i, o=%i' % (core.FLAGS().eq, core.FLAGS().z, core.FLAGS().o))
@@ -166,6 +166,9 @@ class CPUCore(object):
   def SP(self):
     return self.registers.sp
 
+  def FP(self):
+    return self.registers.fp
+
   def CS(self):
     return self.registers.cs
 
@@ -213,10 +216,19 @@ class CPUCore(object):
       debug(self.cpuid_prefix, '__pop: load %s (%s) from %s' % (reg, UINT16_FMT(self.REG(reg).u16), ADDR_FMT(sp.u24)))
       self.SP().u16 += 2
 
+  def __create_frame(self):
+    self.__push(Registers.IP, Registers.FP)
+
+    self.FP().u16 = self.SP().u16
+
+  def __destroy_frame(self):
+    self.__pop(Registers.FP, Registers.IP)
+
   def __do_interrupt(self, table_address, index):
     debug(self.cpuid_prefix, '__do_interrupt: table=%s, index=%i' % (ADDR_FMT(table_address.u24), index))
 
-    self.__push(Registers.FLAGS, Registers.IP, Registers.DS, Registers.CS)
+    self.__push(Registers.FLAGS, Registers.DS, Registers.CS)
+    self.__create_frame()
 
     self.privileged = 1
 
@@ -226,7 +238,11 @@ class CPUCore(object):
     debug(self.cpuid_prefix, '__do_interrupt: registers saved and new CS:IP loaded')
 
   def __do_int(self, index):
-    self.__do_interrupt(self.memory.header.int_table_address, index)
+    debug(self.cpuid_prefix, '__do_int: %s' % index)
+
+    self.__do_interrupt(UInt24(self.memory.header.int_table_address), index)
+
+    debug(self.cpuid_prefix, '__do_int: CPU state prepared to handle interrupt')
 
   def __do_irq(self, index):
     debug(self.cpuid_prefix, '__do_irq: %s' % index)
@@ -238,7 +254,8 @@ class CPUCore(object):
     debug(self.cpuid_prefix, '__do_irq: CPU state prepared to handle IRQ')
 
   def __do_retint(self):
-    self.__pop(Registers.CS, Registers.DS, Registers.IP, Registers.FLAGS)
+    self.__destroy_frame()
+    self.__pop(Registers.CS, Registers.DS, Registers.FLAGS)
 
   # Do it this way to avoid pylint' confusion
   def __get_privileged(self):
@@ -301,6 +318,13 @@ class CPUCore(object):
       if self.cpu.machine.ports[port.u16].is_protected and not self.privileged:
         raise AccessViolationError('Access to port not allowed in unprivileged mode: opcode=%i, port=%u' % (opcode, port))
 
+    def OFFSET_ADDR(inst):
+      addr = REG(inst.r_address).u16
+      if inst.immediate != 0:
+        addr += inst.immediate
+
+      return DS_ADDR(addr)
+
     class AFLAGS_CTX(object):
       def __init__(self, reg):
         super(AFLAGS_CTX, self).__init__()
@@ -332,25 +356,19 @@ class CPUCore(object):
       __check_protected_reg(inst.r_dst)
 
       with AFLAGS_CTX(REG(inst.r_dst)):
-        addr = DS_ADDR(REG(inst.r_address).u16)
-
-        REG(inst.r_dst).u16 = MEM_IN16(addr).u16
+        REG(inst.r_dst).u16 = MEM_IN16(OFFSET_ADDR(inst)).u16
 
     elif opcode == Opcodes.LB:
       __check_protected_reg(inst.r_dst)
 
       with AFLAGS_CTX(REG(inst.r_dst)):
-        addr = DS_ADDR(REG(inst.r_address).u16)
-
-        REG(inst.r_dst).u16 = MEM_IN8(addr).u8
+        REG(inst.r_dst).u16 = MEM_IN8(OFFSET_ADDR(inst)).u8
 
     elif opcode == Opcodes.LBU:
       __check_protected_reg(inst.r_dst)
 
       with AFLAGS_CTX(REG(inst.r_dst)):
-        addr = DS_ADDR(REG(inst.r_address).u16)
-
-        REG(inst.r_dst).u16 = MEM_IN16(addr).u16
+        REG(inst.r_dst).u16 = MEM_IN16(OFFSET_ADDR(inst)).u16
 
     elif opcode == Opcodes.LI:
       __check_protected_reg(inst.r_dst)
@@ -359,19 +377,13 @@ class CPUCore(object):
         REG(inst.r_dst).u16 = inst.immediate
 
     elif opcode == Opcodes.STW:
-      addr = DS_ADDR(REG(inst.r_address).u16)
-
-      MEM_OUT16(addr, REG(inst.r_src).u16)
+      MEM_OUT16(OFFSET_ADDR(inst), REG(inst.r_src).u16)
 
     elif opcode == Opcodes.STB:
-      addr = DS_ADDR(REG(inst.r_address).u16)
-
-      MEM_OUT8(addr, REG(inst.r_dst).u16 & 0xFF)
+      MEM_OUT8(OFFSET_ADDR(inst), REG(inst.r_dst).u16 & 0xFF)
 
     elif opcode == Opcodes.STBU:
-      addr = DS_ADDR(REG(inst.r_address).u16)
-
-      MEM_OUT8(addr, (REG(inst.r_dst).u16 & 0xFF00) >> 8)
+      MEM_OUT8(OFFSET_ADDR(inst), (REG(inst.r_dst).u16 & 0xFF00) >> 8)
 
     elif opcode == Opcodes.MOV:
       REG(inst.r_dst).u16 = REG(inst.r_src).u16
@@ -392,17 +404,19 @@ class CPUCore(object):
     elif opcode == Opcodes.CALL:
       new_ip = REG(inst.r_dst).u16
 
-      self.__push(Registers.IP)
+      self.__create_frame()
+
       IP().u16 = new_ip
 
     elif opcode == Opcodes.CALLI:
       new_ip = inst.immediate
 
-      self.__push(Registers.IP)
+      self.__create_frame()
+
       IP().u16 = new_ip
 
     elif opcode == Opcodes.RET:
-      self.__pop(Registers.IP)
+      self.__destroy_frame()
 
     elif opcode == Opcodes.CLI:
       __check_protected_ins()
@@ -677,11 +691,11 @@ class CPUCore(object):
     log_cpu_core_state(self)
 
   def boot(self, init_state):
-    cs, csb, ds, _, sp, privileged = init_state
+    cs, csb, ds, dsb, sp, ip, privileged = init_state
 
     self.REG(Registers.CS).u16 = cs.u8
     self.REG(Registers.DS).u16 = ds.u8
-    self.REG(Registers.IP).u16 = csb.u16
+    self.REG(Registers.IP).u16 = ip.u16
     self.REG(Registers.SP).u16 = sp.u16
     self.FLAGS().privileged = 1 if privileged else 0
 

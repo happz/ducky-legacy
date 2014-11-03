@@ -1,3 +1,4 @@
+import ctypes
 import enum
 import struct
 
@@ -12,22 +13,23 @@ from cpu.errors import CPUException
 class SectionTypes(enum.IntEnum):
   TEXT    = 0
   DATA    = 1
-  STACK   = 2
-  SYMBOLS = 3
+  SYMBOLS = 2
 
 SECTION_TYPES = [
-  'TEXT', 'DATA', 'STACK', 'SYMBOLS'
+  'TEXT', 'DATA', 'SYMBOLS'
 ]
 
 class SymbolDataTypes(enum.IntEnum):
   INT    = 0
   CHAR   = 1
   STRING = 2
+  FUNCTION = 3
 
 SYMBOL_DATA_TYPES = [
-  'int', 'char', 'string'
+  'int', 'char', 'string', 'function'
 ]
 
+SECTION_NAME_LIMIT = 32
 SYMBOL_NAME_LIMIT = 255
 
 class FileHeader(LittleEndianStructure):
@@ -38,17 +40,50 @@ class FileHeader(LittleEndianStructure):
     ('sections', c_ushort),
   ]
 
+class SectionFlags(LittleEndianStructure):
+  _pack_ = 0
+  _fields_ = [
+    ('readable',   c_ubyte, 1),
+    ('writable',   c_ubyte, 1),
+    ('executable', c_ubyte, 1)
+  ]
+
+def ctypes_read_string(raw_string, max_len):
+  s = ''
+
+  for i in range(0, max_len):
+    if raw_string[i] == 0:
+      break
+
+    s += chr(raw_string[i])
+
+  return s
+
+def ctypes_write_string(raw_string, max_len, s):
+  # Avoid using undefined variable in case range does not start (len(name) == 0
+  i = 0
+
+  for i in range(0, min(len(s), max_len)):
+    raw_string[i] = ord(s[i])
+
 class SectionHeader(LittleEndianStructure):
   _pack_ = 0
   _fields_ = [
-    ('index', c_ubyte),
-    ('type',  c_ubyte),
-    ('flags', c_ubyte),
+    ('index',   c_ubyte),
+    ('name',    c_ubyte * SECTION_NAME_LIMIT),
+    ('type',    c_ubyte),
+    ('flags',   SectionFlags),
     ('padding', c_ubyte),
-    ('base',  c_ushort),
-    ('size',  c_ushort),
-    ('offset', c_uint)
+    ('base',    c_ushort),
+    ('size',    c_ushort),
+    ('offset',  c_uint)
   ]
+
+  def get_name(self):
+    return ctypes_read_string(self.name, SECTION_NAME_LIMIT)
+
+  def set_name(self, name):
+    ctypes_write_string(self.name, SECTION_NAME_LIMIT, name)
 
 class SymbolEntry(LittleEndianStructure):
   _pack_ = 0
@@ -61,22 +96,10 @@ class SymbolEntry(LittleEndianStructure):
   ]
 
   def get_name(self):
-    name = ''
-
-    for i in range(0, SYMBOL_NAME_LIMIT + 1):
-      if self.name[i] == 0:
-        return name
-      name += chr(self.name[i])
-    else:
-      assert False
+    return ctypes_read_string(self.name, SECTION_NAME_LIMIT)
 
   def set_name(self, name):
-    # Avoid using undefined variable in case range does not start (len(name) == 0)
-    i = 0
-
-    for i in range(0, len(name)):
-      self.name[i] = ord(name[i])
-    self.name[i + 1] = 0
+    ctypes_write_string(self.name, SECTION_NAME_LIMIT, name)
 
 SECTION_ITEM_SIZE = [
   sizeof(cpu.instructions.InstBinaryFormat_Master), sizeof(UInt8), 0, sizeof(SymbolEntry)
@@ -171,7 +194,10 @@ class File(file):
       debug('load: section header #%i' % header.index)
 
       header.type = self.read_u8().u8
-      header.flags = self.read_u8().u8
+      for k in range(0, SECTION_NAME_LIMIT):
+        header.name[k] = self.read_u8().u8
+      u_flags = self.read_u8()
+      header.flags = ctypes.cast(ctypes.byref(u_flags), ctypes.POINTER(SectionFlags)).contents
       header.base = self.read_u16().u16
       header.size = self.read_u16().u16
       header.offset = self.read_u32().u32
@@ -222,12 +248,8 @@ class File(file):
       if header.type == SectionTypes.SYMBOLS:
         symbol_sections.append(header)
 
-      if header.type == SectionTypes.STACK:
-        header.size = 0
-        header.offset = 0
-      else:
-        header.size = len(content)
-        header.offset = offset
+      header.size = len(content)
+      header.offset = offset
 
       offset += header.size * SECTION_ITEM_SIZE[header.type]
 
@@ -243,7 +265,9 @@ class File(file):
       debug('save: section header #%i' % header.index)
 
       self.write_u8(header.type)
-      self.write_u8(header.flags)
+      for k in range(0, SECTION_NAME_LIMIT):
+        self.write_u8(header.name[k])
+      self.write_u8(ctypes.cast(ctypes.byref(header.flags), ctypes.POINTER(c_ubyte)).contents.value)
       self.write_u16(header.base)
       self.write_u16(header.size)
       self.write_u32(header.offset)
@@ -252,10 +276,6 @@ class File(file):
       header, content = self.__sections[i]
 
       debug('save: section content #%i' % header.index)
-
-      if header.type == SectionTypes.STACK:
-        debug('save:  STACK section does not have content, skipped')
-        continue
 
       self.seek(header.offset)
 

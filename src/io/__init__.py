@@ -14,6 +14,12 @@ class IOHandler(object):
 
     self.is_protected = False
 
+  def boot(self):
+    pass
+
+  def halt(self):
+    pass
+
   def read_u8(self, port):
     handler_name = 'read_u8_%i' % port.u16
 
@@ -71,3 +77,5 @@ class IOPortSet(object):
   def __contains__(self, port):
     return port in self.__ports
 
+  def __iter__(self):
+    return self.__ports.itervalues()

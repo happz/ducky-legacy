@@ -1,4 +1,5 @@
 import Queue
+import sys
 import time
 import threading
 
@@ -61,7 +62,7 @@ class Machine(object):
     for _cpu in self.cpus:
       for _core in _cpu.cores:
         if len(binaries):
-          csr, csb, dsr, dsb, sp = self.memory.load_file(binaries.pop(0))
+          csr, csb, dsr, dsb, sp, ip = self.memory.load_file(binaries.pop(0))
 
         else:
           from mm import UInt8, UInt16
@@ -84,9 +85,11 @@ class Machine(object):
           csb = routine.csb
           dsb = routine.dsb
 
-        debug('init state: csr=%s, csb=%s, dsr=%s, dsb=%s, sp=%s'
-           % (SEGM_FMT(csr.u8), ADDR_FMT(csb.u16), SEGM_FMT(dsr.u8), ADDR_FMT(dsb.u16), ADDR_FMT(sp.u16)))
-        self.init_states.append((csr, csb, dsr, dsb, sp, False))
+          ip = routine.csb
+
+        debug('init state: csr=%s, csb=%s, dsr=%s, dsb=%s, sp=%s, ip=%s'
+           % (SEGM_FMT(csr.u8), ADDR_FMT(csb.u16), SEGM_FMT(dsr.u8), ADDR_FMT(dsb.u16), ADDR_FMT(sp.u16), ADDR_FMT(ip.u16)))
+        self.init_states.append((csr, csb, dsr, dsb, sp, ip, False))
 
   def register_irq_source(self, index, src, reassign = False):
     if self.irq_sources[index]:
@@ -134,6 +137,9 @@ class Machine(object):
         break
 
   def boot(self):
+    for handler in self.ports:
+      handler.boot()
+
     for _cpu in self.cpus:
       _cpu.boot(self.init_states)
 
@@ -141,6 +147,8 @@ class Machine(object):
     self.thread.start()
 
   def halt(self):
+    for handler in self.ports:
+      handler.boot()
+
     for _cpu in self.cpus:
       _cpu.halt()
-

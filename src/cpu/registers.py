@@ -36,21 +36,20 @@ class Registers(enum.IntEnum):
   R27 = 27
   R28 = 28
   R29 = 29
-  R30 = 30
-  R31 = 31
 
   # Some registers have special meaning and/or usage
+  FP    = 30 # Frame Pointer
+  SP    = 31 # Stack Pointer
   CS    = 32 # Code Segment register
   DS    = 33 # Data Segment register
   FLAGS = 34 # Flags
-  SP    = 35 # Stack pointer
-  IP    = 36 # Instruction pointer
+  IP    = 35 # Instruction pointer
 
   # First special register
-  REGISTER_SPECIAL = 32
+  REGISTER_SPECIAL = 30
 
   # How many registers do we have? This many...
-  REGISTER_COUNT = 37
+  REGISTER_COUNT = 36
 
 PROTECTED_REGISTERS = range(Registers.REGISTER_SPECIAL, Registers.REGISTER_COUNT)
 
@@ -125,5 +124,6 @@ class RegisterSet(object):
   ds    = property(lambda self: self[Registers.DS])
   flags = property(lambda self: self[Registers.FLAGS])
   sp    = property(lambda self: self[Registers.SP])
+  fp    = property(lambda self: self[Registers.FP])
   ip    = property(lambda self: self[Registers.IP])
 

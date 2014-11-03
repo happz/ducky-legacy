@@ -57,20 +57,21 @@ def main():
     debug('Create TEXT section:  base=0x%X, size=0x%X' % (csb.u16, len(cs)))
     h_text = f_out.create_section()
     h_text.type = mm.binary.SectionTypes.TEXT
+    h_text.set_name('.text')
+    h_text.flags.readable = h_text.flags.executable = 1
     h_text.base = csb.u16
 
     debug('Create DATA section:  base=0x%X, size=0x%X' % (dsb.u16, len(ds)))
     h_data = f_out.create_section()
     h_data.type = mm.binary.SectionTypes.DATA
+    h_data.set_name('.data')
+    h_data.flags.readable = h_data.flags.writable = 1
     h_data.base = dsb.u16
-
-    debug('Create STACK section')
-    h_stack = f_out.create_section()
-    h_stack.type = mm.binary.SectionTypes.STACK
 
     debug('Create SYMBOLS section')
     h_symbols = f_out.create_section()
     h_symbols.type = mm.binary.SectionTypes.SYMBOLS
+    h_symbols.set_name('.symtab')
 
     symbol_entries = []
     for s_name, s_addr, s_size, s_type in symbols:
@@ -88,6 +89,9 @@ def main():
         entry.type == mm.binary.SymbolDataTypes.CHAR
       elif s_type == 'string':
         entry.type = mm.binary.SymbolDataTypes.STRING
+      elif s_type == 'function':
+        entry.type = mm.binary.SymbolDataTypes.FUNCTION
+        entry.section = h_text.index
       else:
         raise CPUException('Unknown symbol data type: %s' % s_type)
 

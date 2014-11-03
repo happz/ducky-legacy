@@ -1,12 +1,14 @@
 import collections
 import ctypes
 import enum
+import math
 import re
 
-from ctypes import LittleEndianStructure, Union, c_uint
+from ctypes import LittleEndianStructure, Union, c_uint, c_int
 
 from util import debug
 from mm import UInt32, UInt16, UINT16_FMT, ADDR_FMT
+from cpu.registers import Registers
 
 class Opcodes(enum.IntEnum):
   NOP    = 0
@@ -123,9 +125,10 @@ def disassemble_instruction(inst):
 
   return (desc.mnemonic + ' ' + ', '.join(operands)) if len(operands) else desc.mnemonic
 
-PATTERN_REGISTER   = r'r(\d{1,2})'
-PATTERN_JUMP_LABEL = r'([a-zA-Z_][a-zA-Z0-9_-]*)'
-PATTERN_IMMEDIATE  = r'(?:(0x([0-9a-fA-F]+))|(\d+)|(&[a-zA-Z_][a-zA-Z0-9_]*)|([a-zA-Z_][a-zA-Z0-9_-]*))'
+PATTERN_REGISTER = r'(?P<common_register_n{register_index}>r(?P<common_register_n{register_index}_number>\d\d?))'
+PATTERN_ADDRESS_REGISTER = r'(?P<address_register>(?:r(\d\d?)|(sp)|(fp)))(?:\[(?P<shift>-)?(?P<offset>(?:0x[0-9a-fA-F]+|\d+))\])?'
+PATTERN_JUMP_LABEL = r'(?P<jump_label>@[a-zA-Z_][a-zA-Z0-9_-]*)'
+PATTERN_IMMEDIATE  = r'(?:(?P<immediate_hex>0x[0-9a-fA-F]+)|(?P<immediate_dec>\d+)|(?P<immediate_data_address>&[a-zA-Z_][a-zA-Z0-9_]*)|(?P<immediate_label>@[a-zA-Z_][a-zA-Z0-9_-]*))'
 
 class InstDescriptor(object):
   mnemonic      = None
@@ -146,7 +149,8 @@ class InstDescriptor(object):
 
     for field in fields_desc:
       field = field.split(':')
-      fields.append((field[0], c_uint, int(field[1])))
+      data_type = c_int if len(field) == 3 else c_uint
+      fields.append((field[0], data_type, int(field[1])))
 
     self.binary_format_name = 'InstBinaryFormat_%s' % self.mnemonic
     self.binary_format = type(self.binary_format_name, (ctypes.LittleEndianStructure,), {'_pack_': 0, '_fields_': fields})
@@ -159,9 +163,13 @@ class InstDescriptor(object):
     if self.operands:
       operands = []
 
+      i = 0
       for o in self.operands:
         if   o == 'r':
-          operands.append(PATTERN_REGISTER)
+          operands.append(PATTERN_REGISTER.format(register_index = str(i)))
+
+        elif o == 'R':
+          operands.append(PATTERN_ADDRESS_REGISTER)
 
         elif o == 'j':
           operands.append(PATTERN_JUMP_LABEL)
@@ -171,6 +179,8 @@ class InstDescriptor(object):
 
         else:
           raise Exception('Unknown operand %s in %s' % (o, self.__class__))
+
+        i += 1
 
       pattern += ' ' + ', '.join(operands)
 
@@ -200,8 +210,9 @@ class InstDescriptor(object):
     real = getattr(master, self.binary_format_name)
     real.opcode = self.opcode
 
-    match = self.pattern.match(line).groups()
-    debug('emit_instruction: match=%s' % str(match))
+    raw_match = self.pattern.match(line)
+    matches = raw_match.groupdict()
+    debug('emit_instruction: matches=%s' % matches)
 
     operands = []
 
@@ -211,27 +222,47 @@ class InstDescriptor(object):
 
         # register
         if operand == 'r':
-          operands.append(match[i])
+          operands.append(int(raw_match.group('common_register_n%i_number' % i)))
+
+        elif operand == 'R':
+          reg = matches['address_register']
+
+          if reg == 'fp':
+            reg = Registers.FP
+          elif reg == 'sp':
+            reg = Registers.SP
+          else:
+            reg = reg[1:]
+
+          operands.append(reg)
+
+          if 'offset' in matches and matches['offset']:
+            k = -1 if 'shift' in matches and matches['shift'] and matches['shift'].strip() == '-' else 1
+
+            if matches['offset'].startswith('0x'):
+              operands.append(int(matches['offset'], base = 16) * k)
+
+            else:
+              operands.append(int(matches['offset']) * k)
 
         elif operand == 'j':
-          operands.append(match[i])
+          operands.append(matches['jump_label'])
 
         elif operand == 'i':
-          # this is tricky - absolute number (hexa or dec) or address label (&foo) or label (foo:)
+          if 'immediate_hex' in matches and matches['immediate_hex']:
+            operands.append(str(int(matches['immediate_hex'], base = 16)))
 
-          debug('immediate operand: %s - position %i' % (str(match), i))
+          elif 'immediate_dec' in matches and matches['immediate_dec']:
+            operands.append(str(int(matches['immediate_dec'])))
 
-          if match[i]:
-            operands.append(str(int(match[i], base = 16)))
+          elif 'immediate_data_address' in matches and matches['immediate_data_address']:
+            operands.append(matches['immediate_data_address'])
 
-          elif match[i + 4]:
-            operands.append(match[i + 4])
-
-          elif match[i + 3]:
-            operands.append(match[i + 3])
+          elif 'immediate_label' in matches and matches['immediate_label']:
+            operands.append(matches['immediate_label'])
 
           else:
-            operands.append(str(int(match[i + 2])))
+            raise Exception('Unhandled operand')
 
     else:
       pass
@@ -242,8 +273,6 @@ class InstDescriptor(object):
       setattr(real, flag.split('_')[1], getattr(self, flag))
 
     return real
-
-#p_l  = r'(?:(0x([0-9a-fA-F]+))|(\d+)|(&[a-zA-Z_][a-zA-Z0-9_]*)|([a-zA-Z_][a-zA-Z0-9_-]*))'
 
 class Inst_NOP(InstDescriptor):
   mnemonic = 'nop'
@@ -700,17 +729,38 @@ class Inst_SHIFTR(Inst_BaseShift):
 # Memory load/store operations
 #
 class Inst_BaseLoad(InstDescriptor):
-  operands = 'rr'
-  binary_format = 'r_dst:5,r_address:5'
+  operands = 'rR'
+  binary_format = 'r_dst:5,r_address:5,immediate:16:int'
 
   def assemble_operands(self, inst, operands):
     debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
 
     inst.r_dst = int(operands[0])
     inst.r_address = int(operands[1])
+    if len(operands) == 3:
+      inst.immediate = int(operands[2])
 
   def disassemble_operands(self, inst):
-    return ['r%i' % inst.r_dst, 'r%i' % inst.r_address]
+    operands = ['r%i' % inst.r_dst]
+
+    if inst.immediate != 0:
+      if inst.r_address in (Registers.SP, Registers.FP):
+        reg = 'sp' if inst.r_address == Registers.SP else 'fp'
+      else:
+        reg = 'r%i' % inst.r_address
+
+      s = '-' if inst.immediate < 0 else ''
+      operands.append('%s[%s0x%04X]' % (reg, s, int(math.fabs(inst.immediate))))
+
+    else:
+      if inst.r_address in (Registers.SP, Registers.FP):
+        reg = 'sp' if inst.r_address == Registers.SP else 'fp'
+      else:
+        reg = 'r%i' % inst.r_address
+
+      operands.append(reg)
+
+    return operands
 
 class Inst_LW(Inst_BaseLoad):
   mnemonic = 'lw'
@@ -752,17 +802,40 @@ class Inst_LI(Inst_BaseLoad):
     return [r_dst, inst.refers_to] if hasattr(inst, 'refers_to') and inst.refers_to else [r_dst, UINT16_FMT(inst.immediate)]
 
 class Inst_BaseStore(InstDescriptor):
-  operands = 'rr'
-  binary_format = 'r_src:5,r_address:5'
+  operands = 'Rr'
+  binary_format = 'r_src:5,r_address:5,immediate:16:int'
 
   def assemble_operands(self, inst, operands):
     debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
 
-    inst.r_src = int(operands[1])
+    inst.r_dst = int(operands[-1])
     inst.r_address = int(operands[0])
+    if len(operands) == 3:
+      inst.immediate = int(operands[1])
 
   def disassemble_operands(self, inst):
-    return ['r%i' % inst.r_src, 'r%i' % inst.r_address]
+    operands = []
+
+    if inst.immediate != 0:
+      if inst.r_address in (Registers.SP, Registers.FP):
+        reg = 'sp' if inst.r_address == Registers.SP else 'fp'
+      else:
+        reg = 'r%i' % inst.r_address
+
+      s = '-' if inst.immediate < 0 else ''
+      operands.append('%s[%s0x%04X]' % (reg, s, int(math.fabs(inst.immediate))))
+    else:
+      if inst.r_address in (Registers.SP, Registers.FP):
+        reg = 'sp' if inst.r_address == Registers.SP else 'fp'
+
+      else:
+        reg = 'r%i' % inst.r_address
+
+      operands.append(reg)
+
+    operands.append('r%i' % inst.r_src)
+
+    return operands
 
 class Inst_STW(Inst_BaseStore):
   mnemonic    = 'stw'

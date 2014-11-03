@@ -140,6 +140,22 @@ def addr_to_offset(addr):
 def area_to_pages(addr, size):
   return (addr_to_page(addr), (size / PAGE_SIZE) + 1)
 
+def buff_to_uint16(buff, offset):
+  return UInt16(buff[offset] | buff[offset + 1] << 8)
+
+def buff_to_uint32(buff, offset):
+  return UInt32(buff[offset] | buff[offset + 1] << 8 | buff[offset + 2] << 16 | buff[offset + 3] << 24)
+
+def uint16_to_buff(i, buff, offset):
+  buff[offset]     =  i & 0x00FF
+  buff[offset + 1] = (i & 0xFF00) >> 8
+
+def uint32_to_buff(i, buff, offset):
+  buff[offset]     =  i &       0xFF
+  buff[offset + 1] = (i &     0xFF00) >> 8
+  buff[offset + 2] = (i &   0xFF0000) >> 16
+  buff[offset + 3] = (i & 0xFF000000) >> 24
+
 class MemoryPage(object):
   def __init__(self, controller, index):
     super(MemoryPage, self).__init__()
@@ -233,6 +249,12 @@ class MemoryPage(object):
   def do_write_u32(self, offset, value):
     raise AccessViolationError('Not allowed to access memory on this address: page=%s, offset=%s' % (PAGE_FMT(self.index), ADDR_FMT(offset)))
 
+  def do_read_block(self, offset, size):
+    raise AccessViolationError('Not allowed to access memory on this address: page=%s, offset=%s' % (PAGE_FMT(self.index), ADDR_FMT(offset)))
+
+  def do_write_block(self, offset, size, buff):
+    raise AccessViolationError('Not allowed to access memory on this address: page=%s, offset=%s' % (PAGE_FMT(self.index), ADDR_FMT(offset)))
+
   def clear(self, privileged = False):
     debug('mp.clear: page=%s, priv=%s' % (PAGE_FMT(self.index), privileged))
 
@@ -287,6 +309,22 @@ class MemoryPage(object):
 
     dirty and self.dirty(True)
 
+  def read_block(self, offset, size, privileged = False):
+    debug('mp.read_block: page=%s, offset=%s, size=%s, priv=%s' % (PAGE_FMT(self.index), ADDR_FMT(offset), UINT16_FMT(size), privileged))
+
+    privileged or self.check_access(offset, 'read')
+
+    return self.do_read_block(offset, size)
+
+  def write_block(self, offset, size, buff, privileged = False, dirty = True):
+    debug('mp.write_block: page=%s, offset=%s, size=%s, priv=%s, dirty=%s' % (PAGE_FMT(self.index), ADDR_FMT(offset), UINT16_FMT(size), privileged, dirty))
+
+    privileged or self.check_access(offset, 'write')
+
+    self.do_write_block(offset, size, buff)
+
+    dirty and self.dirty(True)
+
 class AnonymousMemoryPage(MemoryPage):
   def __init__(self, controller, index):
     super(AnonymousMemoryPage, self).__init__(controller, index)
@@ -305,12 +343,12 @@ class AnonymousMemoryPage(MemoryPage):
   def do_read_u16(self, offset):
     debug('mp.do_read_u16: page=%s, offset=%s' % (PAGE_FMT(self.index), ADDR_FMT(offset)))
 
-    return UInt16(self.__data[offset] | self.__data[offset + 1] << 8)
+    return buff_to_uint16(self.__data, offset)
 
   def do_read_u32(self, offset):
     debug('mp.do_read_u32: page=%s, offset=%s' % (PAGE_FMT(self.index), ADDR_FMT(offset)))
 
-    return UInt32(self.__data[offset] | self.__data[offset + 1] << 8 | self.__data[offset + 2] << 16 | self.__data[offset + 3] << 24)
+    return buff_to_uint32(self.__data, offset)
 
   def do_write_u8(self, offset, value):
     debug('mp.do_write_u8: page=%s, offset=%s, value=%s' % (PAGE_FMT(self.index), ADDR_FMT(offset), UINT8_FMT(value)))
@@ -320,16 +358,19 @@ class AnonymousMemoryPage(MemoryPage):
   def do_write_u16(self, offset, value):
     debug('mp.do_write_u16: page=%s, offset=%s, value=%s' % (PAGE_FMT(self.index), ADDR_FMT(offset), UINT16_FMT(value)))
 
-    self.__data[offset] = value & 0x00FF
-    self.__data[offset + 1] = (value & 0xFF00) >> 8
+    uint16_to_buff(value, self.__data, offset)
 
   def do_write_u32(self, offset, value):
     debug('mp.do_write_u32: page=%s, offset=%s, value=%s' % (PAGE_FMT(self.index), ADDR_FMT(offset), UINT16_FMT(value)))
 
-    self.__data[offset]     =  value &       0xFF
-    self.__data[offset + 1] = (value &     0xFF00) >> 8
-    self.__data[offset + 2] = (value &   0xFF0000) >> 16
-    self.__data[offset + 3] = (value & 0xFF000000) >> 24
+    uint32_to_buff(value, self.__data, offset)
+
+  def do_read_block(self, offset, size):
+    return self.__data[offset:offset + size]
+
+  def do_write_block(self, offset, size, buff):
+    for i in range(offset, offset + size):
+      self.__data[offset + i] = buff[i]
 
 class MMapMemoryPage(MemoryPage):
   def __init__(self, controller, index, data, offset):
@@ -365,14 +406,19 @@ class MMapMemoryPage(MemoryPage):
   def do_write_u16(self, offset, value):
     debug('mp.do_write_u16: page=%s, offset=%s, value=%s' % (PAGE_FMT(self.index), ADDR_FMT(offset), UINT16_FMT(value)))
 
-    self.__data[self.__offset + offset]     =  value &       0xFF
-    self.__data[self.__offset + offset + 1] = (value &     0xFF00) >> 8
+    uint16_to_buff(value, self.__data, self.__offset + offset)
 
   def do_write_u32(self, offset, value):
-    self.__data[self.__offset + offset]     =  value &       0xFF
-    self.__data[self.__offset + offset + 1] = (value &     0xFF00) >> 8
-    self.__data[self.__offset + offset + 2] = (value &   0xFF0000) >> 16
-    self.__data[self.__offset + offset + 3] = (value & 0xFF000000) >> 24
+    debug('mp.do_write_u32: page=%s, offset=%s, value=%s' % (PAGE_FMT(self.index), ADDR_FMT(offset), UINT16_FMT(value)))
+
+    uint32_to_buff(value, self.__data, self.__offset + offset)
+
+  def do_read_block(self, offset, size):
+    return self.__data[self.__offset + offset:self.__offset + offset + size]
+
+  def do_write_block(self, offset, size, buff):
+    for i in range(self.__offset + offset, self.__offset + offset + size):
+      self.__data[self.__offset + i] = buff[i]
 
 class MMapArea(object):
   def __init__(self, address, size, file_path, ptr, pages_start, pages_cnt):
@@ -553,6 +599,8 @@ class MemoryController(object):
     self.__load_content_u8(segment, base, content)
 
   def load_file(self, file_in, csr = None, dsr = None):
+    debug('mc.load_file: file_in=%s, csr=%s, dsr=%s' % (file_in, csr, dsr))
+
     import mm.binary
 
     # One segment for code and data
@@ -562,6 +610,7 @@ class MemoryController(object):
     csb = UInt16(0)
     dsb = UInt16(0)
     sp  = UInt16(0)
+    ip  = None
 
     with mm.binary.File(file_in, 'r') as f_in:
       f_in.load()
@@ -579,13 +628,23 @@ class MemoryController(object):
           dsb.u16 = s_header.base
           self.load_data(dsr, dsb, s_content)
 
-        elif s_header.type == mm.binary.SectionTypes.STACK:
-          stack_page = self.get_page(self.alloc_page(dsr))
-          stack_page.mme_update('read', 1)
-          stack_page.mme_update('write', 1)
-          sp.u16 = stack_page.index * PAGE_SIZE + PAGE_SIZE
+        elif s_header.type == mm.binary.SectionTypes.SYMBOLS and not ip:
+          for j in range(0, s_header.size):
+            entry = s_content[j]
 
-    return (csr, csb, dsr, dsb, sp)
+            if entry.get_name() == 'main':
+              debug('"main" function found, use as an entry point')
+              ip = UInt16(entry.address)
+              break
+
+            j += 1
+
+    stack_page = self.get_page(self.alloc_page(dsr))
+    stack_page.mme_update('read', 1)
+    stack_page.mme_update('write', 1)
+    sp.u16 = stack_page.index * PAGE_SIZE + PAGE_SIZE
+
+    return (csr, csb, dsr, dsb, sp, ip)
 
   def __get_mmap_fileno(self, file_path):
     if file_path not in self.opened_mmap_files:
@@ -722,3 +781,18 @@ class MemoryController(object):
 
     self.get_page(addr_to_page(addr)).write_u32(addr_to_offset(addr), value, privileged = privileged, dirty = dirty)
 
+  def read_block(self, addr, size, privileged = False):
+    debug('mc.read_block: addr=%s, size=%s, privileged=%s' % (ADDR_FMT(addr), UINT16_FMT(size), privileged))
+
+    if size % 32 != 0:
+      raise AccessViolationError('Unable to access unaligned address: addr=%s' % ADDR_FMT(addr))
+
+    return self.get_page(addr_to_page(addr)).read_block(addr_to_offset(addr), 32)
+
+  def write_block(self, addr, size, buff, privileged = False):
+    debug('mc.write_block: addr=%s, size=%s, privileged=%s' % (ADDR_FMT(addr), UINT16_FMT(size), privileged))
+
+    if size % 32 != 0:
+      raise AccessViolationError('Unable to access unaligned address: addr=%s' % ADDR_FMT(addr))
+
+    self.get_page(addr_to_page(addr)).write_block(addr_to_offset(addr), size, buff)

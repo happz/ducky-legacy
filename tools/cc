@@ -36,7 +36,9 @@ def emit_log(msg):
     emit_inst('# %s' % msg)
 
 def emit_label(label):
-  emit_inst('%s:' % label)
+  global INSTS
+
+  INSTS.append('%s:' % label)
 
 def emit_data(name, value):
   global INSTS
@@ -238,7 +240,7 @@ def emit_routine_call(block, node):
       elif callee_argument.reg:
         emit_inst('mov %s, %s' % (areg, callee_argument.reg))
 
-    emit_inst('calli %s' % mangle_fn_name(callee_name))
+    emit_inst('calli @%s' % mangle_fn_name(callee_name))
 
     emit_log('restore saved argument registers')
     callee_arguments.reverse()
@@ -449,23 +451,23 @@ def emit_cond(block, stmt, false_label = None):
   emit_inst('cmp %s, %s' % (lreg, rreg))
 
   if cond.op == '==':
-    emit_inst('bne %s' % false_label)
+    emit_inst('bne @%s' % false_label)
 
   elif cond.op == '>':
-    emit_inst('be %s' % false_label)
-    emit_inst('bs %s' % false_label)
+    emit_inst('be @%s' % false_label)
+    emit_inst('bs @%s' % false_label)
 
   elif cond.op == '<':
-    emit_inst('be %s' % false_label)
-    emit_inst('bns %s' % false_label)
+    emit_inst('be @%s' % false_label)
+    emit_inst('bns @%s' % false_label)
 
   elif cond.op == '>=':
-    emit_inst('bs %s' % false_label)
+    emit_inst('bs @%s' % false_label)
 
   elif cond.op == '<=':
-    emit_inst('bs %s' % true_label)
-    emit_inst('be %s' % true_label)
-    emit_inst('j %s' % false_label)
+    emit_inst('bs @%s' % true_label)
+    emit_inst('be @%s' % true_label)
+    emit_inst('j @%s' % false_label)
 
   else:
     raise CompilationError(cond.coord, 'Unhandled cond op: %s' % cond.op)
@@ -689,7 +691,7 @@ class Block(object):
         label_prolog, label_true, label_false, label_epilog = emit_cond(self, stmt)
 
         emit_cond_branch(self, stmt.iftrue, label_true)
-        emit_inst('j %s' % label_epilog)
+        emit_inst('j @%s' % label_epilog)
         emit_cond_branch(self, stmt.iffalse, label_false)
         emit_inst(label_epilog + ':')
 
@@ -826,7 +828,7 @@ class Block(object):
         # retest condition
         debug('loop: emit jump to condition')
         emit_log('loop jump')
-        emit_inst('j %s' % label_cond_prolog)
+        emit_inst('j @%s' % label_cond_prolog)
 
         # emit epilog label
         debug('loop: emit epilog label')
@@ -871,7 +873,8 @@ def handle_FuncDef(node):
   emit_inst('')
 
   emit_log('Function "%s" starts here' % fn_name)
-  emit_inst(mangle_fn_name(fn_name) + ':')
+  emit_label(fn_name)
+  emit_label(mangle_fn_name(fn_name))
 
   main_block = Block(None, fn_body)
 
@@ -884,7 +887,11 @@ def handle_FuncDef(node):
   main_block.body()
   main_block.epilog()
 
-  emit_inst('ret')
+  if fn_name == 'main':
+    emit_inst('hlt r0')
+  else:
+    emit_inst('ret')
+
   emit_log('Function "%s" ends here' % fn_name)
 
 def compile_file(file_in, file_out):
@@ -892,10 +899,6 @@ def compile_file(file_in, file_out):
   INSTS = []
 
   ast = pycparser.parse_file(file_in, use_cpp = True, cpp_args = r'-I/data/git/pycparser/utils/fake_libc_include')
-
-  emit_log('prepare main arguments')
-  emit_inst('calli %s' % mangle_fn_name('main'))
-  emit_inst('hlt r0')
 
   code_state = CodeState()
 

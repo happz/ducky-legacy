@@ -221,6 +221,9 @@ def translate_buffer(buff, csb = None, dsb = None):
 
     if labeled:
       for label in labeled:
+        if not label.startswith('@.L') and not label.startswith('@__'):
+          symbols.append((label[1:], csp.u16, UInt16(0), 'function'))
+
         references[label] = UInt16(csp.u16)
         debug(csp_str, 'label entry "%s" created' % label)
 
