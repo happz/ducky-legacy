@@ -110,13 +110,16 @@ class File(file):
   VERSION = 1
 
   def __init__(self, *args, **kwargs):
+    if args[1] == 'w':
+      args = (args[0], 'wb')
+
+    elif args[1] == 'r':
+      args = (args[0], 'rb')
+
     super(File, self).__init__(*args, **kwargs)
 
     self.__header = None
     self.__sections = []
-
-    if self.mode == 'rb':
-      self.load()
 
   def create_header(self):
     self.__header = FileHeader()
@@ -142,95 +145,54 @@ class File(file):
   def get_section(self, i):
     return self.__sections[i]
 
-  def read_u8(self):
-    b = self.read(1)
-    u = struct.unpack('<B', b)
-    debug('read_u8:', u[0])
-    return UInt8(u[0])
+  def read_struct(self, st_class):
+    debug('read_struct: class=%s (%s bytes)' % (st_class, sizeof(st_class)))
 
-  def read_u16(self):
-    b = self.read(2)
-    u = struct.unpack('<H', b)
-    debug('read_u16:', u[0])
-    return UInt16(u[0])
+    st = st_class()
+    self.readinto(st)
+    return st
 
-  def read_u32(self):
-    b = self.read(4)
-    u = struct.unpack('<I', b)
-    debug('read_u32:', u[0])
-    return UInt32(u[0])
+  def write_struct(self, st):
+    debug('write_struct: class=%s (%s bytes)' % (st.__class__, sizeof(st)))
 
-  def write_u8(self, value):
-    debug('write_u8:', value)
-    self.write(struct.pack('<B', value))
-
-  def write_u16(self, value):
-    debug('write_u16:', value)
-    self.write(struct.pack('<H', value))
-
-  def write_u32(self, value):
-    debug('write_u32:', value)
-    self.write(struct.pack('<I', value))
+    self.write(st)
 
   def load(self):
     self.seek(0)
 
-    debug('load: file header')
+    debug('load: loading headers')
 
-    self.__header = FileHeader()
-    self.__header.magic = self.read_u16().u16
+    self.__header = self.read_struct(FileHeader)
 
     if self.__header.magic != self.MAGIC:
       error('load: magic cookie not recognized!')
       raise cpu.errors.MalformedBinaryError('Magic cookie not recognized!')
 
-    self.__header.version = self.read_u16().u16
-    self.__header.sections = self.read_u16().u16
-
     for i in range(0, self.__header.sections):
-      header = SectionHeader()
-      header.index = i
-
-      debug('load: section header #%i' % header.index)
-
-      header.type = self.read_u8().u8
-      for k in range(0, SECTION_NAME_LIMIT):
-        header.name[k] = self.read_u8().u8
-      u_flags = self.read_u8()
-      header.flags = ctypes.cast(ctypes.byref(u_flags), ctypes.POINTER(SectionFlags)).contents
-      header.base = self.read_u16().u16
-      header.size = self.read_u16().u16
-      header.offset = self.read_u32().u32
-      self.__sections.append((header, []))
+      self.__sections.append((self.read_struct(SectionHeader), []))
 
     for i in range(0, self.__header.sections):
       header, content = self.__sections[i]
 
-      debug('load: section content #%i' % header.index)
+      debug('load: loading section #%i' % header.index)
 
       self.seek(header.offset)
 
       i = 0
       while i < header.size:
         if header.type == SectionTypes.DATA:
-          content.append(self.read_u8())
+          st_class = UInt8
 
         elif header.type == SectionTypes.SYMBOLS:
-          se = SymbolEntry()
-          content.append(se)
+          st_class = SymbolEntry
 
-          for k in range(0, SYMBOL_NAME_LIMIT + 1):
-            se.name[k] = self.read_u8().u8
-          se.address = self.read_u16().u16
-          se.size = self.read_u16().u16
-          se.section = self.read_u8().u8
-          se.type = self.read_u8().u8
+        elif header.type == SectionTypes.TEXT:
+          st_class = cpu.instructions.InstBinaryFormat_Master
 
         else:
-          inst = cpu.instructions.InstBinaryFormat_Master()
-          inst.overall.u32 = self.read_u32().u32
-          content.append(inst)
+          raise cpu.error.MalformedBinaryError('Unknown section header type %s' % header.type)
 
+        content.append(self.read_struct(st_class))
         i += 1
 
   def save(self):
@@ -253,53 +215,20 @@ class File(file):
 
       offset += header.size * SECTION_ITEM_SIZE[header.type]
 
-    debug('save: file header')
+    debug('save: saving headers')
 
-    self.write_u16(self.__header.magic)
-    self.write_u16(self.__header.version)
-    self.write_u16(self.__header.sections)
+    self.write_struct(self.__header)
 
     for i in range(0, len(self.__sections)):
-      header = self.__sections[i][0]
-
-      debug('save: section header #%i' % header.index)
-
-      self.write_u8(header.type)
-      for k in range(0, SECTION_NAME_LIMIT):
-        self.write_u8(header.name[k])
-      self.write_u8(ctypes.cast(ctypes.byref(header.flags), ctypes.POINTER(c_ubyte)).contents.value)
-      self.write_u16(header.base)
-      self.write_u16(header.size)
-      self.write_u32(header.offset)
+      self.write_struct(self.__sections[i][0])
 
     for i in range(0, len(self.__sections)):
       header, content = self.__sections[i]
 
-      debug('save: section content #%i' % header.index)
+      debug('save: saving section #%i' % header.index)
 
       self.seek(header.offset)
 
       for j in range(0, len(content)):
-        if content[j].__class__.__name__.startswith('InstBinaryFormat_'):
-          master = cpu.instructions.convert_to_master(content[j])
-          self.write_u32(master.overall.u32)
-
-        elif type(content[j]) == SymbolEntry:
-          se = content[j]
-
-          for k in range(0, SYMBOL_NAME_LIMIT + 1):
-            self.write_u8(se.name[k])
-          self.write_u16(se.address)
-          self.write_u16(se.size)
-          self.write_u8(se.section)
-          self.write_u8(se.type)
-
-        elif type(content[j]) == UInt16:
-          self.write_u16(content[j].u16)
-
-        elif type(content[j]) == UInt8:
-          self.write_u8(content[j].u8)
-
-        else:
-          raise CPUException('Unhandled content item: "%s" (%s)' % (content[j], type(content[j])))
+        self.write_struct(content[j])
 
