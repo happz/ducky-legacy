@@ -13,9 +13,6 @@ from cpu.registers import Registers
 class Opcodes(enum.IntEnum):
   NOP    = 0
 
-  #
-  # Memory load/store operations
-  #
   LW     =  1
   LB     =  2
   LBU    =  3
@@ -25,28 +22,24 @@ class Opcodes(enum.IntEnum):
   STBU   =  7
   MOV    =  8
   SWP    =  9
+  CAS    = 53
 
-  # 2
   INT    = 10
   RETINT = 11
 
-  # 2
   CALL   = 12
   CALLI  = 13
   RET    = 14
 
-  # 5
   CLI    = 15
   STI    = 16
   RST    = 17
   HLT    = 18
   IDLE   = 19
 
-  # 2
   PUSH   = 20
   POP    = 21
 
-  # 4
   INC    = 22
   DEC    = 23
   ADD    = 24
@@ -54,7 +47,6 @@ class Opcodes(enum.IntEnum):
   ADDI   = 26
   SUBI   = 27
 
-  # 6
   AND    = 28
   OR     = 29
   XOR    = 30
@@ -62,13 +54,11 @@ class Opcodes(enum.IntEnum):
   SHIFTL = 32
   SHIFTR = 33
 
-  # 2
   OUT    = 34
   IN     = 35
   OUTB   = 36
   INB    = 37
 
-  # 5
   CMP    = 38
   J      = 39
   JR     = 40
@@ -728,6 +718,24 @@ class Inst_SHIFTR(Inst_BaseShift):
 #
 # Memory load/store operations
 #
+class Inst_CAS(InstDescriptor):
+  operands = 'rrr'
+  binary_format = 'opcode:6,r_addr:5,r_test:5,r_rep:5'
+
+  def assemble_operands(self, inst, operands):
+    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
+
+    inst.r_addr = int(operands[0])
+    inst.r_test = int(operands[1])
+    inst.r_rep = int(operands[2])
+
+  def disassemble_operands(self, inst):
+    return [
+      'r%i' % inst.r_addr,
+      'r%i' % inst.r_test,
+      'r%i' % inst.r_rep
+    ]
+
 class Inst_BaseLoad(InstDescriptor):
   operands = 'rR'
   binary_format = 'r_dst:5,r_address:5,immediate:16:int'

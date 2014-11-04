@@ -1,6 +1,7 @@
 import ctypes
 import enum
 import mmap
+import threading
 
 from ctypes import LittleEndianStructure, Union, c_ubyte, c_ushort, c_uint
 
@@ -165,6 +166,8 @@ class MemoryPage(object):
 
     self.base_address = self.index * PAGE_SIZE
 
+    self.lock = threading.RLock()
+
   def mme_address(self):
     return self.controller.header.memory_map_address + self.index
 
@@ -267,63 +270,68 @@ class MemoryPage(object):
 
     privileged or self.check_access(offset, 'read')
 
-    return self.do_read_u8(offset)
+    with self.lock:
+      return self.do_read_u8(offset)
 
   def read_u16(self, offset, privileged = False):
     debug('mp.read_u16: page=%s, offset=%s, priv=%s' % (PAGE_FMT(self.index), ADDR_FMT(offset), privileged))
 
     privileged or self.check_access(offset, 'read')
 
-    return self.do_read_u16(offset)
+    with self.lock:
+      return self.do_read_u16(offset)
 
   def read_u32(self, offset, privileged = False):
     debug('mp.read_u32: page=%s, offset=%s, priv=%s' % (PAGE_FMT(self.index), ADDR_FMT(offset), privileged))
 
     privileged or self.check_access(offset, 'read')
 
-    return self.do_read_u32(offset)
+    with self.lock:
+      return self.do_read_u32(offset)
 
   def write_u8(self, offset, value, privileged = False, dirty = True):
     debug('mp.write_u8: page=%s, offset=%s, value=%s priv=%s, dirty=%s' % (PAGE_FMT(self.index), ADDR_FMT(offset), UINT8_FMT(value), privileged, dirty))
 
     privileged or self.check_access(offset, 'write')
 
-    self.do_write_u8(offset, value)
-    dirty and self.dirty(True)
+    with self.lock:
+      self.do_write_u8(offset, value)
+      dirty and self.dirty(True)
 
   def write_u16(self, offset, value, privileged = False, dirty = True):
     debug('mp.write_u16: page=%s, offset=%s, value=%s, priv=%s, dirty=%s' % (PAGE_FMT(self.index), ADDR_FMT(offset), UINT16_FMT(value), privileged, dirty))
 
     privileged or self.check_access(offset, 'write')
 
-    self.do_write_u16(offset, value)
-
-    dirty and self.dirty(True)
+    with self.lock:
+      self.do_write_u16(offset, value)
+      dirty and self.dirty(True)
 
   def write_u32(self, offset, value, privileged = False, dirty = True):
     debug('mp.write_u32: page=%s, offset=%s, value=%s, priv=%s, dirty=%s' % (PAGE_FMT(self.index), ADDR_FMT(offset), UINT16_FMT(value), privileged, dirty))
 
     privileged or self.check_access(offset, 'write')
 
-    self.do_write_u32(offset, value)
-
-    dirty and self.dirty(True)
+    with self.lock:
+      self.do_write_u32(offset, value)
+      dirty and self.dirty(True)
 
   def read_block(self, offset, size, privileged = False):
     debug('mp.read_block: page=%s, offset=%s, size=%s, priv=%s' % (PAGE_FMT(self.index), ADDR_FMT(offset), UINT16_FMT(size), privileged))
 
     privileged or self.check_access(offset, 'read')
 
-    return self.do_read_block(offset, size)
+    with self.lock:
+      return self.do_read_block(offset, size)
 
   def write_block(self, offset, size, buff, privileged = False, dirty = True):
     debug('mp.write_block: page=%s, offset=%s, size=%s, priv=%s, dirty=%s' % (PAGE_FMT(self.index), ADDR_FMT(offset), UINT16_FMT(size), privileged, dirty))
 
     privileged or self.check_access(offset, 'write')
 
-    self.do_write_block(offset, size, buff)
-
-    dirty and self.dirty(True)
+    with self.lock:
+      self.do_write_block(offset, size, buff)
+      dirty and self.dirty(True)
 
 class AnonymousMemoryPage(MemoryPage):
   def __init__(self, controller, index):
@@ -739,6 +747,16 @@ class MemoryController(object):
     header.segment_map_address = self.read_u16(MEM_HEADER_ADDRESS + 6, privileged = True).u16
 
     return header
+
+  def cas_u16(self, addr, test, rep):
+    page = self.get_page(addr_to_page(addr))
+
+    with page.lock:
+      v = page.read_u16(addr_to_offset(addr))
+      if v.u16 == test.u16:
+        v.u16 = rep.u16
+        return True
+      return v
 
   def read_u8(self, addr, privileged = False):
     debug('mc.read_u8: addr=%s, priv=%i' % (ADDR_FMT(addr), privileged))

@@ -393,6 +393,15 @@ class CPUCore(object):
       REG(inst.reg1).u16 = REG(inst.reg2).u16
       REG(inst.reg2).u16 = v.u16
 
+    elif opcode == Opcodes.CAS:
+      FLAGS().eq = 0
+
+      v = self.memory.cas_16(DS_ADDR(REG(inst.r_addr)), REG(inst.r_test), REG(inst.r_rep))
+      if v == True:
+        FLAGS().eq = 1
+      else:
+        REG(inst.r_test).u16 = v.u16
+
     elif opcode == Opcodes.INT:
       self.__do_int(REG(inst.r_int).u16)
 
