@@ -3,7 +3,7 @@ import enum
 import mmap
 import threading
 
-from ctypes import LittleEndianStructure, Union, c_ubyte, c_ushort, c_uint
+from ctypes import LittleEndianStructure, Union, c_ubyte, c_ushort, c_uint, sizeof
 
 from cpu.errors import InvalidResourceError, AccessViolationError
 from util import debug
@@ -45,6 +45,11 @@ PAGE_FMT = lambda page: '%u' % page
 SEGM_FMT = lambda segment: UINT8_FMT(segment)
 ADDR_FMT = lambda address: UINT24_FMT(address)
 SIZE_FMT = lambda size: '%u' % size
+
+def OFFSET_FMT(offset):
+  s = '-' if offset < 0 else ''
+
+  return '%s0x%04X' % (s, abs(offset))
 
 class UInt8(LittleEndianStructure):
   _pack_ = 0
@@ -157,6 +162,21 @@ def uint32_to_buff(i, buff, offset):
   buff[offset + 2] = (i &   0xFF0000) >> 16
   buff[offset + 3] = (i & 0xFF000000) >> 24
 
+def get_code_entry_address(s_header, s_content):
+  for i in range(0, s_header.size):
+    entry = s_content[i]
+
+    if entry.get_name() != 'main':
+      i += 1
+      continue
+
+    debug('"main" function found, use as an entry point')
+
+    return UInt16(entry.address)
+
+  else:
+    return None
+
 class MemoryPage(object):
   def __init__(self, controller, index):
     super(MemoryPage, self).__init__()
@@ -165,6 +185,7 @@ class MemoryPage(object):
     self.index = index
 
     self.base_address = self.index * PAGE_SIZE
+    self.segment_address = self.base_address % (SEGMENT_SIZE * PAGE_SIZE)
 
     self.lock = threading.RLock()
 
@@ -440,7 +461,7 @@ class MMapArea(object):
     self.pages_cnt = pages_cnt
 
 class MemoryController(object):
-  def __init__(self, size = 0x1000000, custom_header = False):
+  def __init__(self, size = 0x1000000):
     super(MemoryController, self).__init__()
 
     if size % PAGE_SIZE != 0:
@@ -461,6 +482,9 @@ class MemoryController(object):
     # mmap
     self.opened_mmap_files = {} # path: (cnt, file)
     self.mmap_areas = {}
+
+    # pages allocation
+    self.lock = threading.RLock()
 
   def alloc_segment(self):
     debug('mc.alloc_segment')
@@ -484,21 +508,30 @@ class MemoryController(object):
     return self.__pages[index]
 
   def alloc_page(self, segment = None):
-    if segment:
-      pages_start = segment.u8 * SEGMENT_SIZE
-      pages_cnt = SEGMENT_SIZE
-    else:
-      pages_start = 0
-      pages_cnt = self.__pages_cnt
+    debug('mc.alloc_page: segment=%s' % SEGM_FMT(segment.u8) if segment else '')
 
-    debug('mc.alloc_page: page=%s, cnt=%s' % (PAGE_FMT(pages_start), SIZE_FMT(pages_cnt)))
+    with self.lock:
+      if segment:
+        pages_start = segment.u8 * SEGMENT_SIZE
+        pages_cnt = SEGMENT_SIZE
+      else:
+        pages_start = 0
+        pages_cnt = self.__pages_cnt
 
-    for i in range(pages_start, pages_start + pages_cnt):
-      if i not in self.__pages:
-        debug('mc.alloc_page: page=%s' % PAGE_FMT(i))
-        return i
+      debug('mc.alloc_page: page=%s, cnt=%s' % (PAGE_FMT(pages_start), SIZE_FMT(pages_cnt)))
 
-    raise InvalidResourceError('No free page available')
+      for i in range(pages_start, pages_start + pages_cnt):
+        if i not in self.__pages:
+          debug('mc.alloc_page: page=%s' % PAGE_FMT(i))
+          return i
+
+      raise InvalidResourceError('No free page available')
+
+  def free_page(self, page):
+    debug('mc.free_page: page=%i, base=%s, segment=%s' % (page.index, ADDR_FMT(page.base_address), ADDR_FMT(page.segment_address)))
+
+    with self.lock:
+      del self.__pages[page.index]
 
   def for_each_page(self, pages_start, pages_cnt, fn):
     area_index = 0
@@ -566,9 +599,6 @@ class MemoryController(object):
       self.write_u8(sp.u24, i.u8, privileged = True)
       sp.u24 += 1
 
-    self.mme_reset_area(bsp.u24, size.u16)
-    self.mme_update_area(bsp.u24, size.u16, 'read', True)
-
   def __load_content_u16(self, segment, base, content):
     bsp  = UInt24(segment_addr_to_addr(segment.u8, base.u16))
     sp   = UInt24(bsp.u24)
@@ -579,9 +609,6 @@ class MemoryController(object):
     for i in content:
       self.write_u16(sp.u24, i.u16, privileged = True)
       sp.u24 += 2
-
-    self.mme_reset_area(bsp.u24, size.u16)
-    self.mme_update_area(bsp.u24, size.u16, 'read', True)
 
   def __load_content_u32(self, segment, base, content):
     import cpu.instructions
@@ -597,16 +624,13 @@ class MemoryController(object):
       self.write_u32(sp.u24, i.overall.u32, privileged = True)
       sp.u24 += 4
 
-    self.mme_reset_area(bsp.u24, size.u16)
-    self.mme_update_area(bsp.u24, size.u16, 'read', True)
-
   def load_text(self, segment, base, content):
     self.__load_content_u32(segment, base, content)
 
   def load_data(self, segment, base, content):
     self.__load_content_u8(segment, base, content)
 
-  def load_file(self, file_in, csr = None, dsr = None):
+  def load_file(self, file_in, csr = None, dsr = None, stack = True):
     debug('mc.load_file: file_in=%s, csr=%s, dsr=%s' % (file_in, csr, dsr))
 
     import mm.binary
@@ -614,11 +638,10 @@ class MemoryController(object):
     # One segment for code and data
     csr = csr or UInt8(self.alloc_segment().u8)
     dsr = dsr or UInt8(csr.u8)
-
-    csb = UInt16(0)
-    dsb = UInt16(0)
-    sp  = UInt16(0)
+    sp  = None
     ip  = None
+
+    symbols = {}
 
     with mm.binary.File(file_in, 'r') as f_in:
       f_in.load()
@@ -628,31 +651,39 @@ class MemoryController(object):
       for i in range(0, f_header.sections):
         s_header, s_content = f_in.get_section(i)
 
+        s_base_addr = None
+
         if s_header.type == mm.binary.SectionTypes.TEXT:
-          csb.u16 = s_header.base
-          self.load_text(csr, csb, s_content)
+          s_base_addr = UInt24(segment_addr_to_addr(csr.u8, s_header.base))
+
+          self.load_text(csr, UInt16(s_header.base), s_content)
 
         elif s_header.type == mm.binary.SectionTypes.DATA:
-          dsb.u16 = s_header.base
-          self.load_data(dsr, dsb, s_content)
+          s_base_addr = UInt24(segment_addr_to_addr(dsr.u8, s_header.base))
 
-        elif s_header.type == mm.binary.SectionTypes.SYMBOLS and not ip:
-          for j in range(0, s_header.size):
-            entry = s_content[j]
+          if s_header.flags.bss != 1:
+            self.load_data(dsr, UInt16(s_header.base), s_content)
 
-            if entry.get_name() == 'main':
-              debug('"main" function found, use as an entry point')
-              ip = UInt16(entry.address)
-              break
+        elif s_header.type == mm.binary.SectionTypes.SYMBOLS:
+          for symbol in s_content:
+            symbols[symbol.get_name()] = UInt16(symbol.address)
 
-            j += 1
+          if not ip:
+            ip = get_code_entry_address(s_header, s_content)
 
-    stack_page = self.get_page(self.alloc_page(dsr))
-    stack_page.mme_update('read', 1)
-    stack_page.mme_update('write', 1)
-    sp.u16 = stack_page.index * PAGE_SIZE + PAGE_SIZE
+        if s_base_addr:
+          self.mme_reset_area(s_base_addr.u24, s_header.size)
+          self.mme_update_area(s_base_addr.u24, s_header.size, 'read', True if s_header.flags.readable == 1 else False)
+          self.mme_update_area(s_base_addr.u24, s_header.size, 'write', True if s_header.flags.writable == 1 else False)
+          self.mme_update_area(s_base_addr.u24, s_header.size, 'exec', True if s_header.flags.executable == 1 else False)
 
-    return (csr, csb, dsr, dsb, sp, ip)
+    if stack:
+      stack_page = self.get_page(self.alloc_page(dsr))
+      stack_page.readable(True)
+      stack_page.writable(True)
+      sp = UInt16(stack_page.segment_address + PAGE_SIZE)
+
+    return (csr, dsr, sp, ip, symbols)
 
   def __get_mmap_fileno(self, file_path):
     if file_path not in self.opened_mmap_files:
@@ -814,3 +845,30 @@ class MemoryController(object):
       raise AccessViolationError('Unable to access unaligned address: addr=%s' % ADDR_FMT(addr))
 
     self.get_page(addr_to_page(addr)).write_block(addr_to_offset(addr), size, buff)
+
+  def save_interrupt_vector(self, table, index, desc):
+    from cpu import InterruptVector
+
+    debug('mc.save_interrupt_vector: table=%s, index=%i, desc=(CS=%s, DS=%s, IP=%s)'
+      % (ADDR_FMT(table), index, UINT8_FMT(desc.cs), UINT8_FMT(desc.ds), UINT16_FMT(desc.ip)))
+
+    vector_address = UInt24(table + index * sizeof(InterruptVector)).u24
+
+    self.write_u8( vector_address,     desc.cs, privileged = True)
+    self.write_u8( vector_address + 1, desc.ds, privileged = True)
+    self.write_u16(vector_address + 2, desc.ip, privileged = True)
+
+  def load_interrupt_vector(self, table, index):
+    from cpu import InterruptVector
+
+    debug('mc.load_interrupt_vector: table=%s, index=%i' % (ADDR_FMT(table.u24), index))
+
+    desc = InterruptVector()
+
+    vector_address = UInt24(table.u24 + index * sizeof(InterruptVector)).u24
+
+    desc.cs = self.read_u8( vector_address,     privileged = True).u8
+    desc.ds = self.read_u8( vector_address + 1, privileged = True).u8
+    desc.ip = self.read_u16(vector_address + 2, privileged = True).u16
+
+    return desc

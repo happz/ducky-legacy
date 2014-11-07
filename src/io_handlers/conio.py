@@ -6,18 +6,12 @@ except ImportError:
   print >> sys.stderr, 'termios not available, console simlation will be limited'
   termios = None
 
-import io
+import io_handlers
 
 from util import debug, warn
 from mm import UInt8, UINT8_FMT
 
-try:
-  import termios
-except ImportError:
-  warn('termios not available, console simlation will be limited')
-  termios = None
-
-class ConsoleIOHandler(io.IOHandler):
+class ConsoleIOHandler(io_handlers.IOHandler):
   def __init__(self, *args, **kwargs):
     super(ConsoleIOHandler, self).__init__(*args, **kwargs)
 
@@ -44,7 +38,7 @@ class ConsoleIOHandler(io.IOHandler):
     if not termios:
       return
 
-    termios.tcsetattr(sys.stdin, termios.TCSANOW, self.termios_attrs)
+    #termios.tcsetattr(sys.stdin, termios.TCSANOW, self.termios_attrs)
     self.termios_attrs = None
 
   def add_to_buffer(self, s):

@@ -11,8 +11,8 @@ import cpu.assemble
 import irq
 import irq.timer
 import irq.conio
-import io
-import io.conio
+import io_handlers
+import io_handlers.conio
 import mm
 import util
 import machine
@@ -29,21 +29,30 @@ def main():
 
   parser.add_option('-b', dest = 'bin_in', action = 'append', default = None, help = 'Binary file to run')
 
-  parser.add_option('-i', dest = 'file_in', default = None, help = 'Input file')
-  parser.add_option('-o', dest = 'file_out', default = None, help = 'Output file')
+  parser.add_option('-i', dest = 'irq_routines', default = None, help = 'Bytecode file with IRQ routines')
 
   options, args = parser.parse_args()
 
   util.set_verbosity(options.verbosity)
 
-  M = machine.Machine(cpus = int(options.cpus), cores = int(options.cores), binaries = options.bin_in)
+  M = machine.Machine(cpus = int(options.cpus), cores = int(options.cores), binaries = options.bin_in, irq_routines = options.irq_routines)
 
-  def sigint_handler(signal, frame):
-    info('VM interrupted by user')
+  def signal_handler(sig, frame):
+    if sig == signal.SIGUSR1:
+      info('VM suspended by user')
+      M.suspend()
 
-    M.halt()
+    elif sig == signal.SIGUSR2:
+      info('VM unsuspended by user')
+      M.wake_up()
 
-  signal.signal(signal.SIGINT, sigint_handler)
+    elif sig == signal.SIGINT:
+      info('VM halted by user')
+      M.halt()
+
+  signal.signal(signal.SIGINT,  signal_handler)
+  signal.signal(signal.SIGUSR1, signal_handler)
+  signal.signal(signal.SIGUSR2, signal_handler)
 
   sys.stdout.flush()
 

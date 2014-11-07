@@ -1,13 +1,12 @@
 import collections
 import ctypes
 import enum
-import math
 import re
 
 from ctypes import LittleEndianStructure, Union, c_uint, c_int
 
 from util import debug
-from mm import UInt32, UInt16, UINT16_FMT, ADDR_FMT
+from mm import UInt32, UInt16, UINT16_FMT, ADDR_FMT, OFFSET_FMT
 from cpu.registers import Registers
 
 class Opcodes(enum.IntEnum):
@@ -311,7 +310,7 @@ class Inst_CALLI(InstDescriptor):
   mnemonic      = 'calli'
   opcode        = Opcodes.CALLI
   operands      = 'i'
-  binary_format = 'immediate:16'
+  binary_format = 'immediate:17:int'
 
   def assemble_operands(self, inst, operands):
     debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
@@ -320,13 +319,13 @@ class Inst_CALLI(InstDescriptor):
     inst.refers_to = operands[0]
 
   def fix_refers_to(self, inst, refers_to):
-    debug('fix_refers_to: inst=%s, refers_to=%s' % (inst, UINT16_FMT(refers_to)))
+    debug('fix_refers_to: inst=%s, refers_to=%s' % (inst, OFFSET_FMT(refers_to)))
 
     inst.immediate = int(refers_to)
     inst.refers_to = None
 
   def disassemble_operands(self, inst):
-    return [inst.refers_to] if hasattr(inst, 'refers_to') and inst.refers_to else [ADDR_FMT(inst.immediate)]
+    return [inst.refers_to] if hasattr(inst, 'refers_to') and inst.refers_to else [OFFSET_FMT(inst.immediate)]
 
 class Inst_RET(InstDescriptor):
   mnemonic      = 'ret'
@@ -507,7 +506,7 @@ class Inst_CMP(InstDescriptor):
 
 class Inst_BaseOffsetJump(InstDescriptor):
   operands      = 'j'
-  binary_format = 'immediate:16'
+  binary_format = 'immediate:17:int'
 
   def assemble_operands(self, inst, operands):
     debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
@@ -515,13 +514,13 @@ class Inst_BaseOffsetJump(InstDescriptor):
     inst.refers_to = operands[0]
 
   def fix_refers_to(self, inst, refers_to):
-    debug('fix_refers_to: inst=%s, refers_to=%s' % (inst, UINT16_FMT(refers_to)))
+    debug('fix_refers_to: inst=%s, refers_to=%s' % (inst, OFFSET_FMT(refers_to)))
 
     inst.immediate = int(refers_to)
     inst.refers_to = None
 
   def disassemble_operands(self, inst):
-    return [inst.refers_to] if hasattr(inst, 'refers_to') and inst.refers_to else [ADDR_FMT(inst.immediate)]
+    return [inst.refers_to] if hasattr(inst, 'refers_to') and inst.refers_to else [OFFSET_FMT(inst.immediate)]
 
 class Inst_J(Inst_BaseOffsetJump):
   mnemonic = 'j'
@@ -758,7 +757,7 @@ class Inst_BaseLoad(InstDescriptor):
         reg = 'r%i' % inst.r_address
 
       s = '-' if inst.immediate < 0 else ''
-      operands.append('%s[%s0x%04X]' % (reg, s, int(math.fabs(inst.immediate))))
+      operands.append('%s[%s0x%04X]' % (reg, s, abs(inst.immediate)))
 
     else:
       if inst.r_address in (Registers.SP, Registers.FP):
@@ -816,8 +815,8 @@ class Inst_BaseStore(InstDescriptor):
   def assemble_operands(self, inst, operands):
     debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
 
-    inst.r_dst = int(operands[-1])
     inst.r_address = int(operands[0])
+    inst.r_src = int(operands[-1])
     if len(operands) == 3:
       inst.immediate = int(operands[1])
 
@@ -831,7 +830,7 @@ class Inst_BaseStore(InstDescriptor):
         reg = 'r%i' % inst.r_address
 
       s = '-' if inst.immediate < 0 else ''
-      operands.append('%s[%s0x%04X]' % (reg, s, int(math.fabs(inst.immediate))))
+      operands.append('%s[%s0x%04X]' % (reg, s, abs(inst.immediate)))
     else:
       if inst.r_address in (Registers.SP, Registers.FP):
         reg = 'sp' if inst.r_address == Registers.SP else 'fp'

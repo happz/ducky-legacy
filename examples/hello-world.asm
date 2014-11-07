@@ -4,7 +4,8 @@
 main:
   li r1, &message
   calli @writesn
-  hlt r0
+  li r0, 0
+  int r0
 
 outb:
   # > r1: port

@@ -14,7 +14,7 @@ import mm.binary
 import cpu.assemble
 import util
 
-from mm import UInt8, UInt16
+from mm import UInt8, UInt16, ADDR_FMT
 from cpu.errors import CPUException
 
 from util import *
@@ -42,7 +42,7 @@ def main():
   with open(options.file_in, 'r') as f_in:
     buffer = f_in.readlines()
 
-  (csb, cs), (dsb, ds), symbols = cpu.assemble.translate_buffer(buffer, csb = UInt16(int(options.base)))
+  sections = cpu.assemble.translate_buffer(buffer, base_address = UInt16(int(options.base)))
 
   if os.path.exists(options.file_out) and not options.force:
     error('Output file %s already exists, use -f to force overwrite' % options.file_out)
@@ -50,54 +50,70 @@ def main():
 
   info('Output file: %s' % options.file_out)
 
+  section_name_to_index = {}
+
+  i = 0
+  for s_name, section in sections.items():
+    if 'b' in section.flags and len(section) == 0:
+      debug('Remove section %s, it\'s empty' % s_name)
+      del sections[s_name]
+      continue
+
+    section_name_to_index[s_name] = i
+    i += 1
+
   with mm.binary.File(options.file_out, 'w') as f_out:
     debug('Create file header')
     h_file = f_out.create_header()
 
-    debug('Create TEXT section:  base=0x%X, size=0x%X' % (csb.u16, len(cs)))
-    h_text = f_out.create_section()
-    h_text.type = mm.binary.SectionTypes.TEXT
-    h_text.set_name('.text')
-    h_text.flags.readable = h_text.flags.executable = 1
-    h_text.base = csb.u16
+    section_name_to_index = {}
+    for i, s_name in enumerate(sections.keys()):
+      section_name_to_index[s_name] = i
 
-    debug('Create DATA section:  base=0x%X, size=0x%X' % (dsb.u16, len(ds)))
-    h_data = f_out.create_section()
-    h_data.type = mm.binary.SectionTypes.DATA
-    h_data.set_name('.data')
-    h_data.flags.readable = h_data.flags.writable = 1
-    h_data.base = dsb.u16
+    for s_name, section in sections.items():
+      debug('Create section %s: base=%s, size=%s' % (section.name, ADDR_FMT(section.base.u16), len(section)))
 
-    debug('Create SYMBOLS section')
-    h_symbols = f_out.create_section()
-    h_symbols.type = mm.binary.SectionTypes.SYMBOLS
-    h_symbols.set_name('.symtab')
+      h_section = f_out.create_section()
+      h_section.type = section.type
+      h_section.size = len(section.content)
+      h_section.set_name(section.name)
+      h_section.base = section.base.u16
 
-    symbol_entries = []
-    for s_name, s_addr, s_size, s_type in symbols:
-      entry = mm.binary.SymbolEntry()
-      symbol_entries.append(entry)
+      if section.type == mm.binary.SectionTypes.SYMBOLS:
+        symbol_entries = []
+        for se_name, se_type, se_size, se_section, se_addr in section.content:
+          entry = mm.binary.SymbolEntry()
+          symbol_entries.append(entry)
 
-      entry.set_name(s_name)
-      entry.address = s_addr
-      entry.size = s_size.u16
-      entry.section = h_data.index
+          entry.set_name(se_name)
+          entry.address = se_addr.u16
+          entry.size = se_size.u16
+          entry.section = section_name_to_index[se_section]
 
-      if s_type == 'int':
-        entry.type == mm.binary.SymbolDataTypes.INT
-      elif s_type == 'char':
-        entry.type == mm.binary.SymbolDataTypes.CHAR
-      elif s_type == 'string':
-        entry.type = mm.binary.SymbolDataTypes.STRING
-      elif s_type == 'function':
-        entry.type = mm.binary.SymbolDataTypes.FUNCTION
-        entry.section = h_text.index
+          if se_type == 'int':
+            entry.type == mm.binary.SymbolDataTypes.INT
+          elif se_type == 'char':
+            entry.type == mm.binary.SymbolDataTypes.CHAR
+          elif se_type == 'string':
+            entry.type = mm.binary.SymbolDataTypes.STRING
+          elif se_type == 'function':
+            entry.type = mm.binary.SymbolDataTypes.FUNCTION
+          else:
+            raise CPUException('Unknown symbol data type: %s' % s_type)
+
+        f_out.set_content(h_section, symbol_entries)
+
       else:
-        raise CPUException('Unknown symbol data type: %s' % s_type)
+        if 'r' in section.flags:
+          h_section.flags.readable = 1
+        if 'w' in section.flags:
+          h_section.flags.writable = 1
+        if 'x' in section.flags:
+          h_section.flags.executable = 1
+        if 'b' in section.flags:
+          h_section.flags.bss = 1
 
-    f_out.set_content(h_text, cs)
-    f_out.set_content(h_data, ds)
-    f_out.set_content(h_symbols, symbol_entries)
+        f_out.set_content(h_section, section.content)
 
     f_out.save()
 

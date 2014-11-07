@@ -41,6 +41,7 @@ bad-functions=map,filter,apply,input
 ignore-mixin-members=yes
 zope=no
 acquired-members=REQUEST,acl_users,aq_parent
+ignored-classes=UInt8,UInt16,UInt24,UInt32
 
 [VARIABLES]
 init-import=no

@@ -1,16 +1,16 @@
 #!/usr/bin/python
 
 import optparse
+import re
 import struct
 import sys
 import types
 
 import cpu
-import irq
-import io
 import mm
 
 from mm import UInt8, UInt16, UINT8_FMT, UINT16_FMT, SEGM_FMT, ADDR_FMT, SIZE_FMT, PAGE_MASK, PAGE_SHIFT, PAGE_SIZE
+from mm.binary import SectionTypes
 from cpu.errors import CPUException
 
 from util import debug, info, warn
@@ -18,16 +18,56 @@ from util import debug, info, warn
 def align_to_next_page(addr):
   return (((addr & PAGE_MASK) >> PAGE_SHIFT) + 1) * PAGE_SIZE
 
-def translate_buffer(buff, csb = None, dsb = None):
-  csb = csb or UInt16(0)
+class Section(object):
+  def __init__(self, s_name, s_type, s_flags):
+    super(Section, self).__init__()
 
-  cs_pass1  = []
-  ds_pass1 = []
-  symbols = {}
+    self.name    = s_name
+    self.type    = s_type
+    self.flags   = s_flags
+    self.content = []
+
+    self.base = UInt16(0)
+    self.ptr  = UInt16(0)
+
+  def __len__(self):
+    # pylint: disable-msg=E1101
+    # Instance of 'UInt16' has no 'u16' member
+    return self.ptr.u16 - self.base.u16
+
+class TextSection(Section):
+  def __init__(self, s_name, flags = None):
+    super(TextSection, self).__init__(s_name, SectionTypes.TEXT, flags or 'rx')
+
+class DataSection(Section):
+  def __init__(self, s_name, flags = None):
+    super(DataSection, self).__init__(s_name, SectionTypes.DATA, flags or 'rw')
+
+class BssSection(Section):
+  def __init__(self, s_name, flags = None):
+    super(BssSection, self).__init__(s_name, SectionTypes.DATA, flags or 'rwb')
+
+def translate_buffer(buff, base_address = None):
+  base_address = base_address or UInt16(0)
+
+  sections_pass1 = {
+    '.text': TextSection('.text'),
+    '.data': DataSection('.data'),
+    '.bss':  BssSection('.bss'),
+    '.symtab': Section('.symtab', SectionTypes.SYMBOLS, '')
+  }
 
   debug('Pass #1')
 
   labeled = []
+
+  def __get_refers_to_operand(inst):
+    r_address = references[inst.refers_to].u16
+
+    if inst.refers_to.startswith('@'):
+      r_address -= (inst.address.u16 + 4)
+
+    return r_address
 
   def __get_line():
     while len(buff):
@@ -84,8 +124,7 @@ def translate_buffer(buff, csb = None, dsb = None):
         v_size  = UInt16(len(v_value))
 
       variable_desc = (v_name, v_size, v_value, v_type)
-      symbols[v_name] = variable_desc
-      ds_pass1.append(variable_desc)
+      data_section.content.append(variable_desc)
 
     while len(buff):
       line = __get_line()
@@ -116,21 +155,56 @@ def translate_buffer(buff, csb = None, dsb = None):
 
   labels = []
 
+  debug('Pass #1: text section is .text')
+  debug('Pass #1: data section is .data')
+
+  text_section = sections_pass1['.text']
+  data_section = sections_pass1['.data']
+
   while len(buff):
     line = __get_line()
 
     if not line:
       break
 
-    # starts new object
-    if line.startswith('.type'):
-      v_name, v_type = __expand_pseudoop(line, 2)
+    if line.startswith('.section'):
+      matches = re.compile(r'.section\s+(?P<name>\.[a-zA-z0-9_])(?P<flags>,[rwxb]*)?').match(line).groupdict()
 
-      if v_type == 'function':
+      s_name = matches['name']
+
+      if s_name not in sections_pass1:
+        data_section = sections_pass1[s_name] = Section(s_name, matches.get('flags', None))
+        debug('Pass #1: section %s created' % s_name)
+
+      continue
+
+    if line.startswith('.data'):
+      matches = re.compile(r'.data\s+(?P<name>\.[a-zA-z0-9_])?').match(line)
+      matches = matches.groupdict() if matches else {}
+      data_section = sections_pass1[matches.get('name', None) or '.data']
+      debug('Pass #1: data section is %s' % data_section.name)
+      continue
+
+    if line.startswith('.text'):
+      matches = re.compile(r'.text\s+(?P<name>\.[a-zA-z0-9_])?').match(line)
+      matches = matches.groupdict() if matches else {}
+      text_section = sections_pass1[matches.get('name', None) or '.text']
+      debug('Pass #1: text section is %s' % text_section.name)
+      continue
+
+    if line.startswith('.comm'):
+      matches = re.compile(r'.comm\s+(?P<name>[a-zA-Z_][a-zA-Z0-9_]*),\s*(?P<size>\d+)').match(line).groupdict()
+
+      data_section.content.append((matches['name'], UInt16(int(matches['size'])), None, None))
+
+    if line.startswith('.type'):
+      matches = re.compile(r'.type\s+(?P<name>[a-zA-Z_][a-zA-Z0-9_]*),\s*(?P<type>(?:char|int|string))').match(line).groupdict()
+
+      if matches['type'] == 'function':
         __handle_symbol_function()
 
       else:
-        __handle_symbol_variable(v_name, v_type)
+        __handle_symbol_variable(matches['name'], matches['type'])
 
       continue
 
@@ -159,116 +233,134 @@ def translate_buffer(buff, csb = None, dsb = None):
     emited_inst.desc = desc
 
     if len(labels):
-      cs_pass1.append((labels, emited_inst))
+      text_section.content.append((labels, emited_inst))
 
     else:
-      cs_pass1.append((None, emited_inst))
+      text_section.content.append((None, emited_inst))
 
     labels = []
 
     debug('emitted instruction: %s' % cpu.instructions.disassemble_instruction(emited_inst))
 
-  for v_name, v_size, v_value, v_type in ds_pass1:
-    debug('Data entry: v_name=%s, v_size=%u"' % (v_name, v_size.u16))
+  for s_name, section in sections_pass1.items():
+    debug('Pass #1: section %s' % s_name)
 
-  for ins in cs_pass1:
-    debug('Instruction: labeled=%s, ins=%s' % ins)
-
-  cs_pass2 = []
-  csp = UInt16(csb.u16)
-
-  ds_pass2 = []
-  dsb = dsb or UInt16(align_to_next_page(csb.u16 + len(cs_pass1) * 2))
-  dsp = UInt16(dsb.u16)
-
-  debug('CSB: %s' % ADDR_FMT(csb.u16))
-  debug('DSB: %s' % ADDR_FMT(dsb.u16))
-
-  references = {}
-  symbols = []
+    if section.type == SectionTypes.TEXT:
+      for ins in section.content:
+        debug('Instruction: labeled=%s, ins=%s' % ins)
+    else:
+      for v_name, v_size, v_value, v_type in section.content:
+        debug('Data entry: v_name=%s, v_size=%u"' % (v_name, v_size.u16))
 
   debug('Pass #2')
 
+  sections_pass2 = {}
+  references = {}
   pass3_required = False
+  base_ptr = UInt16(base_address.u16)
 
-  for v_name, v_size, v_value, v_type in ds_pass1:
-    references['&' + v_name] = UInt16(dsp.u16)
-    symbols.append((v_name, dsp.u16, v_size, v_type))
+  for s_name, p1_section in sections_pass1.items():
+    section = sections_pass2[s_name] = Section(s_name, p1_section.type, p1_section.flags)
 
-    debug('%s: data entry %s, size %s, type %s' % (ADDR_FMT(dsp.u16), v_name, SIZE_FMT(v_size.u16), type(v_value)))
+  symtab = sections_pass2['.symtab']
 
-    if type(v_value) == UInt16:
-      ds_pass2.append(UInt8(v_value.u16 & 0x00FF))
-      ds_pass2.append(UInt8((v_value.u16 & 0xFF00) >> 8))
-      dsp.u16 += 2
+  for s_name, section in sections_pass2.items():
+    p1_section = sections_pass1[s_name]
 
-    elif type(v_value) == UInt8:
-      ds_pass2.append(UInt8(v_value.u8))
-      ds_pass2.append(UInt8(0))
-      dsp.u16 += 2
+    # pylint: disable-msg=E1101
+    # Instance of 'UInt16' has no 'u16' member
+    section.base = UInt16(base_ptr.u16)
+    section.ptr  = UInt16(base_ptr.u16)
 
-    elif type(v_value) == types.ListType:
-      for i in range(0, v_size.u16):
-        ds_pass2.append(v_value[i])
-        dsp.u16 += 1
+    debug('Pass #2: section %s - base=%s' % (section.name, ADDR_FMT(section.base.u16)))
 
-      if v_size.u16 % 2 != 0:
-        ds_pass2.append(UInt8(0))
-        dsp.u16 += 1
+    if section.type == SectionTypes.SYMBOLS:
+      continue
 
-  for labeled, inst in cs_pass1:
-    csp_str = ADDR_FMT(csp.u16)
+    if section.type == SectionTypes.DATA:
+      for v_name, v_size, v_value, v_type in p1_section.content:
+        ptr_prefix = ADDR_FMT(section.ptr.u16)
 
-    if labeled:
-      for label in labeled:
-        if not label.startswith('@.L') and not label.startswith('@__'):
-          symbols.append((label[1:], csp.u16, UInt16(0), 'function'))
+        debug(ptr_prefix, 'name=%s, size=%s, type=%s' % (v_name, SIZE_FMT(v_size.u16), v_type))
 
-        references[label] = UInt16(csp.u16)
-        debug(csp_str, 'label entry "%s" created' % label)
+        references['&' + v_name] = UInt16(section.ptr.u16)
+        symtab.content.append((v_name, v_type, v_size, section.name, UInt16(section.ptr.u16)))
 
-    if inst.desc.operands and ('i' in inst.desc.operands or 'j' in inst.desc.operands) and hasattr(inst, 'refers_to') and inst.refers_to:
-      if inst.refers_to in references:
-        refers_to = inst.refers_to
-        inst.desc.fix_refers_to(inst, references[inst.refers_to].u16)
-        debug(csp_str, 'reference "%s" replaced with %s' % (refers_to, ADDR_FMT(references[refers_to].u16)))
+        if 'b' in section.flags:
+          section.ptr.u16 += v_size
+          continue
 
-      else:
-        pass3_required = True
-        debug(csp_str, 'reference "%s" unknown, fix in the next pass' % inst.refers_to)
+        if type(v_value) == UInt16:
+          section.content.append(UInt8(v_value.u16 & 0x00FF))
+          section.content.append(UInt8((v_value.u16 & 0xFF00) >> 8))
+          section.ptr.u16 += 2
 
-    cs_pass2.append(inst)
+        elif type(v_value) == UInt8:
+          section.content.append(UInt8(v_value.u8))
+          section.content.append(UInt8(0))
+          section.ptr.u16 += 2
 
-    debug(csp_str, cpu.instructions.disassemble_instruction(inst))
-    csp.u16 += 4
+        elif type(v_value) == types.ListType:
+          for i in range(0, v_size.u16):
+            section.content.append(v_value[i])
+            section.ptr.u16 += 1
+
+          if v_size.u16 % 2 != 0:
+            section.content.append(UInt8(0))
+            section.ptr.u16 += 1
+
+    if section.type == SectionTypes.TEXT:
+      for labeled, inst in p1_section.content:
+        ptr_prefix = ADDR_FMT(section.ptr.u16)
+
+        inst.address = UInt16(section.ptr.u16)
+
+        if labeled:
+          for label in labeled:
+            if not label.startswith('@.L') and not label.startswith('@__'):
+              symtab.content.append((label[1:], 'function', UInt16(0), section.name, UInt16(section.ptr.u16)))
+
+            references[label] = UInt16(section.ptr.u16)
+            debug(ptr_prefix, 'label entry "%s" created' % label)
+
+        if inst.desc.operands and ('i' in inst.desc.operands or 'j' in inst.desc.operands) and hasattr(inst, 'refers_to') and inst.refers_to:
+          if inst.refers_to in references:
+            refers_to = inst.refers_to
+
+            refers_to_operand = __get_refers_to_operand(inst)
+
+            inst.desc.fix_refers_to(inst, refers_to_operand)
+            debug(ptr_prefix, 'reference "%s" replaced with %s' % (refers_to, refers_to_operand))
+
+          else:
+            pass3_required = True
+            debug(ptr_prefix, 'reference "%s" unknown, fix in the next pass' % inst.refers_to)
+
+        section.content.append(inst)
+        debug(ptr_prefix, cpu.instructions.disassemble_instruction(inst))
+        section.ptr.u16 += 4
+
+    base_ptr.u16 += align_to_next_page(section.ptr.u16 - section.base.u16)
+
+  sections_pass3 = sections_pass2
 
   if pass3_required:
     debug('Pass #3')
 
-    cs_pass3 = []
+    for s_name, section in sections_pass3.items():
+      for inst in section.content:
+        if hasattr(inst, 'refers_to') and inst.refers_to:
+          refers_to = inst.refers_to
 
-    for inst in cs_pass2:
-      if hasattr(inst, 'refers_to') and inst.refers_to:
-        refers_to = inst.refers_to
+          refers_to_operand = __get_refers_to_operand(inst)
 
-        inst.desc.fix_refers_to(inst, references[inst.refers_to].u16)
-        debug(csp_str, 'reference "%s" replaced with %s' % (refers_to, ADDR_FMT(references[refers_to].u16)))
+          inst.desc.fix_refers_to(inst, refers_to_operand)
+          debug('reference "%s" replaced with %s' % (refers_to, refers_to_operand))
 
-      cs_pass3.append(inst)
-
-    ds_pass3 = ds_pass2[:]
-
-  else:
-    cs_pass3 = cs_pass2[:]
-    ds_pass3 = ds_pass2[:]
-
-  debug('CSB: %s, size: %s' % (ADDR_FMT(csb.u16), SIZE_FMT(len(cs_pass3))))
-  debug('DSB: %s, size: %s' % (ADDR_FMT(dsb.u16), SIZE_FMT(len(ds_pass3))))
+  debug('Bytecode sections:')
+  for s_name, section in sections_pass3.items():
+    debug('name=%s, base=%s, size=%s, flags=%s' % (section.name, ADDR_FMT(section.base.u16), SIZE_FMT(len(section)), section.flags))
 
   info('Bytecode translation completed')
 
-  return (
-    (csb, cs_pass3),
-    (dsb, ds_pass2),
-    symbols
-  )
+  return sections_pass3

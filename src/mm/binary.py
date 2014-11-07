@@ -11,12 +11,13 @@ from ctypes import LittleEndianStructure, c_uint, c_ushort, c_ubyte, sizeof
 from cpu.errors import CPUException
 
 class SectionTypes(enum.IntEnum):
-  TEXT    = 0
-  DATA    = 1
-  SYMBOLS = 2
+  UNKNOWN = 0
+  TEXT    = 1
+  DATA    = 2
+  SYMBOLS = 3
 
 SECTION_TYPES = [
-  'TEXT', 'DATA', 'SYMBOLS'
+  'UNKNOWN', 'TEXT', 'DATA', 'SYMBOLS'
 ]
 
 class SymbolDataTypes(enum.IntEnum):
@@ -45,7 +46,8 @@ class SectionFlags(LittleEndianStructure):
   _fields_ = [
     ('readable',   c_ubyte, 1),
     ('writable',   c_ubyte, 1),
-    ('executable', c_ubyte, 1)
+    ('executable', c_ubyte, 1),
+    ('bss',        c_ubyte, 1)
   ]
 
 def ctypes_read_string(raw_string, max_len):
@@ -102,7 +104,7 @@ class SymbolEntry(LittleEndianStructure):
     ctypes_write_string(self.name, SECTION_NAME_LIMIT, name)
 
 SECTION_ITEM_SIZE = [
-  sizeof(cpu.instructions.InstBinaryFormat_Master), sizeof(UInt8), 0, sizeof(SymbolEntry)
+  0, sizeof(cpu.instructions.InstBinaryFormat_Master), sizeof(UInt8), 0, sizeof(SymbolEntry)
 ]
 
 class File(file):
@@ -202,14 +204,10 @@ class File(file):
 
     offset = sizeof(FileHeader) + sizeof(SectionHeader) * self.__header.sections
 
-    symbol_sections = []
-
     for i in range(0, len(self.__sections)):
       header, content = self.__sections[i]
 
-      if header.type == SectionTypes.SYMBOLS:
-        symbol_sections.append(header)
-
+      debug('section %s, size %s, offset %s' % (header.get_name(), header.size, offset))
       header.size = len(content)
       header.offset = offset
 
