@@ -79,7 +79,7 @@ def translate_buffer(buff, base_address = None):
       line = line.strip()
 
       # Skip comments and empty lines
-      if not line or line[0] in ('#', '/'):
+      if not line or line[0] in ('#', '/', ';'):
         continue
 
       debug('new line from buffer: %s' % line)
