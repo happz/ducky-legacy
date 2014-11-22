@@ -7,7 +7,7 @@ from ctypes import LittleEndianStructure, Union, c_uint, c_int
 
 from util import debug
 from mm import UInt32, UInt16, UINT16_FMT, ADDR_FMT, OFFSET_FMT
-from cpu.registers import Registers
+from cpu.registers import Registers, REGISTER_NAMES
 
 class Opcodes(enum.IntEnum):
   NOP    = 0
@@ -114,9 +114,9 @@ def disassemble_instruction(inst):
 
   return (desc.mnemonic + ' ' + ', '.join(operands)) if len(operands) else desc.mnemonic
 
-PATTERN_REGISTER = r'(?P<common_register_n{register_index}>r(?P<common_register_n{register_index}_number>\d\d?))'
+PATTERN_REGISTER = r'(?P<register_n{register_index}>(?:r\d\d?)|(?:sp)|(?:fp)|(?:ds))'
 PATTERN_ADDRESS_REGISTER = r'(?P<address_register>(?:r(\d\d?)|(sp)|(fp)))(?:\[(?P<shift>-)?(?P<offset>(?:0x[0-9a-fA-F]+|\d+))\])?'
-PATTERN_JUMP_LABEL = r'(?P<jump_label>@[a-zA-Z_][a-zA-Z0-9_-]*)'
+PATTERN_JUMP_LABEL = r'(?P<jump_label>@[\.a-zA-Z_][a-zA-Z0-9_]*)'
 PATTERN_IMMEDIATE  = r'(?:(?P<immediate_hex>0x[0-9a-fA-F]+)|(?P<immediate_dec>\d+)|(?P<immediate_data_address>&[a-zA-Z_][a-zA-Z0-9_]*)|(?P<immediate_label>@[a-zA-Z_][a-zA-Z0-9_-]*))'
 
 class InstDescriptor(object):
@@ -211,7 +211,18 @@ class InstDescriptor(object):
 
         # register
         if operand == 'r':
-          operands.append(int(raw_match.group('common_register_n%i_number' % i)))
+          reg_group_name = 'register_n%i' % i
+          reg = matches.get('register_n%i' % i, None)
+          assert reg
+
+          if reg == 'sp':
+            operands.append(Registers.SP)
+          elif reg == 'ds':
+            operands.append(Registers.DS)
+          elif reg == 'fp':
+            operands.append(Registers.FP)
+          else:
+            operands.append(int(reg[1:]))
 
         elif operand == 'R':
           reg = matches['address_register']
@@ -283,7 +294,7 @@ class Inst_INT(InstDescriptor):
     inst.r_int = int(operands[0])
 
   def disassemble_operands(self, inst):
-    return ['r%i' % inst.r_int]
+    return [REGISTER_NAMES[inst.r_int]]
 
 class Inst_RETINT(InstDescriptor):
   mnemonic = 'retint'
@@ -304,7 +315,7 @@ class Inst_CALL(InstDescriptor):
     inst.r_dst = int(operands[0])
 
   def disassemble_operands(self, inst):
-    return ['r%i' % inst.r_dst]
+    return [REGISTER_NAMES[inst.r_dst]]
 
 class Inst_CALLI(InstDescriptor):
   mnemonic      = 'calli'
@@ -354,7 +365,7 @@ class Inst_HLT(InstDescriptor):
     inst.r_code = int(operands[0])
 
   def disassemble_operands(self, inst):
-    return ['r%i' % inst.r_code]
+    return [REGISTER_NAMES[inst.r_code]]
 
 class Inst_RST(InstDescriptor):
   mnemonic = 'rst'
@@ -379,7 +390,7 @@ class Inst_PUSH(InstDescriptor):
     inst.r_src = int(operands[0])
 
   def disassemble_operands(self, inst):
-    return ['r%i' % inst.r_src]
+    return [REGISTER_NAMES[inst.r_src]]
 
 class Inst_POP(InstDescriptor):
   mnemonic = 'pop'
@@ -393,7 +404,7 @@ class Inst_POP(InstDescriptor):
     inst.r_dst = int(operands[0])
 
   def disassemble_operands(self, inst):
-    return ['r%i' % inst.r_dst]
+    return [REGISTER_NAMES[inst.r_dst]]
 
 #
 # Arithmetic
@@ -410,7 +421,7 @@ class Inst_INC(InstDescriptor):
     inst.r_dst = int(operands[0])
 
   def disassemble_operands(self, inst):
-    return ['r%i' % inst.r_dst]
+    return [REGISTER_NAMES[inst.r_dst]]
 
 class Inst_DEC(InstDescriptor):
   mnemonic = 'dec'
@@ -424,7 +435,7 @@ class Inst_DEC(InstDescriptor):
     inst.r_dst = int(operands[0])
 
   def disassemble_operands(self, inst):
-    return ['r%i' % inst.r_dst]
+    return [REGISTER_NAMES[inst.r_dst]]
 
 class Inst_ADD(InstDescriptor):
   mnemonic = 'add'
@@ -439,7 +450,7 @@ class Inst_ADD(InstDescriptor):
     inst.r_add = int(operands[1])
 
   def disassemble_operands(self, inst):
-    return ['r%i' % inst.r_dst, 'r%i' % inst.r_add]
+    return [REGISTER_NAMES[inst.r_dst], REGISTER_NAMES[inst.r_add]]
 
 class Inst_SUB(InstDescriptor):
   mnemonic = 'sub'
@@ -454,7 +465,7 @@ class Inst_SUB(InstDescriptor):
     inst.r_sub = int(operands[1])
 
   def disassemble_operands(self, inst):
-    return ['r%i' % inst.r_dst, 'r%i' % inst.r_sub]
+    return [REGISTER_NAMES[inst.r_dst], REGISTER_NAMES[inst.r_sub]]
 
 class Inst_ADDI(InstDescriptor):
   mnemonic = 'addi'
@@ -469,7 +480,7 @@ class Inst_ADDI(InstDescriptor):
     inst.r_immediate = int(operands[1])
 
   def disassemble_operands(self, inst):
-    return ['r%i' % inst.r_dst, UINT16_FMT(inst.immediate)]
+    return [REGISTER_NAMES[inst.r_dst], UINT16_FMT(inst.immediate)]
 
 class Inst_SUBI(InstDescriptor):
   mnemonic = 'subi'
@@ -484,7 +495,7 @@ class Inst_SUBI(InstDescriptor):
     inst.immediate = int(operands[1])
 
   def disassemble_operands(self, inst):
-    return ['r%i' % inst.r_dst, UINT16_FMT(inst.immediate)]
+    return [REGISTER_NAMES[inst.r_dst], UINT16_FMT(inst.immediate)]
 
 #
 # Conditional and unconditional jumps
@@ -502,7 +513,7 @@ class Inst_CMP(InstDescriptor):
     inst.reg2 = int(operands[1])
 
   def disassemble_operands(self, inst):
-    return ['r%i' % inst.reg1, 'r%i' % inst.reg2]
+    return [REGISTER_NAMES[inst.reg1], REGISTER_NAMES[inst.reg2]]
 
 class Inst_BaseOffsetJump(InstDescriptor):
   operands      = 'j'
@@ -560,7 +571,7 @@ class Inst_BaseRegisterJump(InstDescriptor):
     inst.r_address = int(operands[0])
 
   def disassemble_operands(self, inst):
-    return ['r%i' % inst.r_address]
+    return [REGISTER_NAMES[inst.r_address]]
 
 class Inst_JR(Inst_BaseRegisterJump):
   mnemonic = 'jr'
@@ -606,7 +617,7 @@ class Inst_IN(InstDescriptor):
     inst.r_dst = int(operands[1])
 
   def disassemble_operands(self, inst):
-    return ['r%i' % inst.r_port, 'r%i' % inst.r_dst]
+    return [REGISTER_NAMES[inst.r_port], REGISTER_NAMES[inst.r_dst]]
 
 class Inst_INB(Inst_IN):
   mnemonic      = 'inb'
@@ -625,7 +636,7 @@ class Inst_OUT(InstDescriptor):
     inst.r_src = int(operands[1])
 
   def disassemble_operands(self, inst):
-    return ['r%i' % inst.r_port, 'r%i' % inst.r_src]
+    return [REGISTER_NAMES[inst.r_port], REGISTER_NAMES[inst.r_src]]
 
 class Inst_OUTB(Inst_OUT):
   mnemonic      = 'outb'
@@ -647,7 +658,7 @@ class Inst_AND(InstDescriptor):
     inst.r_mask = int(operands[1])
 
   def disassemble_operands(self, inst):
-    return ['r%i' % inst.r_dst, 'r%i' % inst.r_mask]
+    return [REGISTER_NAMES[inst.r_dst], REGISTER_NAMES[inst.r_mask]]
 
 class Inst_OR(InstDescriptor):
   mnemonic = 'or'
@@ -662,7 +673,7 @@ class Inst_OR(InstDescriptor):
     inst.r_mask = int(operands[1])
 
   def disassemble_operands(self, inst):
-    return ['r%i' % inst.r_dst, 'r%i' % inst.r_mask]
+    return [REGISTER_NAMES[inst.r_dst], REGISTER_NAMES[inst.r_mask]]
 
 class Inst_XOR(InstDescriptor):
   mnemonic = 'xor'
@@ -677,7 +688,7 @@ class Inst_XOR(InstDescriptor):
     inst.r_mask = int(operands[1])
 
   def disassemble_operands(self, inst):
-    return ['r%i' % inst.r_dst, 'r%i' % inst.r_mask]
+    return [REGISTER_NAMES[inst.r_dst], REGISTER_NAMES[inst.r_mask]]
 
 class Inst_NOT(InstDescriptor):
   mnemonic = 'not'
@@ -691,7 +702,7 @@ class Inst_NOT(InstDescriptor):
     inst.r_dst = int(operands[0])
 
   def disassemble_operands(self, inst):
-    return ['r%i' % inst.r_dst]
+    return [REGISTER_NAMES[inst.r_dst]]
 
 class Inst_BaseShift(InstDescriptor):
   operands = 'ri'
@@ -704,7 +715,7 @@ class Inst_BaseShift(InstDescriptor):
     inst.immediate = int(operands[1])
 
   def disassemble_operands(self, inst):
-    return ['r%i' % inst.r_dst, '%i' % inst.immediate]
+    return [REGISTER_NAMES[inst.r_dst], REGISTER_NAMES[inst.immediate]]
 
 class Inst_SHIFTL(Inst_BaseShift):
   mnemonic = 'shiftl'
@@ -730,9 +741,9 @@ class Inst_CAS(InstDescriptor):
 
   def disassemble_operands(self, inst):
     return [
-      'r%i' % inst.r_addr,
-      'r%i' % inst.r_test,
-      'r%i' % inst.r_rep
+      REGISTER_NAMES[inst.r_addr],
+      REGISTER_NAMES[inst.r_test],
+      REGISTER_NAMES[inst.r_rep]
     ]
 
 class Inst_BaseLoad(InstDescriptor):
@@ -748,24 +759,15 @@ class Inst_BaseLoad(InstDescriptor):
       inst.immediate = int(operands[2])
 
   def disassemble_operands(self, inst):
-    operands = ['r%i' % inst.r_dst]
+    operands = [REGISTER_NAMES[inst.r_dst]]
 
     if inst.immediate != 0:
-      if inst.r_address in (Registers.SP, Registers.FP):
-        reg = 'sp' if inst.r_address == Registers.SP else 'fp'
-      else:
-        reg = 'r%i' % inst.r_address
-
+      reg = REGISTER_NAMES[inst.r_address]
       s = '-' if inst.immediate < 0 else ''
       operands.append('%s[%s0x%04X]' % (reg, s, abs(inst.immediate)))
 
     else:
-      if inst.r_address in (Registers.SP, Registers.FP):
-        reg = 'sp' if inst.r_address == Registers.SP else 'fp'
-      else:
-        reg = 'r%i' % inst.r_address
-
-      operands.append(reg)
+      operands.append(REGISTER_NAMES[inst.r_address])
 
     return operands
 
@@ -804,9 +806,7 @@ class Inst_LI(Inst_BaseLoad):
     inst.refers_to = None
 
   def disassemble_operands(self, inst):
-    r_dst = 'r%i' % inst.r_dst
-
-    return [r_dst, inst.refers_to] if hasattr(inst, 'refers_to') and inst.refers_to else [r_dst, UINT16_FMT(inst.immediate)]
+    return [REGISTER_NAMES[inst.r_dst], inst.refers_to] if hasattr(inst, 'refers_to') and inst.refers_to else [REGISTER_NAMES[inst.r_dst], UINT16_FMT(inst.immediate)]
 
 class Inst_BaseStore(InstDescriptor):
   operands = 'Rr'
@@ -824,23 +824,13 @@ class Inst_BaseStore(InstDescriptor):
     operands = []
 
     if inst.immediate != 0:
-      if inst.r_address in (Registers.SP, Registers.FP):
-        reg = 'sp' if inst.r_address == Registers.SP else 'fp'
-      else:
-        reg = 'r%i' % inst.r_address
-
+      reg = REGISTER_NAMES[inst.r_address]
       s = '-' if inst.immediate < 0 else ''
       operands.append('%s[%s0x%04X]' % (reg, s, abs(inst.immediate)))
     else:
-      if inst.r_address in (Registers.SP, Registers.FP):
-        reg = 'sp' if inst.r_address == Registers.SP else 'fp'
+      operands.append(REGISTER_NAMES[inst.r_address])
 
-      else:
-        reg = 'r%i' % inst.r_address
-
-      operands.append(reg)
-
-    operands.append('r%i' % inst.r_src)
+    operands.append(REGISTER_NAMES[inst.r_src])
 
     return operands
 
@@ -869,7 +859,7 @@ class Inst_MOV(InstDescriptor):
     inst.r_src = int(operands[1])
 
   def disassemble_operands(self, inst):
-    return ['r%i' % inst.r_dst, 'r%i' % inst.r_src]
+    return [REGISTER_NAMES[inst.r_dst], REGISTER_NAMES[inst.r_src]]
 
 class Inst_SWP(InstDescriptor):
   mnemonic = 'swp'
@@ -884,7 +874,7 @@ class Inst_SWP(InstDescriptor):
     inst.reg2 = int(operands[1])
 
   def disassemble_operands(self, inst):
-    return ['r%i' % inst.reg1, 'r%i' % inst.reg2]
+    return [REGISTER_NAMES[inst.reg1], REGISTER_NAMES[inst.reg2]]
 
 INSTRUCTIONS = [
 Inst_NOP(),

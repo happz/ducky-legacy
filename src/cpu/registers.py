@@ -35,25 +35,26 @@ class Registers(enum.IntEnum):
   R26 = 26
   R27 = 27
   R28 = 28
-  R29 = 29
 
   # Some registers have special meaning and/or usage
-  FP    = 30 # Frame Pointer
-  SP    = 31 # Stack Pointer
+  FP    = 29 # Frame Pointer
+  SP    = 30 # Stack Pointer
+  DS    = 31 # Data Segment Register
   CS    = 32 # Code Segment register
-  DS    = 33 # Data Segment register
-  FLAGS = 34 # Flags
-  IP    = 35 # Instruction pointer
+  FLAGS = 33 # Flags
+  IP    = 34 # Instruction pointer
 
   # First special register
-  REGISTER_SPECIAL = 30
+  REGISTER_SPECIAL = 29
 
   # How many registers do we have? This many...
-  REGISTER_COUNT = 36
+  REGISTER_COUNT = 35
 
 PROTECTED_REGISTERS = range(Registers.REGISTER_SPECIAL, Registers.REGISTER_COUNT)
 
 RESETABLE_REGISTERS = [i for i in range(0, Registers.REGISTER_COUNT) if i != Registers.FLAGS]
+
+REGISTER_NAMES = ['r%i' % i for i in range(0, Registers.REGISTER_SPECIAL)] + ['fp', 'sp', 'ds', 'cs', 'flags', 'ip']
 
 class Register(mm.UInt16):
   pass
