@@ -1,4 +1,4 @@
 main:
   idle
-  j @main
+  j &main
 

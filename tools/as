@@ -15,7 +15,7 @@ import cpu.assemble
 import util
 
 from mm import UInt8, UInt16, ADDR_FMT
-from cpu.errors import CPUException
+from cpu.errors import CompilationError
 
 from util import *
 
@@ -26,6 +26,8 @@ def main():
 
   parser.add_option('-i', dest = 'file_in', default = None, help = 'Input file')
   parser.add_option('-o', dest = 'file_out', default = None, help = 'Output file')
+
+  parser.add_option('-E', action = 'store_true', dest = 'preprocess', default = False, help = 'Preprocess only')
 
   parser.add_option('-f', dest = 'force', default = False, action = 'store_true', help = 'Force overwrite of the output file')
   parser.add_option('-b', dest = 'base', default = 0, help = 'Base address of code segment')
@@ -40,12 +42,27 @@ def main():
 
   info('Input file: %s' % options.file_in)
   with open(options.file_in, 'r') as f_in:
-    buffer = f_in.readlines()
+    buffer = f_in.read()
 
-  sections = cpu.assemble.translate_buffer(buffer, base_address = UInt16(int(options.base)))
+  buffer = cpu.assemble.preprocess_buffer(buffer)
+
+  if options.preprocess:
+    print buffer
+    sys.exit(0)
+
+  try:
+    sections = cpu.assemble.translate_buffer(buffer, base_address = UInt16(int(options.base)))
+
+  except CompilationError, exc:
+    error(str(exc))
+    sys.exit(1)
 
   if os.path.exists(options.file_out) and not options.force:
     error('Output file %s already exists, use -f to force overwrite' % options.file_out)
+    sys.exit(1)
+
+  if options.file_out.endswith('.asm'):
+    error('Output file has strange extension: %s' % options.file_out)
     sys.exit(1)
 
   info('Output file: %s' % options.file_out)
@@ -75,31 +92,25 @@ def main():
 
       h_section = f_out.create_section()
       h_section.type = section.type
-      h_section.size = len(section.content)
+      h_section.items = len(section.content)
       h_section.set_name(section.name)
       h_section.base = section.base.u16
 
       if section.type == mm.binary.SectionTypes.SYMBOLS:
         symbol_entries = []
-        for se_name, se_type, se_size, se_section, se_addr in section.content:
+
+        for se in section.content:
+          debug('record symbol %s in section %s at addr %s' % (se.name.name, se.section.name, se.section_ptr))
+
           entry = mm.binary.SymbolEntry()
           symbol_entries.append(entry)
 
-          entry.set_name(se_name)
-          entry.address = se_addr.u16
-          entry.size = se_size.u16
-          entry.section = section_name_to_index[se_section]
+          entry.set_name(se.name.name)
+          entry.address = se.section_ptr.u16
+          entry.size = se.size.u16
+          entry.section = section_name_to_index[se.section.name]
 
-          if se_type == 'int':
-            entry.type == mm.binary.SymbolDataTypes.INT
-          elif se_type == 'char':
-            entry.type == mm.binary.SymbolDataTypes.CHAR
-          elif se_type == 'string':
-            entry.type = mm.binary.SymbolDataTypes.STRING
-          elif se_type == 'function':
-            entry.type = mm.binary.SymbolDataTypes.FUNCTION
-          else:
-            raise CPUException('Unknown symbol data type: %s' % s_type)
+          entry.type = se.symbol_type
 
         f_out.set_content(h_section, symbol_entries)
 

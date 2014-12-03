@@ -18,6 +18,9 @@ class Machine(object):
   def __init__(self, cpus = 1, cores = 1, memory_size = None, binaries = None, irq_routines = None):
     super(Machine, self).__init__()
 
+    self.nr_cpus = cpus
+    self.nr_cores = cores
+
     binaries = binaries or []
 
     self.cpus = []
@@ -41,7 +44,7 @@ class Machine(object):
     self.register_port(0x100, conio)
     self.register_port(0x101, conio)
 
-    self.register_irq_source(irq.IRQList.CONIO, irq.conio.Console(0, conio))
+    self.register_irq_source(irq.IRQList.CONIO, irq.conio.Console())
     self.register_irq_source(irq.IRQList.TIMER, irq.timer.Timer(10))
 
     self.memory.boot()
@@ -59,11 +62,11 @@ class Machine(object):
 
       # Timer IRQ
       desc.ip = symbols['irq_timer'].u16
-      self.memory.save_interrupt_vector(self.memory.header.irq_table_address, 0, desc)
+      self.memory.save_interrupt_vector(self.memory.irq_table_address, 0, desc)
 
       # Halt interrupt
       desc.ip = symbols['int_halt'].u16
-      self.memory.save_interrupt_vector(self.memory.header.int_table_address, 0, desc)
+      self.memory.save_interrupt_vector(self.memory.int_table_address, 0, desc)
 
     self.init_states = []
 

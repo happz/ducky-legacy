@@ -2,15 +2,17 @@ import collections
 import ctypes
 import enum
 import re
+import types
 
 from ctypes import LittleEndianStructure, Union, c_uint, c_int
 
 from util import debug
 from mm import UInt32, UInt16, UINT16_FMT, ADDR_FMT, OFFSET_FMT
 from cpu.registers import Registers, REGISTER_NAMES
+from cpu.errors import CompilationError
 
 class Opcodes(enum.IntEnum):
-  NOP    = 0
+  NOP    =  0
 
   LW     =  1
   LB     =  2
@@ -21,13 +23,12 @@ class Opcodes(enum.IntEnum):
   STBU   =  7
   MOV    =  8
   SWP    =  9
-  CAS    = 53
+  CAS    = 10
 
-  INT    = 10
-  RETINT = 11
+  INT    = 11
+  RETINT = 12
 
-  CALL   = 12
-  CALLI  = 13
+  CALL   = 13
   RET    = 14
 
   CLI    = 15
@@ -43,36 +44,32 @@ class Opcodes(enum.IntEnum):
   DEC    = 23
   ADD    = 24
   SUB    = 25
-  ADDI   = 26
-  SUBI   = 27
+  MUL    = 26
 
-  AND    = 28
-  OR     = 29
-  XOR    = 30
-  NOT    = 31
-  SHIFTL = 32
-  SHIFTR = 33
+  AND    = 27
+  OR     = 28
+  XOR    = 29
+  NOT    = 30
+  SHIFTL = 31
+  SHIFTR = 32
 
-  OUT    = 34
-  IN     = 35
-  OUTB   = 36
-  INB    = 37
+  OUT    = 33
+  IN     = 34
+  OUTB   = 35
+  INB    = 36
 
-  CMP    = 38
-  J      = 39
-  JR     = 40
-  BE     = 41
-  BNE    = 42
-  BZ     = 43
-  BNZ    = 44
-  BS     = 45
-  BNS    = 46
-  BER    = 47
-  BNER   = 48
-  BZR    = 49
-  BNZR   = 50
-  BSR    = 51
-  BNSR   = 52
+  CMP    = 37
+  J      = 38
+  BE     = 39
+  BNE    = 40
+  BZ     = 41
+  BNZ    = 42
+  BS     = 43
+  BNS    = 44
+  BG     = 45
+  BGE    = 46
+  BL     = 47
+  BLE    = 48
 
 class GenericInstBinaryFormat_Overall(LittleEndianStructure):
   _pack_ = 0
@@ -114,10 +111,23 @@ def disassemble_instruction(inst):
 
   return (desc.mnemonic + ' ' + ', '.join(operands)) if len(operands) else desc.mnemonic
 
-PATTERN_REGISTER = r'(?P<register_n{register_index}>(?:r\d\d?)|(?:sp)|(?:fp)|(?:ds))'
-PATTERN_ADDRESS_REGISTER = r'(?P<address_register>(?:r(\d\d?)|(sp)|(fp)))(?:\[(?P<shift>-)?(?P<offset>(?:0x[0-9a-fA-F]+|\d+))\])?'
-PATTERN_JUMP_LABEL = r'(?P<jump_label>@[\.a-zA-Z_][a-zA-Z0-9_]*)'
-PATTERN_IMMEDIATE  = r'(?:(?P<immediate_hex>0x[0-9a-fA-F]+)|(?P<immediate_dec>\d+)|(?P<immediate_data_address>&[a-zA-Z_][a-zA-Z0-9_]*)|(?P<immediate_label>@[a-zA-Z_][a-zA-Z0-9_-]*))'
+
+PO_REGISTER  = r'(?P<register_n{operand_index}>(?:r\d\d?)|(?:sp)|(?:fp)|(?:ds))'
+PO_AREGISTER = r'(?P<address_register>(?:r(\d\d?)|(sp)|(fp)))(?:\[(?P<shift>-)?(?P<offset>(?:0x[0-9a-fA-F]+|\d+))\])?'
+PO_IMMEDIATE = r'(?:(?P<immediate_hex>0x[0-9a-fA-F]+)|(?P<immediate_dec>\d+)|(?P<immediate_address>&[a-zA-Z_\.][a-zA-Z0-9_]*))'
+
+
+def BF_FLG(n):
+  return '%s:1' % n
+
+def BF_REG(*args):
+  args = args or ['reg']
+  return '%s:4' % args[0]
+
+def BF_IMM(*args):
+  args = args or ['immediate']
+  return '%s:17:int' % args[0]
+
 
 class InstDescriptor(object):
   mnemonic      = None
@@ -131,7 +141,7 @@ class InstDescriptor(object):
   def create_binary_format_class(self):
     fields = []
 
-    fields_desc = self.binary_format.split(',') if self.binary_format else []
+    fields_desc = self.binary_format if self.binary_format else []
 
     if not len(fields_desc) or not fields_desc[0].startswith('opcode'):
       fields_desc.insert(0, 'opcode:6')
@@ -144,34 +154,37 @@ class InstDescriptor(object):
     self.binary_format_name = 'InstBinaryFormat_%s' % self.mnemonic
     self.binary_format = type(self.binary_format_name, (ctypes.LittleEndianStructure,), {'_pack_': 0, '_fields_': fields})
 
+    self.binary_format.__repr__ = lambda inst: '<' + disassemble_instruction(inst) + '>'
+
   def __init__(self):
     super(InstDescriptor, self).__init__()
 
     pattern = self.mnemonic
 
     if self.operands:
-      operands = []
+      operand_patterns = []
 
-      i = 0
-      for o in self.operands:
-        if   o == 'r':
-          operands.append(PATTERN_REGISTER.format(register_index = str(i)))
+      self.operands = [ot.strip() for ot in self.operands.split(',')]
 
-        elif o == 'R':
-          operands.append(PATTERN_ADDRESS_REGISTER)
+      for operand_index, operand_types in zip(range(0, len(self.operands)), self.operands):
+        operand_pattern = []
 
-        elif o == 'j':
-          operands.append(PATTERN_JUMP_LABEL)
+        for operand_type in operand_types:
+          if operand_type == 'r':
+            operand_pattern.append(PO_REGISTER.format(operand_index = operand_index))
 
-        elif o == 'i':
-          operands.append(PATTERN_IMMEDIATE)
+          elif operand_type == 'a':
+            operand_pattern.append(PO_AREGISTER)
 
-        else:
-          raise Exception('Unknown operand %s in %s' % (o, self.__class__))
+          elif operand_type == 'i':
+            operand_pattern.append(PO_IMMEDIATE)
 
-        i += 1
+          else:
+            raise Exception('Unhandled operand type: %s' % operand_type)
 
-      pattern += ' ' + ', '.join(operands)
+        operand_patterns.append('(?:' + '|'.join(operand_pattern) + ')')
+
+      pattern += ' ' + ', '.join(operand_patterns)
 
     self.pattern = re.compile(pattern)
 
@@ -206,35 +219,35 @@ class InstDescriptor(object):
     operands = []
 
     if self.operands and len(self.operands):
-      for i in range(0, len(self.operands)):
-        operand = self.operands[i]
+      for operand_index in range(0, len(self.operands)):
+        reg_group_name = 'register_n%i' % operand_index
 
-        # register
-        if operand == 'r':
-          reg_group_name = 'register_n%i' % i
-          reg = matches.get('register_n%i' % i, None)
-          assert reg
+        if reg_group_name in matches and matches[reg_group_name]:
+          reg = matches[reg_group_name]
 
           if reg == 'sp':
             operands.append(Registers.SP)
+
           elif reg == 'ds':
             operands.append(Registers.DS)
+
           elif reg == 'fp':
             operands.append(Registers.FP)
-          else:
-            operands.append(int(reg[1:]))
 
-        elif operand == 'R':
+          else:
+            operands.append(Registers(int(reg[1:])))
+
+        elif 'address_register' in matches and matches['address_register']:
           reg = matches['address_register']
 
           if reg == 'fp':
-            reg = Registers.FP
-          elif reg == 'sp':
-            reg = Registers.SP
-          else:
-            reg = reg[1:]
+            operands.append(Registers.FP)
 
-          operands.append(reg)
+          elif reg == 'sp':
+            operands.append(Registers.SP)
+
+          else:
+            operands.append(Registers(int(reg[1:])))
 
           if 'offset' in matches and matches['offset']:
             k = -1 if 'shift' in matches and matches['shift'] and matches['shift'].strip() == '-' else 1
@@ -245,24 +258,17 @@ class InstDescriptor(object):
             else:
               operands.append(int(matches['offset']) * k)
 
-        elif operand == 'j':
-          operands.append(matches['jump_label'])
+        elif 'immediate_hex' in matches and matches['immediate_hex']:
+          operands.append(int(matches['immediate_hex'], base = 16))
 
-        elif operand == 'i':
-          if 'immediate_hex' in matches and matches['immediate_hex']:
-            operands.append(str(int(matches['immediate_hex'], base = 16)))
+        elif 'immediate_dec' in matches and matches['immediate_dec']:
+          operands.append(int(matches['immediate_dec']))
 
-          elif 'immediate_dec' in matches and matches['immediate_dec']:
-            operands.append(str(int(matches['immediate_dec'])))
+        elif 'immediate_address' in matches and matches['immediate_address']:
+          operands.append(matches['immediate_address'])
 
-          elif 'immediate_data_address' in matches and matches['immediate_data_address']:
-            operands.append(matches['immediate_data_address'])
-
-          elif 'immediate_label' in matches and matches['immediate_label']:
-            operands.append(matches['immediate_label'])
-
-          else:
-            raise Exception('Unhandled operand')
+        else:
+          raise Exception('Unhandled operand: %s' % matches)
 
     else:
       pass
@@ -274,60 +280,42 @@ class InstDescriptor(object):
 
     return real
 
-class Inst_NOP(InstDescriptor):
-  mnemonic = 'nop'
-  opcode = Opcodes.NOP
 
+class InstDescriptor_Generic(InstDescriptor):
+  pass
 
-#
-# Interrupts
-#
-class Inst_INT(InstDescriptor):
-  mnemonic      = 'int'
-  opcode        = Opcodes.INT
-  operands      = 'r'
-  binary_format = 'r_int:5'
+class InstDescriptor_Generic_Unary_R(InstDescriptor):
+  operands = 'r'
+  binary_format = [BF_REG()]
 
   def assemble_operands(self, inst, operands):
     debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
 
-    inst.r_int = int(operands[0])
+    inst.reg = operands[0]
 
   def disassemble_operands(self, inst):
-    return [REGISTER_NAMES[inst.r_int]]
+    return [REGISTER_NAMES[inst.reg]]
 
-class Inst_RETINT(InstDescriptor):
-  mnemonic = 'retint'
-  opcode   = Opcodes.RETINT
-
-#
-# Routines
-#
-class Inst_CALL(InstDescriptor):
-  mnemonic      = 'call'
-  opcode        = Opcodes.CALL
-  operands      = 'r'
-  binary_format = 'r_dst:5'
+class InstDescriptor_Generic_Unary_RI(InstDescriptor):
+  operands      = 'ri'
+  binary_format = [BF_FLG('is_reg'), BF_REG('ireg'), BF_IMM()]
 
   def assemble_operands(self, inst, operands):
     debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
 
-    inst.r_dst = int(operands[0])
+    v = operands[0]
 
-  def disassemble_operands(self, inst):
-    return [REGISTER_NAMES[inst.r_dst]]
+    if type(v) == Registers:
+      inst.is_reg = 1
+      inst.ireg = v
 
-class Inst_CALLI(InstDescriptor):
-  mnemonic      = 'calli'
-  opcode        = Opcodes.CALLI
-  operands      = 'i'
-  binary_format = 'immediate:17:int'
+    elif type(v) == types.IntType:
+      inst.is_reg = 0
+      inst.immediate = v
 
-  def assemble_operands(self, inst, operands):
-    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
-
-    inst.immediate = 0
-    inst.refers_to = operands[0]
+    elif type(v) == types.StringType:
+      inst.is_reg = 0
+      inst.refers_to = v
 
   def fix_refers_to(self, inst, refers_to):
     debug('fix_refers_to: inst=%s, refers_to=%s' % (inst, OFFSET_FMT(refers_to)))
@@ -336,468 +324,27 @@ class Inst_CALLI(InstDescriptor):
     inst.refers_to = None
 
   def disassemble_operands(self, inst):
-    return [inst.refers_to] if hasattr(inst, 'refers_to') and inst.refers_to else [OFFSET_FMT(inst.immediate)]
+    if inst.is_reg == 1:
+      return [REGISTER_NAMES[inst.ireg]]
 
-class Inst_RET(InstDescriptor):
-  mnemonic      = 'ret'
-  opcode        = Opcodes.RET
+    return [inst.refers_to if hasattr(inst, 'refers_to') and inst.refers_to else OFFSET_FMT(inst.immediate)]
 
-#
-# CPU
-#
-class Inst_CLI(InstDescriptor):
-  mnemonic = 'cli'
-  opcode = Opcodes.CLI
-
-class Inst_STI(InstDescriptor):
-  mnemonic = 'sti'
-  opcode = Opcodes.STI
-
-class Inst_HLT(InstDescriptor):
-  mnemonic = 'hlt'
-  opcode = Opcodes.HLT
-  operands = 'r'
-  binary_format = 'r_code:5'
+class InstDescriptor_Generic_Binary_R_I(InstDescriptor):
+  operands = 'r,i'
+  binary_format = [BF_REG(), BF_IMM()]
 
   def assemble_operands(self, inst, operands):
     debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
 
-    inst.r_code = int(operands[0])
+    inst.reg = operands[0]
 
-  def disassemble_operands(self, inst):
-    return [REGISTER_NAMES[inst.r_code]]
+    v = operands[1]
 
-class Inst_RST(InstDescriptor):
-  mnemonic = 'rst'
-  opcode = Opcodes.RST
-
-class Inst_IDLE(InstDescriptor):
-  mnemonic = 'idle'
-  opcode = Opcodes.IDLE
-
-#
-# Stack
-#
-class Inst_PUSH(InstDescriptor):
-  mnemonic = 'push'
-  opcode = Opcodes.PUSH
-  operands = 'r'
-  binary_format = 'r_src:5'
-
-  def assemble_operands(self, inst, operands):
-    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
-
-    inst.r_src = int(operands[0])
-
-  def disassemble_operands(self, inst):
-    return [REGISTER_NAMES[inst.r_src]]
-
-class Inst_POP(InstDescriptor):
-  mnemonic = 'pop'
-  opcode = Opcodes.POP
-  operands = 'r'
-  binary_format = 'r_dst:5'
-
-  def assemble_operands(self, inst, operands):
-    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
-
-    inst.r_dst = int(operands[0])
-
-  def disassemble_operands(self, inst):
-    return [REGISTER_NAMES[inst.r_dst]]
-
-#
-# Arithmetic
-#
-class Inst_INC(InstDescriptor):
-  mnemonic = 'inc'
-  opcode = Opcodes.INC
-  operands = 'r'
-  binary_format = 'r_dst:5'
-
-  def assemble_operands(self, inst, operands):
-    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
-
-    inst.r_dst = int(operands[0])
-
-  def disassemble_operands(self, inst):
-    return [REGISTER_NAMES[inst.r_dst]]
-
-class Inst_DEC(InstDescriptor):
-  mnemonic = 'dec'
-  opcode = Opcodes.DEC
-  operands = 'r'
-  binary_format = 'r_dst:5'
-
-  def assemble_operands(self, inst, operands):
-    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
-
-    inst.r_dst = int(operands[0])
-
-  def disassemble_operands(self, inst):
-    return [REGISTER_NAMES[inst.r_dst]]
-
-class Inst_ADD(InstDescriptor):
-  mnemonic = 'add'
-  opcode = Opcodes.ADD
-  operands = 'rr'
-  binary_format = 'r_dst:5,r_add:5'
-
-  def assemble_operands(self, inst, operands):
-    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
-
-    inst.r_dst = int(operands[0])
-    inst.r_add = int(operands[1])
-
-  def disassemble_operands(self, inst):
-    return [REGISTER_NAMES[inst.r_dst], REGISTER_NAMES[inst.r_add]]
-
-class Inst_SUB(InstDescriptor):
-  mnemonic = 'sub'
-  opcode = Opcodes.SUB
-  operands = 'rr'
-  binary_format = 'r_dst:5,r_sub:5'
-
-  def assemble_operands(self, inst, operands):
-    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
-
-    inst.r_dst = int(operands[0])
-    inst.r_sub = int(operands[1])
-
-  def disassemble_operands(self, inst):
-    return [REGISTER_NAMES[inst.r_dst], REGISTER_NAMES[inst.r_sub]]
-
-class Inst_ADDI(InstDescriptor):
-  mnemonic = 'addi'
-  opcode = Opcodes.ADDI
-  operands = 'ri'
-  binary_format = 'r_dst:5,immediate:16'
-
-  def assemble_operands(self, inst, operands):
-    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
-
-    inst.r_dst = int(operands[0])
-    inst.r_immediate = int(operands[1])
-
-  def disassemble_operands(self, inst):
-    return [REGISTER_NAMES[inst.r_dst], UINT16_FMT(inst.immediate)]
-
-class Inst_SUBI(InstDescriptor):
-  mnemonic = 'subi'
-  opcode = Opcodes.SUBI
-  operands = 'ri'
-  binary_format = 'r_dst:5,immediate:16'
-
-  def assemble_operands(self, inst, operands):
-    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
-
-    inst.r_dst = int(operands[0])
-    inst.immediate = int(operands[1])
-
-  def disassemble_operands(self, inst):
-    return [REGISTER_NAMES[inst.r_dst], UINT16_FMT(inst.immediate)]
-
-#
-# Conditional and unconditional jumps
-#
-class Inst_CMP(InstDescriptor):
-  mnemonic = 'cmp'
-  opcode = Opcodes.CMP
-  operands = 'rr'
-  binary_format = 'reg1:5,reg2:5'
-
-  def assemble_operands(self, inst, operands):
-    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
-
-    inst.reg1 = int(operands[0])
-    inst.reg2 = int(operands[1])
-
-  def disassemble_operands(self, inst):
-    return [REGISTER_NAMES[inst.reg1], REGISTER_NAMES[inst.reg2]]
-
-class Inst_BaseOffsetJump(InstDescriptor):
-  operands      = 'j'
-  binary_format = 'immediate:17:int'
-
-  def assemble_operands(self, inst, operands):
-    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
-
-    inst.refers_to = operands[0]
-
-  def fix_refers_to(self, inst, refers_to):
-    debug('fix_refers_to: inst=%s, refers_to=%s' % (inst, OFFSET_FMT(refers_to)))
-
-    inst.immediate = int(refers_to)
-    inst.refers_to = None
-
-  def disassemble_operands(self, inst):
-    return [inst.refers_to] if hasattr(inst, 'refers_to') and inst.refers_to else [OFFSET_FMT(inst.immediate)]
-
-class Inst_J(Inst_BaseOffsetJump):
-  mnemonic = 'j'
-  opcode   = Opcodes.J
-
-class Inst_BE(Inst_BaseOffsetJump):
-  mnemonic = 'be'
-  opcode   = Opcodes.BE
-
-class Inst_BNE(Inst_BaseOffsetJump):
-  mnemonic = 'bne'
-  opcode   = Opcodes.BNE
-
-class Inst_BNS(Inst_BaseOffsetJump):
-  mnemonic = 'bns'
-  opcode   = Opcodes.BNS
-
-class Inst_BNZ(Inst_BaseOffsetJump):
-  mnemonic = 'bnz'
-  opcode   = Opcodes.BNZ
-
-class Inst_BS(Inst_BaseOffsetJump):
-  mnemonic = 'bs'
-  opcode   = Opcodes.BS
-
-class Inst_BZ(Inst_BaseOffsetJump):
-  mnemonic = 'bz'
-  opcode   = Opcodes.BZ
-
-class Inst_BaseRegisterJump(InstDescriptor):
-  operands      = 'r'
-  binary_format = 'r_address:5'
-
-  def assemble_operands(self, inst, operands):
-    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
-
-    inst.r_address = int(operands[0])
-
-  def disassemble_operands(self, inst):
-    return [REGISTER_NAMES[inst.r_address]]
-
-class Inst_JR(Inst_BaseRegisterJump):
-  mnemonic = 'jr'
-  opcode   = Opcodes.JR
-
-class Inst_BER(Inst_BaseRegisterJump):
-  mnemonic = 'ber'
-  opcode   = Opcodes.BER
-
-class Inst_BNER(Inst_BaseRegisterJump):
-  mnemonic = 'bner'
-  opcode   = Opcodes.BNER
-
-class Inst_BNSR(Inst_BaseRegisterJump):
-  mnemonic = 'bnsr'
-  opcode   = Opcodes.BNSR
-
-class Inst_BNZR(Inst_BaseRegisterJump):
-  mnemonic = 'bnzr'
-  opcode   = Opcodes.BNZR
-
-class Inst_BSR(Inst_BaseRegisterJump):
-  mnemonic = 'bsr'
-  opcode   = Opcodes.BSR
-
-class Inst_BZR(Inst_BaseRegisterJump):
-  mnemonic = 'bzr'
-  opcode   = Opcodes.BZR
-
-#
-# IO
-#
-class Inst_IN(InstDescriptor):
-  mnemonic      = 'in'
-  opcode        = Opcodes.IN
-  operands      = 'rr'
-  binary_format = 'r_port:5,r_dst:5'
-
-  def assemble_operands(self, inst, operands):
-    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
-
-    inst.r_port = int(operands[0])
-    inst.r_dst = int(operands[1])
-
-  def disassemble_operands(self, inst):
-    return [REGISTER_NAMES[inst.r_port], REGISTER_NAMES[inst.r_dst]]
-
-class Inst_INB(Inst_IN):
-  mnemonic      = 'inb'
-  opcode = Opcodes.INB
-
-class Inst_OUT(InstDescriptor):
-  mnemonic      = 'out'
-  opcode        = Opcodes.OUT
-  operands      = 'rr'
-  binary_format = 'byte:1,r_port:5,r_src:5'
-
-  def assemble_operands(self, inst, operands):
-    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
-
-    inst.r_port = int(operands[0])
-    inst.r_src = int(operands[1])
-
-  def disassemble_operands(self, inst):
-    return [REGISTER_NAMES[inst.r_port], REGISTER_NAMES[inst.r_src]]
-
-class Inst_OUTB(Inst_OUT):
-  mnemonic      = 'outb'
-  opcode = Opcodes.OUTB
-
-#
-# Bit operations
-#
-class Inst_AND(InstDescriptor):
-  mnemonic = 'and'
-  opcode = Opcodes.AND
-  operands = 'rr'
-  binary_format = 'r_dst:5,r_mask:5'
-
-  def assemble_operands(self, inst, operands):
-    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
-
-    inst.r_dst = int(operands[0])
-    inst.r_mask = int(operands[1])
-
-  def disassemble_operands(self, inst):
-    return [REGISTER_NAMES[inst.r_dst], REGISTER_NAMES[inst.r_mask]]
-
-class Inst_OR(InstDescriptor):
-  mnemonic = 'or'
-  opcode = Opcodes.OR
-  operands = 'rr'
-  binary_format = 'r_dst:5,r_mask:5'
-
-  def assemble_operands(self, inst, operands):
-    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
-
-    inst.r_dst = int(operands[0])
-    inst.r_mask = int(operands[1])
-
-  def disassemble_operands(self, inst):
-    return [REGISTER_NAMES[inst.r_dst], REGISTER_NAMES[inst.r_mask]]
-
-class Inst_XOR(InstDescriptor):
-  mnemonic = 'xor'
-  opcode = Opcodes.XOR
-  operands = 'rr'
-  binary_format = 'r_dst:5,r_mask:5'
-
-  def assemble_operands(self, inst, operands):
-    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
-
-    inst.r_dst = int(operands[0])
-    inst.r_mask = int(operands[1])
-
-  def disassemble_operands(self, inst):
-    return [REGISTER_NAMES[inst.r_dst], REGISTER_NAMES[inst.r_mask]]
-
-class Inst_NOT(InstDescriptor):
-  mnemonic = 'not'
-  opcode = Opcodes.NOT
-  operands = 'r'
-  binary_format = 'r_dst:5'
-
-  def assemble_operands(self, inst, operands):
-    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
-
-    inst.r_dst = int(operands[0])
-
-  def disassemble_operands(self, inst):
-    return [REGISTER_NAMES[inst.r_dst]]
-
-class Inst_BaseShift(InstDescriptor):
-  operands = 'ri'
-  binary_format = 'r_dst:5,immediate:4'
-
-  def assemble_operands(self, inst, operands):
-    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
-
-    inst.r_dst = int(operands[0])
-    inst.immediate = int(operands[1])
-
-  def disassemble_operands(self, inst):
-    return [REGISTER_NAMES[inst.r_dst], REGISTER_NAMES[inst.immediate]]
-
-class Inst_SHIFTL(Inst_BaseShift):
-  mnemonic = 'shiftl'
-  opcode = Opcodes.SHIFTL
-
-class Inst_SHIFTR(Inst_BaseShift):
-  mnemonic = 'shiftr'
-  opcode = Opcodes.SHIFTR
-
-#
-# Memory load/store operations
-#
-class Inst_CAS(InstDescriptor):
-  operands = 'rrr'
-  binary_format = 'opcode:6,r_addr:5,r_test:5,r_rep:5'
-
-  def assemble_operands(self, inst, operands):
-    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
-
-    inst.r_addr = int(operands[0])
-    inst.r_test = int(operands[1])
-    inst.r_rep = int(operands[2])
-
-  def disassemble_operands(self, inst):
-    return [
-      REGISTER_NAMES[inst.r_addr],
-      REGISTER_NAMES[inst.r_test],
-      REGISTER_NAMES[inst.r_rep]
-    ]
-
-class Inst_BaseLoad(InstDescriptor):
-  operands = 'rR'
-  binary_format = 'r_dst:5,r_address:5,immediate:16:int'
-
-  def assemble_operands(self, inst, operands):
-    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
-
-    inst.r_dst = int(operands[0])
-    inst.r_address = int(operands[1])
-    if len(operands) == 3:
-      inst.immediate = int(operands[2])
-
-  def disassemble_operands(self, inst):
-    operands = [REGISTER_NAMES[inst.r_dst]]
-
-    if inst.immediate != 0:
-      reg = REGISTER_NAMES[inst.r_address]
-      s = '-' if inst.immediate < 0 else ''
-      operands.append('%s[%s0x%04X]' % (reg, s, abs(inst.immediate)))
+    if type(v) == types.IntType:
+      inst.immediate = v
 
     else:
-      operands.append(REGISTER_NAMES[inst.r_address])
-
-    return operands
-
-class Inst_LW(Inst_BaseLoad):
-  mnemonic = 'lw'
-  opcode = Opcodes.LW
-
-class Inst_LB(Inst_BaseLoad):
-  mnemonic = 'lb'
-  opcode = Opcodes.LB
-
-class Inst_LBU(Inst_BaseLoad):
-  mnemonic = 'lbu'
-  opcode = Opcodes.LBU
-
-class Inst_LI(Inst_BaseLoad):
-  mnemonic    = 'li'
-  opcode = Opcodes.LI
-  operands = 'ri'
-  binary_format = 'r_dst:5,immediate:16'
-
-  def assemble_operands(self, inst, operands):
-    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
-
-    inst.r_dst = int(operands[0])
-
-    if operands[1].startswith('&'):
-      inst.refers_to = operands[1]
-    else:
-      inst.immediate = int(operands[1])
+      inst.refers_to = v
 
   def fix_refers_to(self, inst, refers_to):
     debug('fix_refers_to: inst=%s, refers_to=%s' % (inst, UINT16_FMT(refers_to)))
@@ -806,82 +353,375 @@ class Inst_LI(Inst_BaseLoad):
     inst.refers_to = None
 
   def disassemble_operands(self, inst):
-    return [REGISTER_NAMES[inst.r_dst], inst.refers_to] if hasattr(inst, 'refers_to') and inst.refers_to else [REGISTER_NAMES[inst.r_dst], UINT16_FMT(inst.immediate)]
+    return [REGISTER_NAMES[inst.reg], inst.refers_to] if hasattr(inst, 'refers_to') and inst.refers_to else [REGISTER_NAMES[inst.reg], OFFSET_FMT(inst.immediate)]
 
-class Inst_BaseStore(InstDescriptor):
-  operands = 'Rr'
-  binary_format = 'r_src:5,r_address:5,immediate:16:int'
+class InstDescriptor_Generic_Binary_R_RI(InstDescriptor):
+  operands = 'r,ri'
+  binary_format = [BF_FLG('is_reg'), BF_REG(), BF_REG('ireg'), BF_IMM()]
 
   def assemble_operands(self, inst, operands):
     debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
 
-    inst.r_address = int(operands[0])
-    inst.r_src = int(operands[-1])
+    inst.reg = operands[0]
+
+    v = operands[1]
+
+    if type(v) == Registers:
+      inst.is_reg = 1
+      inst.ireg = v
+
+    elif type(v) == types.IntType:
+      inst.is_reg = 0
+      inst.immediate = v
+
+    elif type(v) == types.StringType:
+      inst.is_reg = 0
+      inst.refers_to = v
+
+  def disassemble_operands(self, inst):
+    if inst.is_reg == 1:
+      return [REGISTER_NAMES[inst.reg], REGISTER_NAMES[inst.ireg]]
+
+    return [REGISTER_NAMES[inst.reg], inst.refers_to if hasattr(inst, 'refers_to') and inst.refers_to else OFFSET_FMT(inst.immediate)]
+
+class InstDescriptor_Generic_Binary_RI_R(InstDescriptor):
+  operands = 'ri,r'
+  binary_format = [BF_FLG('is_reg'), BF_REG(), BF_REG('ireg'), BF_IMM()]
+
+  def assemble_operands(self, inst, operands):
+    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
+
+    inst.reg = operands[1]
+
+    v = operands[0]
+
+    if type(v) == Registers:
+      inst.is_reg = 1
+      inst.ireg = v
+
+    elif type(v) == types.IntType:
+      inst.is_reg = 0
+      inst.immediate = v
+
+    elif type(v) == types.StringType:
+      inst.is_reg = 0
+      inst.refers_to = v
+
+  def disassemble_operands(self, inst):
+    if inst.is_reg == 1:
+      return [REGISTER_NAMES[inst.ireg], REGISTER_NAMES[inst.reg]]
+
+    return [inst.refers_to if hasattr(inst, 'refers_to') and inst.refers_to else OFFSET_FMT(inst.immediate), REGISTER_NAMES[inst.reg]]
+
+class InstDescriptor_Generic_Binary_R_A(InstDescriptor):
+  operands = 'r,a'
+  binary_format = [BF_REG(), BF_REG('ireg'), BF_IMM()]
+
+  def assemble_operands(self, inst, operands):
+    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
+
+    inst.reg = operands[0]
+    inst.ireg = operands[1]
     if len(operands) == 3:
-      inst.immediate = int(operands[1])
+      inst.immediate = operands[2]
 
   def disassemble_operands(self, inst):
     operands = []
 
     if inst.immediate != 0:
-      reg = REGISTER_NAMES[inst.r_address]
+      reg = REGISTER_NAMES[inst.ireg]
       s = '-' if inst.immediate < 0 else ''
       operands.append('%s[%s0x%04X]' % (reg, s, abs(inst.immediate)))
-    else:
-      operands.append(REGISTER_NAMES[inst.r_address])
 
-    operands.append(REGISTER_NAMES[inst.r_src])
+    else:
+      operands.append(REGISTER_NAMES[inst.ireg])
+
+    operands.append(REGISTER_NAMES[inst.reg])
 
     return operands
 
-class Inst_STW(Inst_BaseStore):
-  mnemonic    = 'stw'
-  opcode = Opcodes.STW
-
-class Inst_STB(Inst_BaseStore):
-  mnemonic    = 'stb'
-  opcode = Opcodes.STB
-
-class Inst_STBU(Inst_BaseStore):
-  mnemonic = 'stbu'
-  opcode = Opcodes.STBU
-
-class Inst_MOV(InstDescriptor):
-  mnemonic = 'mov'
-  opcode = Opcodes.MOV
-  operands = 'rr'
-  binary_format = 'r_dst:5,r_src:5'
+class InstDescriptor_Generic_Binary_A_R(InstDescriptor):
+  operands = 'a,r'
+  binary_format = [BF_REG(), BF_REG('ireg'), BF_IMM()]
 
   def assemble_operands(self, inst, operands):
     debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
 
-    inst.r_dst = int(operands[0])
-    inst.r_src = int(operands[1])
+    inst.reg = operands[-1]
+    inst.ireg = operands[0]
+    if len(operands) == 3:
+      inst.immediate = operands[1]
 
   def disassemble_operands(self, inst):
-    return [REGISTER_NAMES[inst.r_dst], REGISTER_NAMES[inst.r_src]]
+    operands = [REGISTER_NAMES[inst.reg]]
 
-class Inst_SWP(InstDescriptor):
-  mnemonic = 'swp'
-  opcode = Opcodes.SWP
-  operands = 'rr'
-  binary_format = 'reg1:5,reg2:5'
+    if inst.immediate != 0:
+      reg = REGISTER_NAMES[inst.ireg]
+      s = '-' if inst.immediate < 0 else ''
+      operands.append('%s[%s0x%04X]' % (reg, s, abs(inst.immediate)))
+
+    else:
+      operands.append(REGISTER_NAMES[inst.ireg])
+
+    return operands
+
+class InstDescriptor_Generic_Binary_R_R(InstDescriptor):
+  operands = 'r,r'
+  binary_format = [BF_REG('reg1'), BF_REG('reg2')]
 
   def assemble_operands(self, inst, operands):
     debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
 
-    inst.reg1 = int(operands[0])
-    inst.reg2 = int(operands[1])
+    inst.reg1 = operands[0]
+    inst.reg2 = operands[1]
 
   def disassemble_operands(self, inst):
     return [REGISTER_NAMES[inst.reg1], REGISTER_NAMES[inst.reg2]]
+
+
+class Inst_NOP(InstDescriptor_Generic):
+  mnemonic = 'nop'
+  opcode = Opcodes.NOP
+
+
+#
+# Interrupts
+#
+class Inst_INT(InstDescriptor_Generic_Unary_RI):
+  mnemonic      = 'int'
+  opcode        = Opcodes.INT
+
+class Inst_RETINT(InstDescriptor_Generic):
+  mnemonic = 'retint'
+  opcode   = Opcodes.RETINT
+
+#
+# Routines
+#
+class Inst_CALL(InstDescriptor_Generic_Unary_RI):
+  mnemonic      = 'call'
+  opcode        = Opcodes.CALL
+
+class Inst_RET(InstDescriptor_Generic):
+  mnemonic      = 'ret'
+  opcode        = Opcodes.RET
+
+#
+# CPU
+#
+class Inst_CLI(InstDescriptor_Generic):
+  mnemonic = 'cli'
+  opcode = Opcodes.CLI
+
+class Inst_STI(InstDescriptor_Generic):
+  mnemonic = 'sti'
+  opcode = Opcodes.STI
+
+class Inst_HLT(InstDescriptor_Generic_Unary_RI):
+  mnemonic = 'hlt'
+  opcode = Opcodes.HLT
+
+class Inst_RST(InstDescriptor_Generic):
+  mnemonic = 'rst'
+  opcode = Opcodes.RST
+
+class Inst_IDLE(InstDescriptor_Generic):
+  mnemonic = 'idle'
+  opcode = Opcodes.IDLE
+
+#
+# Stack
+#
+class Inst_PUSH(InstDescriptor_Generic_Unary_RI):
+  mnemonic = 'push'
+  opcode = Opcodes.PUSH
+
+class Inst_POP(InstDescriptor_Generic_Unary_R):
+  mnemonic = 'pop'
+  opcode = Opcodes.POP
+
+#
+# Arithmetic
+#
+class Inst_INC(InstDescriptor_Generic_Unary_R):
+  mnemonic = 'inc'
+  opcode = Opcodes.INC
+
+class Inst_DEC(InstDescriptor_Generic_Unary_R):
+  mnemonic = 'dec'
+  opcode = Opcodes.DEC
+
+class Inst_ADD(InstDescriptor_Generic_Binary_R_RI):
+  mnemonic = 'add'
+  opcode = Opcodes.ADD
+
+class Inst_SUB(InstDescriptor_Generic_Binary_R_RI):
+  mnemonic = 'sub'
+  opcode = Opcodes.SUB
+
+#
+# Conditional and unconditional jumps
+#
+class Inst_CMP(InstDescriptor_Generic_Binary_R_RI):
+  mnemonic = 'cmp'
+  opcode = Opcodes.CMP
+
+class Inst_J(InstDescriptor_Generic_Unary_RI):
+  mnemonic = 'j'
+  opcode   = Opcodes.J
+
+class Inst_BE(InstDescriptor_Generic_Unary_RI):
+  mnemonic = 'be'
+  opcode   = Opcodes.BE
+
+class Inst_BNE(InstDescriptor_Generic_Unary_RI):
+  mnemonic = 'bne'
+  opcode   = Opcodes.BNE
+
+class Inst_BNS(InstDescriptor_Generic_Unary_RI):
+  mnemonic = 'bns'
+  opcode   = Opcodes.BNS
+
+class Inst_BNZ(InstDescriptor_Generic_Unary_RI):
+  mnemonic = 'bnz'
+  opcode   = Opcodes.BNZ
+
+class Inst_BS(InstDescriptor_Generic_Unary_RI):
+  mnemonic = 'bs'
+  opcode   = Opcodes.BS
+
+class Inst_BZ(InstDescriptor_Generic_Unary_RI):
+  mnemonic = 'bz'
+  opcode   = Opcodes.BZ
+
+class Inst_BG(InstDescriptor_Generic_Unary_RI):
+  mnemonic = 'bg'
+  opcode = Opcodes.BG
+
+class Inst_BGE(InstDescriptor_Generic_Unary_RI):
+  mnemonic = 'bge'
+  opcode = Opcodes.BGE
+
+class Inst_BL(InstDescriptor_Generic_Unary_RI):
+  mnemonic = 'bl'
+  opcode = Opcodes.BL
+
+class Inst_BLE(InstDescriptor_Generic_Unary_RI):
+  mnemonic = 'ble'
+  opcode = Opcodes.BLE
+
+#
+# IO
+#
+class Inst_IN(InstDescriptor_Generic_Binary_R_RI):
+  mnemonic      = 'in'
+  opcode        = Opcodes.IN
+
+class Inst_INB(InstDescriptor_Generic_Binary_R_RI):
+  mnemonic      = 'inb'
+  opcode = Opcodes.INB
+
+class Inst_OUT(InstDescriptor_Generic_Binary_RI_R):
+  mnemonic      = 'out'
+  opcode        = Opcodes.OUT
+
+class Inst_OUTB(InstDescriptor_Generic_Binary_RI_R):
+  mnemonic      = 'outb'
+  opcode = Opcodes.OUTB
+
+#
+# Bit operations
+#
+class Inst_AND(InstDescriptor_Generic_Binary_R_RI):
+  mnemonic = 'and'
+  opcode = Opcodes.AND
+
+class Inst_OR(InstDescriptor_Generic_Binary_R_RI):
+  mnemonic = 'or'
+  opcode = Opcodes.OR
+
+class Inst_XOR(InstDescriptor_Generic_Binary_R_RI):
+  mnemonic = 'xor'
+  opcode = Opcodes.XOR
+
+class Inst_NOT(InstDescriptor_Generic_Unary_R):
+  mnemonic = 'not'
+  opcode = Opcodes.NOT
+
+class Inst_SHIFTL(InstDescriptor_Generic_Binary_R_RI):
+  mnemonic = 'shiftl'
+  opcode = Opcodes.SHIFTL
+
+class Inst_SHIFTR(InstDescriptor_Generic_Binary_R_RI):
+  mnemonic = 'shiftr'
+  opcode = Opcodes.SHIFTR
+
+#
+# Memory load/store operations
+#
+class Inst_CAS(InstDescriptor):
+  operands = 'r,r,r'
+  binary_format = [BF_REG('r_addr'), BF_REG('r_test'), BF_REG('r_rep')]
+
+  def assemble_operands(self, inst, operands):
+    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
+
+    inst.r_addr = operands[0]
+    inst.r_test = operands[1]
+    inst.r_rep = operands[2]
+
+  def disassemble_operands(self, inst):
+    return [
+      REGISTER_NAMES[inst.r_addr],
+      REGISTER_NAMES[inst.r_test],
+      REGISTER_NAMES[inst.r_rep]
+    ]
+
+class Inst_LW(InstDescriptor_Generic_Binary_R_A):
+  mnemonic = 'lw'
+  opcode = Opcodes.LW
+
+class Inst_LB(InstDescriptor_Generic_Binary_R_A):
+  mnemonic = 'lb'
+  opcode = Opcodes.LB
+
+class Inst_LBU(InstDescriptor_Generic_Binary_R_A):
+  mnemonic = 'lbu'
+  opcode = Opcodes.LBU
+
+class Inst_LI(InstDescriptor_Generic_Binary_R_I):
+  mnemonic    = 'li'
+  opcode = Opcodes.LI
+
+class Inst_STW(InstDescriptor_Generic_Binary_A_R):
+  mnemonic    = 'stw'
+  opcode = Opcodes.STW
+
+class Inst_STB(InstDescriptor_Generic_Binary_A_R):
+  mnemonic    = 'stb'
+  opcode = Opcodes.STB
+
+class Inst_STBU(InstDescriptor_Generic_Binary_A_R):
+  mnemonic = 'stbu'
+  opcode = Opcodes.STBU
+
+class Inst_MOV(InstDescriptor_Generic_Binary_R_R):
+  mnemonic = 'mov'
+  opcode = Opcodes.MOV
+
+class Inst_SWP(InstDescriptor_Generic_Binary_R_R):
+  mnemonic = 'swp'
+  opcode = Opcodes.SWP
+
+class Inst_MUL(InstDescriptor_Generic_Binary_R_RI):
+  mnemonic = 'mul'
+  opcode = Opcodes.MUL
 
 INSTRUCTIONS = [
 Inst_NOP(),
 Inst_INT(),
 Inst_RETINT(),
 Inst_CALL(),
-Inst_CALLI(),
 Inst_RET(),
 Inst_CLI(),
 Inst_STI(),
@@ -894,8 +734,6 @@ Inst_INC(),
 Inst_DEC(),
 Inst_ADD(),
 Inst_SUB(),
-Inst_ADDI(),
-Inst_SUBI(),
 Inst_CMP(),
 Inst_J(),
 Inst_BE(),
@@ -904,13 +742,10 @@ Inst_BNS(),
 Inst_BNZ(),
 Inst_BS(),
 Inst_BZ(),
-Inst_JR(),
-Inst_BE(),
-Inst_BNE(),
-Inst_BNS(),
-Inst_BNZ(),
-Inst_BS(),
-Inst_BZ(),
+Inst_BG(),
+Inst_BGE(),
+Inst_BL(),
+Inst_BLE(),
 Inst_IN(),
 Inst_INB(),
 Inst_OUT(),
@@ -929,7 +764,8 @@ Inst_STW(),
 Inst_STB(),
 Inst_STBU(),
 Inst_MOV(),
-Inst_SWP()
+Inst_SWP(),
+Inst_MUL(),
 ]
 
 def __create_binary_format_master_class():

@@ -2,45 +2,43 @@
   .string "Hello, world!"
 
 main:
-  li r1, &message
-  calli @writesn
+  li r0, &message
+  call &writesn
   li r0, 0
   int r0
 
 outb:
-  # > r1: port
-  # > r2: byte
-  outb r1, r2 b
+  # > r0: port
+  # > r1: byte
+  outb r0, r1
   ret
 
 writesn:
-  # > r1: string address
-  #   r2: current byte
-  #   r3: port
+  # > r0: string address
+  # ...
+  #   r0: port
+  #   r1: current byte
+  #   r2: string ptr
+  push r1
   push r2
-  push r3
-  li r3, 0x100
-__fn_writesn_loop:
-  lb r2, r1
-  bz @__fn_writesn_write_nl
-  push r1
-  mov r1, r3
-  calli @outb
-  pop r1
-  inc r1
-  j @__fn_writesn_loop
-__fn_writesn_write_nl:
-  push r1
-  li r1, 0x100
-  # \n
-  li r2, 0xA
-  calli @outb
-  # \r
-  li r2, 0xD
-  calli @outb
-  pop r1
-  li r0, 0
-  pop r3
+  push r0
   pop r2
+  li r0, 0x100
+.__fn_writesn_loop:
+  lb r1, r2
+  bz &.__fn_writesn_write_nl
+  call &outb
+  inc r2
+  j &.__fn_writesn_loop
+.__fn_writesn_write_nl:
+  ; \n
+  li r1, 0xA
+  call &outb
+  # \r
+  li r1, 0xD
+  call &outb
+  li r0, 0
+  pop r2
+  pop r1
   ret
 

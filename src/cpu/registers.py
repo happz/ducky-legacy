@@ -6,49 +6,33 @@ import mm
 
 class Registers(enum.IntEnum):
   # 16 16bit registers available
-  R00 =  0
-  R01 =  1
-  R02 =  2
-  R03 =  3
-  R04 =  4
-  R05 =  5
-  R06 =  6
-  R07 =  7
-  R08 =  8
-  R09 =  9
-  R10 = 10
-  R11 = 11
-  R12 = 12
-  R13 = 13
-  R14 = 14
-  R15 = 15
-  R16 = 16
-  R17 = 17
-  R18 = 18
-  R19 = 19
-  R20 = 20
-  R21 = 21
-  R22 = 22
-  R23 = 23
-  R24 = 24
-  R25 = 25
-  R26 = 26
-  R27 = 27
-  R28 = 28
+  R00   =  0
+  R01   =  1
+  R02   =  2
+  R03   =  3
+  R04   =  4
+  R05   =  5
+  R06   =  6
+  R07   =  7
+  R08   =  8
+  R09   =  9
+  R10   = 10
+  R11   = 11
+  R12   = 12
 
   # Some registers have special meaning and/or usage
-  FP    = 29 # Frame Pointer
-  SP    = 30 # Stack Pointer
-  DS    = 31 # Data Segment Register
-  CS    = 32 # Code Segment register
-  FLAGS = 33 # Flags
-  IP    = 34 # Instruction pointer
+  FP    = 13 # Frame Pointer
+  SP    = 14 # Stack Pointer
+  DS    = 15 # Data Segment Register
+  CS    = 16 # Code Segment register
+  FLAGS = 17 # Flags
+  IP    = 18 # Instruction pointer
 
   # First special register
-  REGISTER_SPECIAL = 29
+  REGISTER_SPECIAL = 13
 
   # How many registers do we have? This many...
-  REGISTER_COUNT = 35
+  REGISTER_COUNT = 19
 
 PROTECTED_REGISTERS = range(Registers.REGISTER_SPECIAL, Registers.REGISTER_COUNT)
 
@@ -68,7 +52,7 @@ class RealFlagsRegister(ctypes.LittleEndianStructure):
   _fields_ = [
     ('privileged', ctypes.c_ubyte, 1),
     ('hwint',      ctypes.c_ubyte, 1),
-    ('eq',         ctypes.c_ubyte, 1),
+    ('e',          ctypes.c_ubyte, 1),
     ('z',          ctypes.c_ubyte, 1),
     ('o',          ctypes.c_ubyte, 1),
     ('s',          ctypes.c_ubyte, 1)
@@ -82,17 +66,25 @@ class FlagsRegister(ctypes.Union):
   ]
 
 class RegisterSet(object):
-  registers = ['r%02i' % i for i in range(0, int(Registers.REGISTER_COUNT))]
-
   def __init__(self):
     super(RegisterSet, self).__init__()
 
-    self.__register_map = []
-    for register_name in self.registers:
-      register_class = Register if register_name != 'r34' else FlagsRegister
+    self.__map_id   = {}
+    self.__map_name = {}
+    self.__map_list = []
 
-      setattr(self, register_name, register_class())
-      self.__register_map.append(getattr(self, register_name))
+    for register_name, register_id in zip(REGISTER_NAMES, Registers):
+      if not register_name:
+        break
+
+      register_class = Register if register_name != 'flags' else FlagsRegister
+
+      register = register_class()
+
+      setattr(self, register_name, register)
+      self.__map_name[register_name] = register
+      self.__map_id[register_id] = register
+      self.__map_list.append(register)
 
   def __len__(self):
     return Registers.REGISTER_COUNT
@@ -102,16 +94,16 @@ class RegisterSet(object):
       if reg < 0 or reg >= Registers.REGISTER_COUNT:
         raise IndexError('Unknown register index: %i' % reg)
 
-      return self.__register_map[reg]
+      return self.__map_list[reg]
 
     if type(reg) == types.StringType:
-      if reg not in self.registers:
+      if reg not in REGISTER_NAMES:
         raise IndexError('unknown register name: %s' % reg)
 
-      return getattr(self, reg)
+      return self.__map_name[reg]
 
     if type(reg) == Registers:
-      return getattr(self, 'r%i' % reg)
+      return self.__map_id[reg]
 
     raise IndexError('Unknown register id: %s' % str(reg))
 
@@ -119,12 +111,5 @@ class RegisterSet(object):
     self[reg].value = value
 
   def __iter__(self):
-    return iter([getattr(self, reg) for reg in self.registers])
-
-  cs    = property(lambda self: self[Registers.CS])
-  ds    = property(lambda self: self[Registers.DS])
-  flags = property(lambda self: self[Registers.FLAGS])
-  sp    = property(lambda self: self[Registers.SP])
-  fp    = property(lambda self: self[Registers.FP])
-  ip    = property(lambda self: self[Registers.IP])
+    return iter([getattr(self, reg) for reg in REGISTER_NAMES])
 

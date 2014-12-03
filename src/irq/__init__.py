@@ -13,6 +13,12 @@ class IRQSource(object):
     self.irq = None
     self.is_maskable = True
 
+  def boot(self):
+    pass
+
+  def halt(self):
+    pass
+
   def on_tick(self):
     pass
 

@@ -14,9 +14,9 @@ from mm import UInt8, UInt16, UInt24
 from mm import SEGM_FMT, ADDR_FMT, UINT8_FMT, UINT16_FMT
 from mm import segment_addr_to_addr
 
-from registers import Registers
+from registers import Registers, REGISTER_NAMES
 from instructions import Opcodes
-
+from core import CPUCoreState
 from errors import CPUException, AccessViolationError, InvalidResourceError
 from util import debug, info, warn, error
 
@@ -42,7 +42,7 @@ def log_cpu_core_state(core, logger = None):
 
   logger(core.cpuid_prefix, 'cs=%s      ds=%s' % (SEGM_FMT(core.CS().u16), SEGM_FMT(core.DS().u16)))
   logger(core.cpuid_prefix, 'fp=%s    sp=%s    ip=%s' % (UINT16_FMT(core.FP().u16), UINT16_FMT(core.SP().u16), UINT16_FMT(core.IP().u16)))
-  logger(core.cpuid_prefix, 'priv=%i, hwint=%i, eq=%i, z=%i, o=%i' % (core.FLAGS().privileged, core.FLAGS().hwint, core.FLAGS().eq, core.FLAGS().z, core.FLAGS().o))
+  logger(core.cpuid_prefix, 'priv=%i, hwint=%i, e=%i, z=%i, o=%i' % (core.FLAGS().privileged, core.FLAGS().hwint, core.FLAGS().e, core.FLAGS().z, core.FLAGS().o))
   logger(core.cpuid_prefix, 'thread=%s, keep_running=%s, idle=%s, exit=%i' % (core.thread.name, core.keep_running, core.idle, core.exit_code))
 
   if core.current_instruction:
@@ -72,6 +72,39 @@ class CPUCore(object):
     self.idle = False
 
     self.exit_code = 0
+
+  def save_state(self, state):
+    debug('core.save_state')
+
+    core_state = CPUCoreState()
+
+    core_state.cpuid = self.cpu.id
+    core_state.coreid = self.id
+
+    for reg in REGISTER_NAMES:
+      if reg == 'flags':
+        core_state.flags.u16 = self.registers.flags.u16
+
+      else:
+        setattr(core_state, reg, self.registers[reg].u16)
+
+    core_state.exit_code = self.exit_code
+    core_state.idle = 1 if self.idle else 0
+    core_state.keep_running = 1 if self.keep_running else 0
+
+    state.core_states.append(core_state)
+
+  def load_state(self, core_state):
+    for reg in REGISTER_NAMES:
+      if reg == 'flags':
+        self.registers.flags.u16 = core_state.flags.u16
+
+      else:
+        self.registers[reg].u16 = getattr(core_state, reg)
+
+    self.exit_code = core_state.exit_code
+    self.idle = True if core_state.idle else False
+    self.keep_running = True if core_state.keep_running else False
 
   def die(self, exc):
     error(str(exc))
@@ -117,7 +150,7 @@ class CPUCore(object):
 
     self.FLAGS().privileged = 0
     self.FLAGS().hwint = 1
-    self.FLAGS().eq = 0
+    self.FLAGS().e = 0
     self.FLAGS().z = 0
     self.FLAGS().o = 0
     self.FLAGS().s = 0
@@ -159,8 +192,8 @@ class CPUCore(object):
     iv = self.memory.load_interrupt_vector(table_address, index)
 
     stack_page = self.memory.get_page(self.memory.alloc_page(UInt8(iv.ds)))
-    stack_page.readable(True)
-    stack_page.writable(True)
+    stack_page.read = True
+    stack_page.write = True
 
     old_SP = UInt16(self.SP().u16)
     old_DS = UInt16(self.DS().u16)
@@ -199,14 +232,14 @@ class CPUCore(object):
   def __do_int(self, index):
     debug(self.cpuid_prefix, '__do_int: %s' % index)
 
-    self.__enter_interrupt(UInt24(self.memory.header.int_table_address), index)
+    self.__enter_interrupt(UInt24(self.memory.int_table_address), index)
 
     debug(self.cpuid_prefix, '__do_int: CPU state prepared to handle interrupt')
 
   def __do_irq(self, index):
     debug(self.cpuid_prefix, '__do_irq: %s' % index)
 
-    self.__enter_interrupt(UInt24(self.memory.header.irq_table_address), index)
+    self.__enter_interrupt(UInt24(self.memory.irq_table_address), index)
     self.FLAGS().hwint = 0
     self.idle = False
 
@@ -274,8 +307,36 @@ class CPUCore(object):
       if self.cpu.machine.ports[port.u16].is_protected and not self.privileged:
         raise AccessViolationError('Access to port not allowed in unprivileged mode: opcode=%i, port=%u' % (opcode, port))
 
+    def RI_VAL(inst):
+      return REG(inst.ireg).u16 if inst.is_reg == 1 else inst.immediate
+
+    def JUMP(inst):
+      if inst.is_reg == 1:
+        IP().u16 = REG(inst.ireg).u16
+      else:
+        IP().u16 += inst.immediate
+
+    def CMP(x, y):
+      FLAGS().e = 0
+      FLAGS().ge = 0
+      FLAGS().le = 0
+      FLAGS().s = 0
+      FLAGS().z = 0
+
+      if   x == y:
+        FLAGS().e = 1
+
+        if x == 0:
+          FLAGS().z = 1
+
+      elif x  < y:
+        FLAGS().s = 1
+
+      elif x > y:
+        FLAGS().s = 0
+
     def OFFSET_ADDR(inst):
-      addr = REG(inst.r_address).u16
+      addr = REG(inst.ireg).u16
       if inst.immediate != 0:
         addr += inst.immediate
 
@@ -309,57 +370,57 @@ class CPUCore(object):
       pass
 
     elif opcode == Opcodes.LW:
-      __check_protected_reg(inst.r_dst)
+      __check_protected_reg(inst.reg)
 
-      with AFLAGS_CTX(REG(inst.r_dst)):
-        REG(inst.r_dst).u16 = MEM_IN16(OFFSET_ADDR(inst)).u16
+      with AFLAGS_CTX(REG(inst.reg)):
+        REG(inst.reg).u16 = MEM_IN16(OFFSET_ADDR(inst)).u16
 
     elif opcode == Opcodes.LB:
-      __check_protected_reg(inst.r_dst)
+      __check_protected_reg(inst.reg)
 
-      with AFLAGS_CTX(REG(inst.r_dst)):
-        REG(inst.r_dst).u16 = MEM_IN8(OFFSET_ADDR(inst)).u8
+      with AFLAGS_CTX(REG(inst.reg)):
+        REG(inst.reg).u16 = MEM_IN8(OFFSET_ADDR(inst)).u8
 
     elif opcode == Opcodes.LBU:
-      __check_protected_reg(inst.r_dst)
+      __check_protected_reg(inst.reg)
 
-      with AFLAGS_CTX(REG(inst.r_dst)):
-        REG(inst.r_dst).u16 = MEM_IN16(OFFSET_ADDR(inst)).u16
+      with AFLAGS_CTX(REG(inst.reg)):
+        REG(inst.reg).u16 = MEM_IN16(OFFSET_ADDR(inst)).u16
 
     elif opcode == Opcodes.LI:
-      __check_protected_reg(inst.r_dst)
+      __check_protected_reg(inst.reg)
 
-      with AFLAGS_CTX(REG(inst.r_dst)):
-        REG(inst.r_dst).u16 = inst.immediate
+      with AFLAGS_CTX(REG(inst.reg)):
+        REG(inst.reg).u16 = inst.immediate
 
     elif opcode == Opcodes.STW:
-      MEM_OUT16(OFFSET_ADDR(inst), REG(inst.r_src).u16)
+      MEM_OUT16(OFFSET_ADDR(inst), REG(inst.reg).u16)
 
     elif opcode == Opcodes.STB:
-      MEM_OUT8(OFFSET_ADDR(inst), REG(inst.r_dst).u16 & 0xFF)
+      MEM_OUT8(OFFSET_ADDR(inst), REG(inst.reg).u16 & 0xFF)
 
     elif opcode == Opcodes.STBU:
-      MEM_OUT8(OFFSET_ADDR(inst), (REG(inst.r_dst).u16 & 0xFF00) >> 8)
+      MEM_OUT8(OFFSET_ADDR(inst), (REG(inst.reg).u16 & 0xFF00) >> 8)
 
     elif opcode == Opcodes.MOV:
-      REG(inst.r_dst).u16 = REG(inst.r_src).u16
+      REG(inst.reg1).u16 = REG(inst.reg2).u16
 
     elif opcode == Opcodes.SWP:
-      v = UInt16(REG(inst.r_dst).u16)
+      v = UInt16(REG(inst.reg1).u16)
       REG(inst.reg1).u16 = REG(inst.reg2).u16
       REG(inst.reg2).u16 = v.u16
 
     elif opcode == Opcodes.CAS:
-      FLAGS().eq = 0
+      FLAGS().e = 0
 
       v = self.memory.cas_16(DS_ADDR(REG(inst.r_addr)), REG(inst.r_test), REG(inst.r_rep))
       if v == True:
-        FLAGS().eq = 1
+        FLAGS().e = 1
       else:
         REG(inst.r_test).u16 = v.u16
 
     elif opcode == Opcodes.INT:
-      self.__do_int(REG(inst.r_int).u16)
+      self.__do_int(RI_VAL(inst))
 
     elif opcode == Opcodes.RETINT:
       __check_protected_ins()
@@ -367,16 +428,9 @@ class CPUCore(object):
       self.__exit_interrupt()
 
     elif opcode == Opcodes.CALL:
-      new_ip = REG(inst.r_dst).u16
-
       self.__create_frame()
 
-      IP().u16 = new_ip
-
-    elif opcode == Opcodes.CALLI:
-      self.__create_frame()
-
-      IP().u16 += inst.immediate
+      JUMP(inst)
 
     elif opcode == Opcodes.RET:
       self.__destroy_frame()
@@ -394,7 +448,7 @@ class CPUCore(object):
     elif opcode == Opcodes.HLT:
       __check_protected_ins()
 
-      self.exit_code = REG(inst.r_code).u16
+      self.exit_code = RI_VAL(inst)
 
       self.keep_running = False
 
@@ -407,208 +461,160 @@ class CPUCore(object):
       self.idle = True
 
     elif opcode == Opcodes.PUSH:
-      self.__push(inst.r_src)
+      self.__raw_push(UInt16(RI_VAL(inst)))
 
     elif opcode == Opcodes.POP:
-      __check_protected_reg(inst.r_dst)
+      __check_protected_reg(inst.reg)
 
-      self.__pop(inst.r_dst)
+      self.__pop(inst.reg)
 
     elif opcode == Opcodes.INC:
-      __check_protected_reg(inst.r_dst)
+      __check_protected_reg(inst.reg)
 
-      with AFLAGS_CTX(REG(inst.r_dst)):
-        REG(inst.r_dst).u16 += 1
+      with AFLAGS_CTX(REG(inst.reg)):
+        REG(inst.reg).u16 += 1
 
     elif opcode == Opcodes.DEC:
-      __check_protected_reg(inst.r_dst)
+      __check_protected_reg(inst.reg)
 
-      with AFLAGS_CTX(REG(inst.r_dst)):
-        REG(inst.r_dst).u16 -= 1
+      with AFLAGS_CTX(REG(inst.reg)):
+        REG(inst.reg).u16 -= 1
 
     elif opcode == Opcodes.ADD:
-      __check_protected_reg(inst.r_dst)
+      __check_protected_reg(inst.reg)
 
-      with AFLAGS_CTX(REG(inst.r_dst)):
-        REG(inst.r_dst).u16 += REG(inst.r_add).u16
+      with AFLAGS_CTX(REG(inst.reg)):
+        REG(inst.reg).u16 += RI_VAL(inst)
 
     elif opcode == Opcodes.SUB:
-      __check_protected_reg(inst.r_dst)
+      __check_protected_reg(inst.reg)
 
-      with AFLAGS_CTX(REG(inst.r_dst)):
-        REG(inst.r_dst).u16 -= REG(inst.r_sub).u16
-
-    elif opcode == Opcodes.ADDI:
-      __check_protected_reg(inst.r_dst)
-
-      with AFLAGS_CTX(REG(inst.r_dst)):
-        REG(inst.r_dst).u16 += inst.immediate
-
-    elif opcode == Opcodes.SUBI:
-      __check_protected_reg(inst.r_dst)
-
-      with AFLAGS_CTX(REG(inst.r_dst)):
-        REG(inst.r_dst).u16 -= inst.immediate
+      with AFLAGS_CTX(REG(inst.reg)):
+        REG(inst.reg).u16 -= RI_VAL(inst)
 
     elif opcode == Opcodes.AND:
-      __check_protected_reg(inst.r_dst)
+      __check_protected_reg(inst.reg)
 
-      with AFLAGS_CTX(REG(inst.r_dst)):
-        REG(inst.r_dst).u16 &= REG(inst.r_mask).u16
+      with AFLAGS_CTX(REG(inst.reg)):
+        REG(inst.reg).u16 &= RI_VAL(inst)
 
     elif opcode == Opcodes.OR:
-      __check_protected_reg(inst.r_dst)
+      __check_protected_reg(inst.reg)
 
-      with AFLAGS_CTX(REG(inst.r_dst)):
-        REG(inst.r_dst).u16 |= REG(inst.r_mask).u16
+      with AFLAGS_CTX(REG(inst.reg)):
+        REG(inst.reg).u16 |= RI_VAL(inst)
 
     elif opcode == Opcodes.XOR:
-      __check_protected_reg(inst.r_dst)
+      __check_protected_reg(inst.reg)
 
-      with AFLAGS_CTX(REG(inst.r_dst)):
-        REG(inst.r_dst).u16 ^= REG(inst.r_mask).u16
+      with AFLAGS_CTX(REG(inst.reg)):
+        REG(inst.reg).u16 ^= RI_VAL(inst)
 
     elif opcode == Opcodes.NOT:
-      __check_protected_reg(inst.r_dst)
+      __check_protected_reg(inst.reg)
 
-      with AFLAGS_CTX(REG(inst.r_dst)):
-        REG(inst.r_dst).u16 = ~REG(inst.r_dst).u16
+      with AFLAGS_CTX(REG(inst.reg)):
+        REG(inst.reg).u16 = ~REG(inst.reg).u16
 
     elif opcode == Opcodes.SHIFTL:
-      __check_protected_reg(inst.r_dst)
+      __check_protected_reg(inst.reg)
 
-      with AFLAGS_CTX(REG(inst.r_dst)):
-        REG(inst.r_dst).u16 <<= REG(inst.immediate)
+      with AFLAGS_CTX(REG(inst.reg)):
+        REG(inst.reg).u16 <<= RI_VAL(inst)
 
     elif opcode == Opcodes.SHIFTR:
-      __check_protected_reg(inst.r_dst)
+      __check_protected_reg(inst.reg)
 
-      with AFLAGS_CTX(REG(inst.r_dst)):
-        REG(inst.r_dst).u16 >>= REG(inst.immediate)
+      with AFLAGS_CTX(REG(inst.reg)):
+        REG(inst.reg).u16 >>= RI_VAL(inst)
 
     elif opcode == Opcodes.IN:
-      port = REG(inst.r_port)
+      port = UInt16(RI_VAL(inst))
 
       __check_protected_port(port)
-      __check_protected_reg(inst.r_dst)
+      __check_protected_reg(inst.reg)
 
-      REG(inst.r_port).u16 = self.cpu.machine.ports[port.u16].read_u16(port).u16
+      REG(inst.reg).u16 = self.cpu.machine.ports[port.u16].read_u16(port).u16
 
     elif opcode == Opcodes.INB:
-      port = REG(inst.r_port)
+      port = UInt16(RI_VAL(inst))
 
       __check_protected_port(port)
-      __check_protected_reg(inst.r_dst)
+      __check_protected_reg(inst.reg)
 
-      REG(inst.r_dst).u16 = UInt16(self.cpu.machine.ports[port.u16].read_u8(port).u8).u16
+      REG(inst.reg).u16 = UInt16(self.cpu.machine.ports[port.u16].read_u8(port).u8).u16
 
     elif opcode == Opcodes.OUT:
-      port = REG(inst.r_port)
+      port = UInt16(RI_VAL(inst))
 
       __check_protected_port(port)
 
-      self.cpu.machine.ports[port.u16].write_u16(port, REG(inst.r_src))
+      self.cpu.machine.ports[port.u16].write_u16(port, REG(inst.reg))
 
     elif opcode == Opcodes.OUTB:
-      port = REG(inst.r_port)
+      port = UInt16(RI_VAL(inst))
 
       __check_protected_port(port)
 
-      self.cpu.machine.ports[port.u16].write_u8(port, UInt8(REG(inst.r_src).u16))
+      self.cpu.machine.ports[port.u16].write_u8(port, UInt8(REG(inst.reg).u16 & 0xFF))
 
     elif opcode == Opcodes.CMP:
-      FLAGS().eq = 0
-      FLAGS().s = 0
-
-      if   REG(inst.reg1).u16 == REG(inst.reg2).u16:
-        FLAGS().eq = 1
-
-      elif REG(inst.reg1).u16  < REG(inst.reg2).u16:
-        FLAGS().s = 1
-
-      elif REG(inst.reg1).u16  > REG(inst.reg2).u16:
-        pass
+      CMP(REG(inst.reg).u16, RI_VAL(inst))
 
     elif opcode == Opcodes.J:
-      IP().u16 += inst.immediate
-
-    elif opcode == Opcodes.JR:
-      IP().u16 = REG(inst.r_address).u16
+      JUMP(inst)
 
     elif opcode == Opcodes.BE:
-      if FLAGS().eq == 1:
-        IP().u16 += inst.immediate
-
-      FLAGS().eq = 0
+      if FLAGS().e == 1:
+        JUMP(inst)
 
     elif opcode == Opcodes.BNE:
-      if FLAGS().eq == 0:
-        IP().u16 += inst.immediate
-
-      FLAGS().eq = 0
+      if FLAGS().e == 0:
+        JUMP(inst)
 
     elif opcode == Opcodes.BZ:
       if FLAGS().z == 1:
-        IP().u16 += inst.immediate
-
-      FLAGS().z = 0
+        JUMP(inst)
 
     elif opcode == Opcodes.BNZ:
       if FLAGS().z == 0:
-        IP().u16 += inst.immediate
-
-      FLAGS().z = 0
+        JUMP(inst)
 
     elif opcode == Opcodes.BS:
       if FLAGS().s == 1:
-        IP().u16 += inst.immediate
-
-      FLAGS().s = 0
+        JUMP(inst)
 
     elif opcode == Opcodes.BNS:
       if FLAGS().s == 0:
-        IP().u16 += inst.immediate
+        JUMP(inst)
 
-      FLAGS().s = 0
+    elif opcode == Opcodes.BG:
+      if FLAGS().s == 0 and FLAGS().e == 0:
+        JUMP(inst)
 
-    elif opcode == Opcodes.BER:
-      if FLAGS().eq == 1:
-        IP().u16 = REG(inst.r_address).u16
+    elif opcode == Opcodes.BE:
+      if FLAGS().s == 1 and FLAGS().e == 0:
+        JUMP(inst)
 
-      FLAGS().eq = 0
+    elif opcode == Opcodes.BGE:
+      if FLAGS().s == 0 or FLAGS().e == 1:
+        JUMP(inst)
 
-    elif opcode == Opcodes.BNER:
-      if FLAGS().eq == 0:
-        IP().u16 = REG(inst.r_address).u16
+    elif opcode == Opcodes.BLE:
+      if FLAGS().s == 1 or FLAGS().e == 1:
+        JUMP(inst)
 
-      FLAGS().eq = 0
+    elif opcode == Opcodes.MUL:
+      __check_protected_reg(inst.reg)
 
-    elif opcode == Opcodes.BZR:
-      if FLAGS().z == 1:
-        IP().u16 = REG(inst.r_address).u16
-
-      FLAGS().z = 0
-
-    elif opcode == Opcodes.BNZR:
-      if FLAGS().z == 0:
-        IP().u16 = REG(inst.r_address).u16
-
-      FLAGS().z = 0
-
-    elif opcode == Opcodes.BSR:
-      if FLAGS().s == 1:
-        IP().u16 = REG(inst.r_address).u16
-
-      FLAGS().s = 0
-
-    elif opcode == Opcodes.BNSR:
-      if FLAGS().s == 0:
-        IP().u16 = REG(inst.r_address).u16
-
-      FLAGS().s = 0
+      with AFLAGS_CTX(REG(inst.reg)):
+        REG(inst.reg).u16 *= RI_VAL(inst)
 
     else:
       raise CPUException('Unknown opcode: %i' % opcode)
+
+    debug(self.cpuid_prefix, '"SYNC" phase:')
+    log_cpu_core_state(self)
 
   def suspend_on(self, event):
     info(self.cpuid_prefix, 'asked to suspend')
@@ -671,6 +677,10 @@ class CPUCore(object):
     info(self.cpuid_prefix, 'halted')
     log_cpu_core_state(self)
 
+  def boot_thread(self):
+    self.thread = threading.Thread(target = self.loop, name = 'Core #%i:#%i' % (self.cpu.id, self.id))
+    self.thread.start()
+
   def boot(self, init_state):
     cs, ds, sp, ip, privileged = init_state
 
@@ -680,8 +690,7 @@ class CPUCore(object):
     self.REG(Registers.SP).u16 = sp.u16
     self.FLAGS().privileged = 1 if privileged else 0
 
-    self.thread = threading.Thread(target = self.loop, name = 'Core #%i:#%i' % (self.cpu.id, self.id))
-    self.thread.start()
+    self.boot_thread()
 
 class CPU(object):
   def __init__(self, machine, cpuid, cores = 1, memory_controller = None):
@@ -695,10 +704,7 @@ class CPU(object):
     self.memory = memory_controller or mm.MemoryController()
     self.cores = [CPUCore(i, self, self.memory) for i in range(0, cores)]
 
-    self.keep_running = True
     self.thread = None
-
-    self.exit_code = 0
 
   def living_cores(self):
     return [core for core in self.cores if core.thread and core.thread.is_alive()]
@@ -706,7 +712,7 @@ class CPU(object):
   def loop(self):
     info(self.cpuid_prefix, 'booted')
 
-    while self.keep_running:
+    while True:
       time.sleep(CPU_SLEEP_QUANTUM * 10)
 
       if len(self.living_cores()) == 0:
@@ -714,11 +720,13 @@ class CPU(object):
 
     info(self.cpuid_prefix, 'halted')
 
+  def boot_thread(self):
+    self.thread = threading.Thread(target = self.loop, name = 'CPU #%i' % self.id)
+    self.thread.start()
+
   def boot(self, init_states):
     for core in self.cores:
       if init_states:
         core.boot(init_states.pop(0))
 
-    self.thread = threading.Thread(target = self.loop, name = 'CPU #%i' % self.id)
-    self.thread.start()
-
+    self.boot_thread()

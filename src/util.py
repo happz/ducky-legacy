@@ -1,6 +1,9 @@
 import colorama
 import enum
+import sys
 import threading
+
+from ctypes import sizeof
 
 __all__ = ['debug', 'warn', 'error', 'info', 'quiet']
 
@@ -49,6 +52,8 @@ def log(lvl, *args):
     print colorama.Fore.RESET + colorama.Back.RESET + colorama.Style.RESET_ALL,
     print
 
+    sys.stdout.flush()
+
 def debug(*args):
   log(VerbosityLevels.DEBUG, *args)
 
@@ -64,3 +69,29 @@ def error(*args):
 def quiet(*args):
   log(VerbosityLevels.QUIET, *args)
 
+class BinaryFile(file):
+  def __init__(self, *args, **kwargs):
+    if args[1] == 'w':
+      args = (args[0], 'wb')
+
+    elif args[1] == 'r':
+      args = (args[0], 'rb')
+
+    super(BinaryFile, self).__init__(*args, **kwargs)
+
+  def read_struct(self, st_class):
+    pos = self.tell()
+
+    st = st_class()
+    self.readinto(st)
+
+    debug('read_struct: %s: %s bytes: %s' % (pos, sizeof(st_class), st))
+
+    return st
+
+  def write_struct(self, st):
+    pos = self.tell()
+
+    debug('write_struct: %s: %s bytes: %s' % (pos, sizeof(st), st))
+
+    self.write(st)

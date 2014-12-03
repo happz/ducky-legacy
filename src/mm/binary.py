@@ -6,7 +6,7 @@ import cpu.instructions
 import cpu.errors
 
 from mm import UInt8, UInt16, UInt32
-from util import debug, error
+from util import debug, error, BinaryFile
 from ctypes import LittleEndianStructure, c_uint, c_ushort, c_ubyte, sizeof
 from cpu.errors import CPUException
 
@@ -25,9 +25,11 @@ class SymbolDataTypes(enum.IntEnum):
   CHAR   = 1
   STRING = 2
   FUNCTION = 3
+  ASCII  = 4
+  BYTE   = 5
 
 SYMBOL_DATA_TYPES = [
-  'int', 'char', 'string', 'function'
+  'int', 'char', 'string', 'function', 'ascii', 'byte'
 ]
 
 SECTION_NAME_LIMIT = 32
@@ -77,6 +79,7 @@ class SectionHeader(LittleEndianStructure):
     ('flags',   SectionFlags),
     ('padding', c_ubyte),
     ('base',    c_ushort),
+    ('items',   c_ushort),
     ('size',    c_ushort),
     ('offset',  c_uint)
   ]
@@ -103,21 +106,18 @@ class SymbolEntry(LittleEndianStructure):
   def set_name(self, name):
     ctypes_write_string(self.name, SECTION_NAME_LIMIT, name)
 
+  def __repr__(self):
+    return '<SymbolEntry: section=%i, name=%s, type=%s>' % (self.section, self.get_name(), SYMBOL_DATA_TYPES[self.type])
+
 SECTION_ITEM_SIZE = [
-  0, sizeof(cpu.instructions.InstBinaryFormat_Master), sizeof(UInt8), 0, sizeof(SymbolEntry)
+  0, sizeof(cpu.instructions.InstBinaryFormat_Master), sizeof(UInt8), sizeof(SymbolEntry)
 ]
 
-class File(file):
+class File(BinaryFile):
   MAGIC = 0xDEAD
   VERSION = 1
 
   def __init__(self, *args, **kwargs):
-    if args[1] == 'w':
-      args = (args[0], 'wb')
-
-    elif args[1] == 'r':
-      args = (args[0], 'rb')
-
     super(File, self).__init__(*args, **kwargs)
 
     self.__header = None
@@ -139,25 +139,13 @@ class File(file):
 
   def set_content(self, header, content):
     self.__sections[header.index] = (header, content)
-    header.size = len(content)
+    header.items = len(content)
 
   def get_header(self):
     return self.__header
 
   def get_section(self, i):
     return self.__sections[i]
-
-  def read_struct(self, st_class):
-    debug('read_struct: class=%s (%s bytes)' % (st_class, sizeof(st_class)))
-
-    st = st_class()
-    self.readinto(st)
-    return st
-
-  def write_struct(self, st):
-    debug('write_struct: class=%s (%s bytes)' % (st.__class__, sizeof(st)))
-
-    self.write(st)
 
   def load(self):
     self.seek(0)
@@ -181,7 +169,7 @@ class File(file):
       self.seek(header.offset)
 
       i = 0
-      while i < header.size:
+      while i < header.items:
         if header.type == SectionTypes.DATA:
           st_class = UInt8
 
@@ -207,11 +195,13 @@ class File(file):
     for i in range(0, len(self.__sections)):
       header, content = self.__sections[i]
 
-      debug('section %s, size %s, offset %s' % (header.get_name(), header.size, offset))
-      header.size = len(content)
+      header.items = len(content)
+      header.size = header.items * SECTION_ITEM_SIZE[header.type]
       header.offset = offset
 
-      offset += header.size * SECTION_ITEM_SIZE[header.type]
+      debug('save: section=%s, items=%s, size=%s, offset=%s' % (header.get_name(), header.items, header.size, header.offset))
+
+      offset += header.size
 
     debug('save: saving headers')
 
@@ -229,4 +219,3 @@ class File(file):
 
       for j in range(0, len(content)):
         self.write_struct(content[j])
-

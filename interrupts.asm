@@ -12,14 +12,5 @@ irq_timer:
   pop r0
   retint
 
-get_jiffies:
-  push r1
-  li r1, &jiffies
-  lw r0, r1
-  pop r1
-  retint
-
 int_halt:
-  li r0, 0
   hlt r0
-

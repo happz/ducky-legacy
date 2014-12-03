@@ -12,3 +12,6 @@ class InvalidResourceError(CPUException):
 class MalformedBinaryError(CPUException):
   pass
 
+class CompilationError(Exception):
+  pass
+

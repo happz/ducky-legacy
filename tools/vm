@@ -1,6 +1,7 @@
-#! /usr/bin/python
+#! /usr/bin/env python
 
 import optparse
+import os
 import signal
 import sys
 import time
@@ -8,6 +9,7 @@ import threading
 
 import cpu
 import cpu.assemble
+import core
 import irq
 import irq.timer
 import irq.conio
@@ -50,9 +52,19 @@ def main():
       info('VM halted by user')
       M.halt()
 
+    elif sig == signal.SIGSEGV:
+      info('Generate VM coredump')
+
+      state = core.VMState.capture_vm_state(M)
+
+      filename = '/tmp/ducky-core.%s' % os.getpid()
+      state.save(filename)
+
   signal.signal(signal.SIGINT,  signal_handler)
   signal.signal(signal.SIGUSR1, signal_handler)
   signal.signal(signal.SIGUSR2, signal_handler)
+  signal.signal(signal.SIGSEGV, signal_handler)
+  signal.signal(signal.SIGPIPE, signal_handler)
 
   sys.stdout.flush()
 
