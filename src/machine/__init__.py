@@ -8,7 +8,7 @@ import mm
 import machine.bus
 
 from cpu.errors import InvalidResourceError
-from util import debug, info
+from util import debug, info, warn
 from mm import SEGM_FMT, ADDR_FMT, UINT8_FMT, UINT16_FMT
 
 import irq
@@ -40,11 +40,14 @@ class Machine(object):
     for cpuid in range(0, cpus):
       self.cpus.append(cpu.CPU(self, cpuid, cores = cores, memory_controller = self.memory))
 
-    conio = io_handlers.conio.ConsoleIOHandler()
-    self.register_port(0x100, conio)
-    self.register_port(0x101, conio)
+    self.conio = io_handlers.conio.ConsoleIOHandler()
+    self.conio.echo = True
+    self.conio.crlf = True
 
-    self.register_irq_source(irq.IRQList.CONIO, irq.conio.Console())
+    self.register_port(0x100, self.conio)
+    self.register_port(0x101, self.conio)
+
+    self.register_irq_source(irq.IRQList.CONIO, irq.conio.Console(self.conio))
     self.register_irq_source(irq.IRQList.TIMER, irq.timer.Timer(10))
 
     self.memory.boot()
@@ -60,13 +63,18 @@ class Machine(object):
       desc.cs = csr.u8
       desc.ds = dsr.u8
 
-      # Timer IRQ
-      desc.ip = symbols['irq_timer'].u16
-      self.memory.save_interrupt_vector(self.memory.irq_table_address, 0, desc)
+      def __save_iv(name, table, index):
+        if name not in symbols:
+          warn('Interrupt routine %s not found' % name)
+          return
 
-      # Halt interrupt
-      desc.ip = symbols['int_halt'].u16
-      self.memory.save_interrupt_vector(self.memory.int_table_address, 0, desc)
+        desc.ip = symbols[name].u16
+        self.memory.save_interrupt_vector(table, index, desc)
+
+      __save_iv('irq_timer', self.memory.irq_table_address, irq.IRQList.TIMER)
+      __save_iv('irq_conio', self.memory.irq_table_address, irq.IRQList.CONIO)
+
+      __save_iv('int_halt', self.memory.int_table_address, 0)
 
     self.init_states = []
 
