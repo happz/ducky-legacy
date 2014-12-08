@@ -15,9 +15,7 @@ import irq
 import io_handlers
 
 class Machine(object):
-  def __init__(self, cpus = 1, cores = 1, memory_size = None, binaries = None, irq_routines = None):
-    super(Machine, self).__init__()
-
+  def hw_setup(self, cpus = 1, cores = 1, memory_size = None, binaries = None, irq_routines = None):
     self.nr_cpus = cpus
     self.nr_cores = cores
 
@@ -48,7 +46,7 @@ class Machine(object):
     self.register_port(0x101, self.conio)
 
     self.register_irq_source(irq.IRQList.CONIO, irq.conio.Console(self.conio))
-    self.register_irq_source(irq.IRQList.TIMER, irq.timer.Timer(10))
+    #self.register_irq_source(irq.IRQList.TIMER, irq.timer.Timer(10))
 
     self.memory.boot()
 
@@ -160,4 +158,7 @@ class Machine(object):
     halt_msg = bus.HaltCore(bus.ADDRESS_ALL, audience = sum([len(_cpu.living_cores()) for _cpu in self.cpus]))
     self.message_bus.publish(halt_msg)
     halt_msg.wait()
+
+    if not self.thread:
+      self.thread = threading.Thread(target = self.loop, name = 'Machine')
 

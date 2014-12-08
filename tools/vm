@@ -9,6 +9,7 @@ import threading
 
 import cpu
 import cpu.assemble
+import console
 import core
 import irq
 import irq.timer
@@ -25,6 +26,7 @@ def main():
   parser = optparse.OptionParser()
 
   parser.add_option('-v', dest = 'verbosity', action = 'count', default = 0, help = 'Verbosity level')
+  parser.add_option('-D', dest = 'debug', action = 'store_true', default = False, help = 'Debug mode')
 
   parser.add_option('-c', dest = 'cpus', action = 'store', default = 1, help = 'Number of CPUs')
   parser.add_option('-t', dest = 'cores', action = 'store', default = 1, help = 'Number of cores per CPU')
@@ -35,9 +37,14 @@ def main():
 
   options, args = parser.parse_args()
 
-  util.set_verbosity(options.verbosity)
+  M = machine.Machine()
 
-  M = machine.Machine(cpus = int(options.cpus), cores = int(options.cores), binaries = options.bin_in, irq_routines = options.irq_routines)
+  util.CONSOLE = console.Console(M, sys.stdin, sys.stdout)
+  util.CONSOLE.boot()
+
+  util.CONSOLE.set_verbosity(options.verbosity)
+
+  M.hw_setup(cpus = int(options.cpus), cores = int(options.cores), binaries = options.bin_in, irq_routines = options.irq_routines)
 
   def signal_handler(sig, frame):
     if sig == signal.SIGUSR1:
@@ -66,11 +73,13 @@ def main():
   signal.signal(signal.SIGSEGV, signal_handler)
   signal.signal(signal.SIGPIPE, signal_handler)
 
-  sys.stdout.flush()
+  if options.debug:
+    info('Enter "boot" to boot VM')
 
-  M.boot()
+  else:
+    M.boot()
 
-  while M.thread.is_alive():
+  while not M.thread or M.thread.is_alive():
     time.sleep(cpu.CPU_SLEEP_QUANTUM * 10)
 
 if __name__ == '__main__':

@@ -4,70 +4,29 @@ import sys
 import threading
 
 from ctypes import sizeof
+from console import VerbosityLevels
 
 __all__ = ['debug', 'warn', 'error', 'info', 'quiet']
 
-class VerbosityLevels(enum.IntEnum):
-  QUIET   = 0
-  ERROR   = 1
-  WARNING = 2
-  INFO    = 3
-  DEBUG   = 4
-
-LEVELS = [
-  '',
-  'ERRR',
-  'WARN',
-  'INFO',
-  'DEBG'
-]
-
-COLORS = [
-  None,
-  colorama.Fore.RED,
-  colorama.Fore.YELLOW,
-  colorama.Fore.GREEN,
-  colorama.Fore.WHITE
-]
-
-VERBOSITY = VerbosityLevels.ERROR
-
-def set_verbosity(level):
-  global VERBOSITY
-
-  VERBOSITY = level + 1
-
-STDOUT_LOCK = threading.Lock()
-
-def log(lvl, *args):
-  if lvl > VERBOSITY:
-    return
-
-  with STDOUT_LOCK:
-    print COLORS[lvl],
-    print '[%s]' % LEVELS[lvl],
-    for arg in args:
-      print arg,
-
-    print colorama.Fore.RESET + colorama.Back.RESET + colorama.Style.RESET_ALL,
-    print
-
-    sys.stdout.flush()
-
 def debug(*args):
-  log(VerbosityLevels.DEBUG, *args)
+  global CONSOLE
+  CONSOLE.writeln(VerbosityLevels.DEBUG, *args)
 
 def info(*args):
-  log(VerbosityLevels.INFO, *args)
+  global CONSOLE
+  CONSOLE.writeln(VerbosityLevels.INFO, *args)
 
 def warn(*args):
-  log(VerbosityLevels.WARNING, *args)
+  global CONSOLE
+  CONSOLE.writeln(VerbosityLevels.WARNING, *args)
 
 def error(*args):
-  log(VerbosityLevels.ERROR, *args)
+  global CONSOLE
+  CONSOLE.writeln(VerbosityLevels.ERROR, *args)
 
 def quiet(*args):
-  log(VerbosityLevels.QUIET, *args)
+  global CONSOLE
+  CONSOLE.writeln(VerbosityLevels.QUIET, *args)
 
 class BinaryFile(file):
   def __init__(self, *args, **kwargs):
