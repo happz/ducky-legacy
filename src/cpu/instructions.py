@@ -426,7 +426,7 @@ class InstDescriptor_Generic_Binary_R_A(InstDescriptor):
       inst.immediate = operands[2]
 
   def disassemble_operands(self, inst):
-    operands = []
+    operands = [REGISTER_NAMES[inst.reg]]
 
     if inst.immediate != 0:
       reg = REGISTER_NAMES[inst.ireg]
@@ -435,8 +435,6 @@ class InstDescriptor_Generic_Binary_R_A(InstDescriptor):
 
     else:
       operands.append(REGISTER_NAMES[inst.ireg])
-
-    operands.append(REGISTER_NAMES[inst.reg])
 
     return operands
 
@@ -453,7 +451,7 @@ class InstDescriptor_Generic_Binary_A_R(InstDescriptor):
       inst.immediate = operands[1]
 
   def disassemble_operands(self, inst):
-    operands = [REGISTER_NAMES[inst.reg]]
+    operands = []
 
     if inst.immediate != 0:
       reg = REGISTER_NAMES[inst.ireg]
@@ -462,6 +460,8 @@ class InstDescriptor_Generic_Binary_A_R(InstDescriptor):
 
     else:
       operands.append(REGISTER_NAMES[inst.ireg])
+
+    operands.append(REGISTER_NAMES[inst.reg])
 
     return operands
 
