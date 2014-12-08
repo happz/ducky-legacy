@@ -26,7 +26,6 @@ class BaseMessage(object):
       self.lock = threading.RLock()
       self.cond = threading.Condition(self.lock)
       self.delivered_to = 0
-      self.audience = audience
 
   def delivered(self):
     if not self.audience:
@@ -43,7 +42,7 @@ class BaseMessage(object):
 
   def wait(self):
     if not self.audience:
-      pass
+      return
 
     debug('msg.wait: msg=%s, thread=%s' % (self.__class__.__name__, threading.current_thread().name))
 
