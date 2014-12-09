@@ -1,6 +1,7 @@
 import colorama
 import threading
 import enum
+import tabulate
 
 CONSOLE_ID = 0
 
@@ -28,6 +29,7 @@ COLORS = [
 ]
 
 class Console(object):
+  console_id = 0
   commands = {}
 
   def __init__(self, machine, f_in, f_out):
@@ -42,6 +44,8 @@ class Console(object):
 
     self.lock = threading.Lock()
 
+    self.new_line_event = threading.Event()
+
     self.keep_running = True
     self.thread = None
 
@@ -49,8 +53,16 @@ class Console(object):
   def register_command(cls, name, callback, *args, **kwargs):
     cls.commands[name] = (callback, args, kwargs)
 
+  @classmethod
+  def unregister_command(cls, name):
+    if name in cls.commands:
+      del cls.commands[name]
+
   def set_verbosity(self, level):
     self.verbosity = level + 1
+
+  def wait_on_line(self):
+    self.new_line_event.wait()
 
   def prompt(self):
     with self.lock:
@@ -58,6 +70,9 @@ class Console(object):
       self.f_out.flush()
 
   def writeln(self, level, *args):
+    if level > self.verbosity:
+      return
+
     with self.lock:
       self.f_out.write('%s[%s] ' % (COLORS[level], LEVELS[level]))
       self.f_out.write('%s' % ' '.join([str(a) for a in args]))
@@ -65,25 +80,56 @@ class Console(object):
       self.f_out.write('\n')
       self.f_out.flush()
 
-  def loop(self):
-    from util import error
+  def info(self, *args):
+    self.writeln(VerbosityLevels.INFO, *args)
 
+  def debug(self, *args):
+    self.writeln(VerbosityLevels.DEBUG, *args)
+
+  def warn(self, *args):
+    self.writeln(VerbosityLevels.WARNING, *args)
+
+  def error(self, *args):
+    self.writeln(VerbosityLevels.ERROR, *args)
+
+  def quiet(self, *args):
+    self.writeln(VerbosityLevels.QUIET, *args)
+
+  def execute(self, cmd):
+    if cmd[0] not in self.commands:
+      from util import error
+
+      error('Unknown command: %s' % cmd)
+      return
+
+    cmd_desc = self.commands[cmd[0]]
+
+    try:
+      cmd_desc[0](self, cmd, *cmd_desc[1], **cmd_desc[2])
+
+    except Exception, e:
+      import traceback
+
+      s = traceback.format_exc()
+
+      for line in s.split('\n'):
+        self.error(line)
+
+  def loop(self):
     while self.keep_running:
+      self.new_line_event.clear()
+
       self.prompt()
 
       l = self.f_in.readline().strip()
+      self.new_line_event.set()
 
       if not l:
         continue
 
-      cmd = l.split(' ')[0].strip().lower()
+      cmd = [e.strip() for e in l.split(' ')]
 
-      if cmd not in self.commands:
-        error('Unknown command: %s' % l)
-        continue
-
-      cmd = self.commands[cmd]
-      cmd[0](self, *cmd[1], **cmd[2])
+      self.execute(cmd)
 
   def boot(self):
     self.f_in.flush()
@@ -95,32 +141,37 @@ class Console(object):
     self.keep_running = False
 
   def boot_thread(self):
-    global CONSOLE_ID
+    cid = Console.console_id
+    Console.console_id += 1
 
-    CONSOLE_ID += 1
-
-    self.thread = threading.Thread(target = self.loop, name = 'Console #%i' % CONSOLE_ID)
+    self.thread = threading.Thread(target = self.loop, name = 'Console #%i' % cid)
     self.thread.daemon = True
     self.thread.start()
 
-def cmd_boot(console):
-  console.machine.boot()
+def cmd_help(console, cmd):
+  """
+  List all available command and their descriptions
+  """
 
-def cmd_quit(console):
-  from util import info
+  table = [
+    ['Command', 'Description']
+  ]
 
-  info('VM halted by user')
+  for cmd_name in sorted(Console.commands.keys()):
+    table.append([cmd_name, Console.commands[cmd_name][0].__doc__])
 
-  console.machine.halt()
-  console.halt()
+  from util import print_table
+  print_table(table)
 
-def cmd_help(console):
-  from util import info
+def cmd_verbose(console, cmd):
+  console.verbosity = min(console.verbosity + 1, VerbosityLevels.DEBUG)
+  console.info('New verbosity level is %s' % console.verbosity)
 
-  for cmd_name in Console.commands.keys():
-    info(cmd_name)
+def cmd_quiet(console, cmd):
+  console.verbosity = max(console.verbosity - 1, VerbosityLevels.QUIET)
+  console.info('New verbosity level is %s' % console.verbosity)
 
-Console.register_command('quit', cmd_quit)
-Console.register_command('boot', cmd_boot)
-Console.register_command('help', cmd_help)
+Console.register_command('verbose', cmd_verbose)
+Console.register_command('quiet', cmd_quiet)
+Console.register_command('?', cmd_help)
 

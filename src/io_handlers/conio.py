@@ -8,6 +8,8 @@ import termios
 
 import io_handlers
 
+import util
+
 from util import debug, warn
 from mm import UInt8, UINT8_FMT
 from util import info, error
@@ -27,6 +29,9 @@ class ConsoleIOHandler(io_handlers.IOHandler):
     self.echo = True
     self.crlf = True
 
+  def get_terminal_dev(self):
+    return os.ttyname(self.pttys[1])
+
   def boot(self):
     if self.pttys:
       return
@@ -36,8 +41,14 @@ class ConsoleIOHandler(io_handlers.IOHandler):
     self.master = pytty.TTY(self.pttys[0])
     self.slave  = pytty.TTY(self.pttys[1])
 
-    info('Guest terminal opened available at %s' % os.ttyname(self.pttys[1]))
-    raw_input('Press Enter when you have connected console to guest output')
+    def cmd_conio_pty(console, cmd):
+      """
+      Print path to guest terminal pty
+      """
+
+      info('Guest terminal available at %s' % self.get_terminal_dev())
+
+    util.CONSOLE.__class__.register_command('conio_pty', cmd_conio_pty)
 
   def halt(self):
     if not self.pttys:

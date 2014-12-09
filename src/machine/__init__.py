@@ -2,6 +2,7 @@ import Queue
 import sys
 import time
 import threading
+import types
 
 import cpu
 import mm
@@ -15,6 +16,28 @@ import irq
 import io_handlers
 
 class Machine(object):
+  def core(self, core_address):
+    if type(core_address) == types.TupleType:
+      cpuid, coreid = core_address
+
+    else:
+      core_address = core_address.split(':')
+      cpuid, coreid = (int(core_address[0][1:]), int(core_address[1][1:]))
+
+    return self.cpus[cpuid].cores[coreid]
+
+  def for_each_cpu(self, callback, *args, **kwargs):
+    for __cpu in self.cpus:
+      callback(__cpu, *args, **kwargs)
+
+  def for_each_core(self, callback, *args, **kwargs):
+    for __cpu in self.cpus:
+      for __core in __cpu.cores:
+        callback(__core, *args, **kwargs)
+
+  def for_core(self, core_address, callback, *args, **kwargs):
+    callback(self.core(core_address), *args, **kwargs)
+
   def hw_setup(self, cpus = 1, cores = 1, memory_size = None, binaries = None, irq_routines = None):
     self.nr_cpus = cpus
     self.nr_cores = cores
@@ -132,8 +155,19 @@ class Machine(object):
     for handler in self.ports:
       handler.boot()
 
-    for _cpu in self.cpus:
-      _cpu.boot(self.init_states)
+    self.for_each_cpu(lambda __cpu, machine: __cpu.boot(machine.init_states), self)
+
+    info('Guest terminal available at %s' % self.conio.get_terminal_dev())
+
+  def run(self):
+    import util
+
+    util.CONSOLE.execute(['bp_add', '#0:#0', '0x200'])
+
+    for handler in self.ports:
+      handler.run()
+
+    self.for_each_cpu(lambda __cpu: __cpu.run())
 
     self.thread = threading.Thread(target = self.loop, name = 'Machine')
     self.thread.start()
@@ -157,8 +191,42 @@ class Machine(object):
 
     halt_msg = bus.HaltCore(bus.ADDRESS_ALL, audience = sum([len(_cpu.living_cores()) for _cpu in self.cpus]))
     self.message_bus.publish(halt_msg)
+
+    self.for_each_core(lambda __core: __core.wake_up())
+
     halt_msg.wait()
 
     if not self.thread:
       self.thread = threading.Thread(target = self.loop, name = 'Machine')
 
+import console
+
+def cmd_boot(console, cmd):
+  """
+  Setup HW, load binaries, init everything
+  """
+
+  console.machine.boot()
+  console.Console.unregister_command('boot')
+
+def cmd_run(console, cmd):
+  """
+  Start execution of loaded binaries
+  """
+
+  console.machine.run()
+  console.Console.unregister_command('run')
+
+def cmd_halt(console, cmd):
+  """
+  Halt execution
+  """
+
+  console.info('VM halted by user')
+
+  console.machine.halt()
+  console.halt()
+
+console.Console.register_command('halt', cmd_halt)
+console.Console.register_command('boot', cmd_boot)
+console.Console.register_command('run', cmd_run)

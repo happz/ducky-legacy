@@ -41,7 +41,6 @@ def main():
 
   util.CONSOLE = console.Console(M, sys.stdin, sys.stdout)
   util.CONSOLE.boot()
-
   util.CONSOLE.set_verbosity(options.verbosity)
 
   M.hw_setup(cpus = int(options.cpus), cores = int(options.cores), binaries = options.bin_in, irq_routines = options.irq_routines)
@@ -73,11 +72,16 @@ def main():
   signal.signal(signal.SIGSEGV, signal_handler)
   signal.signal(signal.SIGPIPE, signal_handler)
 
+  M.boot()
+
   if options.debug:
-    info('Enter "boot" to boot VM')
+    info('Enter "run" to start execution of loaded binaries')
 
   else:
-    M.boot()
+    info('Press Enter to start execution of loaded binaries')
+    util.CONSOLE.wait_on_line()
+
+    M.run()
 
   while not M.thread or M.thread.is_alive():
     time.sleep(cpu.CPU_SLEEP_QUANTUM * 10)

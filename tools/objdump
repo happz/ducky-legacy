@@ -8,6 +8,7 @@ import types
 
 import tabulate
 
+import console
 import cpu
 import irq
 import io
@@ -143,7 +144,8 @@ def main():
 
   options, args = parser.parse_args()
 
-  util.set_verbosity(options.verbosity)
+  util.CONSOLE = console.Console(None, sys.stdin, sys.stdout)
+  util.CONSOLE.set_verbosity(options.verbosity)
 
   if not options.file_in:
     parser.print_help()

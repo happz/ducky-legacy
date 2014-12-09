@@ -16,6 +16,9 @@ class IRQSource(object):
   def boot(self):
     pass
 
+  def run(self):
+    pass
+
   def halt(self):
     pass
 

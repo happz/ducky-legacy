@@ -4,6 +4,7 @@ import threading
 import time
 
 import assemble
+import debugging
 import instructions
 import registers
 import mm
@@ -62,6 +63,8 @@ class CPUCore(object):
     self.memory = memory_controller
 
     self.message_bus = self.cpu.machine.message_bus
+    self.suspend_events = []
+    self.current_suspend_event = None
 
     self.registers = registers.RegisterSet()
 
@@ -72,6 +75,10 @@ class CPUCore(object):
     self.idle = False
 
     self.exit_code = 0
+
+    self.frames = []
+
+    self.debug = debugging.DebuggingSet(self)
 
   def save_state(self, state):
     debug('core.save_state')
@@ -110,6 +117,9 @@ class CPUCore(object):
     error(str(exc))
     log_cpu_core_state(self)
     self.keep_running = False
+
+    if self.current_suspend_event:
+      self.current_suspend_event.set()
 
   def FLAGS(self):
     return self.registers.flags.flags
@@ -183,8 +193,15 @@ class CPUCore(object):
 
     self.FP().u16 = self.SP().u16
 
+    self.frames.append(self.SP().u16)
+
   def __destroy_frame(self):
+    if self.frames[-1] != self.SP().u16:
+      raise CPUException('Leaving frame with wrong SP: last saved SP: %s, current SP: %s' % (ADDR_FMT(self.frames[-1]), ADDR_FMT(self.SP().u16)))
+
     self.__pop(Registers.FP, Registers.IP)
+
+    self.frames.pop()
 
   def __enter_interrupt(self, table_address, index):
     debug(self.cpuid_prefix, '__enter_interrupt: table=%s, index=%i' % (ADDR_FMT(table_address.u24), index))
@@ -219,10 +236,10 @@ class CPUCore(object):
     self.__pop(*[i for i in reversed(range(0, Registers.REGISTER_SPECIAL))])
     self.__pop(Registers.FLAGS, Registers.CS)
 
-    old_DS = self.__raw_pop()
     stack_page = self.memory.get_page(mm.addr_to_page(self.DS_ADDR(self.SP().u16)))
 
     old_SP = self.__raw_pop()
+    old_DS = self.__raw_pop()
 
     self.DS().u16 = old_DS.u16
     self.SP().u16 = old_SP.u16
@@ -616,10 +633,77 @@ class CPUCore(object):
     debug(self.cpuid_prefix, '"SYNC" phase:')
     log_cpu_core_state(self)
 
+  def wake_up(self):
+    debug(self.cpuid_prefix, 'wake_up')
+
+    if self.current_suspend_event:
+      self.current_suspend_event.set()
+      self.current_suspend_event = None
+
   def suspend_on(self, event):
-    info(self.cpuid_prefix, 'asked to suspend')
+    debug(self.cpuid_prefix, 'asked to suspend')
     event.wait()
-    info(self.cpuid_prefix, 'unsuspended')
+    debug(self.cpuid_prefix, 'unsuspended')
+
+  def plan_suspend(self, event):
+    debug(self.cpuid_prefix, 'plan suspend')
+    self.suspend_events.append(event)
+    debug(self.cpuid_prefix, 'suspend planned, wait for it')
+
+  def check_for_events(self):
+    debug(self.cpuid_prefix, 'check_for_events')
+
+    msg = None
+
+    if self.idle:
+      debug(self.cpuid_prefix, 'idle => wait for new messages')
+      msg = self.message_bus.receive(self)
+
+    elif self.registers.flags.flags.hwint == 1:
+      debug(self.cpuid_prefix, 'running => check for new message')
+      msg = self.message_bus.receive(self, sleep = False)
+
+    debug(self.cpuid_prefix, 'msg=%s' % msg)
+
+    if msg:
+      if isinstance(msg, machine.bus.HandleIRQ):
+        debug(self.cpuid_prefix, 'IRQ encountered: %s' % msg.irq_source.irq)
+
+        msg.delivered()
+
+        try:
+          self.__do_irq(msg.irq_source.irq)
+
+        except CPUException, e:
+          self.die(e)
+          return False
+
+      elif isinstance(msg, machine.bus.HaltCore):
+        self.keep_running = False
+
+        info(self.cpuid_prefix, 'asked to halt')
+        log_cpu_core_state(self)
+
+        msg.delivered()
+
+        return False
+
+      elif isinstance(msg, machine.bus.SuspendCore):
+        msg.delivered()
+        self.plan_suspend(msg.wake_up)
+
+    self.debug.check()
+
+    if self.suspend_events:
+      self.current_suspend_event = self.suspend_events.pop(0)
+      self.suspend_on(self.current_suspend_event)
+      self.current_suspend_event = None
+
+      debug(self.cpuid_prefix, 'woken up from suspend state, let check bus for new messages')
+
+      return self.check_for_events()
+
+    return True
 
   def loop(self):
     self.message_bus.register()
@@ -628,48 +712,15 @@ class CPUCore(object):
     log_cpu_core_state(self)
 
     while self.keep_running:
-      msg = None
-
-      if self.idle:
-        debug(self.cpuid_prefix, 'idle => wait for new messages')
-        msg = self.message_bus.receive()
-
-      elif self.registers.flags.flags.hwint:
-        debug(self.cpuid_prefix, 'running => check for new message')
-        msg = self.message_bus.receive(no_sleep = True)
-
-      debug(self.cpuid_prefix, 'msg=%s' % msg)
-
-      if msg:
-        if isinstance(msg, machine.bus.HandleIRQ):
-          debug(self.cpuid_prefix, 'IRQ encountered: %s' % msg.irq_source.irq)
-
-          msg.delivered()
-
-          try:
-            self.__do_irq(msg.irq_source.irq)
-          except CPUException, e:
-            self.die(e)
-            break
-
-        elif isinstance(msg, machine.bus.HaltCore):
-          self.keep_running = False
-
-          info(self.cpuid_prefix, 'asked to halt')
-          log_cpu_core_state(self)
-
-          msg.delivered()
-
-        elif isinstance(msg, machine.bus.SuspendCore):
-          msg.delivered()
-          self.suspend_on(msg.wake_up)
-          continue
+      if not self.check_for_events():
+        break
 
       if not self.keep_running:
         break
 
       try:
         self.step()
+
       except CPUException, e:
         self.die(e)
         break
@@ -677,11 +728,13 @@ class CPUCore(object):
     info(self.cpuid_prefix, 'halted')
     log_cpu_core_state(self)
 
-  def boot_thread(self):
+  def run(self):
     self.thread = threading.Thread(target = self.loop, name = 'Core #%i:#%i' % (self.cpu.id, self.id))
     self.thread.start()
 
   def boot(self, init_state):
+    self.reset()
+
     cs, ds, sp, ip, privileged = init_state
 
     self.REG(Registers.CS).u16 = cs.u8
@@ -689,8 +742,6 @@ class CPUCore(object):
     self.REG(Registers.IP).u16 = ip.u16
     self.REG(Registers.SP).u16 = sp.u16
     self.FLAGS().privileged = 1 if privileged else 0
-
-    self.boot_thread()
 
 class CPU(object):
   def __init__(self, machine, cpuid, cores = 1, memory_controller = None):
@@ -720,7 +771,10 @@ class CPU(object):
 
     info(self.cpuid_prefix, 'halted')
 
-  def boot_thread(self):
+  def run(self):
+    for core in self.cores:
+      core.run()
+
     self.thread = threading.Thread(target = self.loop, name = 'CPU #%i' % self.id)
     self.thread.start()
 
@@ -729,4 +783,44 @@ class CPU(object):
       if init_states:
         core.boot(init_states.pop(0))
 
-    self.boot_thread()
+import console
+
+def cmd_set_core(console, cmd):
+  """
+  Set core address of default core used by control commands
+  """
+
+  console.default_core = console.machine.core(cmd[1])
+
+def cmd_cont(console, cmd):
+  """
+  Continue execution until next breakpoint is reached
+  """
+
+  console.default_core.current_suspend_event.set()
+
+def cmd_step(console, cmd):
+  """
+  Step one instruction forward
+  """
+
+  core = console.default_core
+
+  try:
+    core.step()
+    core.check_for_events()
+
+  except CPUException, e:
+    core.die(e)
+
+def cmd_core_state(console, cmd):
+  """
+  Print core state
+  """
+
+  log_cpu_core_state(console.default_core, logger = console.info)
+
+console.Console.register_command('set_core', cmd_set_core)
+console.Console.register_command('cont', cmd_cont)
+console.Console.register_command('step', cmd_step)
+console.Console.register_command('core_state', cmd_core_state)

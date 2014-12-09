@@ -13,6 +13,9 @@ def thread_to_cid():
 
   return (int(cid[0][1:]), int(cid[1][1:]))
 
+def core_to_cid(core):
+  return (core.cpu.id, core.id)
+
 class BaseMessage(object):
   def __init__(self, address, audience = None):
     super(BaseMessage, self).__init__()
@@ -93,8 +96,8 @@ class MessageBus(object):
   def get_msg_slot(self, msg):
     return self.messages[msg.address[0]][msg.address[1]]
 
-  def get_core_slot(self):
-    cpuid, coreid = thread_to_cid()
+  def get_core_slot(self, core):
+    cpuid, coreid = core_to_cid(core)
     return self.messages[cpuid][coreid]
 
   def get_any_slot(self):
@@ -124,8 +127,8 @@ class MessageBus(object):
 
       self.condition.notifyAll()
 
-  def receive(self, sleep = True):
-    debug('bus.receive: core=#%i:#%i' % thread_to_cid())
+  def receive(self, core, sleep = True):
+    debug('bus.receive: core=#%i:#%i' % core_to_cid(core))
 
     while True:
       with self.lock:
@@ -133,7 +136,7 @@ class MessageBus(object):
         if len(slot) > 0:
           return slot.pop(0)
 
-        slot = self.get_core_slot()
+        slot = self.get_core_slot(core)
         if len(slot) > 0:
           return slot.pop(0)
 

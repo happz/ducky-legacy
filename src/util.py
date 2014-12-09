@@ -2,6 +2,7 @@ import colorama
 import enum
 import sys
 import threading
+import tabulate
 
 from ctypes import sizeof
 from console import VerbosityLevels
@@ -27,6 +28,10 @@ def error(*args):
 def quiet(*args):
   global CONSOLE
   CONSOLE.writeln(VerbosityLevels.QUIET, *args)
+
+def print_table(table, fn = info, **kwargs):
+  for line in tabulate.tabulate(table, headers = 'firstrow', tablefmt = 'simple', numalign = 'right').split('\n'):
+    fn(line)
 
 class BinaryFile(file):
   def __init__(self, *args, **kwargs):
