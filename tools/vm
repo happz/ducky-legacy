@@ -27,6 +27,7 @@ def main():
 
   parser.add_option('-v', dest = 'verbosity', action = 'count', default = 0, help = 'Verbosity level')
   parser.add_option('-D', dest = 'debug', action = 'store_true', default = False, help = 'Debug mode')
+  parser.add_option('-l', dest = 'logfile', help = 'Log file')
 
   parser.add_option('-c', dest = 'cpus', action = 'store', default = 1, help = 'Number of CPUs')
   parser.add_option('-t', dest = 'cores', action = 'store', default = 1, help = 'Number of cores per CPU')
@@ -45,6 +46,9 @@ def main():
   util.CONSOLE = console.Console(M, sys.stdin, sys.stdout)
   util.CONSOLE.boot()
   util.CONSOLE.set_verbosity(options.verbosity)
+
+  if options.logfile:
+    util.CONSOLE.set_logfile(options.logfile)
 
   M.hw_setup(cpus = int(options.cpus), cores = int(options.cores),
              binaries = options.bin_in,

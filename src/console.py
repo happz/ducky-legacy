@@ -42,6 +42,7 @@ class Console(object):
 
     self.f_in = f_in
     self.f_out = f_out
+    self.logfile = None
 
     self.verbosity = VerbosityLevels.ERROR
 
@@ -67,6 +68,9 @@ class Console(object):
   def set_verbosity(self, level):
     self.verbosity = level + 1
 
+  def set_logfile(self, path):
+    self.logfile = open(path, 'wb')
+
   def wait_on_line(self):
     self.new_line_event.wait()
 
@@ -82,6 +86,12 @@ class Console(object):
 
       if flush:
         self.f_out.flush()
+
+      if self.logfile:
+        self.logfile.write(buff)
+
+        if flush:
+          self.logfile.flush()
 
   def writeln(self, level, *args):
     if level > self.verbosity:
