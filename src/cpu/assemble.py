@@ -409,7 +409,7 @@ def translate_buffer(buff, base_address = None):
       debug('pass #1: text section is %s' % text_section.name)
       continue
 
-    if line.startswith('.type'):
+    if line.startswith('.type '):
       matches = r_type.match(line).groupdict()
 
       if matches['type'] == 'function':
@@ -420,7 +420,7 @@ def translate_buffer(buff, base_address = None):
 
       continue
 
-    if line.startswith('.byte'):
+    if line.startswith('.byte '):
       var = ByteSlot()
       matches = r_byte.match(line).groupdict()
 
@@ -447,7 +447,7 @@ def translate_buffer(buff, base_address = None):
       labels = []
       continue
 
-    if line.startswith('.int'):
+    if line.startswith('.int '):
       var = IntSlot()
       __parse_int(var, line)
 
@@ -462,7 +462,7 @@ def translate_buffer(buff, base_address = None):
       labels = []
       continue
 
-    if line.startswith('.ascii'):
+    if line.startswith('.ascii '):
       var = AsciiSlot()
       __parse_ascii(var, line)
 
@@ -477,7 +477,7 @@ def translate_buffer(buff, base_address = None):
       labels = []
       continue
 
-    if line.startswith('.string'):
+    if line.startswith('.string '):
       var = StringSlot()
       __parse_string()
 
@@ -492,7 +492,7 @@ def translate_buffer(buff, base_address = None):
       labels = []
       continue
 
-    if line.startswith('.space'):
+    if line.startswith('.space '):
       var = AsciiSlot()
       matches = r_space.match(line).groupdict()
 
@@ -509,7 +509,7 @@ def translate_buffer(buff, base_address = None):
       labels = []
       continue
 
-    if line.startswith('.set'):
+    if line.startswith('.set '):
       matches = r_set.match(line).groupdict()
 
       name = matches['name']

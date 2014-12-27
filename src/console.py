@@ -1,7 +1,10 @@
 import colorama
 import threading
 import enum
+import select
 import tabulate
+import traceback
+import types
 
 CONSOLE_ID = 0
 
@@ -49,6 +52,9 @@ class Console(object):
     self.keep_running = True
     self.thread = None
 
+    self.history = []
+    self.history_index = 0
+
   @classmethod
   def register_command(cls, name, callback, *args, **kwargs):
     cls.commands[name] = (callback, args, kwargs)
@@ -65,20 +71,30 @@ class Console(object):
     self.new_line_event.wait()
 
   def prompt(self):
+    self.write('#> ')
+
+  def write(self, buff, flush = True):
+    if type(buff) == types.ListType:
+      buff = ''.join([chr(c) for c in buff])
+
     with self.lock:
-      self.f_out.write('#> ')
-      self.f_out.flush()
+      self.f_out.write(buff)
+
+      if flush:
+        self.f_out.flush()
 
   def writeln(self, level, *args):
     if level > self.verbosity:
       return
 
-    with self.lock:
-      self.f_out.write('%s[%s] ' % (COLORS[level], LEVELS[level]))
-      self.f_out.write('%s' % ' '.join([str(a) for a in args]))
-      self.f_out.write(colorama.Fore.RESET + colorama.Back.RESET + colorama.Style.RESET_ALL)
-      self.f_out.write('\n')
-      self.f_out.flush()
+    msg = '{color_start}[{level}] {msgs}{color_stop}\n'.format(**{
+      'color_start': COLORS[level],
+      'color_stop':  colorama.Fore.RESET + colorama.Back.RESET + colorama.Style.RESET_ALL,
+      'level':       LEVELS[level],
+      'msgs':        ' '.join([str(a) for a in args])
+    })
+
+    self.write(msg)
 
   def info(self, *args):
     self.writeln(VerbosityLevels.INFO, *args)
@@ -97,9 +113,7 @@ class Console(object):
 
   def execute(self, cmd):
     if cmd[0] not in self.commands:
-      from util import error
-
-      error('Unknown command: %s' % cmd)
+      self.error('Unknown command: %s' % cmd)
       return
 
     cmd_desc = self.commands[cmd[0]]
@@ -108,8 +122,6 @@ class Console(object):
       cmd_desc[0](self, cmd, *cmd_desc[1], **cmd_desc[2])
 
     except Exception, e:
-      import traceback
-
       s = traceback.format_exc()
 
       for line in s.split('\n'):
@@ -119,15 +131,82 @@ class Console(object):
     while self.keep_running:
       self.new_line_event.clear()
 
+      def __clear_line():
+        self.write([27, 91, 50, 75, 13])
+
+      def __clear_line_from_cursor():
+        self.write([27, 91, 75])
+
+      def __move_backward(count = 1):
+        self.write([27, 91, count, 68])
+
       self.prompt()
 
-      l = self.f_in.readline().strip()
+      line = None
+
+      buff = []
+      self.history.insert(0, buff)
+      self.history_index = 0
+
+      while True:
+        select.select([self.f_in], [], [])
+
+        c = ord(self.f_in.read(1))
+
+        if c == ord('\n'):
+          if self.history_index == 0:
+            self.history[0] = ''.join([chr(c) for c in buff])
+
+          else:
+            self.history.pop(0)
+            self.history_index -= 1
+
+          line = self.history[self.history_index]
+          break
+
+        buff.append(c)
+
+        if c == 127:
+          buff[-1:] = []
+
+          if len(buff):
+            buff[-1:] = []
+
+            __clear_line()
+            self.prompt()
+            self.write(buff)
+            continue
+
+        if len(buff) >= 3:
+          # up arrow
+          if buff[-3:] == [27, 91, 65]:
+            if self.history_index < len(self.history) - 1:
+              self.history_index += 1
+
+            buff[-3:] = []
+            __clear_line()
+            self.prompt()
+            self.write(self.history[self.history_index])
+            continue
+
+          # down arrow
+          if buff[-3:] == [27, 91, 66]:
+            if self.history_index > 0:
+              self.history_index -= 1
+
+            buff[-3:] = []
+            __clear_line()
+            self.prompt()
+            self.write(self.history[self.history_index])
+            continue
+
       self.new_line_event.set()
 
-      if not l:
+      if not line:
+        self.history.pop(0)
         continue
 
-      cmd = [e.strip() for e in l.split(' ')]
+      cmd = [e.strip() for e in line.split(' ')]
 
       self.execute(cmd)
 

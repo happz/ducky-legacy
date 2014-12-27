@@ -16,6 +16,7 @@ class Point(object):
     Point.points[self.id] = self
 
     self.active = True
+    self.flip = True
     self.debugging_set = debugging_set
 
   def is_triggered(self):
@@ -57,6 +58,11 @@ class DebuggingSet(object):
 
       if not bp.active:
         debug(self.owner.cpuid_prefix, 'inactive, skipping')
+
+        if bp.flip:
+          debug(self.owner.cpuid_prefix, 'point has flip flag set, activate it')
+          bp.active = True
+
         continue
 
       if not bp.is_triggered():
@@ -64,6 +70,9 @@ class DebuggingSet(object):
         continue
 
       info(self.owner.cpuid_prefix, 'Breakpoint triggered: %s' % bp)
+
+      bp.active = False
+      bp.flip = True
 
       event = threading.Event()
       event.clear()
@@ -81,13 +90,14 @@ def cmd_bp_list(console, cmd):
   """
 
   bps = [
-    ['ID', 'Active', 'Core', 'Type', 'Address']
+    ['ID', 'Active', 'Flip', 'Core', 'Type', 'Address']
   ]
 
   for point in Point.points.values():
     bps.append([
       '%i' % point.id,
       '*' if point.active else '',
+      '*' if point.flip else '',
       point.debugging_set.owner.cpuid_prefix,
       str(point.__class__),
       point.ip if isinstance(point, BreakPoint) else ''

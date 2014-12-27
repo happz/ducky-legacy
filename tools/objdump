@@ -50,7 +50,7 @@ def show_sections(f):
       ADDR_FMT(header.base),
       header.items,
       SIZE_FMT(header.size),
-      ADDR_FMT(header.offset)
+      SIZE_FMT(header.offset)
     ])
 
   for line in tabulate.tabulate(table, headers = 'firstrow', tablefmt = 'simple', numalign = 'right').split('\n'):

@@ -19,7 +19,12 @@ SEGMENT_SHIFT = 16
 SEGMENT_SIZE  = 256 # pages
 SEGMENT_PROTECTED = 0 # first segment is already allocated
 
-UINT8_FMT  = lambda v: '0x%02X' % v
+def UINT8_FMT(v):
+  if type(v) == UInt8:
+    v = v.u8
+
+  return '0x%02X' % v
+
 UINT16_FMT = lambda v: '0x%04X' % v
 UINT24_FMT = lambda v: '0x%06X' % v
 

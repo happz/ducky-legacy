@@ -218,7 +218,9 @@ class CPUCore(object):
     self.DS().u16 = iv.ds
     self.SP().u16 = UInt16(stack_page.segment_address + mm.PAGE_SIZE).u16
 
+    debug('push old DS')
     self.__raw_push(old_DS)
+    debug('push old SP')
     self.__raw_push(old_SP)
     self.__push(Registers.CS, Registers.FLAGS)
     self.__push(*[i for i in range(0, Registers.REGISTER_SPECIAL)])
@@ -333,6 +335,13 @@ class CPUCore(object):
       else:
         IP().u16 += inst.immediate
 
+      symbol, offset = self.cpu.machine.get_symbol_by_addr(UInt8(CS().u16), IP().u16)
+      if not symbol:
+        warn('JUMP: Unknown jump target: %s' % ADDR_FMT(IP().u16))
+        return
+
+      debug('JUMP: %s%s (%s)' % (symbol, ' + %s' % UINT16_FMT(offset.u16) if offset.u16 != 0 else '', ADDR_FMT(IP().u16)))
+
     def CMP(x, y):
       FLAGS().e = 0
       FLAGS().ge = 0
@@ -353,10 +362,12 @@ class CPUCore(object):
         FLAGS().s = 0
 
     def OFFSET_ADDR(inst):
+      debug('offset addr: ireg=%s, imm=%s' % (inst.ireg, inst.immediate))
       addr = REG(inst.ireg).u16
       if inst.immediate != 0:
         addr += inst.immediate
 
+      debug('offset addr: addr=%s' % addr)
       return DS_ADDR(addr)
 
     class AFLAGS_CTX(object):
@@ -797,7 +808,8 @@ def cmd_cont(console, cmd):
   Continue execution until next breakpoint is reached
   """
 
-  console.default_core.current_suspend_event.set()
+  if console.default_core.current_suspend_event:
+    console.default_core.current_suspend_event.set()
 
 def cmd_step(console, cmd):
   """
@@ -809,6 +821,8 @@ def cmd_step(console, cmd):
   try:
     core.step()
     core.check_for_events()
+
+    log_cpu_core_state(console.default_core, logger = console.info)
 
   except CPUException, e:
     core.die(e)

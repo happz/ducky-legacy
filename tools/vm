@@ -30,8 +30,11 @@ def main():
 
   parser.add_option('-c', dest = 'cpus', action = 'store', default = 1, help = 'Number of CPUs')
   parser.add_option('-t', dest = 'cores', action = 'store', default = 1, help = 'Number of cores per CPU')
+  parser.add_option('-s', dest = 'storages', action = 'append', help = 'Storage devices')
 
   parser.add_option('-b', dest = 'bin_in', action = 'append', default = None, help = 'Binary file to run')
+
+  parser.add_option('--breakpoint', dest = 'breakpoints', action = 'append', default = [], help = 'Insert breakpoint at address')
 
   parser.add_option('-i', dest = 'irq_routines', default = None, help = 'Bytecode file with IRQ routines')
 
@@ -43,7 +46,11 @@ def main():
   util.CONSOLE.boot()
   util.CONSOLE.set_verbosity(options.verbosity)
 
-  M.hw_setup(cpus = int(options.cpus), cores = int(options.cores), binaries = options.bin_in, irq_routines = options.irq_routines)
+  M.hw_setup(cpus = int(options.cpus), cores = int(options.cores),
+             binaries = options.bin_in,
+             storages = options.storages,
+             irq_routines = options.irq_routines,
+             breakpoints = options.breakpoints)
 
   def signal_handler(sig, frame):
     if sig == signal.SIGUSR1:
