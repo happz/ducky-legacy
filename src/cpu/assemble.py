@@ -675,8 +675,7 @@ def translate_buffer(buff, base_address = None):
             var.section_ptr = UInt16(section.ptr.u16)
             var.close()
 
-            if not label.name.startswith('.'):
-              symtab.content.append(var)
+            symtab.content.append(var)
 
             references['&' + label.name] = var
             debug(ptr_prefix, 'label entry "%s" created' % label)
