@@ -17,6 +17,7 @@ class Point(object):
 
     self.active = True
     self.flip = True
+    self.ephemeral = False
     self.debugging_set = debugging_set
 
   def is_triggered(self):
@@ -46,14 +47,20 @@ class DebuggingSet(object):
 
     self.owner = owner
 
-    self.points = []
+    self.points = {}
+
+  def add_point(self, p):
+    self.points[p.id] = p
+
+  def del_point(self, p):
+    del self.points[p.id]
 
   def check(self):
     from util import debug, info
 
     debug(self.owner.cpuid_prefix, 'check breakpoints')
 
-    for bp in self.points:
+    for bp in self.points.values():
       debug(self.owner.cpuid_prefix, bp)
 
       if not bp.active:
@@ -72,17 +79,28 @@ class DebuggingSet(object):
       info(self.owner.cpuid_prefix, 'Breakpoint triggered: %s' % bp)
 
       bp.active = False
-      bp.flip = True
+
+      if bp.ephemeral:
+        self.del_point(bp)
+        bp.flip = False
+        del Point.points[self.id]
 
       event = threading.Event()
       event.clear()
       self.owner.plan_suspend(event)
 
-def get_core_by_id(machine, cid):
-  # cid has format '#cpuid:#coreid'
+def add_breakpoint(core, address, ephemeral = False):
+  from util import debug
+  from mm import ADDR_FMT
 
-  cid = cid.split(':')
-  return machine.cpus[int(cid[0][1:])].cores[int(cid[1][1:])]
+  debug('add_breakpoint: core=%s, address=%s, ephemeral=%s' % (core, ADDR_FMT(address), ephemeral))
+
+  p = BreakPoint(core.debug, address)
+
+  if ephemeral:
+    p.ephemeral = True
+
+  core.debug.add_point(p)
 
 def cmd_bp_list(console, cmd):
   """
@@ -90,7 +108,7 @@ def cmd_bp_list(console, cmd):
   """
 
   bps = [
-    ['ID', 'Active', 'Flip', 'Core', 'Type', 'Address']
+    ['ID', 'Active', 'Flip', 'Ephemeral', 'Core', 'Type', 'Address']
   ]
 
   for point in Point.points.values():
@@ -98,6 +116,7 @@ def cmd_bp_list(console, cmd):
       '%i' % point.id,
       '*' if point.active else '',
       '*' if point.flip else '',
+      '*' if point.ephemeral else '',
       point.debugging_set.owner.cpuid_prefix,
       str(point.__class__),
       point.ip if isinstance(point, BreakPoint) else ''
@@ -111,18 +130,15 @@ def cmd_bp_add(console, cmd):
   Create new breakpoint: bp_add <#cpuid:#coreid> <address>
   """
 
+  from util import str2int
+
   core = cmd[1]
   ip = cmd[2]
 
-  core = get_core_by_id(console.machine, cmd[1])
+  core = console.machine.core(cmd[1])
+  ip = str2int(ip)
 
-  ip = int(ip, base = 16) if ip.startswith('0x') else int(ip)
-    
-  bp = BreakPoint(core.debug, ip)
-  core.debug.points.append(bp)
-
-  from util import info
-  info('New breakpoint set, it\'s id is %i' % bp.id)
+  add_breakpoint(core, ip, ephemeral = 'ephemeral' in cmd)
 
 def cmd_bp_active(console, cmd):
   """

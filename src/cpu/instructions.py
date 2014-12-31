@@ -378,6 +378,12 @@ class InstDescriptor_Generic_Binary_R_RI(InstDescriptor):
       inst.is_reg = 0
       inst.refers_to = v
 
+  def fix_refers_to(self, inst, refers_to):
+    debug('fix_refers_to: inst=%s, refers_to=%s' % (inst, UINT16_FMT(refers_to)))
+
+    inst.immediate = int(refers_to)
+    inst.refers_to = None
+
   def disassemble_operands(self, inst):
     if inst.is_reg == 1:
       return [REGISTER_NAMES[inst.reg], REGISTER_NAMES[inst.ireg]]
@@ -406,6 +412,12 @@ class InstDescriptor_Generic_Binary_RI_R(InstDescriptor):
     elif type(v) == types.StringType:
       inst.is_reg = 0
       inst.refers_to = v
+
+  def fix_refers_to(self, inst, refers_to):
+    debug('fix_refers_to: inst=%s, refers_to=%s' % (inst, UINT16_FMT(refers_to)))
+
+    inst.immediate = int(refers_to)
+    inst.refers_to = None
 
   def disassemble_operands(self, inst):
     if inst.is_reg == 1:

@@ -9,6 +9,15 @@ from console import VerbosityLevels
 
 __all__ = ['debug', 'warn', 'error', 'info', 'quiet']
 
+def str2int(s):
+  if s.startswith('0x'):
+    return int(s, base = 16)
+
+  if s.startswith('0'):
+    return int(s, base = 8)
+
+  return int(s)
+
 def debug(*args):
   global CONSOLE
   CONSOLE.writeln(VerbosityLevels.DEBUG, *args)

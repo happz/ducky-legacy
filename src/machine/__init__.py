@@ -141,12 +141,16 @@ class Machine(object):
       self.init_states.append((csr, dsr, sp, ip, False))
       self.binaries.append((csr, dsr, sp, ip, symbols))
 
-    import util
+    # Breakpoints
+    from debugging import add_breakpoint
 
     breakpoints = breakpoints or []
     for bp in breakpoints:
       core, address = bp.split(',')
-      util.CONSOLE.execute(['bp_add', core, address])
+      core = self.core(core)
+      address = int(address, base = 16) if address.startswith('0x') else int(address)
+
+      add_breakpoint(core, address)
 
     # Storage
     from storage import STORAGES, StorageIOHandler

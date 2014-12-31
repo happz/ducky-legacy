@@ -80,6 +80,9 @@ class CPUCore(object):
 
     self.debug = debugging.DebuggingSet(self)
 
+  def __repr__(self):
+    return '#%i:#%i' % (self.cpu.id, self.id)
+
   def save_state(self, state):
     debug('core.save_state')
 
@@ -130,6 +133,9 @@ class CPUCore(object):
   def MEM_IN(self, addr):
     return self.memory.read_u16(addr)
 
+  def MEM_IN32(self, addr):
+    return self.memory.read_u32(addr)
+
   def MEM_OUT(self, addr, value):
     self.memory.write_u16(addr, value)
 
@@ -167,6 +173,15 @@ class CPUCore(object):
 
     self.IP().u16 = new_ip
 
+  def __symbol_for_ip(self):
+    symbol, offset = self.cpu.machine.get_symbol_by_addr(UInt8(self.CS().u16), self.IP().u16)
+
+    if not symbol:
+      warn('JUMP: Unknown jump target: %s' % ADDR_FMT(self.IP().u16))
+      return
+
+    debug('JUMP: %s%s (%s)' % (symbol, ' + %s' % UINT16_FMT(offset.u16) if offset.u16 != 0 else '', ADDR_FMT(self.IP().u16)))
+
   def __raw_push(self, val):
     self.SP().u16 -= 2
     sp = UInt24(self.DS_ADDR(self.SP().u16))
@@ -202,6 +217,8 @@ class CPUCore(object):
     self.__pop(Registers.FP, Registers.IP)
 
     self.frames.pop()
+
+    self.__symbol_for_ip()
 
   def __enter_interrupt(self, table_address, index):
     debug(self.cpuid_prefix, '__enter_interrupt: table=%s, index=%i' % (ADDR_FMT(table_address.u24), index))
@@ -335,12 +352,7 @@ class CPUCore(object):
       else:
         IP().u16 += inst.immediate
 
-      symbol, offset = self.cpu.machine.get_symbol_by_addr(UInt8(CS().u16), IP().u16)
-      if not symbol:
-        warn('JUMP: Unknown jump target: %s' % ADDR_FMT(IP().u16))
-        return
-
-      debug('JUMP: %s%s (%s)' % (symbol, ' + %s' % UINT16_FMT(offset.u16) if offset.u16 != 0 else '', ADDR_FMT(IP().u16)))
+      self.__symbol_for_ip()
 
     def CMP(x, y):
       FLAGS().e = 0
@@ -827,6 +839,36 @@ def cmd_step(console, cmd):
   except CPUException, e:
     core.die(e)
 
+def cmd_next(console, cmd):
+  """
+  Proceed to the next instruction in the same stack frame.
+  """
+
+  core = console.default_core
+
+  def __ip_addr(offset = 0):
+    return core.CS_ADDR(core.IP().u16 + offset)
+
+  try:
+    inst = instructions.decode_instruction(core.MEM_IN32(__ip_addr()))
+
+    if inst.opcode == Opcodes.CALL:
+      from debugging import add_breakpoint
+
+      add_breakpoint(core, core.IP().u16 + 4, ephemeral = True)
+
+      if core.current_suspend_event:
+        core.current_suspend_event.set()
+
+    else:
+      core.step()
+      core.check_for_events()
+
+      log_cpu_core_state(console.default_core, logger = console.info)
+
+  except CPUException, e:
+    core.die(e)
+
 def cmd_core_state(console, cmd):
   """
   Print core state
@@ -837,4 +879,5 @@ def cmd_core_state(console, cmd):
 console.Console.register_command('set_core', cmd_set_core)
 console.Console.register_command('cont', cmd_cont)
 console.Console.register_command('step', cmd_step)
+console.Console.register_command('next', cmd_next)
 console.Console.register_command('core_state', cmd_core_state)
