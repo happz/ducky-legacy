@@ -97,6 +97,21 @@ def main():
   while not M.thread or M.thread.is_alive():
     time.sleep(cpu.CPU_SLEEP_QUANTUM * 10)
 
+  table = [
+    ['Core', 'Exit code']
+  ]
+
+  def __check_exit_codes(core):
+    table.append([str(core), core.exit_code])
+
+  M.for_each_core(__check_exit_codes)
+
+  import tabulate
+  for line in tabulate.tabulate(table, headers = 'firstrow', tablefmt = 'simple', numalign = 'right').split('\n'):
+    info(line)
+
+  sys.exit(M.exit_code)
+
 if __name__ == '__main__':
   main()
 

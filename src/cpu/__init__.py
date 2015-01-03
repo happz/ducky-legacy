@@ -52,6 +52,29 @@ def log_cpu_core_state(core, logger = None):
   else:
     logger(core.cpuid_prefix, 'current=')
 
+  for frame_index, frame in enumerate(core.frames):
+    ip = core.memory.read_u16(frame.address + 2, privileged = True).u16
+    symbol, offset = core.cpu.machine.get_symbol_by_addr(frame.CS, ip)
+
+    logger('Frame #%i: ADDR=%s, IP=%s: %s%s' % (frame_index, ADDR_FMT(frame.address), UINT16_FMT(ip), symbol, ' + %s' % UINT16_FMT(offset.u16) if offset.u16 != 0 else ''))
+
+class StackFrame(object):
+  def __init__(self, cs, ds, fp):
+    super(StackFrame, self).__init__()
+
+    self.CS = UInt8(cs.u16)
+    self.DS = UInt8(ds.u16)
+    self.FP = UInt16(fp.u16)
+
+  def __getattribute__(self, name):
+    if name == 'address':
+      return segment_addr_to_addr(self.DS.u8, self.FP.u16)
+
+    return super(StackFrame, self).__getattribute__(name)
+
+  def __repr__(self):
+    return '<StackFrame: CS=%s DS=%s FP=%s (%s)' % (UINT8_FMT(self.CS), UINT8_FMT(self.DS), UINT16_FMT(self.FP), ADDR_FMT(self.address))
+
 class CPUCore(object):
   def __init__(self, coreid, cpu, memory_controller):
     super(CPUCore, self).__init__()
@@ -117,6 +140,8 @@ class CPUCore(object):
     self.keep_running = True if core_state.keep_running else False
 
   def die(self, exc):
+    self.exit_code = 1
+
     error(str(exc))
     log_cpu_core_state(self)
     self.keep_running = False
@@ -208,11 +233,11 @@ class CPUCore(object):
 
     self.FP().u16 = self.SP().u16
 
-    self.frames.append(self.SP().u16)
+    self.frames.append(StackFrame(self.CS(), self.DS(), self.FP()))
 
   def __destroy_frame(self):
-    if self.frames[-1] != self.SP().u16:
-      raise CPUException('Leaving frame with wrong SP: last saved SP: %s, current SP: %s' % (ADDR_FMT(self.frames[-1]), ADDR_FMT(self.SP().u16)))
+    if self.frames[-1].FP.u16 != self.SP().u16:
+      raise CPUException('Leaving frame with wrong SP: last saved SP: %s, current SP: %s' % (ADDR_FMT(self.frames[-1].FP.u16), ADDR_FMT(self.SP().u16)))
 
     self.__pop(Registers.FP, Registers.IP)
 

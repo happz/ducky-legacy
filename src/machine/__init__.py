@@ -168,6 +168,17 @@ class Machine(object):
     self.register_port(0x200, self.storageio)
     self.register_port(0x202, self.storageio)
 
+  @property
+  def exit_code(self):
+    self.__exit_code = 0
+
+    for __cpu in self.cpus:
+      for __core in __cpu.cores:
+        if __core.exit_code != 0:
+          self.__exit_code = __core.exit_code
+
+    return self.__exit_code
+
   def register_irq_source(self, index, src, reassign = False):
     if self.irq_sources[index]:
       if not reassign:
