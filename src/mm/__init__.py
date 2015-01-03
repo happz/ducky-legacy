@@ -19,14 +19,25 @@ SEGMENT_SHIFT = 16
 SEGMENT_SIZE  = 256 # pages
 SEGMENT_PROTECTED = 0 # first segment is already allocated
 
-def UINT8_FMT(v):
+def __var_to_int(v):
   if type(v) == UInt8:
-    v = v.u8
+    return v.u8
 
-  return '0x%02X' % v
+  if type(v) == UInt16:
+    return v.u16
 
-UINT16_FMT = lambda v: '0x%04X' % v
-UINT24_FMT = lambda v: '0x%06X' % v
+  if type(v) == UInt24:
+    return v.u24
+
+  if type(v) == UInt32:
+    return v.u32
+
+  return v
+
+UINT8_FMT  = lambda v: '0x%02X' % (__var_to_int(v) & 0xFF)
+UINT16_FMT = lambda v: '0x%04X' % (__var_to_int(v) & 0xFFFF)
+UINT24_FMT = lambda v: '0x%06X' % (__var_to_int(v) & 0xFFFFFF)
+UINT32_FMT = lambda v: '0x%08X' % __var_to_int(v)
 
 PAGE_FMT = lambda page: '%u' % page
 SEGM_FMT = lambda segment: UINT8_FMT(segment)
