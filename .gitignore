@@ -1,6 +1,7 @@
 tmp
 *.bin
 lse
+.noseids
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
