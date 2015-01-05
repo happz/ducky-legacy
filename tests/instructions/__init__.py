@@ -51,6 +51,13 @@ class Tests(unittest.TestCase):
     self.common_case('main:\nli r0, 0xFFF0\nor r0, 0x000F\nint 0', r0 = 0xFFFF)
     self.common_case('main:\nli r0, 0xFFF0\nor r0, 0x00F0\nint 0', r0 = 0xFFF0)
 
+  def test_xor(self):
+    self.common_case('main:\nli r0, 0x00F0\nli r1, 0x0F0F\nxor r0, r1\nint 0', r0 = 0x0FFF, r1 = 0x0F0F)
+    self.common_case('main:\nli r0, 0x00F0\nxor r0, 0x0F0F\nint 0', r0 = 0x0FFF)
+    self.common_case('main:\nli r0, 0x00F0\nli r1, 0x0FF0\nxor r0, r1\nint 0', r0 = 0x0F00, r1 = 0x0FF0)
+    self.common_case('main:\nli r0, 0x00F0\nxor r0, 0x0FF0\nint 0', r0 = 0x0F00)
+    self.common_case('main:\nli r0, 0x00F0\nxor r0, r0\nint 0', z = 1)
+
   def test_not(self):
     self.common_case('main:\nli r0, 0xFFF0\nnot r0\nint 0', r0 = 0x000F)
     self.common_case('main:\nli r0, 0x0\nnot r0\nint 0', r0 = 0xFFFF)
@@ -69,4 +76,11 @@ class Tests(unittest.TestCase):
     self.common_case('main:\nli r0, 0x0002\nshiftr r0, 2\nint 0', z = 1)
     self.common_case('main:\nli r0, 0\nshiftr r0, 2\nint 0', z = 1)
     self.common_case('main:\nli r0, 0x00F0\nshiftr r0, 4\nint 0', r0 = 0x000F)
+
+  def test_mov(self):
+    self.common_case('main:\nli r0, 10\nli r1, 20\nmov r0, r1\nint 0', r0 = 20, r1 = 20)
+    self.common_case('main:\nli r0, 10\nli r1, 0\nmov r0, r1\nint 0', z = 1)
+
+  def test_swap(self):
+    self.common_case('main:\nli r0, 10\nli r1, 20\nswp r0, r1\nint 0', r0 = 20, r1 = 10)
 
