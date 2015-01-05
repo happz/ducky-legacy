@@ -4,7 +4,7 @@ import threading
 
 from io_handlers import IOHandler
 from mm import ADDR_FMT, UINT8_FMT, UInt8, UInt16, UInt24, UInt32, segment_addr_to_addr
-from util import debug
+from util import debug, warn
 
 BLOCK_SIZE = 1024
 
@@ -22,6 +22,9 @@ class StorageIOHandler(IOHandler):
     self.op_index = 0
     self.op = None
 
+    self.finished_event = threading.Event()
+    self.finished_event.clear()
+
   def read_u16_512(self):
     debug('read_u16_512')
 
@@ -33,13 +36,15 @@ class StorageIOHandler(IOHandler):
       debug('reserve SIO')
       self.op = []
       self.op_index += 1
+      self.finished_event.clear()
+
       return UInt16(self.op_index)
 
   def read_u16_514(self):
     debug('read_u16_514')
 
     with self.lock:
-      if not self.op.is_set():
+      if not self.finished_event.is_set():
         debug('SIO still running')
         return UInt16(0)
 
@@ -55,8 +60,13 @@ class StorageIOHandler(IOHandler):
 
     debug('start SIO: %s' % str(self.op))
 
-    read = True if self.op[0] == 0 else False
     device = self.machine.get_storage_by_id(str(self.op[1]))
+    if not device:
+      warn('SIO attempt to access unknown device %s' % self.op[1])
+      self.finished_event.set()
+      return
+
+    read = True if self.op[0] == 0 else False
     if read:
       src = UInt32(self.op[2] | (self.op[3] << 16))
       dst = UInt24(segment_addr_to_addr(self.op[5] & 0xFF, self.op[4]))
@@ -67,11 +77,9 @@ class StorageIOHandler(IOHandler):
     cnt = UInt8(self.op[6])
 
     target = device.read_block if read else device.write_block
-    self.op = threading.Event()
-    self.op.clear()
 
-    debug('start SIO thread: target=%s, args=%s' % (target, str((src, dst, cnt, self.op))))
-    sio_thread = threading.Thread(target = target, args = (src, dst, cnt, self.op))
+    debug('start SIO thread: target=%s, args=%s' % (target, str((src, dst, cnt, self.finished_event))))
+    sio_thread = threading.Thread(target = target, args = (src, dst, cnt, self.finished_event))
     sio_thread.start()
 
 class Storage(object):
