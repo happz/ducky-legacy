@@ -1,9 +1,8 @@
 import ctypes
 import os
 
-import cpu
-import mm
-
+from cpu.registers import FlagsRegister
+from mm import PAGE_SIZE
 from util import BinaryFile, debug, info
 from ctypes import c_ubyte, c_ushort, c_uint, LittleEndianStructure
 
@@ -41,25 +40,7 @@ class CPUCoreState(LittleEndianStructure):
     ('r15', c_ushort),
     ('r16', c_ushort),
     ('r17', c_ushort),
-    ('r18', c_ushort),
-    ('r19', c_ushort),
-    ('r20', c_ushort),
-    ('r21', c_ushort),
-    ('r22', c_ushort),
-    ('r23', c_ushort),
-    ('r24', c_ushort),
-    ('r25', c_ushort),
-    ('r26', c_ushort),
-    ('r27', c_ushort),
-    ('r28', c_ushort),
-    ('r29', c_ushort),
-    ('r30', c_ushort),
-    ('r31', c_ushort),
-    ('r32', c_ushort),
-    ('r33', c_ushort),
-    ('r34', c_ushort),
-    ('r35', c_ushort),
-    ('flags', cpu.registers.FlagsRegister),
+    ('flags', FlagsRegister),
     ('exit_code', c_ushort),
     ('idle',         c_ubyte, 1),
     ('keep_running', c_ubyte, 1),
@@ -80,7 +61,7 @@ class MemoryPageState(LittleEndianStructure):
     ('write', c_ubyte, 1),
     ('execute', c_ubyte, 1),
     ('dirty', c_ubyte, 1),
-    ('content', c_ubyte * mm.PAGE_SIZE)
+    ('content', c_ubyte * PAGE_SIZE)
   ]
 
 class MMapAreaState(LittleEndianStructure):
