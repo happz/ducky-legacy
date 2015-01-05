@@ -179,6 +179,9 @@ class CharSlot(DataSlot):
     self.value = UInt8(ord(self.value or '\0'))
     self.size = UInt16(1)
 
+  def __repr__(self):
+    return '<CharSlot: name=%s, section=%s, value=%s>' % (self.name, self.section.name if self.section else '', self.value)
+
 class AsciiSlot(DataSlot):
   symbol_type = mm.binary.SymbolDataTypes.ASCII
 
@@ -198,11 +201,17 @@ class StringSlot(DataSlot):
     self.value = [UInt8(ord(c)) for c in self.value] + [UInt8(0)]
     self.size = UInt16(len(self.value))
 
+  def __repr__(self):
+    return '<StringSlot: name=%s, size=%s, section=%s, value=%s>' % (self.name, self.size, self.section.name if self.section else '', self.value)
+
 class FunctionSlot(DataSlot):
   symbol_type = mm.binary.SymbolDataTypes.FUNCTION
 
   def close(self):
     self.size = UInt16(0)
+
+  def __repr__(self):
+    return '<FunctionSlot: name=%s, section=%s>' % (self.name, self.section.name if self.section else '')
 
 def sizeof(o):
   if isinstance(o, DataSlot):
