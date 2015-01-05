@@ -13,7 +13,10 @@ from util import debug, info, warn
 from mm import SEGM_FMT, ADDR_FMT, UINT8_FMT, UINT16_FMT, segment_base_addr, UInt16
 
 import irq
+import irq.conio
+
 import io_handlers
+import io_handlers.conio
 
 class Machine(object):
   def core(self, core_address):
@@ -68,7 +71,7 @@ class Machine(object):
 
     return (None, None)
 
-  def hw_setup(self, cpus = 1, cores = 1, memory_size = None, binaries = None, breakpoints = None, irq_routines = None, storages = None):
+  def hw_setup(self, cpus = 1, cores = 1, memory_size = None, binaries = None, breakpoints = None, irq_routines = None, storages = None, machine_in = None, machine_out = None):
     self.nr_cpus = cpus
     self.nr_cores = cores
 
@@ -92,7 +95,7 @@ class Machine(object):
     for cpuid in range(0, cpus):
       self.cpus.append(cpu.CPU(self, cpuid, cores = cores, memory_controller = self.memory))
 
-    self.conio = io_handlers.conio.ConsoleIOHandler()
+    self.conio = io_handlers.conio.ConsoleIOHandler(machine_in, machine_out)
     self.conio.echo = True
     self.conio.crlf = True
 
@@ -273,6 +276,10 @@ class Machine(object):
 
     if not self.thread:
       self.thread = threading.Thread(target = self.loop, name = 'Machine')
+
+  def wait(self):
+    while not self.thread or self.thread.is_alive():
+      time.sleep(cpu.CPU_SLEEP_QUANTUM * 10)
 
 import console
 
