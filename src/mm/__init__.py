@@ -114,15 +114,16 @@ def uint32_to_buff(i, buff, offset):
   buff[offset + 3] = (i & 0xFF000000) >> 24
 
 def get_code_entry_address(s_header, s_content):
-  debug('get_code_entry_address: section=%s' % s_header.get_name())
-
   for entry in s_content:
-    if entry.get_name() != 'main':
+    if hasattr(entry, 'get_name') and entry.get_name() != 'main':
+      continue
+
+    if hasattr(entry, 'name') and entry.name.name != 'main':
       continue
 
     debug('"main" function found, use as an entry point')
 
-    return UInt16(entry.address)
+    return UInt16(entry.address) if hasattr(entry, 'address') else entry.section_ptr
 
   else:
     return None
@@ -607,6 +608,53 @@ class MemoryController(object):
 
   def load_data(self, segment, base, content):
     self.__load_content_u8(segment, base, content)
+
+  def load_raw_sections(self, sections, csr = None, dsr = None, stack = True):
+    debug('mc.load_raw_sections: csr=%s, dsr=%s, stack=%s' % (csr, dsr, stack))
+
+    import mm.binary
+
+    csr = csr or UInt8(self.alloc_segment().u8)
+    dsr = dsr or UInt8(csr.u8)
+    sp  = None
+    ip  = None
+
+    symbols = {}
+
+    for s_name, section in sections.items():
+      s_base_addr = None
+
+      if section.type == mm.binary.SectionTypes.TEXT:
+        s_base_addr = UInt24(segment_addr_to_addr(csr.u8, section.base.u16))
+
+        self.load_text(csr, section.base, section.content)
+
+      elif section.type == mm.binary.SectionTypes.DATA:
+        s_base_addr = UInt24(segment_addr_to_addr(dsr.u8, section.base.u16))
+
+        if 'b' not in section.flags:
+          self.load_data(dsr, section.base, section.content)
+
+      elif section.type == mm.binary.SectionTypes.SYMBOLS:
+        for symbol in section.content:
+          symbols[symbol.name] = symbol.section_ptr
+
+        if not ip:
+          ip = get_code_entry_address(section, section.content)
+
+      if s_base_addr:
+        self.reset_area_flags(s_base_addr.u24, len(section))
+        self.update_area_flags(s_base_addr.u24, len(section), 'read', True if 'r' in section.flags else False)
+        self.update_area_flags(s_base_addr.u24, len(section), 'write', True if 'w' in section.flags else False)
+        self.update_area_flags(s_base_addr.u24, len(section), 'execute', True if 'x' in section.flags else False)
+
+    if stack:
+      stack_page = self.get_page(self.alloc_page(dsr))
+      stack_page.read = True
+      stack_page.write = True
+      sp = UInt16(stack_page.segment_address + PAGE_SIZE)
+
+    return (csr, dsr, sp, ip, symbols)
 
   def load_file(self, file_in, csr = None, dsr = None, stack = True):
     debug('mc.load_file: file_in=%s, csr=%s, dsr=%s' % (file_in, csr, dsr))
