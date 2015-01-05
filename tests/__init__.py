@@ -17,12 +17,12 @@ def assert_registers(state, **regs):
     val = regs.get(reg, 0)
     assert getattr(state, reg) == val, 'Register %s expected to have value %s, %s found instead' % (reg, val, getattr(state, reg))
 
-def assert_flags(state, privileged = 1, e = 0, z = 0, o = 0, s = 0):
-  assert state.flags.flags.privileged == privileged, 'PRIV flag expected to be %s' % privileged
-  assert state.flags.flags.e == e, 'E flag expected to be %s' % e
-  assert state.flags.flags.z == z, 'Z flag expected to be %s' % z
-  assert state.flags.flags.o == o
-  assert state.flags.flags.s == s
+def assert_flags(state, **flags):
+  assert state.flags.flags.privileged == flags.get('privileged', 1), 'PRIV flag expected to be %s' % privileged
+  assert state.flags.flags.e == flags.get('e', 0), 'E flag expected to be %s' % flags.get('e', 0)
+  assert state.flags.flags.z == flags.get('z', 0), 'Z flag expected to be %s' % flags.get('z', 0)
+  assert state.flags.flags.o == flags.get('o', 0), 'O flag expected to be %s' % flags.get('o', 0)
+  assert state.flags.flags.s == flags.get('s', 0), 'S flag expected to be %s' % flags.get('s', 0)
 
 def run_machine(code, coredump_file = None, **kwargs):
   M = machine.Machine()
