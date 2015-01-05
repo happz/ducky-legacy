@@ -25,19 +25,84 @@ from util import *
 def main():
   parser = optparse.OptionParser()
 
-  parser.add_option('-v', dest = 'verbosity', action = 'count', default = 0, help = 'Verbosity level')
-  parser.add_option('-D', dest = 'debug', action = 'store_true', default = False, help = 'Debug mode')
-  parser.add_option('-l', dest = 'logfile', help = 'Log file')
+  # Output
+  opt_group = optparse.OptionGroup(parser, 'Output options')
+  parser.add_option_group(opt_group)
+  opt_group.add_option('-v', '--verbose',
+                       dest = 'verbosity',
+                       action = 'count',
+                       default = 0,
+                       help = 'Verbosity level')
+  opt_group.add_option('-l', '--logfile',
+                       dest = 'logfile',
+                       action = 'store',
+                       default = None,
+                       help = 'Log file')
 
-  parser.add_option('-c', dest = 'cpus', action = 'store', default = 1, help = 'Number of CPUs')
-  parser.add_option('-t', dest = 'cores', action = 'store', default = 1, help = 'Number of cores per CPU')
-  parser.add_option('-s', dest = 'storages', action = 'append', help = 'Storage devices')
+  # Machine hardware
+  opt_group = optparse.OptionGroup(parser, 'Machine hardware')
+  parser.add_option_group(opt_group)
+  opt_group.add_option('-c', '--cpus',
+                       dest = 'cpus',
+                       action = 'store',
+                       default = 1,
+                       help = 'Number of CPUs')
+  opt_group.add_option('-t', '--cores',
+                       dest = 'cores',
+                       action = 'store',
+                       default = 1,
+                       help = 'Number of cores per CPU')
+  opt_group.add_option('-s', '--storage',
+                       dest = 'storages',
+                       action = 'append',
+                       default = [],
+                       help = 'Storage device')
 
-  parser.add_option('-b', dest = 'bin_in', action = 'append', default = None, help = 'Binary file to run')
+  opt_group.add_option('--machine-out',
+                       dest = 'machine_out',
+                       action = 'store',
+                       default = None,
+                       metavar = 'FILE',
+                       help = 'Log machine output into FILE')
+  opt_group.add_option('--machine-in',
+                       dest = 'machine_in',
+                       action = 'store',
+                       default = None,
+                       metavar = 'FILE',
+                       help = 'Read machine input from FILE')
 
-  parser.add_option('--breakpoint', dest = 'breakpoints', action = 'append', default = [], help = 'Insert breakpoint at address')
+  # Binary files
+  opt_group = optparse.OptionGroup(parser, 'Binary files')
+  parser.add_option_group(opt_group)
+  opt_group.add_option('-i', '--irq',
+                       dest = 'irq_routines',
+                       action = 'store',
+                       default = None,
+                       help = 'Bytecode file with IRQ routines')
+  opt_group.add_option('-b', '--binary',
+                       dest = 'binaries',
+                       action = 'append',
+                       default = None,
+                       help = 'Binary file to run')
 
-  parser.add_option('-i', dest = 'irq_routines', default = None, help = 'Bytecode file with IRQ routines')
+  # Debug options
+  opt_group = optparse.OptionGroup(parser, 'Debug options')
+  parser.add_option_group(opt_group)
+  opt_group.add_option('-B', '--breakpoint',
+                       dest = 'breakpoints',
+                       action = 'append',
+                       default = [],
+                       help = 'Insert breakpoint at address')
+  opt_group.add_option('-d', '--debug',
+                       dest = 'debug',
+                       action = 'store_true',
+                       default = False,
+                       help = 'Debug mode')
+  opt_group.add_option('-g', '--go-on',
+                       dest = 'go_on',
+                       action = 'store_true',
+                       default = False,
+                       help = 'Don\'t wait for user to start binaries with pressing Enter')
 
   options, args = parser.parse_args()
 
@@ -50,11 +115,14 @@ def main():
   if options.logfile:
     util.CONSOLE.set_logfile(options.logfile)
 
-  M.hw_setup(cpus = int(options.cpus), cores = int(options.cores),
-             binaries = options.bin_in,
+  M.hw_setup(cpus = int(options.cpus),
+             cores = int(options.cores),
+             binaries = options.binaries,
              storages = options.storages,
              irq_routines = options.irq_routines,
-             breakpoints = options.breakpoints)
+             breakpoints = options.breakpoints,
+             machine_in = options.machine_in,
+             machine_out = options.machine_out)
 
   def signal_handler(sig, frame):
     if sig == signal.SIGUSR1:
@@ -89,13 +157,13 @@ def main():
     info('Enter "run" to start execution of loaded binaries')
 
   else:
-    info('Press Enter to start execution of loaded binaries')
-    util.CONSOLE.wait_on_line()
+    if not options.go_on:
+      info('Press Enter to start execution of loaded binaries')
+      util.CONSOLE.wait_on_line()
 
     M.run()
 
-  while not M.thread or M.thread.is_alive():
-    time.sleep(cpu.CPU_SLEEP_QUANTUM * 10)
+  M.wait()
 
   table = [
     ['Core', 'Exit code']
