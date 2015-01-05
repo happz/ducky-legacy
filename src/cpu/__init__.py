@@ -17,7 +17,6 @@ from mm import segment_addr_to_addr
 
 from registers import Registers, REGISTER_NAMES
 from instructions import Opcodes
-from core import CPUCoreState
 from errors import CPUException, AccessViolationError, InvalidResourceError
 from util import debug, info, warn, error
 
@@ -44,7 +43,7 @@ def log_cpu_core_state(core, logger = None):
   logger(core.cpuid_prefix, 'cs=%s      ds=%s' % (SEGM_FMT(core.CS().u16), SEGM_FMT(core.DS().u16)))
   logger(core.cpuid_prefix, 'fp=%s    sp=%s    ip=%s' % (UINT16_FMT(core.FP().u16), UINT16_FMT(core.SP().u16), UINT16_FMT(core.IP().u16)))
   logger(core.cpuid_prefix, 'priv=%i, hwint=%i, e=%i, z=%i, o=%i' % (core.FLAGS().privileged, core.FLAGS().hwint, core.FLAGS().e, core.FLAGS().z, core.FLAGS().o))
-  logger(core.cpuid_prefix, 'thread=%s, keep_running=%s, idle=%s, exit=%i' % (core.thread.name, core.keep_running, core.idle, core.exit_code))
+  logger(core.cpuid_prefix, 'thread=%s, keep_running=%s, idle=%s, exit=%i' % (core.thread.name if core.thread else '<unknown>', core.keep_running, core.idle, core.exit_code))
 
   if core.current_instruction:
     inst = instructions.disassemble_instruction(core.current_instruction)
@@ -108,6 +107,8 @@ class CPUCore(object):
 
   def save_state(self, state):
     debug('core.save_state')
+
+    from core import CPUCoreState
 
     core_state = CPUCoreState()
 
@@ -781,15 +782,19 @@ class CPUCore(object):
     self.thread.start()
 
   def boot(self, init_state):
+    debug(self.cpuid_prefix, 'boot')
+
     self.reset()
 
     cs, ds, sp, ip, privileged = init_state
 
-    self.REG(Registers.CS).u16 = cs.u8
-    self.REG(Registers.DS).u16 = ds.u8
-    self.REG(Registers.IP).u16 = ip.u16
-    self.REG(Registers.SP).u16 = sp.u16
+    self.registers.cs.u16 = cs.u8
+    self.registers.ds.u16 = ds.u8
+    self.registers.ip.u16 = ip.u16
+    self.registers.sp.u16 = sp.u16
     self.FLAGS().privileged = 1 if privileged else 0
+
+    log_cpu_core_state(self)
 
 class CPU(object):
   def __init__(self, machine, cpuid, cores = 1, memory_controller = None):

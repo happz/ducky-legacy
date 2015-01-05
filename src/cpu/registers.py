@@ -25,8 +25,8 @@ class Registers(enum.IntEnum):
   SP    = 14 # Stack Pointer
   DS    = 15 # Data Segment Register
   CS    = 16 # Code Segment register
-  FLAGS = 17 # Flags
-  IP    = 18 # Instruction pointer
+  IP    = 17 # Instruction pointer
+  FLAGS = 18 # Flags
 
   # First special register
   REGISTER_SPECIAL = 13
