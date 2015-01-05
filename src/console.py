@@ -138,6 +138,9 @@ class Console(object):
         self.error(line)
 
   def loop(self):
+    if not self.f_in:
+      return
+
     while self.keep_running:
       self.new_line_event.clear()
 
@@ -221,7 +224,9 @@ class Console(object):
       self.execute(cmd)
 
   def boot(self):
-    self.f_in.flush()
+    if self.f_in:
+      self.f_in.flush()
+
     self.f_out.flush()
 
     self.boot_thread()
