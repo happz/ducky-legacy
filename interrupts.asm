@@ -9,7 +9,7 @@
   .type message, string
   .string "Ping!"
 
-irq_timer:
+irq_routine_0:
   push r0
   push r1
   li r0, &jiffies
@@ -22,14 +22,14 @@ irq_timer:
   pop r0
   retint
 
-irq_conio:
+irq_routine_1:
   ; NOP - just wake up all sleepers waiting for console IO
   retint
 
-int_halt:
+int_routine_0:
   hlt r0
 
-int_read_blocks:
+int_routine_1:
   ; r0 ... device id
   ; r1 ... src ptr low 16
   ; r2 ... src ptr high 16
@@ -58,7 +58,7 @@ int_read_blocks:
   pop r5
   retint
 
-int_write_blocks:
+int_routine_2:
   ; r0 ... device id
   ; r1 ... src ptr
   ; r2 ... dst ptr low 16

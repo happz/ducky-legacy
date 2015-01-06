@@ -121,18 +121,17 @@ class Machine(object):
 
       def __save_iv(name, table, index):
         if name not in symbols:
-          warn('Interrupt routine %s not found' % name)
+          debug('Interrupt routine %s not found' % name)
           return
 
         desc.ip = symbols[name].u16
         self.memory.save_interrupt_vector(table, index, desc)
 
-      __save_iv('irq_timer', self.memory.irq_table_address, irq.IRQList.TIMER)
-      __save_iv('irq_conio', self.memory.irq_table_address, irq.IRQList.CONIO)
+      for i in range(0, irq.IRQList.IRQ_COUNT):
+        __save_iv('irq_routine_%i' % i, self.memory.irq_table_address, i)
 
-      __save_iv('int_halt', self.memory.int_table_address, 0)
-      __save_iv('int_read_blocks', self.memory.int_table_address, 1)
-      __save_iv('int_write_blocks', self.memory.int_table_address, 2)
+      for i in range(0, irq.InterruptList.INT_COUNT):
+        __save_iv('int_routine_%i' % i, self.memory.int_table_address, i)
 
     self.init_states = []
 
