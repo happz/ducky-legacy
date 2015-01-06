@@ -3,6 +3,7 @@ import enum
 import sys
 import threading
 import tabulate
+import types
 
 from ctypes import sizeof
 from console import VerbosityLevels
@@ -10,6 +11,9 @@ from console import VerbosityLevels
 __all__ = ['debug', 'warn', 'error', 'info', 'quiet']
 
 def str2int(s):
+  if type(s) == types.IntType:
+    return s
+
   if s.startswith('0x'):
     return int(s, base = 16)
 
