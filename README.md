@@ -8,30 +8,24 @@ Simple virtual CPU/machine
 # Features
 
 * wanna-be RISC instruction set, based on LOAD/STORE architecture, with fixed instruction width
-* modular software and hardware interrupt sources and handlers
+* modular software and hardware interrupt sources and routines
+* SMP - using python threads though but it works :)
 * user/privileged mode
 * flat, paged memory model with RWX access control
 * ELF-inspired bytecode files
 * as, objdump and vm tools included
+* terminal emulation for IO of virtual machine
+* multiple persistent storages with block-based IO operations
+* save/restore points
+* debugging support - break points, watch points, stack traces, stepping, ...
 
 # Planned features
 
-* console and timer irq sources
-  * important pieces already finished, test & fix
-* easy and simple way how to create/modify/load interrupt routines
-* SMP and multi-core support
-  * important pieces already finished
-  * thread isolation
-  * not tested yet
 * virtual memory
-  * page tables done
-  * access control done
   * mmap'ed external sources not finished yet
-* debugging support
-* relocation support
-* C compiler
-* dynamic load/unload of bytecode
-* external file I/O support
+  * Forth kernel - work in progress but it's going fine!
+  * relocation support
+  * dynamic load/unload of bytecode
 
 # Example
 
@@ -93,7 +87,7 @@ $ tools/as -f -i examples/hello-world.asm -o hello-world.bin
 And fire a virtual machine:
 
 ```
-$ tools/vm -b hello-world.bin          
+$ tools/vm -i interrupts.bin -b hello-world.bin
 Hello, world!
 $
 ```
