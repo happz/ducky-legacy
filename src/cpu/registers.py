@@ -38,7 +38,7 @@ PROTECTED_REGISTERS = range(Registers.REGISTER_SPECIAL, Registers.REGISTER_COUNT
 
 RESETABLE_REGISTERS = [i for i in range(0, Registers.REGISTER_COUNT) if i != Registers.FLAGS]
 
-REGISTER_NAMES = ['r%i' % i for i in range(0, Registers.REGISTER_SPECIAL)] + ['fp', 'sp', 'ds', 'cs', 'flags', 'ip']
+REGISTER_NAMES = ['r%i' % i for i in range(0, Registers.REGISTER_SPECIAL)] + ['fp', 'sp', 'ds', 'cs', 'ip', 'flags']
 
 class Register(mm.UInt16):
   pass
@@ -57,6 +57,9 @@ class RealFlagsRegister(ctypes.LittleEndianStructure):
     ('o',          ctypes.c_ubyte, 1),
     ('s',          ctypes.c_ubyte, 1)
   ]
+
+  def __repr__(self):
+    return '<RealFlagsRegister: privileged=%i, hwint=%i, e=%i, z=%i, o=%i, s=%i>' % (self.privileged, self.hwint, self.e, self.z, self.o, self.s)
 
 class FlagsRegister(ctypes.Union):
   _pack_ = 0

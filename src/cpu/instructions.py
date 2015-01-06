@@ -16,11 +16,11 @@ class Opcodes(enum.IntEnum):
 
   LW     =  1
   LB     =  2
-  LBU    =  3
+  #      =  3
   LI     =  4
   STW    =  5
   STB    =  6
-  STBU   =  7
+  #      =  7
   MOV    =  8
   SWP    =  9
   CAS    = 10
@@ -697,10 +697,6 @@ class Inst_LB(InstDescriptor_Generic_Binary_R_A):
   mnemonic = 'lb'
   opcode = Opcodes.LB
 
-class Inst_LBU(InstDescriptor_Generic_Binary_R_A):
-  mnemonic = 'lbu'
-  opcode = Opcodes.LBU
-
 class Inst_LI(InstDescriptor_Generic_Binary_R_I):
   mnemonic    = 'li'
   opcode = Opcodes.LI
@@ -712,10 +708,6 @@ class Inst_STW(InstDescriptor_Generic_Binary_A_R):
 class Inst_STB(InstDescriptor_Generic_Binary_A_R):
   mnemonic    = 'stb'
   opcode = Opcodes.STB
-
-class Inst_STBU(InstDescriptor_Generic_Binary_A_R):
-  mnemonic = 'stbu'
-  opcode = Opcodes.STBU
 
 class Inst_MOV(InstDescriptor_Generic_Binary_R_R):
   mnemonic = 'mov'
@@ -770,11 +762,9 @@ Inst_SHIFTL(),
 Inst_SHIFTR(),
 Inst_LW(),
 Inst_LB(),
-Inst_LBU(),
 Inst_LI(),
 Inst_STW(),
 Inst_STB(),
-Inst_STBU(),
 Inst_MOV(),
 Inst_SWP(),
 Inst_MUL(),

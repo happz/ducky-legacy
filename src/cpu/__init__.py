@@ -18,7 +18,7 @@ from mm import segment_addr_to_addr
 from registers import Registers, REGISTER_NAMES
 from instructions import Opcodes
 from errors import CPUException, AccessViolationError, InvalidResourceError
-from util import debug, info, warn, error
+from util import debug, info, warn, error, print_table
 
 from ctypes import LittleEndianStructure, Union, c_ubyte, c_ushort, c_uint
 
@@ -51,11 +51,8 @@ def log_cpu_core_state(core, logger = None):
   else:
     logger(core.cpuid_prefix, 'current=')
 
-  for frame_index, frame in enumerate(core.frames):
-    ip = core.memory.read_u16(frame.address + 2, privileged = True).u16
-    symbol, offset = core.cpu.machine.get_symbol_by_addr(frame.CS, ip)
-
-    logger('Frame #%i: ADDR=%s, IP=%s: %s%s' % (frame_index, ADDR_FMT(frame.address), UINT16_FMT(ip), symbol, ' + %s' % UINT16_FMT(offset.u16) if offset.u16 != 0 else ''))
+  for index, (ip, symbol, offset) in enumerate(core.backtrace()):
+    logger(core.cpuid_prefix, 'Frame #%i: %s + %s (%s)' % (index, symbol, UINT16_FMT(offset), ADDR_FMT(ip)))
 
 class StackFrame(object):
   def __init__(self, cs, ds, fp):
@@ -203,10 +200,25 @@ class CPUCore(object):
     symbol, offset = self.cpu.machine.get_symbol_by_addr(UInt8(self.CS().u16), self.IP().u16)
 
     if not symbol:
-      warn('JUMP: Unknown jump target: %s' % ADDR_FMT(self.IP().u16))
+      warn('symbol_for_ip: Unknown jump target: %s' % ADDR_FMT(self.IP().u16))
       return
 
-    debug('JUMP: %s%s (%s)' % (symbol, ' + %s' % UINT16_FMT(offset.u16) if offset.u16 != 0 else '', ADDR_FMT(self.IP().u16)))
+    debug('symbol_for_ip: %s%s (%s)' % (symbol, ' + %s' % UINT16_FMT(offset.u16) if offset.u16 != 0 else '', ADDR_FMT(self.IP().u16)))
+
+  def backtrace(self):
+    bt = []
+
+    for frame_index, frame in enumerate(self.frames):
+      ip = self.memory.read_u16(frame.address + 2, privileged = True).u16
+      symbol, offset = self.cpu.machine.get_symbol_by_addr(frame.CS, ip)
+
+      bt.append((ip, symbol, offset))
+
+    ip = self.IP().u16 - 4
+    symbol, offset = self.cpu.machine.get_symbol_by_addr(UInt8(self.CS().u16), ip)
+    bt.append((ip, symbol, offset))
+
+    return bt
 
   def __raw_push(self, val):
     self.SP().u16 -= 2
@@ -225,9 +237,11 @@ class CPUCore(object):
       self.__raw_push(self.REG(reg))
 
   def __pop(self, *regs):
-    for reg in regs:
-      self.REG(reg).u16 = self.__raw_pop().u16
-      debug(self.cpuid_prefix, '__pop: %s (%s) from %s' % (reg, UINT16_FMT(self.REG(reg).u16), UINT16_FMT(self.SP().u16 - 2)))
+    for reg_id in regs:
+      reg = self.REG(reg_id)
+
+      reg.u16 = self.__raw_pop().u16
+      debug(self.cpuid_prefix, '__pop: %s (%s) from %s' % (reg_id, UINT16_FMT(reg.u16), UINT16_FMT(self.SP().u16 - 2)))
 
   def __create_frame(self):
     self.__push(Registers.IP, Registers.FP)
@@ -447,12 +461,6 @@ class CPUCore(object):
       with AFLAGS_CTX(REG(inst.reg)):
         REG(inst.reg).u16 = MEM_IN8(OFFSET_ADDR(inst)).u8
 
-    elif opcode == Opcodes.LBU:
-      __check_protected_reg(inst.reg)
-
-      with AFLAGS_CTX(REG(inst.reg)):
-        REG(inst.reg).u16 = MEM_IN16(OFFSET_ADDR(inst)).u16
-
     elif opcode == Opcodes.LI:
       __check_protected_reg(inst.reg)
 
@@ -464,9 +472,6 @@ class CPUCore(object):
 
     elif opcode == Opcodes.STB:
       MEM_OUT8(OFFSET_ADDR(inst), REG(inst.reg).u16 & 0xFF)
-
-    elif opcode == Opcodes.STBU:
-      MEM_OUT8(OFFSET_ADDR(inst), (REG(inst.reg).u16 & 0xFF00) >> 8)
 
     elif opcode == Opcodes.MOV:
       REG(inst.reg1).u16 = REG(inst.reg2).u16
@@ -658,7 +663,7 @@ class CPUCore(object):
       if FLAGS().s == 0 and FLAGS().e == 0:
         JUMP(inst)
 
-    elif opcode == Opcodes.BE:
+    elif opcode == Opcodes.BL:
       if FLAGS().s == 1 and FLAGS().e == 0:
         JUMP(inst)
 
@@ -850,21 +855,28 @@ def cmd_cont(console, cmd):
   Continue execution until next breakpoint is reached
   """
 
-  if console.default_core.current_suspend_event:
-    console.default_core.current_suspend_event.set()
+  core = console.default_core if hasattr(console, 'default_core') else console.machine.cpus[0].cores[0]
+
+  if not core.current_suspend_event:
+    return
+
+  core.current_suspend_event.set()
 
 def cmd_step(console, cmd):
   """
   Step one instruction forward
   """
 
-  core = console.default_core
+  core = console.default_core if hasattr(console, 'default_core') else console.machine.cpus[0].cores[0]
+
+  if not core.current_suspend_event:
+    return
 
   try:
     core.step()
     core.check_for_events()
 
-    log_cpu_core_state(console.default_core, logger = console.info)
+    log_cpu_core_state(core, logger = console.info)
 
   except CPUException, e:
     core.die(e)
@@ -874,7 +886,10 @@ def cmd_next(console, cmd):
   Proceed to the next instruction in the same stack frame.
   """
 
-  core = console.default_core
+  core = console.default_core if hasattr(console, 'default_core') else console.machine.cpus[0].cores[0]
+
+  if not core.current_suspend_event:
+    return
 
   def __ip_addr(offset = 0):
     return core.CS_ADDR(core.IP().u16 + offset)
@@ -894,7 +909,7 @@ def cmd_next(console, cmd):
       core.step()
       core.check_for_events()
 
-      log_cpu_core_state(console.default_core, logger = console.info)
+      log_cpu_core_state(core, logger = console.info)
 
   except CPUException, e:
     core.die(e)
@@ -904,10 +919,25 @@ def cmd_core_state(console, cmd):
   Print core state
   """
 
-  log_cpu_core_state(console.default_core, logger = console.info)
+  core = console.default_core if hasattr(console, 'default_core') else console.machine.cpus[0].cores[0]
 
-console.Console.register_command('set_core', cmd_set_core)
+  log_cpu_core_state(core, logger = console.info)
+
+def cmd_bt(console, cmd):
+  core = console.default_core if hasattr(console, 'default_core') else console.machine.cpus[0].cores[0]
+
+  table = [
+    ['Index', 'symbol', 'offset', 'ip']
+  ]
+
+  for index, (ip, symbol, offset) in enumerate(core.backtrace()):
+    table.append([index, symbol, UINT16_FMT(offset), ADDR_FMT(ip)])
+
+  print_table(table)
+
+console.Console.register_command('sc', cmd_set_core)
 console.Console.register_command('cont', cmd_cont)
 console.Console.register_command('step', cmd_step)
 console.Console.register_command('next', cmd_next)
-console.Console.register_command('core_state', cmd_core_state)
+console.Console.register_command('st', cmd_core_state)
+console.Console.register_command('bt', cmd_bt)
