@@ -2,7 +2,7 @@ import ctypes
 import os
 
 from cpu.registers import FlagsRegister
-from mm import PAGE_SIZE
+from mm import PAGE_SIZE, UINT8_FMT, UINT16_FMT, UINT24_FMT, SIZE_FMT, ADDR_FMT
 from util import BinaryFile, debug, info
 from ctypes import c_ubyte, c_ushort, c_uint, LittleEndianStructure
 
@@ -53,6 +53,9 @@ class MemorySegmentState(LittleEndianStructure):
     ('index', c_ushort)
   ]
 
+  def __repr__(self):
+    return '<MemorySegmentState: index=%s>' % UINT8_FMT(self.index)
+
 class MemoryPageState(LittleEndianStructure):
   _pack_ = 0
   _fields_ = [
@@ -63,6 +66,9 @@ class MemoryPageState(LittleEndianStructure):
     ('dirty', c_ubyte, 1),
     ('content', c_ubyte * PAGE_SIZE)
   ]
+
+  def __repr__(self):
+    return '<MemoryPageState: index=%s, r=%s, w=%s, x=%s, d=%s>' % (self.index, self.read, self.write, self.execute, self.dirty)
 
 class MMapAreaState(LittleEndianStructure):
   _pack_ = 0
@@ -81,6 +87,9 @@ class MemoryState(LittleEndianStructure):
     ('segments', c_uint),
     ('pages', c_uint)
   ]
+
+  def __repr__(self):
+    return '<MemoryState: size=%s, irq_table_address=%s, int_table_address=%s, segments=%s, pages=%s>' % (SIZE_FMT(self.size), ADDR_FMT(self.irq_table_address), ADDR_FMT(self.int_table_address), SIZE_FMT(self.segments), SIZE_FMT(self.pages))
 
 class VMState(object):
   def __init__(self):
