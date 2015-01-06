@@ -114,16 +114,16 @@ def uint32_to_buff(i, buff, offset):
   buff[offset + 3] = (i & 0xFF000000) >> 24
 
 def get_code_entry_address(s_header, s_content):
+  from cpu.assemble import Label
+
   for entry in s_content:
-    if hasattr(entry, 'get_name') and entry.get_name() != 'main':
-      continue
+    if hasattr(entry, 'get_name') and entry.get_name() == 'main':
+      debug('"main" function found, use as an entry point')
+      return UInt16(entry.address)
 
-    if hasattr(entry, 'name') and entry.name.name != 'main':
-      continue
-
-    debug('"main" function found, use as an entry point')
-
-    return UInt16(entry.address) if hasattr(entry, 'address') else entry.section_ptr
+    if hasattr(entry, 'name') and isinstance(entry.name, Label) and entry.name.name == 'main':
+      debug('"main" function found, use as an entry point')
+      return entry.section_ptr
 
   else:
     return None
