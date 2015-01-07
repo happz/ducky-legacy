@@ -9,7 +9,7 @@ import mm
 import machine.bus
 
 from cpu.errors import InvalidResourceError
-from util import debug, info, warn
+from util import debug, info, warn, error, str2int
 from mm import SEGM_FMT, ADDR_FMT, UINT8_FMT, UINT16_FMT, segment_base_addr, UInt16
 
 import irq
@@ -71,7 +71,7 @@ class Machine(object):
 
     return (None, None)
 
-  def hw_setup(self, cpus = 1, cores = 1, memory_size = None, binaries = None, breakpoints = None, irq_routines = None, storages = None, machine_in = None, machine_out = None):
+  def hw_setup(self, cpus = 1, cores = 1, memory_size = None, binaries = None, breakpoints = None, irq_routines = None, storages = None, mmaps = None, machine_in = None, machine_out = None):
     self.nr_cpus = cpus
     self.nr_cores = cores
 
@@ -142,6 +142,23 @@ class Machine(object):
 
       self.init_states.append((csr, dsr, sp, ip, False))
       self.binaries.append((csr, dsr, sp, ip, symbols))
+
+    mmaps = mmaps or []
+    for mmap in mmaps:
+      mmap = mmap.split(':')
+
+      if len(mmap) < 3:
+        error('Memory map area not specified correctly: %s' % mmap)
+        continue
+
+      file_path = mmap.pop(0)
+      address = str2int(mmap.pop(0))
+      size = str2int(mmap.pop(0))
+      offset = str2int(mmap.pop(0)) if mmap else 0
+      access = mmap.pop(0) if mmap else 'r'
+      shared = mmap.pop(0).lower() in ['true', 'y', 'yes', '1'] if mmap else False
+
+      self.memory.mmap_area(file_path, address, size, offset = offset, access = access, shared = shared)
 
     # Breakpoints
     from debugging import add_breakpoint

@@ -58,6 +58,13 @@ def main():
                        default = [],
                        help = 'Storage device')
 
+  opt_group.add_option('-m', '--mmap',
+                       dest = 'mmaps',
+                       action = 'append',
+                       default = [],
+                       metavar = 'file:address:size[:offset[:access[:shared]]][,...]',
+                       help = 'Map file into memory')
+
   opt_group.add_option('--machine-out',
                        dest = 'machine_out',
                        action = 'store',
@@ -121,6 +128,7 @@ def main():
              storages = options.storages,
              irq_routines = options.irq_routines,
              breakpoints = options.breakpoints,
+             mmaps = options.mmaps,
              machine_in = options.machine_in,
              machine_out = options.machine_out)
 

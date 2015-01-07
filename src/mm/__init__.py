@@ -238,7 +238,7 @@ class MemoryPage(object):
     self.do_clear()
 
   def read_u8(self, offset, privileged = False):
-    debug('mp.read_u8: page=%s, offset=%sX, priv=%s' % (PAGE_FMT(self.index), ADDR_FMT(offset), privileged))
+    debug('mp.read_u8: page=%s, offset=%s, priv=%s' % (PAGE_FMT(self.index), ADDR_FMT(offset), privileged))
 
     privileged or self.check_access(offset, 'read')
 
@@ -373,20 +373,23 @@ class MMapMemoryPage(MemoryPage):
     for i in range(0, PAGE_SIZE):
       self.data[i] = 0
 
+  def __get_byte(self, offset):
+    return ord(self.data[self.__offset + offset])
+
   def do_read_u8(self, offset):
     debug('mp.do_read_u8: page=%s, offset=%s' % (PAGE_FMT(self.index), ADDR_FMT(offset)))
 
-    return UInt8(self.data[self.__offset + offset])
+    return UInt8(self.__get_byte(offset))
 
   def do_read_u16(self, offset):
     debug('mp.do_read_u16: page=%s, offset=%s' % (PAGE_FMT(self.index), ADDR_FMT(offset)))
 
-    return UInt16(self.data[self.__offset + offset] | self.data[self.__offset + offset + 1] << 8)
+    return UInt16(self.__get_byte(offset) | self.__get_byte(offset + 1) << 8)
 
   def do_read_u32(self, offset):
     debug('mp.do_read_u32: page=%s, offset=%s' % (PAGE_FMT(self.index), ADDR_FMT(offset)))
 
-    return UInt32(self.data[self.__offset + offset] | self.data[self.__offset + offset + 1] << 8 | self.data[offset + offset + 2] << 16 | self.data[offset + offset + 3] << 24)
+    return UInt32(self.__get_byte(offset) | (self.__get_byte(offset + 1) << 8) | (self.__get_byte(offset + 2) << 16) | (self.__get_byte(offset + 3) << 24))
 
   def do_write_u8(self, offset, value):
     debug('mp.do_write_u8: page=%s, offset=%s, value=%s' % (PAGE_FMT(self.index), ADDR_FMT(offset), UINT8_FMT(value)))
@@ -730,9 +733,8 @@ class MemoryController(object):
     desc[1].close()
     del self.opened_mmap_files[file_path]
 
-  def mmap_area(self, file_path, offset, size, address, access, shared):
-    debug('mc.mmap_area: file=0x08X, offset=%s, size=%s, address=%s, access=%s, shared=%s',
-          file_path, offset, SIZE_FMT(size), ADDR_FMT(address), str(access), shared)
+  def mmap_area(self, file_path, address, size, offset = 0, access = 'r', shared = False):
+    debug('mc.mmap_area: file=%s, offset=%s, size=%s, address=%s, access=%s, shared=%s' % (file_path, offset, SIZE_FMT(size), ADDR_FMT(address), str(access), shared))
 
     if size % PAGE_SIZE != 0:
       raise InvalidResourceError('Memory size must be multiple of PAGE_SIZE')
@@ -742,18 +744,20 @@ class MemoryController(object):
 
     pages_start, pages_cnt = area_to_pages(address, size)
 
-    def __assert_page_missing(page_index):
+    def __assert_page_missing(page_index, area_index):
       if page_index in self.__pages:
         raise InvalidResourceError('MMap request overlaps with existing pages')
 
     self.for_each_page(pages_start, pages_cnt, __assert_page_missing)
 
+    access = access.lower()
+
     mmap_flags = mmap.MAP_SHARED if shared else mmap.MAP_PRIVATE
 
     mmap_prot = 0
-    if access.flags.read:
+    if 'r' in access:
       mmap_prot |= mmap.PROT_READ
-    if access.flags.write:
+    if 'w' in access:
       mmap_prot |= mmap.PROT_WRITE
 
     ptr = mmap.mmap(
@@ -770,10 +774,12 @@ class MemoryController(object):
 
     self.reset_pages_flags(pages_start, pages_cnt)
 
-    if access.flags.read:
-      self.update_pages_flags(pages_start, pages_cnt, 'read', 1)
-    if access.flags.write:
-      self.update_pages_flags(pages_start, pages_cnt, 'write', 1)
+    if 'r' in access:
+      self.update_pages_flags(pages_start, pages_cnt, 'read', True)
+    if 'w' in access:
+      self.update_pages_flags(pages_start, pages_cnt, 'write', True)
+    if 'x' in access:
+      self.update_pages_flags(pages_start, pages_cnt, 'execute', True)
 
     return MMapArea(address, size, file_path, ptr, pages_start, pages_cnt)
 
