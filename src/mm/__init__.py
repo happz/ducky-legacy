@@ -376,6 +376,9 @@ class MMapMemoryPage(MemoryPage):
   def __get_byte(self, offset):
     return ord(self.data[self.__offset + offset])
 
+  def __put_char(self, offset, b):
+    self.data[self.__offset + offset] = chr(b)
+
   def do_read_u8(self, offset):
     debug('mp.do_read_u8: page=%s, offset=%s' % (PAGE_FMT(self.index), ADDR_FMT(offset)))
 
@@ -394,17 +397,21 @@ class MMapMemoryPage(MemoryPage):
   def do_write_u8(self, offset, value):
     debug('mp.do_write_u8: page=%s, offset=%s, value=%s' % (PAGE_FMT(self.index), ADDR_FMT(offset), UINT8_FMT(value)))
 
-    self.data[self.__offset + offset] = value
+    self.__put_char(offset, value)
 
   def do_write_u16(self, offset, value):
     debug('mp.do_write_u16: page=%s, offset=%s, value=%s' % (PAGE_FMT(self.index), ADDR_FMT(offset), UINT16_FMT(value)))
 
-    uint16_to_buff(value, self.data, self.__offset + offset)
+    self.__put_char(offset, value & 0x00FF)
+    self.__put_char(offset + 1, (value & 0xFF00) >> 8)
 
   def do_write_u32(self, offset, value):
-    debug('mp.do_write_u32: page=%s, offset=%s, value=%s' % (PAGE_FMT(self.index), ADDR_FMT(offset), UINT16_FMT(value)))
+    debug('mp.do_write_u32: page=%s, offset=%s, value=%s' % (PAGE_FMT(self.index), ADDR_FMT(offset), UINT32_FMT(value)))
 
-    uint32_to_buff(value, self.data, self.__offset + offset)
+    self.__put_char(offset, value & 0x00FF)
+    self.__put_char(offset + 1, (value & 0xFF00) >> 8)
+    self.__put_char(offset + 2, (value & 0xFF0000) >> 16)
+    self.__put_char(offset + 3, (value & 0xFF000000) >> 24)
 
   def do_read_block(self, offset, size):
     return self.data[self.__offset + offset:self.__offset + offset + size]
@@ -716,7 +723,7 @@ class MemoryController(object):
 
   def __get_mmap_fileno(self, file_path):
     if file_path not in self.opened_mmap_files:
-      self.opened_mmap_files[file_path] = [0, open(file_path, 'rwb')]
+      self.opened_mmap_files[file_path] = [0, open(file_path, 'r+b')]
 
     desc = self.opened_mmap_files[file_path]
 
