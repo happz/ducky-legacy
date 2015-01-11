@@ -86,20 +86,3 @@ int_routine_2:
   pop r6
   pop r5
   retint
-
-writeln:
-  # > r0: string address
-  push r1
-.__writeln_loop:
-  lb r1, r0
-  bz &.__writeln_crlf
-  outb $PORT_STDOUT, r1
-  inc r1
-  j &.__writeln_loop
-.__writeln_crlf:
-  li r1, 0xA
-  outb $PORT_STDOUT, r1
-  li r1, 0xD
-  outb $PORT_STDOUT, r1
-  pop r1
-  ret
