@@ -1,15 +1,16 @@
 import enum
 import Queue
 import re
-import threading
 
 from util import debug
+
+from threading2 import current_thread, RLock, Condition, Event
 
 ADDRESS_ALL = (-1, -1)
 ADDRESS_ANY = (-1,  0)
 
 def thread_to_cid():
-  cid = threading.current_thread().name.split(' ')[1].split(':')
+  cid = current_thread().name.split(' ')[1].split(':')
 
   return (int(cid[0][1:]), int(cid[1][1:]))
 
@@ -26,15 +27,15 @@ class BaseMessage(object):
     self.audience = audience
 
     if audience:
-      self.lock = threading.RLock()
-      self.cond = threading.Condition(self.lock)
+      self.lock = RLock()
+      self.cond = Condition(self.lock)
       self.delivered_to = 0
 
   def delivered(self):
     if not self.audience:
       return
 
-    debug('msg.delivered: msg=%s, thread=%s' % (self.__class__.__name__, threading.current_thread().name))
+    debug('msg.delivered: msg=%s, thread=%s', self.__class__.__name__, current_thread().name)
 
     with self.lock:
       self.delivered_to += 1
@@ -47,7 +48,7 @@ class BaseMessage(object):
     if not self.audience:
       return
 
-    debug('msg.wait: msg=%s, thread=%s' % (self.__class__.__name__, threading.current_thread().name))
+    debug('msg.wait: msg=%s, thread=%s', self.__class__.__name__, current_thread().name)
 
     with self.lock:
       self.cond.wait()
@@ -65,7 +66,7 @@ class SuspendCore(BaseMessage):
   def __init__(self, *args, **kwargs):
     super(SuspendCore, self).__init__(*args, **kwargs)
 
-    self.wake_up = threading.Event()
+    self.wake_up = Event()
     self.wake_up.clear()
 
 class MessageBus(object):
@@ -78,13 +79,13 @@ class MessageBus(object):
       }
     }
 
-    self.lock = threading.RLock()
-    self.condition = threading.Condition(self.lock)
+    self.lock = RLock()
+    self.condition = Condition(self.lock)
 
   def register(self):
     cpuid, coreid = thread_to_cid()
 
-    debug('bus.register: core=#%i:#%i' % (cpuid, coreid))
+    debug('bus.register: core=#%i:#%i', cpuid, coreid)
 
     with self.lock:
       if cpuid not in self.messages:
@@ -104,7 +105,7 @@ class MessageBus(object):
     return self.messages[-1][0]
 
   def publish(self, msg, high_priority = False):
-    debug('bus.publish: msg=%s, addr=%s' % (msg.__class__.__name__, msg.address))
+    debug('bus.publish: msg=%s, addr=%s', msg.__class__.__name__, msg.address)
 
     def __enqueue(slot):
       if high_priority:
@@ -119,7 +120,7 @@ class MessageBus(object):
             continue
 
           for coreid, core_slot in core_slots.items():
-            debug('bus.publish: %s queued for #%i:#%i' % (msg.__class__.__name__, cpuid, coreid))
+            debug('bus.publish: %s queued for #%i:#%i', msg.__class__.__name__, cpuid, coreid)
             __enqueue(core_slot)
 
       else:

@@ -1,8 +1,9 @@
-import threading
 import tabulate
 
 from mm import ADDR_FMT
 from cpu.errors import CPUException
+
+from threading2 import Event
 
 class Point(object):
   point_index = 0
@@ -56,44 +57,39 @@ class DebuggingSet(object):
     del self.points[p.id]
 
   def check(self):
-    from util import debug, info
-
-    debug(self.owner.cpuid_prefix, 'check breakpoints')
+    self.owner.DEBUG('check breakpoints')
 
     for bp in self.points.values():
-      debug(self.owner.cpuid_prefix, bp)
+      self.owner.DEBUG(bp)
 
       if not bp.active:
-        debug(self.owner.cpuid_prefix, 'inactive, skipping')
+        self.owner.DEBUG('inactive, skipping')
 
         if bp.flip:
-          debug(self.owner.cpuid_prefix, 'point has flip flag set, activate it')
+          self.owner.DEBUG('point has flip flag set, activate it')
           bp.active = True
 
         continue
 
       if not bp.is_triggered():
-        debug(self.owner.cpuid_prefix, 'not triggered, skipping')
+        self.owner.DEBUG('not triggered, skipping')
         continue
 
-      info(self.owner.cpuid_prefix, 'Breakpoint triggered: %s' % bp)
+      self.owner.INFO('Breakpoint triggered: %s', bp)
 
       bp.active = False
 
       if bp.ephemeral:
         self.del_point(bp)
         bp.flip = False
-        del Point.points[self.id]
+        del Point.points[bp.id]
 
-      event = threading.Event()
+      event = Event()
       event.clear()
       self.owner.plan_suspend(event)
 
 def add_breakpoint(core, address, ephemeral = False):
-  from util import debug
-  from mm import ADDR_FMT
-
-  debug('add_breakpoint: core=%s, address=%s, ephemeral=%s' % (core, ADDR_FMT(address), ephemeral))
+  core.DEBUG('add_breakpoint: address=%s, ephemeral=%s', address, ephemeral)
 
   p = BreakPoint(core.debug, address)
 

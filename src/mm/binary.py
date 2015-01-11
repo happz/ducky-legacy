@@ -164,7 +164,7 @@ class File(BinaryFile):
     for i in range(0, self.__header.sections):
       header, content = self.__sections[i]
 
-      debug('load: loading section #%i' % header.index)
+      debug('load: loading section #%i', header.index)
 
       self.seek(header.offset)
 
@@ -199,7 +199,7 @@ class File(BinaryFile):
       header.size = header.items * SECTION_ITEM_SIZE[header.type]
       header.offset = offset
 
-      debug('save: section=%s, items=%s, size=%s, offset=%s' % (header.get_name(), header.items, header.size, header.offset))
+      debug('save: section=%s, items=%s, size=%s, offset=%s', header.get_name(), header.items, header.size, header.offset)
 
       offset += header.size
 
@@ -213,7 +213,7 @@ class File(BinaryFile):
     for i in range(0, len(self.__sections)):
       header, content = self.__sections[i]
 
-      debug('save: saving section #%i' % header.index)
+      debug('save: saving section #%i', header.index)
 
       self.seek(header.offset)
 

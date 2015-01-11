@@ -1,10 +1,11 @@
 import os
 import stat
-import threading
 
 from io_handlers import IOHandler
 from mm import ADDR_FMT, UINT8_FMT, UInt8, UInt16, UInt24, UInt32, segment_addr_to_addr
 from util import debug, warn
+
+from threading2 import Thread, Lock, Event
 
 BLOCK_SIZE = 1024
 
@@ -17,12 +18,12 @@ class StorageIOHandler(IOHandler):
 
     self.machine = machine
 
-    self.lock = threading.Lock()
+    self.lock = Lock()
 
     self.op_index = 0
     self.op = None
 
-    self.finished_event = threading.Event()
+    self.finished_event = Event()
     self.finished_event.clear()
 
   def read_u16_512(self):
@@ -58,11 +59,11 @@ class StorageIOHandler(IOHandler):
     if len(self.op) != 7:
       return
 
-    debug('start SIO: %s' % str(self.op))
+    debug('start SIO: %s', str(self.op))
 
     device = self.machine.get_storage_by_id(str(self.op[1]))
     if not device:
-      warn('SIO attempt to access unknown device %s' % self.op[1])
+      warn('SIO attempt to access unknown device %s', self.op[1])
       self.finished_event.set()
       return
 
@@ -78,8 +79,8 @@ class StorageIOHandler(IOHandler):
 
     target = device.read_block if read else device.write_block
 
-    debug('start SIO thread: target=%s, args=%s' % (target, str((src, dst, cnt, self.finished_event))))
-    sio_thread = threading.Thread(target = target, args = (src, dst, cnt, self.finished_event))
+    debug('start SIO thread: target=%s, args=%s', target, str((src, dst, cnt, self.finished_event)))
+    sio_thread = Thread(target = target, args = (src, dst, cnt, self.finished_event), priority = 0.0)
     sio_thread.start()
 
 class Storage(object):
@@ -91,7 +92,7 @@ class Storage(object):
     self.size = size
 
   def read_block(self, src, dst, cnt, event):
-    debug('read_block: id=%s, src=%s, dst=%s, cnt=%s' % (self.id, src, dst, cnt))
+    debug('read_block: id=%s, src=%s, dst=%s, cnt=%s', self.id, src, dst, cnt)
     
     if src.u32 + cnt.u8 * BLOCK_SIZE >= self.size.u24:
       raise StorageAccessError('Out of bounds access: storage size %s is too small' % self.size)
@@ -101,7 +102,7 @@ class Storage(object):
     event.set()
 
   def write_block(self, src, dst, cnt, event):
-    debug('write_block: id=%s, src=%s, dst=%s, cnt=%s' % (self.id, src, dst, cnt))
+    debug('write_block: id=%s, src=%s, dst=%s, cnt=%s', self.id, src, dst, cnt)
 
     if dst.u32 + BLOCK_SIZE * cnt.u8 >= self.size.u32:
       raise StorageAccessError('Out of bounds access: storage size %s is too small' % self.size)
@@ -116,7 +117,7 @@ class FileBackedStorage(Storage):
 
     super(FileBackedStorage, self).__init__(machine, id, UInt24(st.st_size))
 
-    self.lock = threading.Lock()
+    self.lock = Lock()
     self.path = path
     self.file = None
 
@@ -127,7 +128,7 @@ class FileBackedStorage(Storage):
     self.file.close()
 
   def do_read_block(self, src, dst, cnt):
-    debug('do_read_block: src=%s, dst=%s, cnt=%s' % (src, dst, cnt))
+    debug('do_read_block: src=%s, dst=%s, cnt=%s', src, dst, cnt)
 
     with self.lock:
       self.file.seek(src.u32)

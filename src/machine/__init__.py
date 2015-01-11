@@ -1,7 +1,6 @@
 import Queue
 import sys
 import time
-import threading
 import types
 
 import cpu
@@ -9,7 +8,7 @@ import mm
 import machine.bus
 
 from cpu.errors import InvalidResourceError
-from util import debug, info, warn, error, str2int
+from util import debug, info, error, str2int
 from mm import SEGM_FMT, ADDR_FMT, UINT8_FMT, UINT16_FMT, segment_base_addr, UInt16
 
 import irq
@@ -17,6 +16,8 @@ import irq.conio
 
 import io_handlers
 import io_handlers.conio
+
+from threading2 import Thread
 
 class Machine(object):
   def core(self, core_address):
@@ -41,9 +42,16 @@ class Machine(object):
   def for_core(self, core_address, callback, *args, **kwargs):
     callback(self.core(core_address), *args, **kwargs)
 
+  def for_each_irq(self, callback, *args, **kwargs):
+    for src in self.irq_sources:
+      if not src:
+        continue
+
+      callback(src, *args, **kwargs)
+
   def get_storage_by_id(self, id):
-    debug('get_storage_by_id: id=%s' % id)
-    debug('storages: %s' % str(self.storages))
+    debug('get_storage_by_id: id=%s', id)
+    debug('storages: %s', str(self.storages))
 
     return self.storages.get(id, None)
 
@@ -97,18 +105,17 @@ class Machine(object):
 
     self.conio = io_handlers.conio.ConsoleIOHandler(machine_in, machine_out)
     self.conio.echo = True
-    self.conio.crlf = True
 
     self.register_port(0x100, self.conio)
     self.register_port(0x101, self.conio)
 
-    self.register_irq_source(irq.IRQList.CONIO, irq.conio.Console(self.conio))
+    self.register_irq_source(irq.IRQList.CONIO, irq.conio.Console(self, self.conio))
     #self.register_irq_source(irq.IRQList.TIMER, irq.timer.Timer(10))
 
     self.memory.boot()
 
     if irq_routines:
-      info('Loading IRQ routines from file %s' % irq_routines)
+      info('Loading IRQ routines from file %s', irq_routines)
 
       from mm import UInt8, UInt16, UInt24
 
@@ -121,7 +128,7 @@ class Machine(object):
 
       def __save_iv(name, table, index):
         if name not in symbols:
-          debug('Interrupt routine %s not found' % name)
+          debug('Interrupt routine %s not found', name)
           return
 
         desc.ip = symbols[name].u16
@@ -138,7 +145,7 @@ class Machine(object):
     for bc_file in binaries:
       csr, dsr, sp, ip, symbols = self.memory.load_file(bc_file)
 
-      debug('init state: csr=%s, dsr=%s, sp=%s, ip=%s' % (SEGM_FMT(csr.u8), SEGM_FMT(dsr.u8), ADDR_FMT(sp.u16), ADDR_FMT(ip.u16)))
+      debug('init state: csr=%s, dsr=%s, sp=%s, ip=%s', csr, dsr, sp, ip)
 
       self.init_states.append((csr, dsr, sp, ip, False))
       self.binaries.append((csr, dsr, sp, ip, symbols))
@@ -148,7 +155,7 @@ class Machine(object):
       mmap = mmap.split(':')
 
       if len(mmap) < 3:
-        error('Memory map area not specified correctly: %s' % mmap)
+        error('Memory map area not specified correctly: %s', mmap)
         continue
 
       file_path = mmap.pop(0)
@@ -228,16 +235,7 @@ class Machine(object):
 
   def loop(self):
     while self.keep_running:
-      time.sleep(cpu.CPU_SLEEP_QUANTUM)
-
-      for src in self.irq_sources:
-        if not src:
-          continue
-
-        if not src.on_tick():
-          continue
-
-        self.message_bus.publish(bus.HandleIRQ(bus.ADDRESS_ANY, src))
+      time.sleep(10 * cpu.CPU_SLEEP_QUANTUM)
 
       if len([_cpu for _cpu in self.cpus if _cpu.thread.is_alive()]) == 0:
         info('Machine halted')
@@ -247,12 +245,14 @@ class Machine(object):
     for handler in self.ports:
       handler.boot()
 
+    self.for_each_irq(lambda src: src.boot())
+
     for storage in self.storages.values():
       storage.boot()
 
     self.for_each_cpu(lambda __cpu, machine: __cpu.boot(machine.init_states), self)
 
-    info('Guest terminal available at %s' % self.conio.get_terminal_dev())
+    info('Guest terminal available at %s', self.conio.get_terminal_dev())
 
   def run(self):
     for handler in self.ports:
@@ -260,7 +260,7 @@ class Machine(object):
 
     self.for_each_cpu(lambda __cpu: __cpu.run())
 
-    self.thread = threading.Thread(target = self.loop, name = 'Machine')
+    self.thread = Thread(target = self.loop, name = 'Machine', priority = 0.0)
     self.thread.start()
 
   def suspend(self):
@@ -284,6 +284,8 @@ class Machine(object):
 
     halt_msg.wait()
 
+    self.for_each_irq(lambda src: src.halt())
+
     for handler in self.ports:
       handler.halt()
 
@@ -291,7 +293,7 @@ class Machine(object):
       storage.halt()
 
     if not self.thread:
-      self.thread = threading.Thread(target = self.loop, name = 'Machine')
+      self.thread = Thread(target = self.loop, name = 'Machine', priority = 0.0)
 
   def wait(self):
     while not self.thread or self.thread.is_alive():

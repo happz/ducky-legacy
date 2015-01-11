@@ -1,5 +1,6 @@
 import colorama
 import enum
+import functools
 import sys
 import threading
 import tabulate
@@ -22,25 +23,24 @@ def str2int(s):
 
   return int(s)
 
-def debug(*args):
+def __active_log(verbosity_level, *args):
   global CONSOLE
-  CONSOLE.writeln(VerbosityLevels.DEBUG, *args)
+  CONSOLE.writeln(verbosity_level, *args)
 
-def info(*args):
-  global CONSOLE
-  CONSOLE.writeln(VerbosityLevels.INFO, *args)
+__active_debug = functools.partial(__active_log, VerbosityLevels.DEBUG)
+__active_info  = functools.partial(__active_log, VerbosityLevels.INFO)
+__active_warn  = functools.partial(__active_log, VerbosityLevels.WARNING)
+__active_error = functools.partial(__active_log, VerbosityLevels.ERROR)
+__active_quiet = functools.partial(__active_log, VerbosityLevels.QUIET)
 
-def warn(*args):
-  global CONSOLE
-  CONSOLE.writeln(VerbosityLevels.WARNING, *args)
+def __inactive_log(*args):
+  pass
 
-def error(*args):
-  global CONSOLE
-  CONSOLE.writeln(VerbosityLevels.ERROR, *args)
-
-def quiet(*args):
-  global CONSOLE
-  CONSOLE.writeln(VerbosityLevels.QUIET, *args)
+debug = __active_debug
+info  = __active_info
+warn  = __active_warn
+error = __active_error
+quiet = __active_quiet
 
 def print_table(table, fn = info, **kwargs):
   for line in tabulate.tabulate(table, headers = 'firstrow', tablefmt = 'simple', numalign = 'right').split('\n'):
@@ -62,13 +62,13 @@ class BinaryFile(file):
     st = st_class()
     self.readinto(st)
 
-    debug('read_struct: %s: %s bytes: %s' % (pos, sizeof(st_class), st))
+    debug('read_struct: %s: %s bytes: %s', pos, sizeof(st_class), st)
 
     return st
 
   def write_struct(self, st):
     pos = self.tell()
 
-    debug('write_struct: %s: %s bytes: %s' % (pos, sizeof(st), st))
+    debug('write_struct: %s: %s bytes: %s', pos, sizeof(st), st)
 
     self.write(st)

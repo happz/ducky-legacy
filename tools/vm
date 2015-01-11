@@ -73,8 +73,8 @@ def main():
                        help = 'Log machine output into FILE')
   opt_group.add_option('--machine-in',
                        dest = 'machine_in',
-                       action = 'store',
-                       default = None,
+                       action = 'append',
+                       default = [],
                        metavar = 'FILE',
                        help = 'Read machine input from FILE')
 

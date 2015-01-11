@@ -55,6 +55,27 @@ class Tests(unittest.TestCase):
     self.common_case('main:\nli r0, 5\nli r1, 0\nmul r0, r1\nint 0', z = 1)
     self.common_case('main:\nli r0, 5\nmul r0, 0\nint 0', z = 1)
 
+  def test_div(self):
+    self.common_case('main:\nli r0, 10\nli r1, 2\ndiv r0, r1\nint 0', r0 = 5, r1 = 2)
+    self.common_case('main:\nli r0, 10\ndiv r0, 2\nint 0', r0 = 5)
+    self.common_case('main:\nli r0, 0\nli r1, 2\ndiv r0, r1\nint 0', r1 = 2, z = 1)
+    self.common_case('main:\nli r0, 0\ndiv r0, 2\nint 0', z = 1)
+    self.common_case('main:\nli r0, 10\nli r1, 20\ndiv r0, r1\nint 0', r1 = 20, z = 1)
+    self.common_case('main:\nli r0, 10\ndiv r0, 20\nint 0', z = 1)
+    # TODO: division by zeor
+
+  def test_mod(self):
+    #self.common_case('main:\nli r0, 10\nli r1, 0\nmod r0, r1\nint 0', r0 = 10)
+    #self.common_case('main:\nli r0, 10\nmod r0, 0\nint 0', r0 = 10)
+    self.common_case('main:\nli r0, 10\nli r1, 1\nmod r0, r1\nint 0', r1 = 1, z = 1)
+    self.common_case('main:\nli r0, 10\nmod r0, 1\nint 0', z = 1)
+    self.common_case('main:\nli r0, 10\nli r1, 2\nmod r0, r1\nint 0', r1 = 2, z = 1)
+    self.common_case('main:\nli r0, 10\nmod r0, 2\nint 0', z = 1)
+    self.common_case('main:\nli r0, 10\nli r1, 3\nmod r0, r1\nint 0', r0 = 1, r1 = 3)
+    self.common_case('main:\nli r0, 10\nmod r0, 3\nint 0', r0 = 1)
+    self.common_case('main:\nli r0, 10\nli r1, 4\nmod r0, r1\nint 0', r0 = 2, r1 = 4)
+    self.common_case('main:\nli r0, 10\nmod r0, 4\nint 0', r0 = 2)
+
   def test_and(self):
     self.common_case('main:\nli r0, 0xFFFF\nli r1, 0x0008\nand r0, r1\nint 0', r0 = 0x0008, r1 = 0x0008)
     self.common_case('main:\nli r0, 0x0008\nli r1, 0x0004\nand r0, r1\nint 0', r1 = 0x0004, z = 1)

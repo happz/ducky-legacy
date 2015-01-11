@@ -165,7 +165,7 @@ class CoreDumpFile(BinaryFile):
     return state
 
   def save(self, state):
-    debug('coredump.save: state=%s' % state)
+    debug('coredump.save: state=%s', state)
 
     self.seek(0)
 

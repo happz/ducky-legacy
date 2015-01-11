@@ -1,10 +1,12 @@
 import colorama
-import threading
 import enum
 import select
+import sys
 import tabulate
 import traceback
 import types
+
+from threading2 import Thread, Lock, Event
 
 CONSOLE_ID = 0
 
@@ -46,9 +48,9 @@ class Console(object):
 
     self.verbosity = VerbosityLevels.ERROR
 
-    self.lock = threading.Lock()
+    self.lock = Lock()
 
-    self.new_line_event = threading.Event()
+    self.new_line_event = Event()
 
     self.keep_running = True
     self.thread = None
@@ -65,8 +67,34 @@ class Console(object):
     if name in cls.commands:
       del cls.commands[name]
 
+  def patch_log_functions(self):
+    def __activate_util(name):
+      setattr(sys.modules['util'], name, getattr(sys.modules['util'], '__active_' + name))
+      setattr(self, name, getattr(self, '_Console__active_' + name))
+
+    def __reset():
+      for f in ['quiet', 'error', 'warn', 'info', 'debug']:
+        setattr(sys.modules['util'], f, getattr(sys.modules['util'], '__inactive_log'))
+        setattr(self, f, self.__inactive_log)
+
+    __reset()
+
+    if self.verbosity >= VerbosityLevels.DEBUG:
+      __activate_util('debug')
+
+    if self.verbosity >= VerbosityLevels.INFO:
+      __activate_util('info')
+
+    if self.verbosity >= VerbosityLevels.WARNING:
+      __activate_util('warn')
+
+    if self.verbosity >= VerbosityLevels.ERROR:
+      __activate_util('error')
+
   def set_verbosity(self, level):
     self.verbosity = level + 1
+
+    self.patch_log_functions()
 
   def set_logfile(self, path):
     self.logfile = open(path, 'wb')
@@ -78,6 +106,8 @@ class Console(object):
     self.write('#> ')
 
   def write(self, buff, flush = True):
+    flush = False
+
     if type(buff) == types.ListType:
       buff = ''.join([chr(c) for c in buff])
 
@@ -97,29 +127,41 @@ class Console(object):
     if level > self.verbosity:
       return
 
+    fmt = args[0]
+    args = tuple(args[1:]) if len(args) else ()
+
     msg = '{color_start}[{level}] {msgs}{color_stop}\n'.format(**{
       'color_start': COLORS[level],
       'color_stop':  colorama.Fore.RESET + colorama.Back.RESET + colorama.Style.RESET_ALL,
       'level':       LEVELS[level],
-      'msgs':        ' '.join([str(a) for a in args])
+      'msgs':        fmt % args
     })
 
     self.write(msg)
 
-  def info(self, *args):
+  def __inactive_log(self, verbosity_level, fmt, *args):
+    pass
+
+  def __active_info(self, *args):
     self.writeln(VerbosityLevels.INFO, *args)
 
-  def debug(self, *args):
+  def __active_debug(self, *args):
     self.writeln(VerbosityLevels.DEBUG, *args)
 
-  def warn(self, *args):
+  def __active_warn(self, *args):
     self.writeln(VerbosityLevels.WARNING, *args)
 
-  def error(self, *args):
+  def __active_error(self, *args):
     self.writeln(VerbosityLevels.ERROR, *args)
 
-  def quiet(self, *args):
+  def __active_quiet(self, *args):
     self.writeln(VerbosityLevels.QUIET, *args)
+
+  quiet = __active_quiet
+  error = __active_error
+  warn  = __active_warn
+  info  = __active_info
+  debug = __active_debug
 
   def execute(self, cmd):
     if cmd[0] not in self.commands:
@@ -238,8 +280,7 @@ class Console(object):
     cid = Console.console_id
     Console.console_id += 1
 
-    self.thread = threading.Thread(target = self.loop, name = 'Console #%i' % cid)
-    self.thread.daemon = True
+    self.thread = Thread(target = self.loop, name = 'Console #%i' % cid, daemon = True, priority = 0.0)
     self.thread.start()
 
 def cmd_help(console, cmd):
@@ -259,11 +300,11 @@ def cmd_help(console, cmd):
 
 def cmd_verbose(console, cmd):
   console.verbosity = min(console.verbosity + 1, VerbosityLevels.DEBUG)
-  console.info('New verbosity level is %s' % console.verbosity)
+  console.info('New verbosity level is %s', console.verbosity)
 
 def cmd_quiet(console, cmd):
   console.verbosity = max(console.verbosity - 1, VerbosityLevels.QUIET)
-  console.info('New verbosity level is %s' % console.verbosity)
+  console.info('New verbosity level is %s', console.verbosity)
 
 Console.register_command('verbose', cmd_verbose)
 Console.register_command('quiet', cmd_quiet)

@@ -71,6 +71,9 @@ class Opcodes(enum.IntEnum):
   BL     = 47
   BLE    = 48
 
+  DIV    = 49
+  MOD    = 50
+
 class GenericInstBinaryFormat_Overall(LittleEndianStructure):
   _pack_ = 0
   _fields_ = [
@@ -114,7 +117,7 @@ def disassemble_instruction(inst):
 
 PO_REGISTER  = r'(?P<register_n{operand_index}>(?:r\d\d?)|(?:sp)|(?:fp)|(?:ds))'
 PO_AREGISTER = r'(?P<address_register>(?:r(\d\d?)|(sp)|(fp)))(?:\[(?P<shift>-)?(?P<offset>(?:0x[0-9a-fA-F]+|\d+))\])?'
-PO_IMMEDIATE = r'(?:(?P<immediate_hex>0x[0-9a-fA-F]+)|(?P<immediate_dec>\d+)|(?P<immediate_address>&[a-zA-Z_\.][a-zA-Z0-9_]*))'
+PO_IMMEDIATE = r'(?:(?P<immediate_hex>-?0x[0-9a-fA-F]+)|(?P<immediate_dec>-?\d+)|(?P<immediate_address>&[a-zA-Z_\.][a-zA-Z0-9_]*))'
 
 
 def BF_FLG(n):
@@ -721,6 +724,14 @@ class Inst_MUL(InstDescriptor_Generic_Binary_R_RI):
   mnemonic = 'mul'
   opcode = Opcodes.MUL
 
+class Inst_DIV(InstDescriptor_Generic_Binary_R_RI):
+  mnemonic = 'div'
+  opcode = Opcodes.DIV
+
+class Inst_MOD(InstDescriptor_Generic_Binary_R_RI):
+  mnemonic = 'mod'
+  opcode = Opcodes.MOD
+
 INSTRUCTIONS = [
 Inst_NOP(),
 Inst_INT(),
@@ -768,6 +779,8 @@ Inst_STB(),
 Inst_MOV(),
 Inst_SWP(),
 Inst_MUL(),
+Inst_DIV(),
+Inst_MOD(),
 ]
 
 def __create_binary_format_master_class():

@@ -297,7 +297,7 @@ def translate_buffer(buff, base_address = None):
     matches = r_ascii.match(line).groupdict()
 
     if 'value' in matches and matches['value']:
-      var.value = matches['value']
+      var.value = matches['value'].replace('\\r', '\r').replace('\\n', '\n')
 
     else:
       assert False, matches
@@ -306,10 +306,15 @@ def translate_buffer(buff, base_address = None):
     matches = r_string.match(line).groupdict()
 
     if 'value' in matches and matches['value']:
-      var.value = matches['value']
+      var.value = matches['value'].replace('\\r', '\r').replace('\\n', '\n')
 
     else:
       assert False, matches
+
+  def __parse_space(var, line):
+    matches = r_space.match(line).groupdict()
+
+    var.value = ''.join(['\0' for _ in range(0, int(matches['size']))])
 
   def __handle_symbol_variable(v_name, v_type):
     if v_type == 'char':
@@ -326,6 +331,9 @@ def translate_buffer(buff, base_address = None):
 
     elif v_type == 'string':
       var = StringSlot()
+
+    elif v_type == 'space':
+      var = AsciiSlot()
 
     var.name = Label(v_name, curr_section)
 
@@ -357,20 +365,23 @@ def translate_buffer(buff, base_address = None):
         elif v_type == 'string':
           __parse_string(var, line)
 
+        elif v_type == 'space':
+          __parse_space(var, line)
+
         else:
           raise CompilationError('Unknown variable type: %s' % v_type)
 
   r_ascii   = re.compile(r'\.ascii\s+"(?P<value>.*?)"')
   r_byte    = re.compile(r'\.byte\s+(?:(?P<value_hex>-?0x[a-fA-F0-9]+)|(?P<value_dec>(?:0)|(?:-?[1-9][0-9]*))|(?P<value_var>[a-zA-Z][a-zA-Z0-9_]*))')
   r_data    = re.compile(r'\.data\s+(?P<name>\.[a-z][a-z0-9_]*)?')
-  r_int     = re.compile(r'\.int\s+(?:(?P<value_hex>-?0x[a-fA-F0-9]+)|(?P<value_dec>0|(?:-?[1-9][0-9]*))|(?P<value_var>[a-zA-Z][a-zA-Z0-9_]*)|(?P<value_label>&[a-zA-Z][a-zA-Z0-9_]*))')
+  r_int     = re.compile(r'\.int\s+(?:(?P<value_hex>-?0x[a-fA-F0-9]+)|(?P<value_dec>0|(?:-?[1-9][0-9]*))|(?P<value_var>[a-zA-Z][a-zA-Z0-9_]*)|(?P<value_label>&[a-zA-Z_][a-zA-Z0-9_]*))')
   r_section = re.compile(r'\.section\s+(?P<name>\.[a-zA-z0-9_]+)(?:,\s*(?P<flags>[rwxb]*))?')
   r_set     = re.compile(r'\.set\s+(?P<name>[a-zA-Z_][a-zA-Z0-9_]*),\s*(?:(?P<value_hex>-?0x[a-fA-F0-9]+)|(?P<value_dec>0|(?:-?[1-9][0-9]*))|(?P<value_label>&[a-zA-Z][a-zA-Z0-9_]*))\s*$', re.MULTILINE)
   r_size    = re.compile(r'\.size\s+(?P<size>[1-9][0-9]*)')
   r_space   = re.compile(r'\.space\s+(?P<size>[1-9][0-9]*)')
   r_string  = re.compile(r'\.string\s+"(?P<value>.*?)"')
   r_text    = re.compile(r'\.text\s+(?P<name>\.[a-z][a-z0-9_]*)?')
-  r_type    = re.compile(r'\.type\s+(?P<name>[a-zA-Z_][a-zA-Z0-9_]*),\s*(?P<type>(?:char|byte|int|ascii|string))')
+  r_type    = re.compile(r'\.type\s+(?P<name>[a-zA-Z_][a-zA-Z0-9_]*),\s*(?P<type>(?:char|byte|int|ascii|string|space))')
 
   labels = []
   variables = {}
@@ -503,9 +514,7 @@ def translate_buffer(buff, base_address = None):
 
     if line.startswith('.space '):
       var = AsciiSlot()
-      matches = r_space.match(line).groupdict()
-
-      var.value = ''.join(['\0' for _ in range(0, int(matches['size']))])
+      __parse_space(var, line)
 
       assert len(labels) <= 1, 'Too many data labels: %s' % labels
 
@@ -639,7 +648,7 @@ def translate_buffer(buff, base_address = None):
             debug(ptr_prefix, 'reference "%s" replaced with %s' % (refers_to, ADDR_FMT(refers_to_addr)))
 
         if 'b' in section.flags:
-          section.ptr.u16 += v_size
+          section.ptr.u16 += var.size.u16
           continue
 
         if type(var) == IntSlot:

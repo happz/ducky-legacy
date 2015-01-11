@@ -15,7 +15,7 @@ def assert_registers(state, **regs):
   for i in range(0, cpu.registers.Registers.FLAGS):
     reg = 'r%i' % i
     val = regs.get(reg, 0)
-    assert getattr(state, reg) == val, 'Register %s expected to have value %s, %s found instead' % (reg, mm.UINT16_FMT(val), mm.UINT16_FMT(getattr(state, reg)))
+    assert getattr(state, reg) == val, 'Register %s expected to have value %s (%s), %s (%s) found instead' % (reg, mm.UINT16_FMT(val), val, mm.UINT16_FMT(getattr(state, reg)), getattr(state, reg))
 
 def assert_flags(state, **flags):
   assert state.flags.flags.privileged == flags.get('privileged', 1), 'PRIV flag expected to be %s' % flags.get('privileged', 1)
