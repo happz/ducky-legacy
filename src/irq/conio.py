@@ -1,5 +1,6 @@
 import machine.bus
 import irq
+import profiler
 
 from threading2 import Thread
 
@@ -10,6 +11,8 @@ class Console(irq.IRQSource):
     self.conio = conio
     self.thread = None
 
+    self.profiler = profiler.STORE.get_profiler()
+
   def boot(self):
     super(Console, self).boot()
 
@@ -17,8 +20,12 @@ class Console(irq.IRQSource):
     self.thread.start()
 
   def loop(self):
+    self.profiler.enable()
+
     while True:
       self.conio.read_raw_input()
 
       self.trigger()
+
+    self.profiler.disable()
 

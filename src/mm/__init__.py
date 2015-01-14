@@ -94,6 +94,9 @@ def segment_base_addr(segment):
 def segment_addr_to_addr(segment, addr):
   return segment_base_addr(segment) + addr
 
+def addr_to_segment(addr):
+  return (addr & 0xFF0000) >> 16
+
 def addr_to_page(addr):
   return (addr & PAGE_MASK) >> PAGE_SHIFT
 

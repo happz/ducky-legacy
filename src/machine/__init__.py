@@ -6,10 +6,11 @@ import types
 import cpu
 import mm
 import machine.bus
+import profiler
 
 from cpu.errors import InvalidResourceError
-from util import debug, info, error, str2int
-from mm import SEGM_FMT, ADDR_FMT, UINT8_FMT, UINT16_FMT, segment_base_addr, UInt16
+from util import debug, info, error, str2int, LRUCache
+from mm import SEGM_FMT, ADDR_FMT, UINT8_FMT, UINT16_FMT, segment_base_addr, UInt16, addr_to_segment, segment_addr_to_addr, UInt8
 
 import irq
 import irq.conio
@@ -18,6 +19,41 @@ import io_handlers
 import io_handlers.conio
 
 from threading2 import Thread
+
+class SymbolCache(LRUCache):
+  def __init__(self, machine, size, *args, **kwargs):
+    super(SymbolCache, self).__init__(size, *args, **kwargs)
+
+    self.machine = machine
+
+  def get_object(self, address):
+    cs = UInt8(addr_to_segment(address))
+    address = UInt16(address & 0xFFFF)
+
+    debug('SymbolCache.get_object: cs=%s, address=%s', cs, address)
+
+    for csr, dsr, sp, ip, symbols in self.machine.binaries:
+      if csr.u8 != cs.u8:
+        continue
+
+      last_symbol = None
+      last_symbol_offset = UInt16(0xFFFE)
+
+      for symbol_name, symbol_address in symbols.items():
+        if symbol_address.u16 > address.u16:
+          continue
+
+        if symbol_address.u16 == address.u16:
+          return (symbol_name, UInt16(0))
+
+        offset = abs(address.u16 - symbol_address.u16)
+        if offset < last_symbol_offset.u16:
+          last_symbol = symbol_name
+          last_symbol_offset = UInt16(offset)
+
+      return (last_symbol, last_symbol_offset)
+
+    return (None, None)
 
 class Machine(object):
   def core(self, core_address):
@@ -56,32 +92,15 @@ class Machine(object):
     return self.storages.get(id, None)
 
   def get_symbol_by_addr(self, cs, address):
-    for csr, dsr, sp, ip, symbols in self.binaries:
-      if csr.u8 != cs.u8:
-        continue
-
-      last_symbol = None
-      last_symbol_offset = UInt16(0xFFFE)
-
-      for symbol_name, symbol_address in symbols.items():
-        if symbol_address.u16 > address:
-          continue
-
-        if symbol_address.u16 == address:
-          return (symbol_name, UInt16(0))
-
-        offset = abs(address - symbol_address.u16)
-        if offset < last_symbol_offset.u16:
-          last_symbol = symbol_name
-          last_symbol_offset = UInt16(offset)
-
-      return (last_symbol, last_symbol_offset)
-
-    return (None, None)
+    return self.symbol_cache[segment_addr_to_addr(cs.u8, address)]
 
   def hw_setup(self, cpus = 1, cores = 1, memory_size = None, binaries = None, breakpoints = None, irq_routines = None, storages = None, mmaps = None, machine_in = None, machine_out = None):
+    self.profiler = profiler.STORE.get_profiler()
+
     self.nr_cpus = cpus
     self.nr_cores = cores
+
+    self.symbol_cache = SymbolCache(self, 256)
 
     binaries = binaries or []
     self.binaries = []
@@ -234,12 +253,16 @@ class Machine(object):
     del self.ports[port]
 
   def loop(self):
+    self.profiler.enable()
+
     while self.keep_running:
       time.sleep(10 * cpu.CPU_SLEEP_QUANTUM)
 
       if len([_cpu for _cpu in self.cpus if _cpu.thread.is_alive()]) == 0:
         info('Machine halted')
         break
+
+    self.profiler.disable()
 
   def boot(self):
     for handler in self.ports:

@@ -75,7 +75,7 @@ def preprocess_buffer(buff):
     v_name = matches['var_name']
     v_body = matches['var_body']
 
-    debug('variable found: %s' % v_name)
+    debug('variable found: %s', v_name)
 
     r_remove = re.compile(r'^\.def\s+%s:\s+.*?$' % v_name, re.MULTILINE)
     r_replace = re.compile(r'\$%s' % v_name)
@@ -95,7 +95,7 @@ def preprocess_buffer(buff):
     m_params = matches['macro_params']
     m_body = matches['macro_body']
 
-    debug('macro found: %s' % m_name)
+    debug('macro found: %s', m_name)
 
     params = [p.strip() for p in m_params.strip().split(',')] if m_params else []
 
@@ -264,7 +264,7 @@ def translate_buffer(buff, base_address = None):
       if not line or line[0] in ('#', '/', ';'):
         continue
 
-      debug('new line from buffer: %s' % line)
+      debug('new line from buffer: %s', line)
       return line
 
     else:
@@ -406,10 +406,10 @@ def translate_buffer(buff, base_address = None):
 
       if s_name not in sections_pass1:
         data_section = sections_pass1[s_name] = Section(s_name, SectionTypes.DATA, matches.get('flags', None))
-        debug('pass #1: section %s created' % s_name)
+        debug('pass #1: section %s created', s_name)
 
       curr_section = data_section = sections_pass1[s_name]
-      debug('pass #1: data section changed to %s' % s_name)
+      debug('pass #1: data section changed to %s', s_name)
 
       continue
 
@@ -418,7 +418,7 @@ def translate_buffer(buff, base_address = None):
       matches = matches.groupdict() if matches else {}
 
       curr_section = data_section = sections_pass1[matches.get('name', None) or '.data']
-      debug('pass #1: data section is %s' % data_section.name)
+      debug('pass #1: data section is %s', data_section.name)
       continue
 
     if line.startswith('.text'):
@@ -426,7 +426,7 @@ def translate_buffer(buff, base_address = None):
       matches = matches.groupdict() if matches else {}
 
       curr_section = text_section = sections_pass1[matches.get('name', None) or '.text']
-      debug('pass #1: text section is %s' % text_section.name)
+      debug('pass #1: text section is %s', text_section.name)
       continue
 
     if line.startswith('.type '):
@@ -461,7 +461,7 @@ def translate_buffer(buff, base_address = None):
       var.name = labels[0] if labels else None
       var.close()
 
-      debug('pass #1: record byte value: name=%s, value=%s' % (var.name, var.value))
+      debug('pass #1: record byte value: name=%s, value=%s', var.name, var.value)
       data_section.content.append(var)
 
       labels = []
@@ -476,7 +476,7 @@ def translate_buffer(buff, base_address = None):
       var.name = labels[0] if labels else None
       var.close()
 
-      debug('pass #1: record int value: name=%s, value=%s, refers_to=%s' % (var.name, var.value, var.refers_to))
+      debug('pass #1: record int value: name=%s, value=%s, refers_to=%s', var.name, var.value, var.refers_to)
       data_section.content.append(var)
 
       labels = []
@@ -491,7 +491,7 @@ def translate_buffer(buff, base_address = None):
       var.name = labels[0] if labels else None
       var.close()
 
-      debug('pass #1: record ascii value: name=%s, value=%s' % (var.name, var.value))
+      debug('pass #1: record ascii value: name=%s, value=%s', var.name, var.value)
       data_section.content.append(var)
 
       labels = []
@@ -506,7 +506,7 @@ def translate_buffer(buff, base_address = None):
       var.name = labels[0] if labels else None
       var.close()
 
-      debug('pass #1: record string value: name=%s, value=%s' % (var.name, var.value))
+      debug('pass #1: record string value: name=%s, value=%s', var.name, var.value)
       data_section.content.append(var)
 
       labels = []
@@ -521,7 +521,7 @@ def translate_buffer(buff, base_address = None):
       var.name = labels[0] if labels else None
       var.close()
 
-      debug('pass #1: record space: name=%s, value=%s' % (var.name, var.size))
+      debug('pass #1: record space: name=%s, value=%s', var.name, var.size)
       data_section.content.append(var)
 
       labels = []
@@ -544,7 +544,7 @@ def translate_buffer(buff, base_address = None):
       else:
         assert False, matches
 
-      debug('pass #1: set variable: name=%s, value=%s' % (name, value))
+      debug('pass #1: set variable: name=%s, value=%s', name, value)
       variables[name] = value
 
       continue
@@ -553,10 +553,10 @@ def translate_buffer(buff, base_address = None):
       label = Label(line[:-1], curr_section)
       labels.append(label)
 
-      debug('pass #1: record label: name=%s' % label.name)
+      debug('pass #1: record label: name=%s', label.name)
       continue
 
-    debug('pass #1: line: %s' % line)
+    debug('pass #1: line: %s', line)
 
     # label, instruction, 2nd pass flags
     emited_inst = None
@@ -582,14 +582,14 @@ def translate_buffer(buff, base_address = None):
 
     labels = []
 
-    debug('pass #1: emitted instruction: %s' % cpu.instructions.disassemble_instruction(emited_inst))
+    debug('pass #1: emitted instruction: %s', cpu.instructions.disassemble_instruction(emited_inst))
 
   for s_name, section in sections_pass1.items():
-    debug('pass #1: section %s' % s_name)
+    debug('pass #1: section %s', s_name)
 
     if section.type == SectionTypes.TEXT:
       for labeled, inst in section.content:
-        debug('pass #1: inst=%s, labeled=%s' % (inst, labeled))
+        debug('pass #1: inst=%s, labeled=%s', inst, labeled)
 
     else:
       for var in section.content:
@@ -614,16 +614,16 @@ def translate_buffer(buff, base_address = None):
     section.base = UInt16(base_ptr.u16)
     section.ptr  = UInt16(base_ptr.u16)
 
-    debug('pass #2: section %s - base=%s' % (section.name, ADDR_FMT(section.base.u16)))
+    debug('pass #2: section %s - base=%s', section.name, ADDR_FMT(section.base.u16))
 
     if section.type == SectionTypes.SYMBOLS:
       continue
 
     if section.type == SectionTypes.DATA:
       for var in p1_section.content:
-        ptr_prefix = 'pass #2: ' + ADDR_FMT(section.ptr.u16)
+        ptr_prefix = 'pass #2: ' + ADDR_FMT(section.ptr.u16) + ': '
 
-        debug(ptr_prefix, var)
+        debug(ptr_prefix + str(var))
 
         if var.name:
           var.section = section
@@ -636,7 +636,7 @@ def translate_buffer(buff, base_address = None):
           refers_to = var.refers_to
 
           if refers_to not in references:
-            debug(ptr_prefix, 'unresolved reference to %s' % refers_to)
+            debug(ptr_prefix  + 'unresolved reference to %s', refers_to)
 
           else:
             refers_to_addr = references[refers_to].section_ptr.u16
@@ -645,7 +645,7 @@ def translate_buffer(buff, base_address = None):
             var.refers_to = None
             var.close()
 
-            debug(ptr_prefix, 'reference "%s" replaced with %s' % (refers_to, ADDR_FMT(refers_to_addr)))
+            debug(ptr_prefix + 'reference "%s" replaced with %s', refers_to, ADDR_FMT(refers_to_addr))
 
         if 'b' in section.flags:
           section.ptr.u16 += var.size.u16
@@ -655,18 +655,18 @@ def translate_buffer(buff, base_address = None):
           if var.value:
             section.content.append(UInt8(var.value.u16 & 0x00FF))
             section.content.append(UInt8((var.value.u16 & 0xFF00) >> 8))
-            debug(ptr_prefix, 'value stored')
+            debug(ptr_prefix + 'value stored')
 
           else:
             section.content.append(var)
-            debug(ptr_prefix, 'value missing - reserve space, fix in next pass')
+            debug(ptr_prefix + 'value missing - reserve space, fix in next pass')
 
           section.ptr.u16 += 2
 
         elif type(var) == ByteSlot:
           section.content.append(UInt8(var.value.u8))
           section.ptr.u16 += var.size.u16
-          debug(ptr_prefix, 'value stored')
+          debug(ptr_prefix + 'value stored')
 
         elif type(var) == AsciiSlot or type(var) == StringSlot:
           for i in range(0, var.size.u16):
@@ -677,7 +677,7 @@ def translate_buffer(buff, base_address = None):
             section.content.append(UInt8(0))
             section.ptr.u16 += 1
 
-          debug(ptr_prefix, 'value stored')
+          debug(ptr_prefix + 'value stored')
 
     if section.type == SectionTypes.TEXT:
       for labeled, inst in p1_section.content:
@@ -696,7 +696,7 @@ def translate_buffer(buff, base_address = None):
             symtab.content.append(var)
 
             references['&' + label.name] = var
-            debug(ptr_prefix, 'label entry "%s" created' % label)
+            debug(ptr_prefix + 'label entry "%s" created', label)
 
         if inst.desc.operands and ('i' in inst.desc.operands or 'j' in inst.desc.operands) and hasattr(inst, 'refers_to') and inst.refers_to:
           if inst.refers_to in references:
@@ -706,13 +706,13 @@ def translate_buffer(buff, base_address = None):
               refers_to_addr -= (inst.address.u16 + 4)
 
             inst.desc.fix_refers_to(inst, refers_to_addr)
-            debug(ptr_prefix, 'reference "%s" replaced with %s' % (refers_to_var.name, ADDR_FMT(refers_to_addr)))
+            debug(ptr_prefix + 'reference "%s" replaced with %s', refers_to_var.name, ADDR_FMT(refers_to_addr))
 
           else:
-            debug(ptr_prefix, 'reference "%s" unknown, fix in the next pass' % inst.refers_to)
+            debug(ptr_prefix + 'reference "%s" unknown, fix in the next pass', inst.refers_to)
 
         section.content.append(inst)
-        debug(ptr_prefix, cpu.instructions.disassemble_instruction(inst))
+        debug(ptr_prefix + cpu.instructions.disassemble_instruction(inst))
         section.ptr.u16 += 4
 
     base_ptr.u16 += align_to_next_page(section.ptr.u16 - section.base.u16)
@@ -722,7 +722,7 @@ def translate_buffer(buff, base_address = None):
   sections_pass3 = {}
 
   for s_name, p2_section in sections_pass2.items():
-    debug('pass #3: section %s' % p2_section.name)
+    debug('pass #3: section %s', p2_section.name)
 
     section = Section(s_name, p2_section.type, p2_section.flags)
     sections_pass3[s_name] = section
@@ -731,26 +731,26 @@ def translate_buffer(buff, base_address = None):
     section.ptr  = UInt16(section.base.u16)
 
     for item in p2_section.content:
-      ptr_prefix = 'pass #3: ' + ADDR_FMT(section.ptr.u16)
+      ptr_prefix = 'pass #3: ' + ADDR_FMT(section.ptr.u16) + ': '
 
       if section.type == SectionTypes.SYMBOLS:
         pass
 
       elif type(item) == IntSlot and item.refers_to:
-        debug(ptr_prefix, 'fix reference: %s' % item)
+        debug(ptr_prefix + 'fix reference: %s', item)
 
         if item.refers_to not in references:
           raise CompilationError('Unknown reference: %s' % item.refers_to)
 
         item.value = references[item.refers_to].section_ptr.u16
-        debug(ptr_prefix, 'reference replaced with %s' % ADDR_FMT(item.value))
+        debug(ptr_prefix + 'reference replaced with %s', ADDR_FMT(item.value))
         item.refers_to = None
         item.close()
 
         item = [UInt8(item.value.u16 & 0x00FF), UInt8((item.value.u16 & 0xFF00) >> 8)]
 
       elif hasattr(item, 'refers_to') and item.refers_to:
-        debug(ptr_prefix, 'fix reference: %s' % item)
+        debug(ptr_prefix + 'fix reference: %s', item)
 
         if item.refers_to not in references:
           raise CompilationError('No such label: "%s"' % item.refers_to)
@@ -761,10 +761,10 @@ def translate_buffer(buff, base_address = None):
           refers_to_addr -= (item.address.u16 + 4)
 
         item.desc.fix_refers_to(item, refers_to_addr)
-        debug(ptr_prefix, 'referred addr %s' % ADDR_FMT(refers_to_var.section_ptr.u16))
-        debug(ptr_prefix, 'reference "%s" replaced with %s' % (refers_to_var.name, ADDR_FMT(refers_to_addr)))
+        debug(ptr_prefix + 'referred addr %s', ADDR_FMT(refers_to_var.section_ptr.u16))
+        debug(ptr_prefix + 'reference "%s" replaced with %s', refers_to_var.name, ADDR_FMT(refers_to_addr))
 
-      debug(ptr_prefix, item)
+      debug(ptr_prefix + str(item))
 
       if type(item) != types.ListType:
         item = [item]
@@ -773,11 +773,11 @@ def translate_buffer(buff, base_address = None):
         section.content.append(i)
         section.ptr.u16 += sizeof(i)
 
-    debug('pass #3: section %s finished, size %s' % (section.name, len(section.content)))
+    debug('pass #3: section %s finished, size %s', section.name, len(section.content))
 
   debug('Bytecode sections:')
   for s_name, section in sections_pass3.items():
-    debug('name=%s, base=%s, items=%s, size=%s, flags=%s' % (section.name, ADDR_FMT(section.base.u16), len(section.content), SIZE_FMT(len(section)), section.flags))
+    debug('name=%s, base=%s, items=%s, size=%s, flags=%s', section.name, ADDR_FMT(section.base.u16), len(section.content), SIZE_FMT(len(section)), section.flags)
 
   info('Bytecode translation completed')
 

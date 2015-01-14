@@ -475,11 +475,11 @@ $DEFCODE "NUMBER", 6, 0, NUMBER
   inc r3
 .__NUMBER_convert_digit:
   sub r4, 0x30
-  bz &.__NUMBER_negate
+  bl &.__NUMBER_negate
   cmp r4, 10
-  bs &.__NUMBER_check_base
+  bl &.__NUMBER_check_base
   sub r4, 17 ; 'A' - '0' = 17
-  bs &.__NUMBER_negate
+  bl &.__NUMBER_negate
   add r4, 10
 .__NUMBER_check_base:
   cmp r4, r2
@@ -699,6 +699,15 @@ $DEFWORD ";", 1, $F_IMMED, SEMICOLON
   .int &EXIT
 
 
+$DEFCODE "IMMEDIATE", 9, $F_IMMED, IMMEDIATE
+  li $W, &var_LATEST
+  add $W, $wr_flags
+  lb $X, $W
+  xor $X, $F_IMMED
+  stb $W, $X
+  $NEXT
+
+
 $DEFCODE "HIDDEN", 6, 0, HIDDEN
   pop $W
   add $W, $wr_flags
@@ -742,6 +751,81 @@ $DEFCODE "EXIT", 4, 0, EXIT
   $NEXT
 
 
+;
+; Arthmetic operations
+;
+$DEFCODE "+", 1, 0, ADD
+  pop $W
+  pop $X
+  add $W, $X
+  push $W
+  $NEXT
+
+$DEFCODE "-", 1, 0, SUB
+  pop $W
+  pop $X
+  sub $X, $W
+  push $X
+  $NEXT
+
+$DEFCODE "1+", 2, 0, INCR
+  pop $W
+  inc $W
+  push $W
+  $NEXT
+
+$DEFCODE "1-", 2, 0, DECR
+  pop $W
+  dec $W
+  push $W
+  $NEXT
+
+$DEFCODE "2+", 2, 0, INCR2
+  pop $W
+  add $W, 2
+  push $W
+  $NEXT
+
+$DEFCODE "2-", 2, 0, DECR2
+  pop $W
+  sub $W, 2
+  push $W
+  $NEXT
+
+$DEFCODE "4+", 2, 0, INCR4
+  pop $W
+  add $W, 4
+  push $W
+  $NEXT
+
+$DEFCODE "4-", 2, 0, DECR4
+  pop $W
+  sub $W, 4
+  push $W
+  $NEXT
+
+$DEFCODE "*", 1, 0, MUL
+  pop $W
+  pop $X
+  mul $W, $X
+  push $W
+  $NEXT
+
+$DEFCODE "/", 1, 0, DIV
+  pop $W
+  pop $X
+  div $W, $X
+  push $W
+  $NEXT
+
+$DEFCODE "MOD", 1, 0, MOD
+  pop $W
+  pop $X
+  mod $W, $X
+  push $W
+  $NEXT
+
+
 $DEFCODE "DROP", 4, 0, DROP
   pop $W
   $NEXT
@@ -771,12 +855,6 @@ $DEFCODE "OVER", 4, 0, OVER
   $NEXT
 
 
-$DEFCODE "2+", 2, 0, INCR2
-  pop $W
-  add $W, 2
-  push $W
-  $NEXT
-
 
 $DEFCODE "/MOD", 4, 0, DIVMOD
   pop $W
@@ -786,6 +864,13 @@ $DEFCODE "/MOD", 4, 0, DIVMOD
   mod $X, $W
   push $X
   push $Y
+  $NEXT
+
+
+$DEFCODE "CHAR", 4, 0, CHAR
+  call &.__WORD
+  lb r0, r0 ; load the first character of next word into r0...
+  push r0
   $NEXT
 
 
@@ -863,6 +948,8 @@ $DEFCONST "R0", 2, 0, RZ, &rstack_top
 $DEFCONST "DOCOL", 5, 0, __DOCOL, &DOCOL
 $DEFCONST "F_IMMED", 7, 0, __F_IMMED, $F_IMMED
 $DEFCONST "F_HIDDEN", 8, 0, __F_HIDDEN, $F_HIDDEN
+$DEFCONST "TRUE", 4, 0, TRUE, 0xFFFF
+$DEFCONST "FALSE", 5, 0, FALSE, 0x0000
 
 
 ;

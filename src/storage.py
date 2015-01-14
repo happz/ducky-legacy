@@ -1,6 +1,8 @@
 import os
 import stat
 
+import profiler
+
 from io_handlers import IOHandler
 from mm import ADDR_FMT, UINT8_FMT, UInt8, UInt16, UInt24, UInt32, segment_addr_to_addr
 from util import debug, warn
@@ -84,38 +86,56 @@ class StorageIOHandler(IOHandler):
     sio_thread.start()
 
 class Storage(object):
-  def __init__(self, machine, id, size):
+  def __init__(self, machine, sid, size):
     super(Storage, self).__init__()
 
     self.machine = machine
-    self.id = id
+    self.id = sid
     self.size = size
 
+    self.profiler = profiler.STORE.get_profiler()
+
+  def do_read_block(self, src, dst, cnt):
+    pass
+
+  def do_write_block(self, src, dst, cnt):
+    pass
+
   def read_block(self, src, dst, cnt, event):
+    self.profiler.enable()
+
     debug('read_block: id=%s, src=%s, dst=%s, cnt=%s', self.id, src, dst, cnt)
     
     if src.u32 + cnt.u8 * BLOCK_SIZE >= self.size.u24:
+      self.profiler.disable()
       raise StorageAccessError('Out of bounds access: storage size %s is too small' % self.size)
 
     self.do_read_block(src, dst, cnt)
 
     event.set()
 
+    self.profiler.disable()
+
   def write_block(self, src, dst, cnt, event):
+    self.profiler.enable()
+
     debug('write_block: id=%s, src=%s, dst=%s, cnt=%s', self.id, src, dst, cnt)
 
     if dst.u32 + BLOCK_SIZE * cnt.u8 >= self.size.u32:
+      self.profiler.disable()
       raise StorageAccessError('Out of bounds access: storage size %s is too small' % self.size)
 
     self.do_write_block(src, dst, cnt)
 
     event.set()
 
+    self.profiler.disable()
+
 class FileBackedStorage(Storage):
-  def __init__(self, machine, id, path):
+  def __init__(self, machine, sid, path):
     st = os.stat(path)
 
-    super(FileBackedStorage, self).__init__(machine, id, UInt24(st.st_size))
+    super(FileBackedStorage, self).__init__(machine, sid, UInt24(st.st_size))
 
     self.lock = Lock()
     self.path = path

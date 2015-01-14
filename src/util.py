@@ -1,3 +1,4 @@
+import collections
 import colorama
 import enum
 import functools
@@ -23,24 +24,15 @@ def str2int(s):
 
   return int(s)
 
-def __active_log(verbosity_level, *args):
+def __log(level, *args):
   global CONSOLE
-  CONSOLE.writeln(verbosity_level, *args)
+  CONSOLE.writeln(level, *args)
 
-__active_debug = functools.partial(__active_log, VerbosityLevels.DEBUG)
-__active_info  = functools.partial(__active_log, VerbosityLevels.INFO)
-__active_warn  = functools.partial(__active_log, VerbosityLevels.WARNING)
-__active_error = functools.partial(__active_log, VerbosityLevels.ERROR)
-__active_quiet = functools.partial(__active_log, VerbosityLevels.QUIET)
-
-def __inactive_log(*args):
-  pass
-
-debug = __active_debug
-info  = __active_info
-warn  = __active_warn
-error = __active_error
-quiet = __active_quiet
+debug = functools.partial(__log, VerbosityLevels.DEBUG)
+info  = functools.partial(__log, VerbosityLevels.INFO)
+warn  = functools.partial(__log, VerbosityLevels.WARNING)
+error = functools.partial(__log, VerbosityLevels.ERROR)
+quiet = functools.partial(__log, VerbosityLevels.QUIET)
 
 def print_table(table, fn = info, **kwargs):
   for line in tabulate.tabulate(table, headers = 'firstrow', tablefmt = 'simple', numalign = 'right').split('\n'):
@@ -72,3 +64,46 @@ class BinaryFile(file):
     debug('write_struct: %s: %s bytes: %s', pos, sizeof(st), st)
 
     self.write(st)
+
+class LRUCache(collections.OrderedDict):
+  def __init__(self, size, *args, **kwargs):
+    super(LRUCache, self).__init__(*args, **kwargs)
+
+    self.size = size
+
+    self.reads   = 0
+    self.inserts = 0
+    self.hits    = 0
+    self.misses  = 0
+    self.prunes  = 0
+
+  def __getitem__(self, key):
+    debug('LRUCache: get: key=%s', key)
+
+    self.reads += 1
+
+    if key in self:
+      self.hits += 1
+    else:
+      self.misses += 1
+
+    return super(LRUCache, self).__getitem__(key)
+
+  def __setitem__(self, key, value):
+    debug('LRUCache: set: key=%s, value=%s', key, value)
+
+    if len(self) == self.size:
+      self.popitem(last = False)
+      self.prunes += 1
+
+    super(LRUCache, self).__setitem__(key, value)
+    self.inserts += 1
+
+  def get_object(self, key):
+    return None
+
+  def __missing__(self, key):
+    debug('LRUCache: missing: key=%s', key)
+
+    self[key] = value = self.get_object(key)
+    return value

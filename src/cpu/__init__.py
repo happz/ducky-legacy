@@ -1,29 +1,34 @@
 import collections
+import functools
 import Queue
 import sys
 import time
 
 import assemble
+import console
 import debugging
 import instructions
 import registers
 import mm
 import machine.bus
+import profiler
+import util
 
 from mm import UInt8, UInt16, UInt24
 from mm import SEGM_FMT, ADDR_FMT, UINT8_FMT, UINT16_FMT
 from mm import segment_addr_to_addr
 
+from console import VerbosityLevels
 from registers import Registers, REGISTER_NAMES
 from instructions import Opcodes
 from errors import CPUException, AccessViolationError, InvalidResourceError
-from util import debug, info, warn, error, print_table
+from util import debug, info, warn, error, print_table, LRUCache
 
 from ctypes import LittleEndianStructure, Union, c_ubyte, c_ushort, c_uint
 from threading2 import Thread
 
 CPU_SLEEP_QUANTUM = 0.1
-CPU_INST_CACHE_SIZE = 64
+CPU_INST_CACHE_SIZE = 256
 
 class InterruptVector(LittleEndianStructure):
   _pack_ = 0
@@ -72,6 +77,15 @@ class StackFrame(object):
   def __repr__(self):
     return '<StackFrame: CS=%s DS=%s FP=%s (%s)' % (UINT8_FMT(self.CS), UINT8_FMT(self.DS), UINT16_FMT(self.FP), ADDR_FMT(self.address))
 
+class InstructionCache(LRUCache):
+  def __init__(self, core, size, *args, **kwargs):
+    super(InstructionCache, self).__init__(size, *args, **kwargs)
+
+    self.core = core
+
+  def get_object(self, addr):
+    return instructions.decode_instruction(self.core.MEM_IN32(addr))
+
 class AFLAGS_CTX(object):
   def __init__(self, core, reg):
     super(AFLAGS_CTX, self).__init__()
@@ -114,6 +128,8 @@ class CPUCore(object):
     self.thread = None
     self.idle = False
 
+    self.profiler = profiler.STORE.get_profiler()
+
     self.exit_code = 0
 
     self.frames = []
@@ -124,23 +140,23 @@ class CPUCore(object):
     for opcode in Opcodes:
       self.opcode_map[opcode.value] = getattr(self, 'inst_%s' % opcode.name)
 
-    self.instruction_cache = collections.OrderedDict()
+    self.instruction_cache = InstructionCache(self, CPU_INST_CACHE_SIZE)
 
-  def __LOG(self, logger, *args):
+  def LOG(self, logger, *args):
     args = ('%s ' + args[0],) + (self.cpuid_prefix,) + args[1:]
     logger(*args)
 
   def DEBUG(self, *args):
-    self.__LOG(debug, *args)
+    self.LOG(debug, *args)
 
   def INFO(self, *args):
-    self.__LOG(info, *args)
+    self.LOG(info, *args)
 
   def WARN(self, *args):
-    self.__LOG(warn, *args)
+    self.LOG(warn, *args)
 
   def ERROR(self, *args):
-    self.__LOG(error, *args)
+    self.LOG(error, *args)
 
   def __repr__(self):
     return '#%i:#%i' % (self.cpu.id, self.id)
@@ -236,29 +252,11 @@ class CPUCore(object):
     return segment_addr_to_addr(self.DS().u16 & 0xFF, address)
 
   def fetch_instruction(self):
+    self.DEBUG('fetch_instruction: cs=%s, ip=%s', self.CS(), self.IP())
+
     ip = self.IP()
-    addr = self.CS_ADDR(ip.u16)
-
-    self.DEBUG('fetch_instruction: cs=%s, ip=%s, addr=%s', self.CS(), ip, addr)
-
-    C = self.instruction_cache
-
-    if addr not in C:
-      self.DEBUG('fetch_instruction: inst cache miss')
-
-      if len(C) == CPU_INST_CACHE_SIZE:
-        self.DEBUG('fetch_instruction: inst cache prune')
-        C.popitem(last = False)
-
-      ret = self.MEM_IN32(addr)
-      C[addr] = inst = instructions.decode_instruction(ret)
-
-    else:
-      self.DEBUG('fetch_instruction: inst cache hit')
-      inst = C[addr]
-
-    self.IP().u16 += 4
-
+    inst = self.instruction_cache[self.CS_ADDR(ip.u16)]
+    ip.u16 += 4
     return inst
 
   def reset(self, new_ip = 0):
@@ -273,6 +271,8 @@ class CPUCore(object):
     self.FLAGS().s = 0
 
     self.IP().u16 = new_ip
+
+    self.instruction_cache.clear()
 
   def __symbol_for_ip(self):
     symbol, offset = self.cpu.machine.get_symbol_by_addr(UInt8(self.CS().u16), self.IP().u16)
@@ -815,6 +815,8 @@ class CPUCore(object):
     return True
 
   def loop(self):
+    self.profiler.enable()
+
     self.message_bus.register()
 
     self.INFO('booted')
@@ -836,6 +838,8 @@ class CPUCore(object):
 
     self.INFO('halted')
     log_cpu_core_state(self)
+
+    self.profiler.disable()
 
   def run(self):
     self.thread = Thread(target = self.loop, name = 'Core #%i:#%i' % (self.cpu.id, self.id), priority = 1.0)
@@ -870,6 +874,8 @@ class CPU(object):
 
     self.thread = None
 
+    self.profiler = profiler.STORE.get_profiler()
+
   def __LOG(self, logger, *args):
     args = ('%s ' + args[0],) + (self.cpuid_prefix,) + args[1:]
     logger(*args)
@@ -887,6 +893,8 @@ class CPU(object):
     return [core for core in self.cores if core.thread and core.thread.is_alive()]
 
   def loop(self):
+    self.profiler.enable()
+
     self.INFO('booted')
 
     while True:
@@ -896,6 +904,8 @@ class CPU(object):
         break
 
     self.INFO('halted')
+
+    self.profiler.disable()
 
   def run(self):
     for core in self.cores:

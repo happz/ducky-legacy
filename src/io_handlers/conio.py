@@ -88,7 +88,9 @@ class ConsoleIOHandler(io_handlers.IOHandler):
 
     self.pttys = pty.openpty()
 
-    self.input_streams.append(pytty.TTY(self.pttys[0]))
+    ptty = pytty.TTY(self.pttys[0])
+    ptty.baud = 115200
+    self.input_streams.append(ptty)
 
     if self.output_streams:
       self.output = open(self.output_streams, 'wb')

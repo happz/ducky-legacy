@@ -6,6 +6,8 @@ import tabulate
 import traceback
 import types
 
+import profiler
+
 from threading2 import Thread, Lock, Event
 
 CONSOLE_ID = 0
@@ -46,7 +48,7 @@ class Console(object):
     self.f_out = f_out
     self.logfile = None
 
-    self.verbosity = VerbosityLevels.ERROR
+    self.quiet_mode = False
 
     self.lock = Lock()
 
@@ -55,8 +57,13 @@ class Console(object):
     self.keep_running = True
     self.thread = None
 
+    self.profiler = profiler.STORE.get_profiler()
+
     self.history = []
     self.history_index = 0
+
+  def set_quiet_mode(self, b):
+    self.quiet_mode = b
 
   @classmethod
   def register_command(cls, name, callback, *args, **kwargs):
@@ -66,35 +73,6 @@ class Console(object):
   def unregister_command(cls, name):
     if name in cls.commands:
       del cls.commands[name]
-
-  def patch_log_functions(self):
-    def __activate_util(name):
-      setattr(sys.modules['util'], name, getattr(sys.modules['util'], '__active_' + name))
-      setattr(self, name, getattr(self, '_Console__active_' + name))
-
-    def __reset():
-      for f in ['quiet', 'error', 'warn', 'info', 'debug']:
-        setattr(sys.modules['util'], f, getattr(sys.modules['util'], '__inactive_log'))
-        setattr(self, f, self.__inactive_log)
-
-    __reset()
-
-    if self.verbosity >= VerbosityLevels.DEBUG:
-      __activate_util('debug')
-
-    if self.verbosity >= VerbosityLevels.INFO:
-      __activate_util('info')
-
-    if self.verbosity >= VerbosityLevels.WARNING:
-      __activate_util('warn')
-
-    if self.verbosity >= VerbosityLevels.ERROR:
-      __activate_util('error')
-
-  def set_verbosity(self, level):
-    self.verbosity = level + 1
-
-    self.patch_log_functions()
 
   def set_logfile(self, path):
     self.logfile = open(path, 'wb')
@@ -124,7 +102,7 @@ class Console(object):
           self.logfile.flush()
 
   def writeln(self, level, *args):
-    if level > self.verbosity:
+    if self.quiet_mode:
       return
 
     fmt = args[0]
@@ -139,29 +117,20 @@ class Console(object):
 
     self.write(msg)
 
-  def __inactive_log(self, verbosity_level, fmt, *args):
-    pass
-
-  def __active_info(self, *args):
-    self.writeln(VerbosityLevels.INFO, *args)
-
-  def __active_debug(self, *args):
+  def debug(self, *args):
     self.writeln(VerbosityLevels.DEBUG, *args)
 
-  def __active_warn(self, *args):
+  def info(self, *args):
+    self.writeln(VerbosityLevels.INFO, *args)
+
+  def warn(self, *args):
     self.writeln(VerbosityLevels.WARNING, *args)
 
-  def __active_error(self, *args):
+  def error(self, *args):
     self.writeln(VerbosityLevels.ERROR, *args)
 
-  def __active_quiet(self, *args):
+  def quiet(self, *args):
     self.writeln(VerbosityLevels.QUIET, *args)
-
-  quiet = __active_quiet
-  error = __active_error
-  warn  = __active_warn
-  info  = __active_info
-  debug = __active_debug
 
   def execute(self, cmd):
     if cmd[0] not in self.commands:
@@ -182,6 +151,8 @@ class Console(object):
   def loop(self):
     if not self.f_in:
       return
+
+    self.profiler.enable()
 
     while self.keep_running:
       self.new_line_event.clear()
@@ -265,6 +236,8 @@ class Console(object):
 
       self.execute(cmd)
 
+    self.profiler.disable()
+
   def boot(self):
     if self.f_in:
       self.f_in.flush()
@@ -298,15 +271,5 @@ def cmd_help(console, cmd):
   from util import print_table
   print_table(table)
 
-def cmd_verbose(console, cmd):
-  console.verbosity = min(console.verbosity + 1, VerbosityLevels.DEBUG)
-  console.info('New verbosity level is %s', console.verbosity)
-
-def cmd_quiet(console, cmd):
-  console.verbosity = max(console.verbosity - 1, VerbosityLevels.QUIET)
-  console.info('New verbosity level is %s', console.verbosity)
-
-Console.register_command('verbose', cmd_verbose)
-Console.register_command('quiet', cmd_quiet)
 Console.register_command('?', cmd_help)
 

@@ -1,3 +1,5 @@
+import patch
+
 import functools
 import os
 import sys
@@ -48,7 +50,7 @@ def run_machine(code, coredump_file = None, **kwargs):
   if not hasattr(util, 'CONSOLE'):
     util.CONSOLE = console.Console(M, None, sys.stdout)
     util.CONSOLE.boot()
-    util.CONSOLE.set_verbosity(int(os.getenv('VERBOSITY', 0)))
+    util.CONSOLE.set_quiet_mode(True)
 
   M.hw_setup(**kwargs)
 
