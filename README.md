@@ -21,8 +21,6 @@ Simple virtual CPU/machine
 
 # Planned features
 
-* virtual memory
-  * mmap'ed external sources not finished yet
 * Forth kernel - work in progress but it's going fine!
 * relocation support
 * dynamic load/unload of bytecode
