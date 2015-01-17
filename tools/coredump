@@ -1,0 +1,161 @@
+#! /usr/bin/env python
+
+import patch
+
+import ctypes
+import optparse
+import string
+import struct
+import sys
+import types
+
+import tabulate
+
+import console
+import core
+import cpu
+import irq
+import io
+import mm
+import cpu.instructions
+import mm.binary
+import util
+
+from mm import UInt8, UInt16, ADDR_FMT, UINT16_FMT, UINT8_FMT, SIZE_FMT, PAGE_SIZE
+from cpu.errors import CPUException
+from cpu.registers import Registers, REGISTER_NAMES
+from util import *
+
+def show_header(state):
+  info('=== Coredump header ===')
+  info('  Magic:        %s', UINT16_FMT(state.magic))
+  info('  Version:      %s', state.version)
+  info('')
+  info('  # of CPUs:      %i', state.nr_cpus)
+  info('  # of CPU cores: %i', state.nr_cores)
+  info('')
+
+def show_cores(state):
+  info('=== Cores ===')
+
+  __reg = lambda name: UINT16_FMT(getattr(cs, name))
+  __flag = lambda name: getattr(cs.flags.flags, name)
+
+  for cs in state.core_states:
+    info('Core #%i:#%i', cs.cpuid, cs.coreid)
+
+    for i in range(0, Registers.REGISTER_SPECIAL, 4):
+      regs = [(i + j) for j in range(0, 4) if (i + j) < Registers.REGISTER_SPECIAL]
+      s = ['reg%02i=%s' % (reg, __reg(REGISTER_NAMES[reg])) for reg in regs]
+      info('  %s', ' '.join(s))
+
+    info('  cs=%s    ds=%s', __reg('cs'), __reg('ds'))
+    info('  fp=%s    sp=%s    ip=%s', __reg('fp'), __reg('sp'), __reg('ip'))
+    info('  priv=%i, hwint=%i, e=%i, z=%i, o=%i', __flag('privileged'), __flag('hwint'), __flag('e'), __flag('z'), __flag('o'))
+    info('  keep_running=%s, idle=%s, exit=%i', cs.keep_running, cs.idle, cs.exit_code)
+
+    info('')
+
+def show_memory(state):
+  info('=== Memory ===')
+
+  info('  Size:          %s', state.mm_state.size)
+  info('  IRQ table:     %s', ADDR_FMT(state.mm_state.irq_table_address))
+  info('  Int table:     %s', ADDR_FMT(state.mm_state.int_table_address))
+  info('  # of segments: %s', state.mm_state.segments)
+  info('  # of pages:    %s', state.mm_state.pages)
+  info('')
+
+def show_segments(state):
+  info('=== Memory segments ===')
+
+  for s in state.mm_segment_states:
+    info('  Segment: %s', UINT8_FMT(s.index))
+
+  info('')
+
+def show_pages(state):
+  info('=== Memory pages ===')
+
+  for pg in sorted(state.mm_page_states, key = lambda x: x.index):
+    pg_addr = pg.index * PAGE_SIZE
+
+    info('  Page #%i', pg.index)
+    info('    Flags: %s%s%s%s', 'r' if pg.read == 1 else '-', 'w' if pg.write == 1 else '-', 'x' if pg.execute == 1 else '-', 'd' if pg.dirty == 1 else '-')
+
+    for i in range(0, 8):
+      s = []
+      t = []
+
+      for b in pg.content[32 * i:32 * (i + 1)]:
+        s.append('%02X' % b)
+
+        c = chr(b)
+        if c in string.printable[0:-5]:
+          c = '%%' if c == '%' else (' ' + c)
+          t.append(c)
+
+        elif b == 10:
+          t.append('\\n')
+
+        elif b == 13:
+          t.append('\\r')
+
+        else:
+          t.append('  ')
+
+      info('    ' + ADDR_FMT(pg_addr + i * 32) + ': ' + ' '.join(s))
+      info('              ' + ' '.join(t))
+
+    info('')
+
+def main():
+  parser = optparse.OptionParser()
+
+  parser.add_option('-d', dest = 'debug', action = 'store_true', default = False, help = 'Debug mode')
+
+  parser.add_option('-i', dest = 'file_in', default = None, help = 'Input file')
+
+  parser.add_option('-H',         dest = 'header',   default = False, action = 'store_true', help = 'Show file header')
+  parser.add_option('-C',         dest = 'cores',    default = False, action = 'store_true', help = 'Show cores')
+  parser.add_option('-M',         dest = 'memory',   default = False, action = 'store_true', help = 'Show memory')
+  parser.add_option('--segments', dest = 'segments', default = False, action = 'store_true', help = 'Show segments')
+  parser.add_option('--pages',    dest = 'pages',    default = False, action = 'store_true', help = 'Show pages')
+  parser.add_option('-a',         dest = 'all',      default = False, action = 'store_true', help = 'All of above')
+
+  options, args = parser.parse_args()
+
+  util.CONSOLE = console.Console(None, sys.stdin, sys.stdout)
+
+  if not options.file_in:
+    parser.print_help()
+    sys.exit(1)
+
+  if options.all:
+    options.header = options.cores = options.memory = options.segments = options.pages = True
+
+  info('Input file: %s', options.file_in)
+
+  with core.CoreDumpFile(options.file_in, 'r') as f_in:
+    state = f_in.load()
+
+    info('')
+
+    if options.header:
+      show_header(state)
+
+    if options.cores:
+      show_cores(state)
+
+    if options.memory:
+      show_memory(state)
+
+    if options.segments:
+      show_segments(state)
+
+    if options.pages:
+      show_pages(state)
+
+if __name__ == '__main__':
+  main()
+
