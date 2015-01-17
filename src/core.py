@@ -17,6 +17,9 @@ class FileHeader(LittleEndianStructure):
     ('cores',   c_ushort)
   ]
 
+  def __repr__(self):
+    return '<FileHeader: magic=%s, version=%s, cpus=%s, cores=%s>' % (self.magic, self.version, self.cpus, self.cores)
+
 class CPUCoreState(LittleEndianStructure):
   _pack_ = 0
   _fields_ = [
@@ -35,11 +38,11 @@ class CPUCoreState(LittleEndianStructure):
     ('r10', c_ushort),
     ('r11', c_ushort),
     ('r12', c_ushort),
-    ('r13', c_ushort),
-    ('r14', c_ushort),
-    ('r15', c_ushort),
-    ('r16', c_ushort),
-    ('r17', c_ushort),
+    ('fp', c_ushort),
+    ('sp', c_ushort),
+    ('ds', c_ushort),
+    ('cs', c_ushort),
+    ('ip', c_ushort),
     ('flags', FlagsRegister),
     ('exit_code', c_ushort),
     ('idle',         c_ubyte, 1),
@@ -95,6 +98,9 @@ class VMState(object):
   def __init__(self):
     super(VMState, self).__init__()
 
+    self.magic = None
+    self.version = None
+
     self.nr_cpus = None
     self.nr_cores = None
 
@@ -136,6 +142,9 @@ class VMState(object):
     f_out.save(self)
 
 class CoreDumpFile(BinaryFile):
+  MAGIC = 0xF00B
+  VERSION = 1
+
   def __init__(self, *args, **kwargs):
     super(CoreDumpFile, self).__init__(*args, **kwargs)
 
@@ -143,6 +152,8 @@ class CoreDumpFile(BinaryFile):
 
   def create_header(self):
     self.__header = FileHeader()
+    self.__header.magic = CoreDumpFile.MAGIC
+    self.__header.version = CoreDumpFile.VERSION
 
   def get_header(self):
     return self.__header
@@ -154,6 +165,8 @@ class CoreDumpFile(BinaryFile):
 
     self.__header = self.read_struct(FileHeader)
 
+    state.magic = self.__header.magic
+    state.version = self.__header.version
     state.nr_cpus = self.__header.cpus
     state.nr_cores = self.__header.cores
 

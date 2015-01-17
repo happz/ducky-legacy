@@ -19,6 +19,7 @@ class Point(object):
     self.active = True
     self.flip = True
     self.ephemeral = False
+    self.countdown = 0
     self.debugging_set = debugging_set
 
   def is_triggered(self):
@@ -60,7 +61,7 @@ class DebuggingSet(object):
     self.owner.DEBUG('check breakpoints')
 
     for bp in self.points.values():
-      self.owner.DEBUG(bp)
+      self.owner.DEBUG(str(bp))
 
       if not bp.active:
         self.owner.DEBUG('inactive, skipping')
@@ -75,6 +76,13 @@ class DebuggingSet(object):
         self.owner.DEBUG('not triggered, skipping')
         continue
 
+      if bp.countdown:
+        bp.countdown -= 1
+
+        if bp.countdown != 0:
+          self.owner.DEBUG('countdown %i, skip for now', bp.countdown)
+          continue
+
       self.owner.INFO('Breakpoint triggered: %s', bp)
 
       bp.active = False
@@ -88,15 +96,20 @@ class DebuggingSet(object):
       event.clear()
       self.owner.plan_suspend(event)
 
-def add_breakpoint(core, address, ephemeral = False):
-  core.DEBUG('add_breakpoint: address=%s, ephemeral=%s', address, ephemeral)
+def add_breakpoint(core, address, ephemeral = False, countdown = None):
+  core.DEBUG('add_breakpoint: address=%s, ephemeral=%s', ADDR_FMT(address), ephemeral)
 
   p = BreakPoint(core.debug, address)
 
   if ephemeral:
     p.ephemeral = True
 
+  if countdown:
+    p.countdown = int(countdown)
+
   core.debug.add_point(p)
+
+  return p
 
 def cmd_bp_list(console, cmd):
   """
@@ -104,7 +117,7 @@ def cmd_bp_list(console, cmd):
   """
 
   bps = [
-    ['ID', 'Active', 'Flip', 'Ephemeral', 'Core', 'Type', 'Address']
+    ['ID', 'Active', 'Flip', 'Ephemeral', 'Core', 'Type', 'Address', 'Countdown']
   ]
 
   for point in Point.points.values():
@@ -115,7 +128,8 @@ def cmd_bp_list(console, cmd):
       '*' if point.ephemeral else '',
       point.debugging_set.owner.cpuid_prefix,
       str(point.__class__),
-      point.ip if isinstance(point, BreakPoint) else ''
+      point.ip if isinstance(point, BreakPoint) else '',
+      point.countdown
     ])
 
   from util import print_table

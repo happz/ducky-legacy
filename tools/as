@@ -1,5 +1,7 @@
 #! /usr/bin/env python
 
+import patch
+
 import optparse
 import os.path
 import struct
@@ -23,7 +25,7 @@ from util import *
 def main():
   parser = optparse.OptionParser()
 
-  parser.add_option('-v', dest = 'verbosity', action = 'count', default = 0, help = 'Verbosity level')
+  parser.add_option('-d', dest = 'debug', action = 'store_true', default = False, help = 'Debug mode')
 
   parser.add_option('-i', dest = 'file_in', default = None, help = 'Input file')
   parser.add_option('-o', dest = 'file_out', default = None, help = 'Output file')
@@ -36,7 +38,6 @@ def main():
   options, args = parser.parse_args()
 
   util.CONSOLE = console.Console(None, sys.stdin, sys.stdout)
-  util.CONSOLE.set_verbosity(options.verbosity)
 
   if not options.file_in:
     parser.print_help()
@@ -74,7 +75,6 @@ def main():
   i = 0
   for s_name, section in sections.items():
     if 'b' in section.flags and len(section) == 0:
-      debug('Remove section %s, it\'s empty' % s_name)
       del sections[s_name]
       continue
 
@@ -82,7 +82,6 @@ def main():
     i += 1
 
   with mm.binary.File(options.file_out, 'w') as f_out:
-    debug('Create file header')
     h_file = f_out.create_header()
 
     section_name_to_index = {}
@@ -90,8 +89,6 @@ def main():
       section_name_to_index[s_name] = i
 
     for s_name, section in sections.items():
-      debug('Create section %s: base=%s, size=%s' % (section.name, ADDR_FMT(section.base.u16), len(section)))
-
       h_section = f_out.create_section()
       h_section.type = section.type
       h_section.items = len(section.content)
@@ -102,8 +99,6 @@ def main():
         symbol_entries = []
 
         for se in section.content:
-          debug('record symbol %s in section %s at addr %s' % (se.name.name, se.section.name, se.section_ptr))
-
           entry = mm.binary.SymbolEntry()
           symbol_entries.append(entry)
 

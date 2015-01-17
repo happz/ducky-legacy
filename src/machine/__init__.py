@@ -1,8 +1,10 @@
+import os
 import Queue
 import sys
 import time
 import types
 
+import core
 import cpu
 import mm
 import machine.bus
@@ -55,6 +57,26 @@ class SymbolCache(LRUCache):
 
     return (None, None)
 
+class AddressCache(LRUCache):
+  def __init__(self, machine, size, *args, **kwargs):
+    super(AddressCache, self).__init__(size, *args, **kwargs)
+
+    self.machine = machine
+
+  def get_object(self, symbol):
+    from cpu.assemble import Label
+
+    debug('AddressCache.get_object: symbol=%s', symbol)
+
+    for csr, dsr, sp, ip, symbols in self.machine.binaries:
+      if symbol not in symbols:
+        continue
+
+      return (UInt8(csr.u8), symbols[symbol])
+
+    else:
+      return None
+
 class Machine(object):
   def core(self, core_address):
     if type(core_address) == types.TupleType:
@@ -91,6 +113,9 @@ class Machine(object):
 
     return self.storages.get(id, None)
 
+  def get_addr_by_symbol(self, symbol):
+    return self.address_cache[symbol]
+
   def get_symbol_by_addr(self, cs, address):
     return self.symbol_cache[segment_addr_to_addr(cs.u8, address)]
 
@@ -101,6 +126,7 @@ class Machine(object):
     self.nr_cores = cores
 
     self.symbol_cache = SymbolCache(self, 256)
+    self.address_cache = AddressCache(self, 256)
 
     binaries = binaries or []
     self.binaries = []
@@ -166,6 +192,9 @@ class Machine(object):
 
       debug('init state: csr=%s, dsr=%s, sp=%s, ip=%s', csr, dsr, sp, ip)
 
+      ip = symbols.get('main', UInt16(0))
+      debug('init state: ip=%s', ip)
+
       self.init_states.append((csr, dsr, sp, ip, False))
       self.binaries.append((csr, dsr, sp, ip, symbols))
 
@@ -191,11 +220,32 @@ class Machine(object):
 
     breakpoints = breakpoints or []
     for bp in breakpoints:
-      core, address = bp.split(',')
-      core = self.core(core)
-      address = int(address, base = 16) if address.startswith('0x') else int(address)
+      bp = bp.split(',')
 
-      add_breakpoint(core, address)
+      core = self.core(bp[0])
+
+      if bp[1].startswith('0x'):
+        address = int(bp[1], base = 16)
+
+      elif bp[1][0].isdigit():
+        address = int(bp[1])
+
+      else:
+        address = self.get_addr_by_symbol(bp[1])
+        if address:
+          address = address[1].u16
+
+      if not address:
+        error('Unknown breakpoint address: %s on %s', bp[1], bp[1])
+        continue
+
+      bp_params = {}
+      if len(bp) > 2:
+        for property in bp[2:]:
+          name, value = property.split('=')
+          bp_params[name] = value
+
+      p = add_breakpoint(core, address, **bp_params)
 
     # Storage
     from storage import STORAGES, StorageIOHandler
@@ -350,6 +400,19 @@ def cmd_halt(console, cmd):
   console.machine.halt()
   console.halt()
 
+def cmd_snapshot(console, cmd):
+  """
+  Create snapshot
+  """
+
+  state = core.VMState.capture_vm_state(console.machine)
+
+  filename = 'ducky-core.%s' % os.getpid()
+  state.save(filename)
+
+  console.info('Snapshot saved as %s', filename)
+
 console.Console.register_command('halt', cmd_halt)
 console.Console.register_command('boot', cmd_boot)
 console.Console.register_command('run', cmd_run)
+console.Console.register_command('snap', cmd_snapshot)

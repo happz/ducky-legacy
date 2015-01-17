@@ -1,5 +1,7 @@
 #! /usr/bin/env python
 
+import patch
+
 import ctypes
 import optparse
 import struct
@@ -17,7 +19,7 @@ import cpu.instructions
 import mm.binary
 import util
 
-from mm import UInt8, UInt16, ADDR_FMT, UINT16_FMT, UINT8_FMT, SIZE_FMT
+from mm import UInt8, UInt16, ADDR_FMT, UINT16_FMT, UINT8_FMT, SIZE_FMT, UINT32_FMT
 from cpu.errors import CPUException
 from util import *
 
@@ -25,14 +27,14 @@ def show_file_header(f):
   f_header = f.get_header()
 
   info('=== File header ===')
-  info('  Magic:    0x%X' % f_header.magic)
-  info('  Version:  %i' % f_header.version)
-  info('  Sections: %i' % f_header.sections)
-  info()
+  info('  Magic:    0x%X', f_header.magic)
+  info('  Version:  %i', f_header.version)
+  info('  Sections: %i', f_header.sections)
+  info('')
 
 def show_sections(f):
   info('=== Sections ===')
-  info()
+  info('')
 
   f_header = f.get_header()
 
@@ -56,11 +58,11 @@ def show_sections(f):
   for line in tabulate.tabulate(table, headers = 'firstrow', tablefmt = 'simple', numalign = 'right').split('\n'):
     info(line)
 
-  info()
+  info('')
 
 def show_disassemble(f):
   info('=== Disassemble ==')
-  info()
+  info('')
 
   f_header = f.get_header()
 
@@ -70,20 +72,20 @@ def show_disassemble(f):
     if header.type != mm.binary.SectionTypes.TEXT:
       continue
 
-    info('  ', 'Section %s' % header.get_name())
+    info('  Section %s', header.get_name())
 
     csp = UInt16(header.base)
     for inst in content:
       csp_str = ADDR_FMT(csp.u16)
       csp.u16 += 4
 
-      info('  ', csp_str, cpu.instructions.disassemble_instruction(inst))
+      info('  %s (%s) %s', csp_str, UINT32_FMT(inst.overall.u32), cpu.instructions.disassemble_instruction(inst))
 
-  info()
+  info('')
 
 def show_symbols(f):
   info('=== Symbols ===')
-  info()
+  info('')
 
   f_header = f.get_header()
 
@@ -113,13 +115,19 @@ def show_symbols(f):
       if entry.type == mm.binary.SymbolDataTypes.INT:
         symbol_content = UInt16(0)
         symbol_content.u16 = _content[entry.address - _header.base].u8 | (_content[entry.address - _header.base + 1].u8 << 8)
-        symbol_content = '%i' % symbol_content.u16
+        symbol_content = UINT16_FMT(symbol_content.u16)
 
       elif entry.type == mm.binary.SymbolDataTypes.ASCII:
-        symbol_content = '"' + ''.join(['%s' % chr(c.u8) for c in _content[entry.address - _header.base:entry.address - _header.base + entry.size]]) + '"'
+        symbol_content = ''.join(['%s' % chr(c.u8) for c in _content[entry.address - _header.base:entry.address - _header.base + entry.size]])
 
       elif entry.type == mm.binary.SymbolDataTypes.STRING:
-        symbol_content = '"' + ''.join(['%s' % chr(c.u8) for c in _content[entry.address - _header.base:entry.address - _header.base + entry.size]]) + '"'
+        symbol_content = ''.join(['%s' % chr(c.u8) for c in _content[entry.address - _header.base:entry.address - _header.base + entry.size]])
+
+      if entry.type == mm.binary.SymbolDataTypes.ASCII or entry.type == mm.binary.SymbolDataTypes.STRING:
+        if len(symbol_content) > 32:
+          symbol_content = symbol_content[0:29] + '...'
+
+        symbol_content = '"' + symbol_content.replace('\r', '\\r').replace('\n', '\\n') + '"'
 
       table_row.append(symbol_content)
       table.append(table_row)
@@ -127,17 +135,17 @@ def show_symbols(f):
   for line in tabulate.tabulate(table, headers = 'firstrow', tablefmt = 'simple', numalign = 'right').split('\n'):
     info(line)
 
-  info()
+  info('')
 
 def main():
   parser = optparse.OptionParser()
 
-  parser.add_option('-v', dest = 'verbosity', action = 'count', default = 0, help = 'Verbosity level')
+  parser.add_option('-d', dest = 'debug',       action = 'store_true', default = False, help = 'Debug mode')
 
   parser.add_option('-i', dest = 'file_in', default = None, help = 'Input file')
 
   parser.add_option('-H', dest = 'header',      default = False, action = 'store_true', help = 'Show file header')
-  parser.add_option('-d', dest = 'disassemble', default = False, action = 'store_true', help = 'Disassemble TEXT sections')
+  parser.add_option('-D', dest = 'disassemble', default = False, action = 'store_true', help = 'Disassemble TEXT sections')
   parser.add_option('-s', dest = 'symbols',     default = False, action = 'store_true', help = 'List symbols')
   parser.add_option('-S', dest = 'sections',    default = False, action = 'store_true', help = 'List sections')
   parser.add_option('-a', dest = 'all',         default = False, action = 'store_true', help = 'All of above')
@@ -145,7 +153,6 @@ def main():
   options, args = parser.parse_args()
 
   util.CONSOLE = console.Console(None, sys.stdin, sys.stdout)
-  util.CONSOLE.set_verbosity(options.verbosity)
 
   if not options.file_in:
     parser.print_help()
@@ -154,12 +161,12 @@ def main():
   if options.all:
     options.header = options.disassemble = options.symbols = options.sections = True
 
-  info('Input file: %s' % options.file_in)
+  info('Input file: %s', options.file_in)
 
   with mm.binary.File(options.file_in, 'r') as f_in:
     f_in.load()
 
-    info()
+    info('')
 
     if options.header:
       show_file_header(f_in)

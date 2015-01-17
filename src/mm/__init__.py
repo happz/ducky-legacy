@@ -122,21 +122,6 @@ def uint32_to_buff(i, buff, offset):
   buff[offset + 2] = (i &   0xFF0000) >> 16
   buff[offset + 3] = (i & 0xFF000000) >> 24
 
-def get_code_entry_address(s_header, s_content):
-  from cpu.assemble import Label
-
-  for entry in s_content:
-    if hasattr(entry, 'get_name') and entry.get_name() == 'main':
-      debug('"main" function found, use as an entry point')
-      return UInt16(entry.address)
-
-    if hasattr(entry, 'name') and isinstance(entry.name, Label) and entry.name.name == 'main':
-      debug('"main" function found, use as an entry point')
-      return entry.section_ptr
-
-  else:
-    return None
-
 class MemoryPage(object):
   def __init__(self, controller, index):
     super(MemoryPage, self).__init__()
@@ -658,9 +643,6 @@ class MemoryController(object):
         for symbol in section.content:
           symbols[symbol.name] = symbol.section_ptr
 
-        if not ip:
-          ip = get_code_entry_address(section, section.content)
-
       if s_base_addr:
         self.reset_area_flags(s_base_addr.u24, len(section))
         self.update_area_flags(s_base_addr.u24, len(section), 'read', True if 'r' in section.flags else False)
@@ -712,9 +694,6 @@ class MemoryController(object):
         elif s_header.type == mm.binary.SectionTypes.SYMBOLS:
           for symbol in s_content:
             symbols[symbol.get_name()] = UInt16(symbol.address)
-
-          if not ip:
-            ip = get_code_entry_address(s_header, s_content)
 
         if s_base_addr:
           self.reset_area_flags(s_base_addr.u24, s_header.size)
