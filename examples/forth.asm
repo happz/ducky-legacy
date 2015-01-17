@@ -76,8 +76,8 @@ code_#label:
 
 .macro DEFVAR name, len, flags, label, initial:
   $DEFCODE #name, #len, #flags, #label
-  li $W, &var_#label
-  push $W
+  push $TOS
+  li $TOS, &var_#label
   $NEXT
 
   .data
@@ -87,7 +87,8 @@ code_#label:
 
 .macro DEFCONST name, len, flags, label, value:
   $DEFCODE #name, #len, #flags, #label
-  push #value
+  push $TOS
+  li $TOS, #value
   $NEXT
 .end
 
@@ -321,11 +322,12 @@ $DEFCODE "INTERPRET", 9, 0, INTERPRET
   sub r1, &parse_error_msg
   call &writeln
   ; print input buffer
-  ; li r0, &conio_buffer
-  ; li r1, &conio_buffer_curr
-  ; lw r1, r1
-  ; sub r1, &conio_buffer
-  ; call &writeln
+  li r0, &word_buffer
+  li r1, &word_buffer_length
+  lw r1, r1
+  call &writeln
+
+  call &halt
 
 .__INTERPRET_next:
   pop r5
@@ -342,8 +344,10 @@ $DEFCODE "INTERPRET", 9, 0, INTERPRET
 
 
 $DEFCODE "KEY", 3, 0, KEY
+  ; ( -- n )
   call &.__KEY
-  push r0
+  push $TOS
+  mov $TOS, r0
   $NEXT
 
 .__KEY:
@@ -351,40 +355,16 @@ $DEFCODE "KEY", 3, 0, KEY
   inb r0, $PORT_STDIN
   cmp r0, 0xFF
   be &.__KEY_wait_for_input
-  ; r1 = conio_buffer_curr address
-  ; r2 = conio_buffer_curr value
-  push r1
-  push r2
-  li r1, &conio_buffer_curr
-  lw r2, r1
-  ; conio_buffer_curr lies right next to conio_buffer,
-  ; so if conio_buffer_curr == &conio_buffer_curr,
-  ; then we're at the end of buffer
-  cmp r2, r1
-  bne &.__KEY_save_input
-  li r2, &conio_buffer
-.__KEY_save_input:
-  stb r2, r0 ; save char
-  inc r2
-  stw r1, r2 ; and save conio_buffer_curr too!
-  pop r2
-  pop r1
   ret
 .__KEY_wait_for_input:
   idle
   j &.__KEY_read_input
 
-  .data
-
-  .type conio_buffer, space
-  .space 256
-
-  .type conio_buffer_curr, int
-  .int &conio_buffer
-
 
 $DEFCODE "EMIT", 4, 0, EMIT
-  pop r0
+  ; ( n -- )
+  mov r0, $TOS
+  pop $TOS
   call &.__EMIT
   $NEXT
 
@@ -394,9 +374,11 @@ $DEFCODE "EMIT", 4, 0, EMIT
 
 
 $DEFCODE "WORD", 4, 0, WORD
+  ; ( -- address length )
   call &.__WORD
-  push r0 ; address
-  push r1 ; length
+  push $TOS
+  push r0
+  mov $TOS, r1
   $NEXT
 
 .__WORD:
@@ -416,6 +398,11 @@ $DEFCODE "WORD", 4, 0, WORD
   cmp r0, 0x20 ; space
   bg &.__WORD_store_char
   sub r1, &word_buffer
+  ; save word length for debugging purposes
+  push r2
+  li r2, &word_buffer_length
+  stw r2, r1
+  pop r2
   li r0, &word_buffer
   ret
 .__WORD_skip_comment:
@@ -430,13 +417,17 @@ $DEFCODE "WORD", 4, 0, WORD
   .type word_buffer, space
   .space 32
 
+  .type word_buffer_length, int
+  .int 0
 
 $DEFCODE "NUMBER", 6, 0, NUMBER
-  pop r1 ; length
-  pop r0 ; address
+  ; ( address length -- number unparsed_chars )
+  pop r0
+  mov r1, $TOS
   call &.__NUMBER
-  push r0 ; number
-  push r1 ; number of unparsed chars
+  push $TOS
+  push r0
+  mov $TOS, r1
   $NEXT
 
 .__NUMBER:
@@ -496,10 +487,11 @@ $DEFCODE "NUMBER", 6, 0, NUMBER
 
 
 $DEFCODE "FIND", 4, 0, FIND
-  pop r1 ; length
-  pop r0 ; address
+  ; ( address length -- address )
+  pop r0
+  mov r1, $TOS
   call &.__FIND
-  push r0 ; address
+  mov $TOS, r0
   $NEXT
 
 .__FIND:
@@ -549,10 +541,18 @@ $DEFCODE "FIND", 4, 0, FIND
   ret
 
 
+$DEFCODE "'", 1, 0, TICK
+  add $FIP, 2
+  push $TOS
+  lw $TOS, $FIP
+  $NEXT
+
+
 $DEFCODE ">CFA", 4, 0, TCFA
-  pop r0
+  ; ( address -- address )
+  mov r0, $TOS
   call &.__TCFA
-  push r0
+  mov $TOS, r0
   $NEXT
 
 .__TCFA:
@@ -575,13 +575,16 @@ $DEFWORD ">DFA", 4, 0, TDFA
 $DEFCODE "LIT", 3, 0, LIT
   lw $W, $FIP
   add $FIP, 2
-  push $W
+  push $TOS
+  mov $TOS, $W
   $NEXT
 
 
 $DEFCODE "CREATE", 6, 0, CREATE
-  pop r1 ; length
-  pop r0 ; address
+  ; ( address length -- )
+  pop r0
+  mov r1, $TOS
+  pop $TOS
 
   ; save working registers
   push r2 ; HERE address
@@ -589,8 +592,7 @@ $DEFCODE "CREATE", 6, 0, CREATE
   push r4 ; LATEST address
   push r5 ; LATEST value
   push r6 ; flags/length
-  push r7 ; original length
-  push r8 ; current word char
+  push r7 ; current word char
   ; init registers
   li r2, &var_HERE
   lw r3, r2
@@ -606,34 +608,26 @@ $DEFCODE "CREATE", 6, 0, CREATE
   li r6, 0
   stb r3, r6
   inc r3
-  ; save unaligned length
-  mov r7, r1
-  ; save aligned length
-  $align2 r1
+  ; save unaligned length ...
   stb r3, r1
   inc r3
+  ; but shift HERE to next aligned address
+  $align2 r3
   ; copy word name, using its original length
-  mov r6, r7
+  mov r6, r1
 .__CREATE_loop:
-  lb r8, r0
-  stb r3, r8
+  lb r7, r0
+  stb r3, r7
   inc r3
   inc r0
   dec r6
   bnz &.__CREATE_loop
-  ; compare original length with aligned one
-  cmp r7, r1
-  be &.__CREATE_finish
-  ; store padding byte
-  li r8, 0
-  stb r3, r8
-  inc r3
-.__CREATE_finish:
+  ; align HERE - this will "add" padding byte to name automagicaly
+  $align2 r3
   ; save vars
   stw r2, r3 ; HERE
   stw r4, r5 ; LATEST
   ; restore working registers
-  pop r8
   pop r7
   pop r6
   pop r5
@@ -644,7 +638,8 @@ $DEFCODE "CREATE", 6, 0, CREATE
 
 
 $DEFCODE ",", 1, 0, COMMA
-  pop r0
+  mov r0, $TOS
+  pop $TOS
   call &.__COMMA
   $NEXT
 
@@ -701,21 +696,21 @@ $DEFWORD ";", 1, $F_IMMED, SEMICOLON
 
 $DEFCODE "IMMEDIATE", 9, $F_IMMED, IMMEDIATE
   li $W, &var_LATEST
-  add $W, $wr_flags
-  lb $X, $W
-  xor $X, $F_IMMED
-  stb $W, $X
+  lw $X, $W
+  add $X, $wr_flags
+  lb $Y, $X
+  xor $Y, $F_IMMED
+  stb $X, $Y
   $NEXT
-
 
 $DEFCODE "HIDDEN", 6, 0, HIDDEN
-  pop $W
-  add $W, $wr_flags
-  lb $X, $W
-  xor $X, $F_HIDDEN
-  stb $W, $X
+  ; ( word_address -- )
+  add $TOS, $wr_flags
+  lb $W, $TOS
+  xor $W, $F_HIDDEN
+  stb $TOS, $W
+  pop $TOS
   $NEXT
-
 
 $DEFCODE "BRANCH", 6, 0, BRANCH
   lw $W, $FIP
@@ -724,12 +719,12 @@ $DEFCODE "BRANCH", 6, 0, BRANCH
 
 
 $DEFCODE "0BRANCH", 7, 0, ZBRANCH
-  pop $W
+  mov $W, $TOS
+  pop $TOS
   cmp $W, $W
   bz &code_BRANCH
   add $FIP, 2
   $NEXT
-
 
 $DEFWORD "QUIT", 4, 0, QUIT
   .int &RZ
@@ -738,13 +733,11 @@ $DEFWORD "QUIT", 4, 0, QUIT
   .int &BRANCH
   .int -4
 
-
 $DEFWORD "HIDE", 4, 0, HIDE
   .int &WORD
   .int &FIND
   .int &HIDDEN
   .int &EXIT
-
 
 $DEFCODE "EXIT", 4, 0, EXIT
   $poprsp $FIP
@@ -755,122 +748,128 @@ $DEFCODE "EXIT", 4, 0, EXIT
 ; Arthmetic operations
 ;
 $DEFCODE "+", 1, 0, ADD
+  ; ( a b -- a+b )
   pop $W
-  pop $X
-  add $W, $X
-  push $W
+  add $TOS, $W
   $NEXT
 
+
 $DEFCODE "-", 1, 0, SUB
+  ; ( a b -- a-b )
   pop $W
-  pop $X
-  sub $X, $W
+  sub $W, $TOS
+  mov $TOS, $W
+  $NEXT
+
+
+$DEFCODE "1+", 2, 0, INCR
+  ; ( a -- a+1 )
+  inc $TOS
+  $NEXT
+
+
+$DEFCODE "1-", 2, 0, DECR
+  ; ( a -- a-1 )
+  dec $TOS
+  $NEXT
+
+
+$DEFCODE "2+", 2, 0, INCR2
+  ; ( a -- a+2 )
+  add $TOS, 2
+  $NEXT
+
+
+$DEFCODE "2-", 2, 0, DECR2
+  ; ( a -- a-2 )
+  sub $TOS, 2
+  $NEXT
+
+
+$DEFCODE "4+", 2, 0, INCR4
+  ; ( a -- a+4 )
+  add $TOS, 4
+  $NEXT
+
+
+$DEFCODE "4-", 2, 0, DECR4
+  ; ( a -- a-4 )
+  sub $TOS, 4
+  $NEXT
+
+
+$DEFCODE "*", 1, 0, MUL
+  ; ( a b -- a*b )
+  pop $W
+  mul $TOS, $W
+  $NEXT
+
+
+$DEFCODE "/", 1, 0, DIV
+  ; ( a b -- b/a )
+  pop $W
+  div $TOS, $W
+  $NEXT
+
+
+$DEFCODE "MOD", 1, 0, MOD
+  ; ( a b -- b%a )
+  pop $W
+  mod $TOS, $W
+  $NEXT
+
+
+$DEFCODE "/MOD", 4, 0, DIVMOD
+  ; ( a b -- b/a b%a )
+  pop $W
+  mov $X, $TOS
+  div $X, $W
+  mod $TOS, $W
   push $X
   $NEXT
 
-$DEFCODE "1+", 2, 0, INCR
-  pop $W
-  inc $W
-  push $W
-  $NEXT
-
-$DEFCODE "1-", 2, 0, DECR
-  pop $W
-  dec $W
-  push $W
-  $NEXT
-
-$DEFCODE "2+", 2, 0, INCR2
-  pop $W
-  add $W, 2
-  push $W
-  $NEXT
-
-$DEFCODE "2-", 2, 0, DECR2
-  pop $W
-  sub $W, 2
-  push $W
-  $NEXT
-
-$DEFCODE "4+", 2, 0, INCR4
-  pop $W
-  add $W, 4
-  push $W
-  $NEXT
-
-$DEFCODE "4-", 2, 0, DECR4
-  pop $W
-  sub $W, 4
-  push $W
-  $NEXT
-
-$DEFCODE "*", 1, 0, MUL
-  pop $W
-  pop $X
-  mul $W, $X
-  push $W
-  $NEXT
-
-$DEFCODE "/", 1, 0, DIV
-  pop $W
-  pop $X
-  div $W, $X
-  push $W
-  $NEXT
-
-$DEFCODE "MOD", 1, 0, MOD
-  pop $W
-  pop $X
-  mod $W, $X
-  push $W
-  $NEXT
-
+;
+; Parameter stack operations
+;
 
 $DEFCODE "DROP", 4, 0, DROP
-  pop $W
+  ; ( n -- )
+  pop $TOS
   $NEXT
 
 
 $DEFCODE "SWAP", 4, 0, SWAP
+  ; ( a b -- b a )
   pop $W
-  pop $X
-  push $W
-  push $X
+  push $TOS
+  mov $TOS, $W
   $NEXT
 
 
 $DEFCODE "DUP", 3, 0, DUP
-  pop $W
-  push $W
-  push $W
+  ; ( a b -- a b b )
+  push $TOS
   $NEXT
 
 
 $DEFCODE "OVER", 4, 0, OVER
+  ; ( a b -- a b a )
   pop $W
-  pop $X
-  push $X
   push $W
-  push $X
+  push $TOS
+  mov $TOS, $W
   $NEXT
 
 
-
-$DEFCODE "/MOD", 4, 0, DIVMOD
-  pop $W
-  pop $X
-  mov $Y, $X
-  div $X, $W
-  mod $X, $W
-  push $X
-  push $Y
-  $NEXT
-
+;
+; Input and output
+;
 
 $DEFCODE "CHAR", 4, 0, CHAR
+  ; ( -- n )
   call &.__WORD
-  lb r0, r0 ; load the first character of next word into r0...
-  push r0
+  push $TOS
+  lb $TOS, r0 ; load the first character of next word into r0...
   $NEXT
 
 
@@ -879,26 +878,24 @@ $DEFCODE "CHAR", 4, 0, CHAR
 ;
 
 $DEFCODE ">R", 2, 0, TOR
-  pop $W
-  $pushrsp $W
+  $pushrsp $TOS
+  pop $TOS
   $NEXT
-
 
 $DEFCODE "R>", 2, 0, FROMR
-  $poprsp $W
-  push $W
+  push $TOS
+  $poprsp $TOS
   $NEXT
-
 
 $DEFCODE "RSP@", 4, 0, RSPFETCH
-  push $RSP
+  push $TOS
+  mov $TOS, $RSP
   $NEXT
-
 
 $DEFCODE "RSP!", 4, 0, RSPSTORE
-  pop $RSP
+  mov $RSP, $TOS
+  pop $TOS
   $NEXT
-
 
 $DEFCODE "RDROP", 5, 0, RDOP
   $poprsp $W
@@ -908,35 +905,34 @@ $DEFCODE "RDROP", 5, 0, RDOP
 ;
 ; Memory operations
 ;
-
 $DEFCODE "!", 1, 0, STORE
-  pop $X ; address
-  pop $W ; data
-  stw $X, $W
+  ; ( data address -- )
+  pop $W
+  stw $TOS, $W
+  pop $TOS
   $NEXT
-
 
 $DEFCODE "@", 1, 0, FETCH
-  pop $X ; address
-  lw $W, $X
-  push $W
+  ; ( address -- n )
+  lw $TOS, $TOS
   $NEXT
 
-
 $DEFCODE "+!", 2, 0, ADDSTORE
-  pop $X ; address
-  pop $W ; amount
-  lw $Y, $X
-  add $Y, $W
-  stw $X, $Y
+  ; ( amount address -- )
+  pop $W
+  lw $X, $TOS
+  add $X, $W
+  stw $TOS, $X
+  pop $TOS
   $NEXT
 
 $DEFCODE "-!", 2, 0, SUBSTORE
-  pop $X ; address
-  pop $W ; amount
-  lw $Y, $X
-  sub $Y, $W
-  stw $X, $Y
+  ; ( amount address -- )
+  pop $W
+  lw $X, $TOS
+  sub $X, $W
+  stw $TOS, $X
+  pop $TOS
   $NEXT
 
 
