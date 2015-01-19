@@ -21,7 +21,7 @@ from mm import segment_addr_to_addr
 from console import VerbosityLevels
 from registers import Registers, REGISTER_NAMES
 from instructions import Opcodes
-from errors import CPUException, AccessViolationError, InvalidResourceError
+from errors import CPUException, AccessViolationError, InvalidResourceError, InvalidOpcode
 from util import debug, info, warn, error, print_table, LRUCache
 
 from ctypes import LittleEndianStructure, Union, c_ubyte, c_ushort, c_uint
@@ -38,7 +38,7 @@ class InterruptVector(LittleEndianStructure):
     ('ip', c_ushort)
   ]
 
-def log_cpu_core_state(core, logger = None):
+def do_log_cpu_core_state(core, logger = None):
   logger = logger or core.DEBUG
 
   for i in range(0, Registers.REGISTER_SPECIAL, 4):
@@ -59,6 +59,9 @@ def log_cpu_core_state(core, logger = None):
 
   for index, (ip, symbol, offset) in enumerate(core.backtrace()):
     logger('Frame #%i: %s + %s (%s)' % (index, symbol, offset, ip))
+
+def log_cpu_core_state(*args, **kwargs):
+  do_log_cpu_core_state(*args, **kwargs)
 
 class StackFrame(object):
   def __init__(self, cs, ds, fp):
@@ -200,7 +203,7 @@ class CPUCore(object):
     self.exit_code = 1
 
     self.ERROR(str(exc))
-    log_cpu_core_state(self)
+    do_log_cpu_core_state(self, logger = self.ERROR)
     self.keep_running = False
 
     if self.current_suspend_event:
@@ -734,7 +737,7 @@ class CPUCore(object):
     log_cpu_core_state(self)
 
     if opcode not in self.opcode_map:
-      raise CPUException('Unknown opcode: %i' % opcode)
+      raise InvalidOpcode(opcode, ip = saved_IP)
 
     self.opcode_map[opcode](self.current_instruction)
 

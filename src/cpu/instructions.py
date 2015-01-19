@@ -9,7 +9,7 @@ from ctypes import LittleEndianStructure, Union, c_uint, c_int
 from util import debug
 from mm import UInt32, UInt16, UINT16_FMT, ADDR_FMT, OFFSET_FMT
 from cpu.registers import Registers, REGISTER_NAMES
-from cpu.errors import CompilationError
+from cpu.errors import CompilationError, InvalidOpcode
 
 class Opcodes(enum.IntEnum):
   NOP    =  0
@@ -94,6 +94,9 @@ def decode_instruction(inst):
     inst = master
 
   if type(inst) == InstBinaryFormat_Master:
+    if inst.opcode.opcode not in OPCODE_TO_DESC_MAP:
+      raise InvalidOpcode(inst.opcode.opcode)
+
     return getattr(inst, OPCODE_TO_DESC_MAP[inst.opcode.opcode].binary_format_name)
 
   return inst
