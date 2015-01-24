@@ -74,7 +74,7 @@ def main():
 
   i = 0
   for s_name, section in sections.items():
-    if 'b' in section.flags and len(section) == 0:
+    if len(section) == 0:
       del sections[s_name]
       continue
 
