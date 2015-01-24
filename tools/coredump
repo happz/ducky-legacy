@@ -24,7 +24,7 @@ import util
 from mm import UInt8, UInt16, ADDR_FMT, UINT16_FMT, UINT8_FMT, SIZE_FMT, PAGE_SIZE
 from cpu.errors import CPUException
 from cpu.registers import Registers, REGISTER_NAMES
-from util import *
+from util import str2int, info
 
 def show_header(state):
   info('=== Coredump header ===')
@@ -66,21 +66,37 @@ def show_memory(state):
   info('  # of pages:    %s', state.mm_state.pages)
   info('')
 
-def show_segments(state):
+def show_segments(state, binaries):
   info('=== Memory segments ===')
 
   for s in state.mm_segment_states:
     info('  Segment: %s', UINT8_FMT(s.index))
 
+    for cs, ds, symbols, binary in binaries:
+      if s.index == cs.u8:
+        info('    CS of %s', binary.name)
+      if s.index == ds.u8:
+        info('    DS of %s', binary.name)
+
   info('')
 
-def show_pages(state):
+def show_pages(state, binaries):
   info('=== Memory pages ===')
 
   for pg in sorted(state.mm_page_states, key = lambda x: x.index):
     pg_addr = pg.index * PAGE_SIZE
+    pg_segment = mm.addr_to_segment(pg_addr)
 
-    info('  Page #%i', pg.index)
+    for cs, ds, symbols, binary in binaries:
+      if pg_segment == cs.u8:
+        break
+      if pg_segment == ds.u8:
+        break
+
+    else:
+      cs = ds = symbols = binary = None
+
+    info('  Page #%i (segment %s)', pg.index, UINT8_FMT(pg_segment))
     info('    Flags: %s%s%s%s', 'r' if pg.read == 1 else '-', 'w' if pg.write == 1 else '-', 'x' if pg.execute == 1 else '-', 'd' if pg.dirty == 1 else '-')
 
     for i in range(0, 8):
@@ -107,6 +123,19 @@ def show_pages(state):
       info('    ' + ADDR_FMT(pg_addr + i * 32) + ': ' + ' '.join(s))
       info('              ' + ' '.join(t))
 
+      if not symbols:
+        continue
+
+      row_symbols = []
+      for j in range(pg_addr + i * 32, pg_addr + i * 32 + 32):
+        if j not in symbols:
+          continue
+
+        row_symbols.append((j - (pg_addr + i * 32)) * 3 * ' ' + '^' + ', '.join(symbols[j]))
+
+      for symbol in row_symbols:
+        info('              ' + symbol)
+
     info('')
 
 def main():
@@ -123,6 +152,9 @@ def main():
   parser.add_option('--pages',    dest = 'pages',    default = False, action = 'store_true', help = 'Show pages')
   parser.add_option('-a',         dest = 'all',      default = False, action = 'store_true', help = 'All of above')
 
+  parser.add_option('-b', '--binary',
+                    action = 'append', dest = 'binaries', default = [])
+
   options, args = parser.parse_args()
 
   util.CONSOLE = console.Console(None, sys.stdin, sys.stdout)
@@ -133,6 +165,37 @@ def main():
 
   if options.all:
     options.header = options.cores = options.memory = options.segments = options.pages = True
+
+  binaries = []
+  for binary in options.binaries:
+    cs, ds, binary = binary.split(',')
+
+    cs = UInt8(str2int(cs))
+    ds = UInt8(str2int(ds))
+
+    raw_binary = mm.binary.File(binary, 'r')
+    raw_binary.load()
+
+    symbols = {}
+    for i in range(0, raw_binary.get_header().sections):
+      s_header, s_content = raw_binary.get_section(i)
+
+      if s_header.type != mm.binary.SectionTypes.SYMBOLS:
+        continue
+
+      for entry in s_content:
+        _header, _content = raw_binary.get_section(entry.section)
+
+        segment = cs if _header.type == mm.binary.SectionTypes.TEXT else ds
+
+        symbol_name = entry.get_name()
+        symbol_address = mm.segment_addr_to_addr(segment.u8, entry.address)
+
+        if symbol_address not in symbols:
+          symbols[symbol_address] = []
+        symbols[symbol_address].append(symbol_name)
+
+      binaries.append((cs, ds, symbols, raw_binary))
 
   info('Input file: %s', options.file_in)
 
@@ -151,10 +214,10 @@ def main():
       show_memory(state)
 
     if options.segments:
-      show_segments(state)
+      show_segments(state, binaries)
 
     if options.pages:
-      show_pages(state)
+      show_pages(state, binaries)
 
 if __name__ == '__main__':
   main()
