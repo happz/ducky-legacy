@@ -593,7 +593,7 @@ def translate_buffer(buff, base_address = None):
 
     else:
       for var in section.content:
-        debug('pass #1:', var)
+        debug('pass #1: %s', var)
 
   debug('Pass #2')
 
