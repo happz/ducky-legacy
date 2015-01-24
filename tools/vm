@@ -175,6 +175,10 @@ def main():
   M.run()
   M.wait()
 
+  state = core.VMState.capture_vm_state(M, suspend = False)
+  state.save('ducky-snapshot.bin')
+  info('VM snapshot save in ducky-snapshot.bin')
+
   import tabulate
 
   table_exits = [

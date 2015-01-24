@@ -110,13 +110,14 @@ class VMState(object):
     self.mm_page_states = []
 
   @staticmethod
-  def capture_vm_state(vm):
+  def capture_vm_state(vm, suspend = True):
     debug('capture_vm_state')
 
     state = VMState()
 
-    debug('suspend vm...')
-    vm.suspend()
+    if suspend:
+      debug('suspend vm...')
+      vm.suspend()
 
     debug('capture state...')
     state.nr_cpus = vm.nr_cpus
@@ -128,8 +129,9 @@ class VMState(object):
 
     vm.memory.save_state(state)
 
-    debug('wake vm up...')
-    vm.wake_up()
+    if suspend:
+      debug('wake vm up...')
+      vm.wake_up()
 
     return state
 
