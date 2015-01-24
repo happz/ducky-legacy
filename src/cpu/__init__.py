@@ -2,10 +2,12 @@ import collections
 import functools
 import Queue
 import sys
+import threading2
 import time
 
 import assemble
 import console
+import core
 import debugging
 import instructions
 import registers
@@ -120,6 +122,8 @@ class CPUCore(object):
     self.memory = memory_controller
 
     self.message_bus = self.cpu.machine.message_bus
+
+    self.suspend_lock = threading2.Lock()
     self.suspend_events = []
     self.current_suspend_event = None
 
@@ -206,8 +210,7 @@ class CPUCore(object):
     do_log_cpu_core_state(self, logger = self.ERROR)
     self.keep_running = False
 
-    if self.current_suspend_event:
-      self.current_suspend_event.set()
+    self.wake_up()
 
   def FLAGS(self):
     return self.registers.flags.flags
@@ -744,10 +747,22 @@ class CPUCore(object):
     self.DEBUG('"SYNC" phase:')
     log_cpu_core_state(self)
 
+  def is_alive(self):
+    return self.thread and self.thread.is_alive()
+
+  def is_suspended(self):
+    self.DEBUG('is_suspended')
+
+    with self.suspend_lock:
+      return self.current_suspend_event != None
+
   def wake_up(self):
     self.DEBUG('wake_up')
 
-    if self.current_suspend_event:
+    with self.suspend_lock:
+      if not self.current_suspend_event:
+        return
+
       self.current_suspend_event.set()
       self.current_suspend_event = None
 
@@ -758,8 +773,27 @@ class CPUCore(object):
 
   def plan_suspend(self, event):
     self.DEBUG('plan suspend')
-    self.suspend_events.append(event)
+
+    with self.suspend_lock:
+      self.suspend_events.append(event)
+
     self.DEBUG('suspend planned, wait for it')
+
+  def honor_suspend(self):
+    with self.suspend_lock:
+      if not self.suspend_events:
+        return False
+
+      if self.current_suspend_event:
+        raise CPUException('existing suspend event: %s' % self.current_suspend_event)
+
+      self.current_suspend_event = self.suspend_events.pop(0)
+
+    self.suspend_on(self.current_suspend_event)
+
+    with self.suspend_lock:
+      self.current_suspend_event = None
+      return True
 
   def check_for_events(self):
     self.DEBUG('check_for_events')
@@ -806,13 +840,8 @@ class CPUCore(object):
 
     self.debug.check()
 
-    if self.suspend_events:
-      self.current_suspend_event = self.suspend_events.pop(0)
-      self.suspend_on(self.current_suspend_event)
-      self.current_suspend_event = None
-
+    if self.honor_suspend():
       self.DEBUG('woken up from suspend state, let check bus for new messages')
-
       return self.check_for_events()
 
     return True
@@ -893,7 +922,10 @@ class CPU(object):
     self.__WARN(warn, *args)
 
   def living_cores(self):
-    return [core for core in self.cores if core.thread and core.thread.is_alive()]
+    return filter(lambda x: x.thread and x.thread.is_alive(), self.cores)
+
+  def running_cores(self):
+    return filter(lambda x: not x.is_suspended(), self.cores)
 
   def loop(self):
     self.profiler.enable()
@@ -938,10 +970,7 @@ def cmd_cont(console, cmd):
 
   core = console.default_core if hasattr(console, 'default_core') else console.machine.cpus[0].cores[0]
 
-  if not core.current_suspend_event:
-    return
-
-  core.current_suspend_event.set()
+  core.wake_up()
 
 def cmd_step(console, cmd):
   """
@@ -950,7 +979,7 @@ def cmd_step(console, cmd):
 
   core = console.default_core if hasattr(console, 'default_core') else console.machine.cpus[0].cores[0]
 
-  if not core.current_suspend_event:
+  if not core.is_suspended():
     return
 
   try:
@@ -969,7 +998,7 @@ def cmd_next(console, cmd):
 
   core = console.default_core if hasattr(console, 'default_core') else console.machine.cpus[0].cores[0]
 
-  if not core.current_suspend_event:
+  if not core.is_suspended():
     return
 
   def __ip_addr(offset = 0):
@@ -983,8 +1012,7 @@ def cmd_next(console, cmd):
 
       add_breakpoint(core, core.IP().u16 + 4, ephemeral = True)
 
-      if core.current_suspend_event:
-        core.current_suspend_event.set()
+      core.wake_up()
 
     else:
       core.step()

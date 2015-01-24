@@ -6,8 +6,9 @@ from util import debug
 
 from threading2 import current_thread, RLock, Condition, Event
 
-ADDRESS_ALL = (-1, -1)
-ADDRESS_ANY = (-1,  0)
+ADDRESS_LIST = (-1, -2)
+ADDRESS_ALL  = (-1, -1)
+ADDRESS_ANY  = (-1,  0)
 
 def thread_to_cid():
   cid = current_thread().name.split(' ')[1].split(':')
@@ -39,7 +40,7 @@ class BaseMessage(object):
 
     with self.lock:
       self.delivered_to += 1
-      if self.delivered_to < self.audience:
+      if self.delivered_to < len(self.audience):
         return
 
       self.cond.notifyAll()
@@ -122,6 +123,10 @@ class MessageBus(object):
           for coreid, core_slot in core_slots.items():
             debug('bus.publish: %s queued for #%i:#%i', msg.__class__.__name__, cpuid, coreid)
             __enqueue(core_slot)
+
+      elif msg.address == ADDRESS_LIST:
+        for __core in msg.audience:
+          __enqueue(self.get_core_slot(__core))
 
       else:
         __enqueue(self.get_msg_slot(msg))

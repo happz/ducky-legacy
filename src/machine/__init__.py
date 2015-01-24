@@ -107,6 +107,19 @@ class Machine(object):
 
       callback(src, *args, **kwargs)
 
+  def cores(self):
+    l = []
+
+    self.for_each_core(lambda __core, __cores: __cores.append(__core), l)
+
+    return l
+
+  def living_cores(self):
+    return [c for c in self.cores() if c.is_alive()]
+
+  def running_cores(self):
+    return [c for c in self.cores() if not c.is_suspended()]
+
   def get_storage_by_id(self, id):
     debug('get_storage_by_id: id=%s', id)
     debug('storages: %s', str(self.storages))
@@ -192,7 +205,7 @@ class Machine(object):
 
       debug('init state: csr=%s, dsr=%s, sp=%s, ip=%s', csr, dsr, sp, ip)
 
-      ip = symbols.get('main', UInt16(0))
+      ip = symbols.get('main', mm.UInt16(0))
       debug('init state: ip=%s', ip)
 
       self.init_states.append((csr, dsr, sp, ip, False))
@@ -337,7 +350,8 @@ class Machine(object):
     self.thread.start()
 
   def suspend(self):
-    suspend_msg = bus.SuspendCore(bus.ADDRESS_ALL, audience = sum([len(_cpu.living_cores()) for _cpu in self.cpus]))
+    suspend_msg = bus.SuspendCore(bus.ADDRESS_LIST, audience = self.running_cores())
+
     self.message_bus.publish(suspend_msg)
     suspend_msg.wait()
     self.wake_up_all_event = suspend_msg.wake_up
@@ -350,7 +364,8 @@ class Machine(object):
     self.wake_up_all_event = None
 
   def halt(self):
-    halt_msg = bus.HaltCore(bus.ADDRESS_ALL, audience = sum([len(_cpu.living_cores()) for _cpu in self.cpus]))
+    halt_msg = bus.HaltCore(bus.ADDRESS_ALL, audience = self.living_cores())
+
     self.message_bus.publish(halt_msg)
 
     self.for_each_core(lambda __core: __core.wake_up())
