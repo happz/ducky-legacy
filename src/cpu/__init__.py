@@ -50,7 +50,7 @@ def do_log_cpu_core_state(core, logger = None):
 
   logger('cs=%s    ds=%s' % (core.CS(), core.DS()))
   logger('fp=%s    sp=%s    ip=%s' % (core.FP(), core.SP(), core.IP()))
-  logger('priv=%i, hwint=%i, e=%i, z=%i, o=%i' % (core.FLAGS().privileged, core.FLAGS().hwint, core.FLAGS().e, core.FLAGS().z, core.FLAGS().o))
+  logger('priv=%i, hwint=%i, e=%i, z=%i, o=%i, s=%i' % (core.FLAGS().privileged, core.FLAGS().hwint, core.FLAGS().e, core.FLAGS().z, core.FLAGS().o, core.FLAGS().s))
   logger('thread=%s, keep_running=%s, idle=%s, exit=%i' % (core.thread.name if core.thread else '<unknown>', core.keep_running, core.idle, core.exit_code))
 
   if core.current_instruction:
@@ -443,10 +443,9 @@ class CPUCore(object):
 
   def CMP(self, x, y):
     self.FLAGS().e = 0
-    self.FLAGS().ge = 0
-    self.FLAGS().le = 0
-    self.FLAGS().s = 0
     self.FLAGS().z = 0
+    self.FLAGS().o = 0
+    self.FLAGS().s = 0
 
     if   x == y:
       self.FLAGS().e = 1
@@ -582,12 +581,18 @@ class CPUCore(object):
     self. __check_protected_reg(inst.reg)
 
     with AFLAGS_CTX(self, self.REG(inst.reg)):
+      if self.REG(inst.reg).u16 + self.RI_VAL(inst) > 0xFFFF:
+        self.FLAGS().o = 1
+
       self.REG(inst.reg).u16 += self.RI_VAL(inst)
 
   def inst_SUB(self, inst):
     self.__check_protected_reg(inst.reg)
 
     with AFLAGS_CTX(self, self.REG(inst.reg)):
+      if self.RI_VAL(inst) > self.REG(inst.reg).u16:
+        self.FLAGS().s = 1
+
       self.REG(inst.reg).u16 -= self.RI_VAL(inst)
 
   def inst_AND(self, inst):
