@@ -11,7 +11,7 @@ import machine.bus
 import profiler
 
 from cpu.errors import InvalidResourceError
-from util import debug, info, error, str2int, LRUCache
+from util import debug, info, error, str2int, LRUCache, warn
 from mm import SEGM_FMT, ADDR_FMT, UINT8_FMT, UINT16_FMT, segment_base_addr, UInt16, addr_to_segment, segment_addr_to_addr, UInt8
 
 import irq
@@ -216,7 +216,12 @@ class Machine(object):
           if attr_name == 'entry':
             entry_label = attr_value
 
-      ip = symbols.get(entry_label, mm.UInt16(0))
+      ip = symbols.get(entry_label)
+
+      if not ip:
+        warn('Entry point "%s" not found', entry_label)
+        ip = mm.UInt16(0)
+
       debug('init state: ip=%s', ip)
 
       self.init_states.append((csr, dsr, sp, ip, False))
