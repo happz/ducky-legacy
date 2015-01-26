@@ -200,12 +200,23 @@ class Machine(object):
 
     self.init_states = []
 
-    for bc_file in binaries:
+    for binary in binaries:
+      binary = binary.split(',')
+      bc_file = binary.pop(0)
+
       csr, dsr, sp, ip, symbols = self.memory.load_file(bc_file)
 
       debug('init state: csr=%s, dsr=%s, sp=%s, ip=%s', csr, dsr, sp, ip)
 
-      ip = symbols.get('main', mm.UInt16(0))
+      entry_label = 'main'
+
+      if binary:
+        for attr in binary:
+          attr_name, attr_value = attr.split('=')
+          if attr_name == 'entry':
+            entry_label = attr_value
+
+      ip = symbols.get(entry_label, mm.UInt16(0))
       debug('init state: ip=%s', ip)
 
       self.init_states.append((csr, dsr, sp, ip, False))
