@@ -14,9 +14,19 @@ import mm
 import util
 
 def assert_registers(state, **regs):
-  for i in range(0, cpu.registers.Registers.FLAGS):
-    reg = 'r%i' % i
-    val = regs.get(reg, 0)
+  for reg in cpu.registers.REGISTER_NAMES:
+    if reg in ('flags', 'ip'):
+      continue
+
+    default = 0
+    if reg in ('fp', 'sp'):
+      default = 0x04DA
+
+    elif reg in ('cs', 'ds'):
+      default = 0x01
+
+    val = regs.get(reg, default)
+
     assert getattr(state, reg) == val, 'Register %s expected to have value %s (%s), %s (%s) found instead' % (reg, mm.UINT16_FMT(val), val, mm.UINT16_FMT(getattr(state, reg)), getattr(state, reg))
 
 def assert_flags(state, **flags):
@@ -50,13 +60,15 @@ def run_machine(code, coredump_file = None, **kwargs):
   if not hasattr(util, 'CONSOLE'):
     util.CONSOLE = console.Console(M, None, sys.stdout)
     util.CONSOLE.boot()
-    util.CONSOLE.set_quiet_mode(True)
+
+    util.CONSOLE.set_quiet_mode('VERBOSE' not in os.environ)
 
   M.hw_setup(**kwargs)
 
   sections = cpu.assemble.translate_buffer(code)
 
   csr, dsr, sp, ip, symbols = M.memory.load_raw_sections(sections)
+  ip = symbols.get('main', mm.UInt16(0))
   M.init_states.append((csr, dsr, sp, ip, False))
   M.binaries.append((csr, dsr, sp, ip, symbols))
 
@@ -64,7 +76,7 @@ def run_machine(code, coredump_file = None, **kwargs):
   M.run()
   M.wait()
 
-  state = core.VMState.capture_vm_state(M)
+  state = core.VMState.capture_vm_state(M, suspend = False)
 
   if coredump_file:
     state.save(coredump_file)

@@ -35,19 +35,19 @@ class Tests(unittest.TestCase):
 
   def test_add(self):
     self.common_case('main:\nli r0, 5\nli r1, 10\nadd r0, r1\nint 0', r0 = 15, r1 = 10)
-    self.common_case('main:\nli r0, 0xFFFE\nli r1, 2\nadd r0, r1\nint 0', r1 = 2, z = 1)
-    self.common_case('main:\nli r0, 0xFFFE\nli r1, 4\nadd r0, r1\nint 0', r0 = 2, r1 = 4)
+    self.common_case('main:\nli r0, 0xFFFE\nli r1, 2\nadd r0, r1\nint 0', r1 = 2, o = 1, z = 1)
+    self.common_case('main:\nli r0, 0xFFFE\nli r1, 4\nadd r0, r1\nint 0', r0 = 2, r1 = 4, o = 1)
     self.common_case('main:\nli r0, 5\nadd r0, 10\nint 0', r0 = 15)
-    self.common_case('main:\nli r0, 0xFFFE\nadd r0, 2\nint 0', z = 1)
-    self.common_case('main:\nli r0, 0xFFFE\nadd r0, 4\nint 0', r0 = 2)
+    self.common_case('main:\nli r0, 0xFFFE\nadd r0, 2\nint 0', o = 1, z = 1)
+    self.common_case('main:\nli r0, 0xFFFE\nadd r0, 4\nint 0', r0 = 2, o = 1)
 
   def test_sub(self):
     self.common_case('main:\nli r0, 15\nli r1, 5\nsub r0, r1\nint 0', r0 = 10, r1 = 5)
     self.common_case('main:\nli r0, 2\nli r1, 2\nsub r0, r1\nint 0', r0 = 0, r1 = 2, z = 1)
-    self.common_case('main:\nli r0, 2\nli r1, 4\nsub r0, r1\nint 0', r0 = 0xFFFE, r1 = 4)
+    self.common_case('main:\nli r0, 2\nli r1, 4\nsub r0, r1\nint 0', r0 = 0xFFFE, r1 = 4, s = 1)
     self.common_case('main:\nli r0, 15\nsub r0, 5\nint 0', r0 = 10)
     self.common_case('main:\nli r0, 2\nsub r0, 2\nint 0', z = 1)
-    self.common_case('main:\nli r0, 2\nsub r0, 4\nint 0', r0 = 0xFFFE)
+    self.common_case('main:\nli r0, 2\nsub r0, 4\nint 0', r0 = 0xFFFE, s = 1)
 
   def test_mul(self):
     self.common_case('main:\nli r0, 5\nli r1, 3\nmul r0, r1\nint 0', r0 = 15, r1 = 3)
@@ -186,6 +186,7 @@ class Tests(unittest.TestCase):
       '  .data',
       '  .type foo, int',
       '  .int 0xDEAD',
+      '  .text',
       'main:',
       '  li r0, &foo',
       '  lw r1, r0',
@@ -199,6 +200,7 @@ class Tests(unittest.TestCase):
       '  .data',
       '  .type foo, int',
       '  .int 0xDEAD',
+      '  .text',
       'main:',
       '  li r0, &foo',
       '  lb r1, r0',
@@ -212,6 +214,7 @@ class Tests(unittest.TestCase):
       '  .data',
       '  .type foo, int',
       '  .int 0xF00',
+      '  .text',
       'main:',
       '  li r0, &foo',
       '  lw r1, r0',
@@ -227,6 +230,7 @@ class Tests(unittest.TestCase):
       '  .data',
       '  .type foo, int',
       '  .int 0x0',
+      '  .text',
       'main:',
       '  li r0, &foo',
       '  lw r1, r0',
