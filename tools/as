@@ -74,7 +74,8 @@ def main():
 
   i = 0
   for s_name, section in sections.items():
-    if len(section) == 0:
+    if section.type != mm.binary.SectionTypes.SYMBOLS and len(section) == 0:
+      debug('Removing section %s because it is empty', s_name)
       del sections[s_name]
       continue
 
@@ -92,7 +93,7 @@ def main():
       h_section = f_out.create_section()
       h_section.type = section.type
       h_section.items = len(section.content)
-      h_section.set_name(section.name)
+      h_section.name = f_out.string_table.put_string(section.name)
       h_section.base = section.base.u16
 
       if section.type == mm.binary.SectionTypes.SYMBOLS:
@@ -102,7 +103,7 @@ def main():
           entry = mm.binary.SymbolEntry()
           symbol_entries.append(entry)
 
-          entry.set_name(se.name.name)
+          entry.name = f_out.string_table.put_string(se.name.name)
           entry.address = se.section_ptr.u16
           entry.size = se.size.u16
           entry.section = section_name_to_index[se.section.name]
@@ -122,6 +123,10 @@ def main():
           h_section.flags.bss = 1
 
         f_out.set_content(h_section, section.content)
+
+    h_section = f_out.create_section()
+    h_section.type = mm.binary.SectionTypes.STRINGS
+    h_section.name = f_out.string_table.put_string('.strings')
 
     f_out.save()
 

@@ -641,7 +641,7 @@ class MemoryController(object):
 
       elif section.type == mm.binary.SectionTypes.SYMBOLS:
         for symbol in section.content:
-          symbols[symbol.name] = symbol.section_ptr
+          symbols[symbol.name.name] = symbol.section_ptr
 
       if s_base_addr:
         self.reset_area_flags(s_base_addr.u24, len(section))
@@ -693,7 +693,7 @@ class MemoryController(object):
 
         elif s_header.type == mm.binary.SectionTypes.SYMBOLS:
           for symbol in s_content:
-            symbols[symbol.get_name()] = UInt16(symbol.address)
+            symbols[f_in.string_table.get_string(symbol.name)] = UInt16(symbol.address)
 
         if s_base_addr:
           self.reset_area_flags(s_base_addr.u24, s_header.size)
@@ -811,7 +811,7 @@ class MemoryController(object):
     debug('mc.read_u16: addr=%s, priv=%i', addr, privileged)
 
     if addr % 2:
-      raise AccessViolationError('Unable to access unaligned address: addr=%s', addr)
+      raise AccessViolationError('Unable to access unaligned address: addr=%s' % ADDR_FMT(addr))
 
     return self.get_page(addr_to_page(addr)).read_u16(addr_to_offset(addr), privileged = privileged)
 
@@ -819,7 +819,7 @@ class MemoryController(object):
     debug('mc.read_u32: addr=%s, priv=%i', addr, privileged)
 
     if addr % 4:
-      raise AccessViolationError('Unable to access unaligned address: addr=%s', addr)
+      raise AccessViolationError('Unable to access unaligned address: addr=%s' % ADDR_FMT(addr))
 
     return self.get_page(addr_to_page(addr)).read_u32(addr_to_offset(addr), privileged = privileged)
 
@@ -831,7 +831,7 @@ class MemoryController(object):
     debug('mc.write_u16: addr=%s, value=%s, priv=%i, dirty=%i', addr, value, privileged, dirty)
 
     if addr % 2:
-      raise AccessViolationError('Unable to access unaligned address: addr=%s', addr)
+      raise AccessViolationError('Unable to access unaligned address: addr=%s' % ADDR_FMT(addr))
 
     self.get_page(addr_to_page(addr)).write_u16(addr_to_offset(addr), value, privileged = privileged, dirty = dirty)
 
@@ -839,7 +839,7 @@ class MemoryController(object):
     debug('mc.write_u32: addr=%s, value=%s, priv=%i, dirty=%i', addr, value, privileged, dirty)
 
     if addr % 4:
-      raise AccessViolationError('Unable to access unaligned address: addr=%s', addr)
+      raise AccessViolationError('Unable to access unaligned address: addr=%s' % ADDR_FMT(addr))
 
     self.get_page(addr_to_page(addr)).write_u32(addr_to_offset(addr), value, privileged = privileged, dirty = dirty)
 
@@ -847,7 +847,7 @@ class MemoryController(object):
     debug('mc.read_block: addr=%s, size=%s, privileged=%s', addr, size, privileged)
 
     if size % 32 != 0:
-      raise AccessViolationError('Unable to access unaligned address: addr=%s', addr)
+      raise AccessViolationError('Unable to access unaligned address: addr=%s' % ADDR_FMT(addr))
 
     return self.get_page(addr_to_page(addr)).read_block(addr_to_offset(addr), 32)
 
@@ -855,7 +855,7 @@ class MemoryController(object):
     debug('mc.write_block: addr=%s, size=%s, privileged=%s', addr, size, privileged)
 
     if size % 32 != 0:
-      raise AccessViolationError('Unable to access unaligned address: addr=%s', addr)
+      raise AccessViolationError('Unable to access unaligned address: addr=%s' % ADDR_FMT(addr))
 
     self.get_page(addr_to_page(addr)).write_block(addr_to_offset(addr), size, buff)
 

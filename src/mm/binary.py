@@ -15,9 +15,10 @@ class SectionTypes(enum.IntEnum):
   TEXT    = 1
   DATA    = 2
   SYMBOLS = 3
+  STRINGS = 4
 
 SECTION_TYPES = [
-  'UNKNOWN', 'TEXT', 'DATA', 'SYMBOLS'
+  'UNKNOWN', 'TEXT', 'DATA', 'SYMBOLS', 'STRINGS'
 ]
 
 class SymbolDataTypes(enum.IntEnum):
@@ -31,9 +32,6 @@ class SymbolDataTypes(enum.IntEnum):
 SYMBOL_DATA_TYPES = [
   'int', 'char', 'string', 'function', 'ascii', 'byte'
 ]
-
-SECTION_NAME_LIMIT = 32
-SYMBOL_NAME_LIMIT = 255
 
 class FileHeader(LittleEndianStructure):
   _pack_ = 0
@@ -52,29 +50,14 @@ class SectionFlags(LittleEndianStructure):
     ('bss',        c_ubyte, 1)
   ]
 
-def ctypes_read_string(raw_string, max_len):
-  s = ''
-
-  for i in range(0, max_len):
-    if raw_string[i] == 0:
-      break
-
-    s += chr(raw_string[i])
-
-  return s
-
-def ctypes_write_string(raw_string, max_len, s):
-  # Avoid using undefined variable in case range does not start (len(name) == 0
-  i = 0
-
-  for i in range(0, min(len(s), max_len)):
-    raw_string[i] = ord(s[i])
+  def __repr__(self):
+    return '<SectionFlags: r=%i, w=%i, x=%i, b=%i>' % (self.readable, self.writable, self.executable, self.bss)
 
 class SectionHeader(LittleEndianStructure):
   _pack_ = 0
   _fields_ = [
     ('index',   c_ubyte),
-    ('name',    c_ubyte * SECTION_NAME_LIMIT),
+    ('name',    c_uint),
     ('type',    c_ubyte),
     ('flags',   SectionFlags),
     ('padding', c_ubyte),
@@ -84,34 +67,55 @@ class SectionHeader(LittleEndianStructure):
     ('offset',  c_uint)
   ]
 
-  def get_name(self):
-    return ctypes_read_string(self.name, SECTION_NAME_LIMIT)
-
-  def set_name(self, name):
-    ctypes_write_string(self.name, SECTION_NAME_LIMIT, name)
+  def __repr__(self):
+    return '<SectionHeader: index=%i, name=%i, type=%i, flags=%s, base=%s, items=%s, size=%s, offset=%s>' % (self.index, self.name, self.type, self.flags, self.base, self.items, self.size, self.offset)
 
 class SymbolEntry(LittleEndianStructure):
   _pack_ = 0
   _fields_ = [
-    ('name',    c_ubyte * (SYMBOL_NAME_LIMIT + 1)),
+    ('name',    c_uint),
     ('address', c_ushort),
     ('size',    c_ushort),
     ('section', c_ubyte),
     ('type',    c_ubyte)
   ]
 
-  def get_name(self):
-    return ctypes_read_string(self.name, SECTION_NAME_LIMIT)
-
-  def set_name(self, name):
-    ctypes_write_string(self.name, SECTION_NAME_LIMIT, name)
-
   def __repr__(self):
-    return '<SymbolEntry: section=%i, name=%s, type=%s>' % (self.section, self.get_name(), SYMBOL_DATA_TYPES[self.type])
+    return '<SymbolEntry: section=%i, name=%s, type=%s>' % (self.section, self.name, SYMBOL_DATA_TYPES[self.type])
 
 SECTION_ITEM_SIZE = [
   0, sizeof(cpu.instructions.InstBinaryFormat_Master), sizeof(UInt8), sizeof(SymbolEntry)
 ]
+
+class StringTable(object):
+  def __init__(self):
+    super(StringTable, self).__init__()
+
+    self.buff = ''
+
+  def put_string(self, s):
+    offset = len(self.buff)
+
+    debug('put_string: s=%s, offset=%s', s, offset)
+
+    self.buff += s + '\x00'
+
+    return offset
+
+  def get_string(self, offset):
+    debug('get_string: offset=%s', offset)
+
+    s = ''
+
+    for i in range(offset, len(self.buff)):
+      c = self.buff[i]
+      if c == '\x00':
+        break
+      s += c
+
+    debug('  string="%s"', s)
+
+    return s
 
 class File(BinaryFile):
   MAGIC = 0xDEAD
@@ -122,6 +126,8 @@ class File(BinaryFile):
 
     self.__header = None
     self.__sections = []
+
+    self.string_table = StringTable()
 
   def create_header(self):
     self.__header = FileHeader()
@@ -168,8 +174,10 @@ class File(BinaryFile):
 
       self.seek(header.offset)
 
-      i = 0
-      while i < header.items:
+      if header.type == SectionTypes.STRINGS:
+        self.string_table.buff = self.read(header.size)
+
+      else:
         if header.type == SectionTypes.DATA:
           st_class = UInt8
 
@@ -182,8 +190,8 @@ class File(BinaryFile):
         else:
           raise cpu.error.MalformedBinaryError('Unknown section header type %s' % header.type)
 
-        content.append(self.read_struct(st_class))
-        i += 1
+        for _ in range(0, header.items):
+          content.append(self.read_struct(st_class))
 
   def save(self):
     self.seek(0)
@@ -195,11 +203,16 @@ class File(BinaryFile):
     for i in range(0, len(self.__sections)):
       header, content = self.__sections[i]
 
-      header.items = len(content)
-      header.size = header.items * SECTION_ITEM_SIZE[header.type]
       header.offset = offset
 
-      debug('save: section=%s, items=%s, size=%s, offset=%s', header.get_name(), header.items, header.size, header.offset)
+      if header.type == SectionTypes.STRINGS:
+        header.size = len(self.string_table.buff)
+
+      else:
+        header.items = len(content)
+        header.size = header.items * SECTION_ITEM_SIZE[header.type]
+
+      debug('save: %s', header)
 
       offset += header.size
 
@@ -213,9 +226,14 @@ class File(BinaryFile):
     for i in range(0, len(self.__sections)):
       header, content = self.__sections[i]
 
-      debug('save: saving section #%i', header.index)
+      debug('save: saving section %s', header)
 
       self.seek(header.offset)
 
-      for j in range(0, len(content)):
-        self.write_struct(content[j])
+      if header.type == SectionTypes.STRINGS:
+        debug('write: %s', self.string_table.buff)
+        self.write(self.string_table.buff)
+
+      else:
+        for item in content:
+          self.write_struct(item)

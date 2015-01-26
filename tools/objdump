@@ -46,7 +46,7 @@ def show_sections(f):
     header, content = f.get_section(i)
 
     table.append([
-      header.get_name(),
+      f.string_table.get_string(header.name),
       mm.binary.SECTION_TYPES[header.type],
       '%s (0x%02X)' % (''.join(['R' if header.flags.readable == 1 else '-', 'W' if header.flags.writable == 1 else '-', 'X' if header.flags.executable == 1 else '-']), ctypes.cast(ctypes.byref(header.flags), ctypes.POINTER(ctypes.c_ubyte)).contents.value),
       ADDR_FMT(header.base),
@@ -72,7 +72,7 @@ def show_disassemble(f):
     if header.type != mm.binary.SectionTypes.TEXT:
       continue
 
-    info('  Section %s', header.get_name())
+    info('  Section %s', f.string_table.get_string(header.name))
 
     csp = UInt16(header.base)
     for inst in content:
@@ -103,8 +103,8 @@ def show_symbols(f):
       _header, _content = f.get_section(entry.section)
 
       table_row = [
-        entry.get_name(),
-        _header.get_name(),
+        f.string_table.get_string(entry.name),
+        f.string_table.get_string(_header.name),
         ADDR_FMT(entry.address),
         mm.binary.SYMBOL_DATA_TYPES[entry.type],
         SIZE_FMT(entry.size)
