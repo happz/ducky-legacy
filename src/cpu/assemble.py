@@ -38,6 +38,9 @@ class Section(object):
     # Instance of 'UInt16' has no 'u16' member
     return self.ptr.u16 - self.base.u16
 
+  def __repr__(self):
+    return '<Section: name=%s, type=%s, flags=%s, base=%s, ptr=%s, offset=%s, length=%s>' % (self.name, self.type, self.flags, self.base, self.ptr, self.offset, self.length)
+
 class TextSection(Section):
   def __init__(self, s_name, flags = None):
     super(TextSection, self).__init__(s_name, SectionTypes.TEXT, flags or 'rx')
@@ -405,11 +408,20 @@ def translate_buffer(buff, base_address = None):
       s_name = matches['name']
 
       if s_name not in sections_pass1:
-        data_section = sections_pass1[s_name] = Section(s_name, SectionTypes.DATA, matches.get('flags', None))
+        flags = matches.get('flags', None)
+        section_type = SectionTypes.TEXT if flags and 'x' in flags else SectionTypes.DATA
+
+        section = sections_pass1[s_name] = Section(s_name, section_type, matches.get('flags', None))
         debug('pass #1: section %s created', s_name)
 
-      curr_section = data_section = sections_pass1[s_name]
-      debug('pass #1: data section changed to %s', s_name)
+      curr_section = sections_pass1[s_name]
+
+      if curr_section.type == SectionTypes.TEXT:
+        text_section = curr_section
+        debug('pass #1: text section changed to %s', s_name)
+      else:
+        data_section = curr_section
+        debug('pass #1: data section changed to %s', s_name)
 
       continue
 
