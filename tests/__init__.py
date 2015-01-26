@@ -20,7 +20,7 @@ def assert_registers(state, **regs):
 
     default = 0
     if reg in ('fp', 'sp'):
-      default = 0x04DA
+      default = 0x01DA
 
     elif reg in ('cs', 'ds'):
       default = 0x01
