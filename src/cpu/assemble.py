@@ -693,7 +693,7 @@ def translate_buffer(buff, base_address = None):
 
     if section.type == SectionTypes.TEXT:
       for labeled, inst in p1_section.content:
-        ptr_prefix = 'pass #2: ' + ADDR_FMT(section.ptr.u16)
+        ptr_prefix = 'pass #2: ' + ADDR_FMT(section.ptr.u16) + ': '
 
         inst.address = UInt16(section.ptr.u16)
 
