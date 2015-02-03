@@ -5,7 +5,7 @@ main:
   li r0, &message
   call &writesn
   li r0, 0
-  int r0
+  int 0
 
 outb:
   # > r0: port

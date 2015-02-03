@@ -1,6 +1,7 @@
 import os
 import Queue
 import sys
+import tabulate
 import time
 import types
 
@@ -11,11 +12,12 @@ import machine.bus
 import profiler
 
 from cpu.errors import InvalidResourceError
-from util import debug, info, error, str2int, LRUCache, warn
+from util import debug, info, error, str2int, LRUCache, warn, print_table
 from mm import SEGM_FMT, ADDR_FMT, UINT8_FMT, UINT16_FMT, segment_base_addr, UInt16, addr_to_segment, segment_addr_to_addr, UInt8
 
 import irq
 import irq.conio
+import irq.virtual
 
 import io_handlers
 import io_handlers.conio
@@ -34,14 +36,14 @@ class SymbolCache(LRUCache):
 
     debug('SymbolCache.get_object: cs=%s, address=%s', cs, address)
 
-    for csr, dsr, sp, ip, symbols in self.machine.binaries:
-      if csr.u8 != cs.u8:
+    for binary in self.machine.binaries:
+      if binary.cs.u8 != cs.u8:
         continue
 
       last_symbol = None
       last_symbol_offset = UInt16(0xFFFE)
 
-      for symbol_name, symbol_address in symbols.items():
+      for symbol_name, symbol_address in binary.symbols.items():
         if symbol_address.u16 > address.u16:
           continue
 
@@ -76,6 +78,22 @@ class AddressCache(LRUCache):
 
     else:
       return None
+
+class Binary(object):
+  def __init__(self, path, run = True):
+    super(Binary, self).__init__()
+
+    self.run = run
+
+    self.path = path
+    self.cs = None
+    self.ds = None
+    self.ip = None
+    self.symbols = None
+    self.regions = None
+
+  def get_init_state(self):
+    return (self.cs, self.ds, self.sp, self.ip, False)
 
 class Machine(object):
   def core(self, core_address):
@@ -133,6 +151,16 @@ class Machine(object):
     return self.symbol_cache[segment_addr_to_addr(cs.u8, address)]
 
   def hw_setup(self, cpus = 1, cores = 1, memory_size = None, binaries = None, breakpoints = None, irq_routines = None, storages = None, mmaps = None, machine_in = None, machine_out = None):
+    def __print_regions(regions):
+      table = [
+        ['Section', 'Address', 'Size', 'Flags', 'First page', 'Last page']
+      ]
+
+      for r in regions:
+        table.append([r.name, ADDR_FMT(r.address), r.size, r.flags, r.pages_start, r.pages_start + r.pages_cnt - 1])
+
+      print_table(table)
+
     self.profiler = profiler.STORE.get_profiler()
 
     self.nr_cpus = cpus
@@ -172,24 +200,30 @@ class Machine(object):
 
     self.memory.boot()
 
+    self.virtual_interrupts = {}
+    for index, cls in irq.virtual.VIRTUAL_INTERRUPTS.iteritems():
+      self.virtual_interrupts[index] = cls(self)
+
     if irq_routines:
-      info('Loading IRQ routines from file %s', irq_routines)
+      binary = Binary(irq_routines, run = False)
+      self.binaries.append(binary)
+
+      info('Loading IRQ routines from file %s', binary.path)
 
       from mm import UInt8, UInt16, UInt24
 
-      csr, dsr, sp, ip, symbols = self.memory.load_file(irq_routines)
-      self.binaries.append((csr, dsr, sp, ip, symbols))
+      binary.cs, binary.ds, binary.sp, binary.ip, binary.symbols, binary.regions = self.memory.load_file(irq_routines)
 
       desc = cpu.InterruptVector()
-      desc.cs = csr.u8
-      desc.ds = dsr.u8
+      desc.cs = binary.cs.u8
+      desc.ds = binary.ds.u8
 
       def __save_iv(name, table, index):
-        if name not in symbols:
+        if name not in binary.symbols:
           debug('Interrupt routine %s not found', name)
           return
 
-        desc.ip = symbols[name].u16
+        desc.ip = binary.symbols[name].u16
         self.memory.save_interrupt_vector(table, index, desc)
 
       for i in range(0, irq.IRQList.IRQ_COUNT):
@@ -198,38 +232,41 @@ class Machine(object):
       for i in range(0, irq.InterruptList.INT_COUNT):
         __save_iv('int_routine_%i' % i, self.memory.int_table_address, i)
 
-    self.init_states = []
+      __print_regions(binary.regions)
 
-    for binary in binaries:
-      binary = binary.split(',')
-      bc_file = binary.pop(0)
+      info('')
 
-      csr, dsr, sp, ip, symbols = self.memory.load_file(bc_file)
+    for desc in binaries:
+      desc = desc.split(',')
 
-      debug('init state: csr=%s, dsr=%s, sp=%s, ip=%s', csr, dsr, sp, ip)
+      binary = Binary(desc.pop(0))
+      self.binaries.append(binary)
+
+      info('Loading binary from file %s', binary.path)
+
+      binary.cs, binary.ds, binary.sp, binary.ip, binary.symbols, binary.regions = self.memory.load_file(binary.path)
 
       entry_label = 'main'
 
-      if binary:
-        for attr in binary:
+      if desc:
+        for attr in desc:
           attr_name, attr_value = attr.split('=')
           if attr_name == 'entry':
             entry_label = attr_value
 
-      ip = symbols.get(entry_label)
+      binary.ip = binary.symbols.get(entry_label)
 
-      if not ip:
+      if not binary.ip:
         warn('Entry point "%s" not found', entry_label)
-        ip = mm.UInt16(0)
+        binary.ip = mm.UInt16(0)
 
-      debug('init state: ip=%s', ip)
+      __print_regions(binary.regions)
 
-      self.init_states.append((csr, dsr, sp, ip, False))
-      self.binaries.append((csr, dsr, sp, ip, symbols))
+      info('')
 
     mmaps = mmaps or []
     for mmap in mmaps:
-      mmap = mmap.split(':')
+      mmap = mmap.split(',')
 
       if len(mmap) < 3:
         error('Memory map area not specified correctly: %s', mmap)
@@ -352,7 +389,8 @@ class Machine(object):
     for storage in self.storages.values():
       storage.boot()
 
-    self.for_each_cpu(lambda __cpu, machine: __cpu.boot(machine.init_states), self)
+    init_states = [binary.get_init_state() for binary in self.binaries if binary.run]
+    self.for_each_cpu(lambda __cpu, machine: __cpu.boot(init_states), self)
 
     info('Guest terminal available at %s', self.conio.get_terminal_dev())
 

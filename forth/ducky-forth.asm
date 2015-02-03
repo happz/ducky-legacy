@@ -6,30 +6,54 @@
 ; Richard W.M. Jones <rich@annexia.org> http://annexia.org/forth
 ;
 
+.include "defs.asm"
+
 .def DUCKY_VERSION: 0x0001
 
+; This is actually 8096 - first two bytes are used by HERE_INIT
+; needed for HERE inicialization. HERE_INIT's space can be then
+; reused as userspace
+.def USERSPACE_SIZE:   8096
+
+; 32 cells
+.def RSTACK_SIZE:        64
+
+; Let's say the longest line can be 512 chars...
+.def INPUT_BUFFER_SIZE: 512
+
+; 32 chars should be enough for any word
+.def WORD_SIZE:          32
+
+; 32 cells, should be enough
+.def RSTACK_SIZE: 64
+
+; Some commonly used registers
 .def FIP: r12
 .def PSP: sp
 .def RSP: r11
 .def W:   r10
 .def X:   r9
 .def Y:   r8
-.def TOS: r7
+.def Z:   r7
 
-.def PORT_STDIN:  0x100
-.def PORT_STDOUT: 0x100
-.def PORT_STDERR: 0x101
-
-; 32 cells, should be enough
-.def RSTACK_SIZE: 64
-
+; Offsets of word header fields
 .def wr_link:     0
 .def wr_flags:    2
 .def wr_namelen:  3
 .def wr_name:     4
 
+; Word flags
 .def F_IMMED:  0x0001
 .def F_HIDDEN: 0x0002
+
+; FORTH boolean "flags"
+.def FORTH_TRUE:  0xFFFF
+.def FORTH_FALSE: 0x0000
+
+; Machine interrupts
+.def INT_VMDEBUG:    3
+.def INT_CONIO:      4
+
 
 .macro pushrsp reg:
   sub $RSP, 2
@@ -76,8 +100,7 @@ code_#label:
 
 .macro DEFVAR name, len, flags, label, initial:
   $DEFCODE #name, #len, #flags, #label
-  push $TOS
-  li $TOS, &var_#label
+  push &var_#label
   $NEXT
 
   .data
@@ -87,8 +110,7 @@ code_#label:
 
 .macro DEFCONST name, len, flags, label, value:
   $DEFCODE #name, #len, #flags, #label
-  push $TOS
-  li $TOS, #value
+  push #value
   $NEXT
 .end
 
@@ -102,15 +124,6 @@ code_#label:
   and #reg, 0xFFFC
 .end
 
-
-  ; RSTACK
-  .data
-
-  .type rstack, space
-  .space 64
-
-  .type rstack_top, int
-  .int 0xFFFF
 
   ; Welcome and bye messages
   .section .rodata
@@ -126,7 +139,7 @@ code_#label:
 
 halt:
   ; r0 - exit code
-  int 0
+  hlt r0
 
 
 strcmp:
@@ -168,7 +181,7 @@ write:
 .__write_loop:
   lb r2, r0
   inc r0
-  outb $PORT_STDOUT, r2
+  outb $PORT_CONIO_STDOUT, r2
   dec r1
   bnz &.__write_loop
   pop r2
@@ -182,7 +195,7 @@ writes:
 .__writes_loop:
   lb r1, r0
   bz &.__writes_quit
-  outb $PORT_STDOUT, r1
+  outb $PORT_CONIO_STDOUT, r1
   inc r0
   j &.__writes_loop
 .__writes_quit:
@@ -196,9 +209,9 @@ writeln:
   call &write
   push r2
   li r2, 0xA
-  outb $PORT_STDOUT, r2
+  outb $PORT_CONIO_STDOUT, r2
   li r2, 0xD
-  outb $PORT_STDOUT, r2
+  outb $PORT_CONIO_STDOUT, r2
   pop r2
   ret
 
@@ -220,6 +233,46 @@ main:
   $NEXT
 
 
+readline:
+  push r0 ; &input_buffer_length
+  push r1 ; input_buffer_length
+  push r2 ; input_buffer
+  push r3 ; current input char
+  ; now init variables
+  li r0, &input_buffer_length
+  li r1, 0 ; clear input buffer
+  li r2, &input_buffer
+.__readline_loop:
+  inb r3, $PORT_CONIO_STDIN
+  cmp r3, 0xFF
+  be &.__readline_wait_for_input
+  stb r2, r3
+  inc r1
+  inc r2
+  cmp r3, 0x0A ; nl
+  be &.__readline_quit
+  cmp r3, 0x0D ; cr
+  be &.__readline_quit
+  j &.__readline_loop
+.__readline_quit:
+  stw r0, r1 ; save input_buffer_length
+  ; reset input_buffer_index
+  li r0, &input_buffer_index
+  li r1, 0
+  stw r0, r1
+  pop r3
+  pop r2
+  pop r1
+  pop r0
+  ret
+.__readline_wait_for_input:
+  ; This is a small race condition... What if new key
+  ; arrives after inb and before idle? We would be stuck until
+  ; the next key arrives (and it'd be Enter, nervously pressed
+  ; by programmer while watching machine "doing nothing"
+  j &.__readline_loop
+
+
 DOCOL:
   $pushrsp $FIP
   add $W, 2
@@ -233,10 +286,34 @@ cold_start:
   .int &QUIT
 
 
-  .section .userspace, rw
-__HERE_INIT:
-  .space 8096
+  .section .data
 
+  .type word_buffer, space
+  .space $WORD_SIZE
+
+  .type word_buffer_length, int
+  .int 0
+
+  .type input_buffer, space
+  .space $INPUT_BUFFER_SIZE
+
+  .type input_buffer_length, int
+  .int 0
+
+  .type input_buffer_index, int
+  .int 0
+
+  .type rstack, space
+  .space $RSTACK_SIZE
+
+  .type rstack_top, int
+  .int 0xFFFF
+
+  ; User data area
+  ; Keep it in separate section to keep it aligned, clean, unpoluted
+  .section .userspace, rwb
+  .set HERE_INIT, .
+  .space $USERSPACE_SIZE
 
   .set link, 0
 
@@ -244,15 +321,42 @@ __HERE_INIT:
 ; Variables
 ;
 $DEFVAR "STATE", 5, 0, STATE, 0
-$DEFVAR "HERE", 4, 0, HERE, &__HERE_INIT
+$DEFVAR "HERE", 4, 0, HERE, HERE_INIT
 $DEFVAR "LATEST", 6, 0, LATEST, &name_BYE
 $DEFVAR "S0", 2, 0, SZ, 0
 $DEFVAR "BASE", 4, 0, BASE, 10
+$DEFVAR ">IN", 3, 0, TOIN, 0
 
 
 ;
 ; Kernel words
 ;
+
+$DEFCODE "VMDEBUGON", 9, 0, VMDEBUGON
+  ; ( -- )
+  li r0, 1
+  int $INT_VMDEBUG
+  $NEXT
+
+$DEFCODE "VMDEBUGOFF", 10, 0, VMDEBUGOFF
+  ; ( -- )
+  li r0, 0
+  int $INT_VMDEBUG
+  $NEXT
+
+$DEFCODE "CONIOECHOON", 11, 0, CONIOECHOON
+  ; ( -- )
+  li r0, 0
+  li r1, 1
+  int $INT_CONIO
+  $NEXT
+
+$DEFCODE "CONIOECHOOFF", 12, 0, CONIOECHOOFF
+  ; ( -- )
+  li r0, 0
+  li r0, 0
+  int $INT_CONIO
+  $NEXT
 
 $DEFCODE "INTERPRET", 9, 0, INTERPRET
   call &.__WORD
@@ -312,18 +416,18 @@ $DEFCODE "INTERPRET", 9, 0, INTERPRET
   j $X
 
 .__INTERPRET_execute_lit:
+  pop r5
+  pop r6
   push r1
-  j &.__INTERPRET_next
+  $NEXT
 
 .__INTERPRET_parse_error:
   ; print error message
   li r0, &parse_error_msg
-  li r1, &parse_error_msg_end
-  sub r1, &parse_error_msg
-  call &writeln
+  call &writes
   ; print input buffer
-  li r0, &word_buffer
-  li r1, &word_buffer_length
+  li r0, &input_buffer
+  li r1, &input_buffer_length
   lw r1, r1
   call &writeln
 
@@ -336,49 +440,81 @@ $DEFCODE "INTERPRET", 9, 0, INTERPRET
 
   .section .rodata
 
-  .type parse_error_msg, ascii
-  .ascii "\r\nPARSE ERROR!"
+  .type parse_error_msg, string
+  .string "\r\nPARSE ERROR!\r\n"
 
-  .type parse_error_msg_end, int
-  .int 0
+
+$DEFCODE ">IN", 3, 0, TOIN
+  push &input_buffer_index
+  $NEXT
 
 
 $DEFCODE "KEY", 3, 0, KEY
   ; ( -- n )
   call &.__KEY
-  push $TOS
-  mov $TOS, r0
+  push r0
   $NEXT
 
 .__KEY:
-.__KEY_read_input:
-  inb r0, $PORT_STDIN
-  cmp r0, 0xFF
-  be &.__KEY_wait_for_input
+  ; r0 - input char
+  push r1 ; &input_buffer_length
+  push r2 ; input_buffer_length
+  push r3 ; &input_buffer_index
+  push r4 ; input_buffer_index
+  push r5 ; index_buffer ptr
+  li r1, &input_buffer_length
+  lw r2, r1
+  li r3, &input_buffer_index
+  lw r4, r3
+  cmp r2, r4
+  be &.__KEY_read_line
+.__KEY_read_char:
+  ; get char ptr
+  li r5, &input_buffer
+  add r5, r4
+  ; read char
+  lb r0, r5
+  ; and update vars
+  inc r4
+  stw r3, r4
+  pop r5
+  pop r4
+  pop r3
+  pop r2
+  pop r1
   ret
-.__KEY_wait_for_input:
-  idle
-  j &.__KEY_read_input
+.__KEY_read_line:
+  call &readline
+  ; reload our vars
+  lw r2, r1
+  lw r4, r3
+  j &.__KEY_read_char
 
 
 $DEFCODE "EMIT", 4, 0, EMIT
   ; ( n -- )
-  mov r0, $TOS
-  pop $TOS
+  pop r0
   call &.__EMIT
   $NEXT
 
 .__EMIT:
-  outb $PORT_STDOUT, r0
+  outb $PORT_CONIO_STDOUT, r0
   ret
+
+
+$DEFCODE "TYPE", 4, 0, TYPE
+  ; ( address length -- )
+  pop r1
+  pop r0
+  call &write
+  $NEXT
 
 
 $DEFCODE "WORD", 4, 0, WORD
   ; ( -- address length )
   call &.__WORD
-  push $TOS
   push r0
-  mov $TOS, r1
+  push r1
   $NEXT
 
 .__WORD:
@@ -413,22 +549,26 @@ $DEFCODE "WORD", 4, 0, WORD
   be &.__WORD
   j &.__WORD_skip_comment
 
-  .data
-  .type word_buffer, space
-  .space 32
 
-  .type word_buffer_length, int
-  .int 0
+$DEFCODE "SOURCE", 6, 0, SOURCE
+  ; ( address length )
+  li $W, &input_buffer
+  push $W
+  li $W, &input_buffer_length
+  lw $W, $W
+  push $W
+  $NEXT
+
 
 $DEFCODE "NUMBER", 6, 0, NUMBER
   ; ( address length -- number unparsed_chars )
+  pop r1
   pop r0
-  mov r1, $TOS
   call &.__NUMBER
-  push $TOS
   push r0
-  mov $TOS, r1
+  push r1
   $NEXT
+
 
 .__NUMBER:
   cmp r1, r1
@@ -445,14 +585,16 @@ $DEFCODE "NUMBER", 6, 0, NUMBER
   ; read first char and check if it's minus
   lb r4, r3
   inc r3
+  dec r1
   ; 0 on stack means non-negative number
   push 0
   cmp r4, 0x2D
   bne &.__NUMBER_convert_digit
-  pop r4
-  push 1
-  dec r1
-  bnz &.__NUMBER_add_digit
+  pop r4 ; it's minus, no need to preserve r4, so pop 0 from stack...
+  push 1 ; ... and push 1 to indicate negative number
+  ; if there are no remaining chars, we got only '-' - that's bad, quit
+  cmp r1, r1
+  bnz &.__NUMBER_loop
   pop r1 ; 1 was on stack to signal negative number, reuse it as error message
 .__NUMBER_quit:
   pop r4
@@ -460,24 +602,39 @@ $DEFCODE "NUMBER", 6, 0, NUMBER
   pop r2
 .__NUMBER_quit_noclean:
   ret
-.__NUMBER_add_digit:
-  mul r0, r2
+
+.__NUMBER_loop:
+  cmp r1, r1
+  bz &.__NUMBER_negate
+
   lb r4, r3
   inc r3
+  dec r1
+
 .__NUMBER_convert_digit:
+  ; if char is lower than '0' then it's bad - quit
   sub r4, 0x30
-  bl &.__NUMBER_negate
+  bs &.__NUMBER_fail
+  ; if char is lower than 10, it's a digit, convert it according to base
   cmp r4, 10
   bl &.__NUMBER_check_base
+  ; if it's outside the alphabet, it's bad - quit
   sub r4, 17 ; 'A' - '0' = 17
-  bl &.__NUMBER_negate
+  bs &.__NUMBER_fail
   add r4, 10
+
 .__NUMBER_check_base:
+  ; if digit is bigger than base, it's bad - quit
   cmp r4, r2
-  bge &.__NUMBER_negate
+  bge &.__NUMBER_fail
+
+  mul r0, r2
   add r0, r4
-  dec r1
-  bnz &.__NUMBER_add_digit
+  j &.__NUMBER_loop
+
+.__NUMBER_fail:
+  li r1, 1
+
 .__NUMBER_negate:
   pop r2 ; BASE no longer needed, use its register
   cmp r2, r2
@@ -488,10 +645,10 @@ $DEFCODE "NUMBER", 6, 0, NUMBER
 
 $DEFCODE "FIND", 4, 0, FIND
   ; ( address length -- address )
+  pop r1
   pop r0
-  mov r1, $TOS
   call &.__FIND
-  mov $TOS, r0
+  push r0
   $NEXT
 
 .__FIND:
@@ -542,17 +699,17 @@ $DEFCODE "FIND", 4, 0, FIND
 
 
 $DEFCODE "'", 1, 0, TICK
+  lw $W, $FIP
+  push $W
   add $FIP, 2
-  push $TOS
-  lw $TOS, $FIP
   $NEXT
 
 
 $DEFCODE ">CFA", 4, 0, TCFA
   ; ( address -- address )
-  mov r0, $TOS
+  pop r0
   call &.__TCFA
-  mov $TOS, r0
+  push r0
   $NEXT
 
 .__TCFA:
@@ -574,17 +731,13 @@ $DEFWORD ">DFA", 4, 0, TDFA
 
 $DEFCODE "LIT", 3, 0, LIT
   lw $W, $FIP
+  push $W
   add $FIP, 2
-  push $TOS
-  mov $TOS, $W
   $NEXT
 
 
 $DEFCODE "CREATE", 6, 0, CREATE
-  ; ( address length -- )
-  pop r0
-  mov r1, $TOS
-  pop $TOS
+  call &.__WORD
 
   ; save working registers
   push r2 ; HERE address
@@ -638,8 +791,7 @@ $DEFCODE "CREATE", 6, 0, CREATE
 
 
 $DEFCODE ",", 1, 0, COMMA
-  mov r0, $TOS
-  pop $TOS
+  pop r0
   call &.__COMMA
   $NEXT
 
@@ -671,7 +823,6 @@ $DEFCODE "]", 1, 0, RBRAC
 
 
 $DEFWORD ":", 1, 0, COLON
-  .int &WORD
   .int &CREATE
   .int &LIT
   .int &DOCOL
@@ -703,28 +854,32 @@ $DEFCODE "IMMEDIATE", 9, $F_IMMED, IMMEDIATE
   stb $X, $Y
   $NEXT
 
+
 $DEFCODE "HIDDEN", 6, 0, HIDDEN
   ; ( word_address -- )
-  add $TOS, $wr_flags
-  lb $W, $TOS
+  pop $X
+  add $X, $wr_flags
+  lb $W, $X
   xor $W, $F_HIDDEN
-  stb $TOS, $W
-  pop $TOS
+  stb $X, $W
   $NEXT
 
+
 $DEFCODE "BRANCH", 6, 0, BRANCH
+  ; ( -- )
   lw $W, $FIP
   add $FIP, $W
   $NEXT
 
 
 $DEFCODE "0BRANCH", 7, 0, ZBRANCH
-  mov $W, $TOS
-  pop $TOS
+  ; ( n -- )
+  pop $W
   cmp $W, $W
   bz &code_BRANCH
   add $FIP, 2
   $NEXT
+
 
 $DEFWORD "QUIT", 4, 0, QUIT
   .int &RZ
@@ -733,14 +888,131 @@ $DEFWORD "QUIT", 4, 0, QUIT
   .int &BRANCH
   .int -4
 
+
 $DEFWORD "HIDE", 4, 0, HIDE
   .int &WORD
   .int &FIND
   .int &HIDDEN
   .int &EXIT
 
+
 $DEFCODE "EXIT", 4, 0, EXIT
   $poprsp $FIP
+  $NEXT
+
+
+;
+; Comparison ops
+;
+
+.__CMP_true:
+  push $FORTH_TRUE
+  $NEXT
+
+.__CMP_false:
+  push $FORTH_FALSE
+  $NEXT
+
+$DEFCODE "=", 1, 0, EQU
+  ; ( a b -- n )
+  pop $W
+  pop $X
+  cmp $W, $X
+  be &.__CMP_true
+  j &.__CMP_false
+
+
+$DEFCODE "<>", 2, 0, NEQU
+  ; ( a b -- n )
+  pop $W
+  pop $X
+  cmp $W, $X
+  bne &.__CMP_true
+  j &.__CMP_false
+
+
+$DEFCODE "0=", 2, 0, ZEQU
+  ; ( n -- n )
+  pop $W
+  cmp $W, 0
+  bz &.__CMP_true
+  j &.__CMP_false
+
+
+$DEFCODE "0<>", 3, 0, ZNEQU
+  ; ( n -- n )
+  pop $W
+  cmp $W, 0
+  bnz &.__CMP_true
+  j &.__CMP_false
+
+
+$DEFCODE "<", 1, 0, LT
+  ; ( a b -- n )
+  pop $W
+  pop $X
+  cmp $X, $W
+  bl &.__CMP_true
+  j &.__CMP_false
+
+
+$DEFCODE ">", 1, 0, GT
+  pop $W
+  pop $X
+  cmp $X, $W
+  bg &.__CMP_true
+  j &.__CMP_false
+
+
+$DEFCODE "<=", 2, 0, LE
+  pop $W
+  pop $X
+  cmp $X, $W
+  ble &.__CMP_true
+  j &.__CMP_false
+
+
+$DEFCODE ">=", 2, 0, GE
+  pop $W
+  pop $X
+  cmp $X, $W
+  bge &.__CMP_true
+  j &.__CMP_false
+
+
+$DEFCODE "0<", 2, 0, ZLT
+  pop $W
+  cmp $W, 0
+  bg &.__CMP_true
+  j &.__CMP_false
+
+
+$DEFCODE "0>", 2, 0, ZGT
+  pop $W
+  cmp $W, 0
+  bl &.__CMP_true
+  j &.__CMP_false
+
+
+$DEFCODE "0<=", 3, 0, ZLE
+  pop $W
+  cmp $W, 0
+  bge &.__CMP_true
+  j &.__CMP_false
+
+
+$DEFCODE "0>=", 3, 0, ZGE
+  pop $W
+  cmp $W, 0
+  ble &.__CMP_true
+  j &.__CMP_false
+
+$DEFCODE "?DUP", 4, 0, QDUP
+  pop $W
+  cmp $W, 0
+  bnz &.__QDUP_next
+  push $W
+.__QDUP_next:
   $NEXT
 
 
@@ -750,114 +1022,226 @@ $DEFCODE "EXIT", 4, 0, EXIT
 $DEFCODE "+", 1, 0, ADD
   ; ( a b -- a+b )
   pop $W
-  add $TOS, $W
+  pop $X
+  add $X, $W
+  push $X
   $NEXT
 
 
 $DEFCODE "-", 1, 0, SUB
   ; ( a b -- a-b )
   pop $W
-  sub $W, $TOS
-  mov $TOS, $W
+  pop $X
+  sub $X, $W
+  push $X
   $NEXT
 
 
 $DEFCODE "1+", 2, 0, INCR
   ; ( a -- a+1 )
-  inc $TOS
+  pop $W
+  inc $W
+  push $W
   $NEXT
 
 
 $DEFCODE "1-", 2, 0, DECR
   ; ( a -- a-1 )
-  dec $TOS
+  pop $W
+  dec $W
+  push $W
   $NEXT
 
 
 $DEFCODE "2+", 2, 0, INCR2
   ; ( a -- a+2 )
-  add $TOS, 2
+  pop $W
+  add $W, 2
+  push $W
   $NEXT
 
 
 $DEFCODE "2-", 2, 0, DECR2
   ; ( a -- a-2 )
-  sub $TOS, 2
+  pop $W
+  sub $W, 2
+  push $W
   $NEXT
 
 
 $DEFCODE "4+", 2, 0, INCR4
   ; ( a -- a+4 )
-  add $TOS, 4
+  pop $W
+  add $W, 4
+  push $W
   $NEXT
 
 
 $DEFCODE "4-", 2, 0, DECR4
   ; ( a -- a-4 )
-  sub $TOS, 4
+  pop $W
+  sub $W, 4
+  push $W
   $NEXT
 
 
 $DEFCODE "*", 1, 0, MUL
   ; ( a b -- a*b )
   pop $W
-  mul $TOS, $W
+  pop $X
+  mul $X, $W
+  push $X
   $NEXT
 
 
 $DEFCODE "/", 1, 0, DIV
-  ; ( a b -- b/a )
+  ; ( a b -- a/b )
   pop $W
-  div $TOS, $W
+  pop $X
+  div $X, $W
+  push $X
   $NEXT
 
 
 $DEFCODE "MOD", 1, 0, MOD
-  ; ( a b -- b%a )
+  ; ( a b -- a%b )
   pop $W
-  mod $TOS, $W
+  pop $X
+  mod $X, $W
+  push $X
   $NEXT
 
 
 $DEFCODE "/MOD", 4, 0, DIVMOD
   ; ( a b -- b/a b%a )
   pop $W
-  mov $X, $TOS
-  div $X, $W
-  mod $TOS, $W
+  pop $X
+  mov $Y, $X
+  mov $X, $W
+  div $Y, $W
+  push $Y
   push $X
   $NEXT
+
+
+$DEFCODE "AND", 3, 0, AND
+  pop $W
+  pop $X
+  and $X, $W
+  push $X
+  $NEXT
+
+
+$DEFCODE "OR", 2, 0, OR
+  pop $W
+  pop $X
+  or $X, $W
+  push $X
+  $NEXT
+
+
+$DEFCODE "XOR", 3, 0, XOR
+  pop $W
+  pop $X
+  xor $X, $W
+  push $X
+  $NEXT
+
+
+$DEFCODE "INVERT", 6, 0, INVERT
+  pop $W
+  not $W
+  push $W
+  $NEXT
+
 
 ;
 ; Parameter stack operations
 ;
 
 $DEFCODE "DROP", 4, 0, DROP
-  ; ( n -- )
-  pop $TOS
+  ; ( n -i- )
+  pop $W
   $NEXT
 
 
 $DEFCODE "SWAP", 4, 0, SWAP
   ; ( a b -- b a )
   pop $W
-  push $TOS
-  mov $TOS, $W
+  pop $X
+  push $W
+  push $X
   $NEXT
 
 
 $DEFCODE "DUP", 3, 0, DUP
-  ; ( a b -- a b b )
-  push $TOS
+  ; ( a -- a a )
+  pop $W
+  push $W
+  push $W
   $NEXT
 
 
 $DEFCODE "OVER", 4, 0, OVER
   ; ( a b -- a b a )
   pop $W
+  pop $X
+  push $X
   push $W
-  push $TOS
-  mov $TOS, $W
+  push $X
+  $NEXT
+
+
+$DEFCODE "ROT", 3, 0, ROT
+  ; ( a b c -- b c a )
+  pop $W
+  pop $X
+  pop $Y
+  push $X
+  push $W
+  push $Y
+  $NEXT
+
+
+$DEFCODE "-ROT", 4, 0, NROT
+  ; ( a b c -- c a b )
+  pop $W
+  pop $X
+  pop $Y
+  push $W
+  push $Y
+  push $X
+  $NEXT
+
+
+$DEFCODE "2DROP", 5, 0, TWODROP
+  ; ( n n -- )
+  pop $W
+  pop $W
+  $NEXT
+
+
+$DEFCODE "2DUP", 4, 0, TWODUP
+  ; ( a b -- a b a b )
+  pop $W
+  pop $X
+  push $X
+  push $W
+  push $X
+  push $W
+  $NEXT
+
+
+$DEFCODE "2SWAP", 5, 0, TWOSWAP
+  ; ( a b c d -- c d a b )
+  pop $W
+  pop $X
+  pop $Y
+  pop $Z
+  push $X
+  push $W
+  push $Z
+  push $Y
   $NEXT
 
 
@@ -868,9 +1252,13 @@ $DEFCODE "OVER", 4, 0, OVER
 $DEFCODE "CHAR", 4, 0, CHAR
   ; ( -- n )
   call &.__WORD
-  push $TOS
-  lb $TOS, r0 ; load the first character of next word into r0...
+  lb $W, r0 ; load the first character of next word into W...
+  push $W
   $NEXT
+
+
+$DEFCODE "[CHAR]", 6, 0, BRACKETCHAR
+  j &code_CHAR
 
 
 ;
@@ -878,27 +1266,43 @@ $DEFCODE "CHAR", 4, 0, CHAR
 ;
 
 $DEFCODE ">R", 2, 0, TOR
-  $pushrsp $TOS
-  pop $TOS
+  pop $W
+  $pushrsp $W
   $NEXT
+
 
 $DEFCODE "R>", 2, 0, FROMR
-  push $TOS
-  $poprsp $TOS
+  $poprsp $W
+  push $W
   $NEXT
+
 
 $DEFCODE "RSP@", 4, 0, RSPFETCH
-  push $TOS
-  mov $TOS, $RSP
+  push $RSP
   $NEXT
 
+
 $DEFCODE "RSP!", 4, 0, RSPSTORE
-  mov $RSP, $TOS
-  pop $TOS
+  pop $RSP
   $NEXT
+
 
 $DEFCODE "RDROP", 5, 0, RDOP
   $poprsp $W
+  $NEXT
+
+
+;
+; Parameter stack
+;
+
+$DEFCODE "DSP@", 4, 0, DSPFETCH
+  push sp
+  $NEXT
+
+
+$DEFCODE "DSP!", 4, 0, DSPSTORE
+  pop sp
   $NEXT
 
 
@@ -908,31 +1312,122 @@ $DEFCODE "RDROP", 5, 0, RDOP
 $DEFCODE "!", 1, 0, STORE
   ; ( data address -- )
   pop $W
-  stw $TOS, $W
-  pop $TOS
+  pop $X
+  stw $W, $X
   $NEXT
+
 
 $DEFCODE "@", 1, 0, FETCH
   ; ( address -- n )
-  lw $TOS, $TOS
+  pop $W
+  lw $W, $W
+  push $W
   $NEXT
+
 
 $DEFCODE "+!", 2, 0, ADDSTORE
   ; ( amount address -- )
   pop $W
-  lw $X, $TOS
-  add $X, $W
-  stw $TOS, $X
-  pop $TOS
+  pop $X
+  lw $Y, $W
+  add $Y, $X
+  stw $W, $Y
   $NEXT
+
 
 $DEFCODE "-!", 2, 0, SUBSTORE
   ; ( amount address -- )
   pop $W
-  lw $X, $TOS
-  sub $X, $W
-  stw $TOS, $X
-  pop $TOS
+  pop $X
+  lw $Y, $W
+  sub $Y, $X
+  stw $W, $Y
+  $NEXT
+
+
+$DEFCODE "C!", 2, 0, STOREBYTE
+  ; ( data address -- )
+  pop $W
+  pop $X
+  stb $W, $X
+  $NEXT
+
+
+$DEFCODE "C@", 2, 0, FETCHBYTE
+  ; ( address -- n )
+  pop $W
+  lb $W, $W
+  push $W
+  $NEXT
+
+
+;
+; Strings
+;
+
+$DEFCODE "LITSTRING", 9, 0, LITSTRING
+  lw $W, $FIP
+  add $FIP, 2
+  push $FIP ; push address
+  push $W   ; push size
+  $align2 $FIP
+  $NEXT
+
+
+$DEFCODE "TELL", 4, 0, TELL
+  ; ( address size -- )
+  pop r1
+  pop r0
+  call &write
+  $NEXT
+
+
+;
+; Loop helpers
+;
+
+; %eax => $W
+; %edx => $X
+
+$DEFCODE "(DO)", 4, 0, PAREN_DO
+  ; ( control index -- )
+  pop $W ; index
+  pop $X ; control
+  $pushrsp $X ; control
+  $pushrsp $W ; index
+  $NEXT
+
+
+$DEFCODE "(LOOP)", 6, 0, PAREN_LOOP
+  $poprsp $W ; index
+  $poprsp $X ; control
+  inc $W
+  cmp $W, $X
+  be &.__PAREN_LOOP_next
+  $pushrsp $X
+  $pushrsp $W
+  lw $W, $FIP
+  add $FIP, $W
+  $NEXT
+.__PAREN_LOOP_next:
+  add $FIP, 2
+  $NEXT
+
+
+$DEFCODE "UNLOOP", 6, 0, UNLOOP
+  add $RSP, 4
+  $NEXT
+
+
+$DEFCODE "I", 1, 0, I
+  lw $W, $RSP
+  push $W
+  $NEXT
+
+
+$DEFCODE "J", 1, 0, J
+  lw $W, $RSP[4]
+  push $W
   $NEXT
 
 
@@ -956,4 +1451,94 @@ $DEFCODE "BYE", 3, 0, BYE
   call &writes
 
   call &halt
+
+
+
+
+;
+; Test stuff
+;
+
+  .section .test_rodata, r
+  .section .test_data, rw
+  .section .test_text, rx
+
+.macro TEST_NUMBER id, label, str, len, ret0, ret1:
+  .section .test_rodata
+
+  .type TEST_label_#id, string
+  .string #label
+
+  .type TEST_buffer_#id, string
+  .string #str
+
+  .section .test_text
+
+.__TEST_NUMBER_#id:
+  li r0, &TEST_buffer_#id
+  li r1, #len
+  call &.__NUMBER
+  cmp r0, #ret0
+  bne &.__TEST_fail_#id
+  cmp r1, #ret1
+  bne &.__TEST_fail_#id
+  j &.__TEST_pass_#id
+.__TEST_fail_#id:
+  li r0, &TEST_label_#id
+  call &test_fail
+.__TEST_pass_#id:
+  nop
+.end
+
+.macro TEST_MSG name, label:
+  .section .test_rodata
+  .type TEST_MSG_#name, string
+  .string #label
+.end
+
+
+  $TEST_MSG EOL, "\\r\\n"
+  $TEST_MSG FAILED, "Test failed: "
+  $TEST_MSG PASSED, "Tests passed"
+
+  $TEST_MSG NUMBER1, "NUMBER"
+  $TEST_MSG SWAP1, "SWAP1"
+
+  .section .test_text
+
+
+test_fail:
+  push r0
+  li r0, &TEST_MSG_FAILED
+  call &writes
+  pop r0
+  call &writes
+  li r0, &TEST_MSG_EOL
+  call &writes
+  call &halt
+
+
+tests_main:
+  nop
+
+  ;
+  ; NUMBER
+  ;
+  $TEST_NUMBER  100, "number-0",     "0",     1,         0, 0
+  $TEST_NUMBER  101, "number-1",     "1",     1,         1, 0
+  $TEST_NUMBER  102, "number-10",    "10",    2,        10, 0
+  $TEST_NUMBER  103, "number-11",    "11",    2,        11, 0
+  $TEST_NUMBER  104, "number-0=",    "0=",    2,         0, 1
+  $TEST_NUMBER  105, "number-759",   "759",   3,       759, 0
+  $TEST_NUMBER  106, "number-16021", "16021", 5,     16021, 0
+  $TEST_NUMBER  107, "number-12",    "12+",   3,        12, 1
+  $TEST_NUMBER  108, "number--1",    "-1",    2,    0xFFFE, 0
+
+  li r0, &TEST_MSG_PASSED
+  call &writes
+  li r0, &TEST_MSG_EOL
+  call &writes
+
+  li r0, 0
+  int 0
 

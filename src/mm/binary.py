@@ -1,12 +1,13 @@
 import ctypes
 import enum
+import mmap
 import struct
 
 import cpu.instructions
 import cpu.errors
 
 from mm import UInt8, UInt16, UInt32
-from util import debug, error, BinaryFile
+from util import debug, error, BinaryFile, StringTable, align
 from ctypes import LittleEndianStructure, c_uint, c_ushort, c_ubyte, sizeof
 from cpu.errors import CPUException
 
@@ -33,12 +34,19 @@ SYMBOL_DATA_TYPES = [
   'int', 'char', 'string', 'function', 'ascii', 'byte'
 ]
 
+class FileFlags(LittleEndianStructure):
+  _pack_ = 0
+  _fields_ = [
+    ('mmapable', c_ushort, 1)
+  ]
+
 class FileHeader(LittleEndianStructure):
   _pack_ = 0
   _fields_ = [
-    ('magic',   c_ushort),
-    ('version', c_ushort),
-    ('sections', c_ushort),
+    ('magic',    c_ushort),
+    ('version',  c_ushort),
+    ('flags',    FileFlags),
+    ('sections', c_ushort)
   ]
 
 class SectionFlags(LittleEndianStructure):
@@ -49,6 +57,16 @@ class SectionFlags(LittleEndianStructure):
     ('executable', c_ubyte, 1),
     ('bss',        c_ubyte, 1)
   ]
+
+  @staticmethod
+  def create(r, w, x, b):
+    flags = SectionFlags()
+    flags.readable = 1 if r else 0
+    flags.writable = 1 if w else 0
+    flags.executable = 1 if x else 0
+    flags.bss = 1 if b else 0
+
+    return flags
 
   def __repr__(self):
     return '<SectionFlags: r=%i, w=%i, x=%i, b=%i>' % (self.readable, self.writable, self.executable, self.bss)
@@ -86,36 +104,6 @@ class SymbolEntry(LittleEndianStructure):
 SECTION_ITEM_SIZE = [
   0, sizeof(cpu.instructions.InstBinaryFormat_Master), sizeof(UInt8), sizeof(SymbolEntry)
 ]
-
-class StringTable(object):
-  def __init__(self):
-    super(StringTable, self).__init__()
-
-    self.buff = ''
-
-  def put_string(self, s):
-    offset = len(self.buff)
-
-    debug('put_string: s=%s, offset=%s', s, offset)
-
-    self.buff += s + '\x00'
-
-    return offset
-
-  def get_string(self, offset):
-    debug('get_string: offset=%s', offset)
-
-    s = ''
-
-    for i in range(offset, len(self.buff)):
-      c = self.buff[i]
-      if c == '\x00':
-        break
-      s += c
-
-    debug('  string="%s"', s)
-
-    return s
 
 class File(BinaryFile):
   MAGIC = 0xDEAD
@@ -179,18 +167,21 @@ class File(BinaryFile):
 
       else:
         if header.type == SectionTypes.DATA:
+          count = header.size
           st_class = UInt8
 
         elif header.type == SectionTypes.SYMBOLS:
+          count = header.items
           st_class = SymbolEntry
 
         elif header.type == SectionTypes.TEXT:
+          count = header.items
           st_class = cpu.instructions.InstBinaryFormat_Master
 
         else:
           raise cpu.error.MalformedBinaryError('Unknown section header type %s' % header.type)
 
-        for _ in range(0, header.items):
+        for _ in range(0, count):
           content.append(self.read_struct(st_class))
 
   def save(self):
@@ -200,21 +191,28 @@ class File(BinaryFile):
 
     offset = sizeof(FileHeader) + sizeof(SectionHeader) * self.__header.sections
 
+    if self.__header.flags.mmapable == 1:
+      offset = align(mmap.PAGESIZE, offset)
+
     for i in range(0, len(self.__sections)):
       header, content = self.__sections[i]
 
       header.offset = offset
+      debug('set section %s offset to %s', self.string_table.get_string(header.name), offset)
 
       if header.type == SectionTypes.STRINGS:
         header.size = len(self.string_table.buff)
 
-      else:
-        header.items = len(content)
-        header.size = header.items * SECTION_ITEM_SIZE[header.type]
+      if header.flags.bss != 1:
+        offset += header.size
+        debug('extending offset by %s to %s', header.size, offset)
 
-      debug('save: %s', header)
+        if self.__header.flags.mmapable == 1:
+          offset = align(mmap.PAGESIZE, offset)
+          debug('offset aligned to %s', offset)
 
-      offset += header.size
+      debug(str(header))
+      debug('')
 
     debug('save: saving headers')
 
@@ -226,7 +224,7 @@ class File(BinaryFile):
     for i in range(0, len(self.__sections)):
       header, content = self.__sections[i]
 
-      debug('save: saving section %s', header)
+      debug('save: saving section %s: %s', self.string_table.get_string(header.name), header)
 
       self.seek(header.offset)
 
@@ -234,6 +232,14 @@ class File(BinaryFile):
         debug('write: %s', self.string_table.buff)
         self.write(self.string_table.buff)
 
+      elif header.flags.bss == 1:
+        debug('BSS section - dont write out any slots')
+
       else:
         for item in content:
-          self.write_struct(item)
+          if type(item) == cpu.assemble.SpaceSlot:
+            debug('write_space: %s bytes', item.size.u16)
+            self.write('\x00' * item.size.u16)
+
+          else:
+            self.write_struct(item)

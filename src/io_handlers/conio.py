@@ -16,6 +16,7 @@ import util
 from util import debug, warn
 from mm import UInt8, UINT8_FMT
 from util import info, warn, error
+from console import WHITE
 
 CR = UInt8(ord('\r'))
 LF = UInt8(ord('\n'))
@@ -46,6 +47,8 @@ class ConsoleIOHandler(io_handlers.IOHandler):
     self.output = None
     self.input_fd = None
 
+    self.immediate_flush = False
+
     self.queue = Queue.Queue()
 
     self.booted = False
@@ -70,17 +73,33 @@ class ConsoleIOHandler(io_handlers.IOHandler):
       self.input = stream
       self.input_fd = self.pttys[0]
       self.queue.put(ControlMessages.CRLF_ON)
+      self.immediate_flush = True
 
     elif type(stream) == types.StringType:
       self.input = open(stream, 'rb')
       self.input_fd = self.input.fileno()
       self.queue.put(ControlMessages.CRLF_OFF)
+      self.immediate_flush = False
 
     else:
       warn('__open_input_stream: Unknown input stream type: %s of type %s', stream, type(stream))
       self.__open_input_stream()
 
+    self.flush_output()
+
     debug('conio.__open_input_stream: stream=%s, input_fd=%s', self.input, self.input_fd)
+
+  def do_flush_output(self):
+    if not self.output or not hasattr(self.output, 'flush'):
+      return
+
+    self.output.flush()
+
+  def flush_output(self):
+    if not self.immediate_flush:
+      return
+
+    self.do_flush_output()
 
   def boot(self):
     if self.booted:
@@ -114,6 +133,8 @@ class ConsoleIOHandler(io_handlers.IOHandler):
   def halt(self):
     if not self.booted:
       return
+
+    self.do_flush_output()
 
     if self.pttys:
       try:
@@ -200,12 +221,15 @@ class ConsoleIOHandler(io_handlers.IOHandler):
 
     return c
 
-  def __write_char(self, c):
+  def __write_char(self, c, vm_output = True):
     debug('conio.__write_char: c=%s (%s)', c, self.__escape_char(c.u8))
 
     try:
-      self.output.write('%s' % chr(c.u8))
-      self.output.flush()
+      s = chr(c.u8)
+      #s = WHITE(s) if vm_output else c
+
+      self.output.write(s)
+      self.flush_output()
 
     except IOError, e:
       error('Exception raised during console write: %s', str(e))
@@ -221,10 +245,10 @@ class ConsoleIOHandler(io_handlers.IOHandler):
     debug('conio.read_u8_256: input byte is %s', c)
 
     if self.echo:
-      self.write_u8_256(c)
+      self.__write_char(c, vm_output = False)
 
     if self.crlf == True and c.u8 == CR.u8:
-      self.write_u8_256(LF)
+      self.__write_char(LF, vm_output = False)
 
     return c
 

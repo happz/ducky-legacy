@@ -144,6 +144,8 @@ class InstDescriptor(object):
   pattern       = None
   binary_format_name = None
 
+  relative_address = False
+
   def create_binary_format_class(self):
     fields = []
 
@@ -519,6 +521,7 @@ class Inst_RETINT(InstDescriptor_Generic):
 class Inst_CALL(InstDescriptor_Generic_Unary_RI):
   mnemonic      = 'call'
   opcode        = Opcodes.CALL
+  relative_address = True
 
 class Inst_RET(InstDescriptor_Generic):
   mnemonic      = 'ret'
@@ -587,46 +590,57 @@ class Inst_CMP(InstDescriptor_Generic_Binary_R_RI):
 class Inst_J(InstDescriptor_Generic_Unary_RI):
   mnemonic = 'j'
   opcode   = Opcodes.J
+  relative_address = True
 
 class Inst_BE(InstDescriptor_Generic_Unary_RI):
   mnemonic = 'be'
   opcode   = Opcodes.BE
+  relative_address = True
 
 class Inst_BNE(InstDescriptor_Generic_Unary_RI):
   mnemonic = 'bne'
   opcode   = Opcodes.BNE
+  relative_address = True
 
 class Inst_BNS(InstDescriptor_Generic_Unary_RI):
   mnemonic = 'bns'
   opcode   = Opcodes.BNS
+  relative_address = True
 
 class Inst_BNZ(InstDescriptor_Generic_Unary_RI):
   mnemonic = 'bnz'
   opcode   = Opcodes.BNZ
+  relative_address = True
 
 class Inst_BS(InstDescriptor_Generic_Unary_RI):
   mnemonic = 'bs'
   opcode   = Opcodes.BS
+  relative_address = True
 
 class Inst_BZ(InstDescriptor_Generic_Unary_RI):
   mnemonic = 'bz'
   opcode   = Opcodes.BZ
+  relative_address = True
 
 class Inst_BG(InstDescriptor_Generic_Unary_RI):
   mnemonic = 'bg'
   opcode = Opcodes.BG
+  relative_address = True
 
 class Inst_BGE(InstDescriptor_Generic_Unary_RI):
   mnemonic = 'bge'
   opcode = Opcodes.BGE
+  relative_address = True
 
 class Inst_BL(InstDescriptor_Generic_Unary_RI):
   mnemonic = 'bl'
   opcode = Opcodes.BL
+  relative_address = True
 
 class Inst_BLE(InstDescriptor_Generic_Unary_RI):
   mnemonic = 'ble'
   opcode = Opcodes.BLE
+  relative_address = True
 
 #
 # IO

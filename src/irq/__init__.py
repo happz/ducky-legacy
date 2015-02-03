@@ -11,9 +11,10 @@ class IRQList(enum.IntEnum):
   IRQ_COUNT = 16
 
 class InterruptList(enum.IntEnum):
-  HALT = 0
-  READ_BLOCKS = 1
-  WRITE_BLOCKS = 2
+  HALT    = 0
+  BLOCKIO = 1
+  VMDEBUG = 2
+  CONIO   = 3
 
   INT_COUNT = 64
 

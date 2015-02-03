@@ -5,7 +5,7 @@ import mmap
 from ctypes import LittleEndianStructure, Union, c_ubyte, c_ushort, c_uint, sizeof
 
 from cpu.errors import InvalidResourceError, AccessViolationError
-from util import debug
+from util import debug, align
 
 from threading2 import RLock
 
@@ -104,7 +104,7 @@ def addr_to_offset(addr):
   return (addr & (PAGE_SIZE - 1))
 
 def area_to_pages(addr, size):
-  return (addr_to_page(addr), (size / PAGE_SIZE) + 1)
+  return (addr_to_page(addr), align(PAGE_SIZE, size) / PAGE_SIZE)
 
 def buff_to_uint16(buff, offset):
   return UInt16(buff[offset] | buff[offset + 1] << 8)
@@ -138,6 +138,7 @@ class MemoryPage(object):
     self.write   = False
     self.execute = False
     self.dirty   = False
+    self.stack   = False
 
   def save_state(self, state):
     debug('mp.save_state')
@@ -154,6 +155,7 @@ class MemoryPage(object):
     page_state.write = 1 if self.write else 0
     page_state.execute = 1 if self.execute else 0
     page_state.dirty = 1 if self.dirty else 0
+    page_state.stack = 1 if self.stack else 0
 
     state.mm_page_states.append(page_state)
 
@@ -165,6 +167,7 @@ class MemoryPage(object):
     self.write = True if state.write == 1 else 0
     self.execute = True if state.execute == 1 else 0
     self.dirty = True if state.dirty == 1 else 0
+    self.stack = True if state.stack == 1 else 0
 
   def flags_reset(self):
     self.read = False
@@ -425,6 +428,19 @@ class MMapArea(object):
     self.pages_start = pages_start
     self.pages_cnt = pages_cnt
 
+class MemoryRegion(object):
+  def __init__(self, name, address, size, flags):
+    super(MemoryRegion, self).__init__()
+
+    self.name = name
+    self.address = address
+    self.size = size
+    self.flags = flags
+
+    self.pages_start, self.pages_cnt = area_to_pages(self.address, self.size)
+
+    debug('MemoryRegion: name=%s, address=%s, size=%s, flags=%s, pages_start=%s, pages_cnt=%s', name, address, size, flags, self.pages_start, self.pages_cnt)
+
 class MemoryController(object):
   def __init__(self, size = 0x1000000):
     super(MemoryController, self).__init__()
@@ -500,8 +516,12 @@ class MemoryController(object):
 
   def get_page(self, index):
     if index not in self.__pages:
-      self.__pages[index] = AnonymousMemoryPage(self, index)
+      raise AccessViolationError('Page %s not allocated yet' % index)
 
+    return self.__pages[index]
+
+  def __alloc_page(self, index, area_index):
+    self.__pages[index] = AnonymousMemoryPage(self, index)
     return self.__pages[index]
 
   def alloc_page(self, segment = None):
@@ -520,9 +540,17 @@ class MemoryController(object):
       for i in range(pages_start, pages_start + pages_cnt):
         if i not in self.__pages:
           debug('mc.alloc_page: page=%s', i)
-          return i
+          return self.__alloc_page(i, None)
 
       raise InvalidResourceError('No free page available')
+
+  def alloc_stack(self, segment = None):
+    pg = self.alloc_page(segment)
+    pg.read = True
+    pg.write = True
+    pg.stack = True
+
+    return (pg, UInt16(pg.segment_address + PAGE_SIZE))
 
   def free_page(self, page):
     debug('mc.free_page: page=%i, base=%s, segment=%s', page.index, page.base_address, page.segment_address)
@@ -531,6 +559,8 @@ class MemoryController(object):
       del self.__pages[page.index]
 
   def for_each_page(self, pages_start, pages_cnt, fn):
+    debug('mc.for_each_page: pages_start=%i, pages_cnt=%i, fn=%s', pages_start, pages_cnt, fn)
+
     area_index = 0
     for page_index in range(pages_start, pages_start + pages_cnt):
       fn(page_index, area_index)
@@ -546,10 +576,10 @@ class MemoryController(object):
     self.alloc_segment()
 
     # IRQ table
-    self.get_page(addr_to_page(self.irq_table_address)).read = True
+    self.__alloc_page(addr_to_page(self.irq_table_address), None).read = True
 
     # INT table
-    self.get_page(addr_to_page(self.int_table_address)).read = True
+    self.__alloc_page(addr_to_page(self.int_table_address), None).read = True
 
   def update_area_flags(self, address, size, flag, value):
     debug('mc.update_area_flags: address=%s, size=%s, flag=%s, value=%i', address, size, flag, value)
@@ -570,6 +600,24 @@ class MemoryController(object):
     debug('mc.reset_pages_flags: page=%s, size=%s', pages_start, pages_cnt)
 
     self.for_each_page(pages_start, pages_cnt, lambda page_index, area_index: self.get_page(page_index).flags_reset())
+
+  def __load_content_mmap(self, segment, fileno, offset, size, flags):
+    mmap_prot = 0
+    if flags.readable == 1:
+      mmap_prot |= mmap.PROT_READ
+    if flags.writable == 1:
+      mmap_prot |= mmap.PROT_WRITE
+
+    debug('mc.__load_content_mmap: fileno=%s, size=%s, flags=%s, offset=%s', fileno, size, flags, offset)
+
+    ptr = mmap.mmap(
+      fileno,
+      size,
+      mmap.MAP_PRIVATE,
+      mmap_prot,
+      offset = offset)
+
+    return ptr
 
   def __load_content_u8(self, segment, base, content):
     bsp  = UInt24(segment_addr_to_addr(segment.u8, base.u16))
@@ -608,10 +656,22 @@ class MemoryController(object):
       sp.u24 += 4
 
   def load_text(self, segment, base, content):
+    debug('mc.load_text: segment=%s, base=%s', segment, base)
+
     self.__load_content_u32(segment, base, content)
 
   def load_data(self, segment, base, content):
+    debug('mc.load_data: segment=%s, base=%s', segment, base)
+
     self.__load_content_u8(segment, base, content)
+
+  def __set_section_flags(self, pages_start, pages_cnt, flags):
+    debug('__set_section_flags: start=%s, cnt=%s, flags=%s', pages_start, pages_cnt, flags)
+
+    self.reset_pages_flags(pages_start, pages_cnt)
+    self.update_pages_flags(pages_start, pages_cnt, 'read', flags.readable == 1)
+    self.update_pages_flags(pages_start, pages_cnt, 'write', flags.writable == 1)
+    self.update_pages_flags(pages_start, pages_cnt, 'execute', flags.executable == 1)
 
   def load_raw_sections(self, sections, csr = None, dsr = None, stack = True):
     debug('mc.load_raw_sections: csr=%s, dsr=%s, stack=%s', csr, dsr, stack)
@@ -624,38 +684,38 @@ class MemoryController(object):
     ip  = None
 
     symbols = {}
+    regions = []
 
     for s_name, section in sections.items():
       s_base_addr = None
 
-      if section.type == mm.binary.SectionTypes.TEXT:
-        s_base_addr = UInt24(segment_addr_to_addr(csr.u8, section.base.u16))
-
-        self.load_text(csr, section.base, section.content)
-
-      elif section.type == mm.binary.SectionTypes.DATA:
-        s_base_addr = UInt24(segment_addr_to_addr(dsr.u8, section.base.u16))
-
-        if 'b' not in section.flags:
-          self.load_data(dsr, section.base, section.content)
-
-      elif section.type == mm.binary.SectionTypes.SYMBOLS:
+      if section.type == mm.binary.SectionTypes.SYMBOLS:
         for symbol in section.content:
           symbols[symbol.name.name] = symbol.section_ptr
 
-      if s_base_addr:
-        self.reset_area_flags(s_base_addr.u24, len(section))
-        self.update_area_flags(s_base_addr.u24, len(section), 'read', True if 'r' in section.flags else False)
-        self.update_area_flags(s_base_addr.u24, len(section), 'write', True if 'w' in section.flags else False)
-        self.update_area_flags(s_base_addr.u24, len(section), 'execute', True if 'x' in section.flags else False)
+        continue
+
+      s_base_addr = UInt24(segment_addr_to_addr(csr.u8 if section.type == mm.binary.SectionTypes.TEXT else dsr.u8, section.base.u16))
+      pages_start, pages_cnt = area_to_pages(s_base_addr.u24, section.size)
+      flags = mm.binary.SectionFlags.create('r' in section.flags, 'w' in section.flags, 'x' in section.flags, 'b' in section.flags)
+
+      self.for_each_page(pages_start, pages_cnt, self.__alloc_page)
+      self.__set_section_flags(pages_start, pages_cnt, flags)
+
+      if section.type == mm.binary.SectionTypes.TEXT:
+        self.load_text(csr, section.base, section.content)
+
+      elif section.type == mm.binary.SectionTypes.DATA:
+        if 'b' not in section.flags:
+          self.load_data(dsr, section.base, section.content)
+
+      regions.append(MemoryRegion(section.name, s_base_addr.u24, section.size, flags))
 
     if stack:
-      stack_page = self.get_page(self.alloc_page(dsr))
-      stack_page.read = True
-      stack_page.write = True
-      sp = UInt16(stack_page.segment_address + PAGE_SIZE)
+      pg, sp = self.alloc_stack(segment = dsr)
+      regions.append(MemoryRegion('stack', pg.base_address, PAGE_SIZE, mm.binary.SectionFlags.create(True, True, False, False)))
 
-    return (csr, dsr, sp, ip, symbols)
+    return (csr, dsr, sp, ip, symbols, regions)
 
   def load_file(self, file_in, csr = None, dsr = None, stack = True):
     debug('mc.load_file: file_in=%s, csr=%s, dsr=%s', file_in, csr, dsr)
@@ -669,6 +729,7 @@ class MemoryController(object):
     ip  = None
 
     symbols = {}
+    regions = []
 
     with mm.binary.File(file_in, 'r') as f_in:
       f_in.load()
@@ -678,36 +739,49 @@ class MemoryController(object):
       for i in range(0, f_header.sections):
         s_header, s_content = f_in.get_section(i)
 
+        debug('loading section %s', f_in.string_table.get_string(s_header.name))
+
         s_base_addr = None
 
-        if s_header.type == mm.binary.SectionTypes.TEXT:
-          s_base_addr = UInt24(segment_addr_to_addr(csr.u8, s_header.base))
-
-          self.load_text(csr, UInt16(s_header.base), s_content)
-
-        elif s_header.type == mm.binary.SectionTypes.DATA:
-          s_base_addr = UInt24(segment_addr_to_addr(dsr.u8, s_header.base))
-
-          if s_header.flags.bss != 1:
-            self.load_data(dsr, UInt16(s_header.base), s_content)
-
-        elif s_header.type == mm.binary.SectionTypes.SYMBOLS:
+        if s_header.type == mm.binary.SectionTypes.SYMBOLS:
           for symbol in s_content:
             symbols[f_in.string_table.get_string(symbol.name)] = UInt16(symbol.address)
 
-        if s_base_addr:
-          self.reset_area_flags(s_base_addr.u24, s_header.size)
-          self.update_area_flags(s_base_addr.u24, s_header.size, 'read', True if s_header.flags.readable == 1 else False)
-          self.update_area_flags(s_base_addr.u24, s_header.size, 'write', True if s_header.flags.writable == 1 else False)
-          self.update_area_flags(s_base_addr.u24, s_header.size, 'execute', True if s_header.flags.executable == 1 else False)
+          continue
+
+        if s_header.type == mm.binary.SectionTypes.STRINGS:
+          continue
+
+        s_base_addr = UInt24(segment_addr_to_addr(csr.u8 if s_header.type == mm.binary.SectionTypes.TEXT else dsr.u8, s_header.base))
+        pages_start, pages_cnt = area_to_pages(s_base_addr.u24, s_header.size)
+
+        if f_header.flags.mmapable == 1:
+          ptr = self.__load_content_mmap(csr if s_header.type == mm.binary.SectionTypes.TEXT else dsr, f_in.fileno(), s_header.offset, s_header.size, s_header.flags)
+
+          def __alloc_mmap_page(page_index, area_index):
+            self.__pages[page_index] = MMapMemoryPage(self, page_index, ptr, area_index * PAGE_SIZE)
+
+          self.for_each_page(pages_start, pages_cnt, __alloc_mmap_page)
+
+        else:
+          self.for_each_page(pages_start, pages_cnt, self.__alloc_page)
+
+          if s_header.type == mm.binary.SectionTypes.TEXT:
+            self.load_text(csr, UInt16(s_header.base), s_content)
+
+          elif s_header.type == mm.binary.SectionTypes.DATA:
+            if s_header.flags.bss != 1:
+              self.load_data(dsr, UInt16(s_header.base), s_content)
+
+        self.__set_section_flags(pages_start, pages_cnt, s_header.flags)
+
+        regions.append(MemoryRegion(f_in.string_table.get_string(s_header.name), s_base_addr.u24, s_header.size, s_header.flags))
 
     if stack:
-      stack_page = self.get_page(self.alloc_page(dsr))
-      stack_page.read = True
-      stack_page.write = True
-      sp = UInt16(stack_page.segment_address + PAGE_SIZE)
+      pg, sp = self.alloc_stack(segment = dsr)
+      regions.append(MemoryRegion('stack', pg.base_address, PAGE_SIZE, mm.binary.SectionFlags.create(True, True, False, False)))
 
-    return (csr, dsr, sp, ip, symbols)
+    return (csr, dsr, sp, ip, symbols, regions)
 
   def __get_mmap_fileno(self, file_path):
     if file_path not in self.opened_mmap_files:

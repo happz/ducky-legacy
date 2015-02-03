@@ -21,10 +21,10 @@ import cpu.instructions
 import mm.binary
 import util
 
-from mm import UInt8, UInt16, ADDR_FMT, UINT16_FMT, UINT8_FMT, SIZE_FMT, PAGE_SIZE
+from mm import UInt8, UInt16, ADDR_FMT, UINT16_FMT, UINT8_FMT, SIZE_FMT, PAGE_SIZE, buff_to_uint16
 from cpu.errors import CPUException
 from cpu.registers import Registers, REGISTER_NAMES
-from util import str2int, info
+from util import str2int, info, print_table
 
 def show_header(state):
   info('=== Coredump header ===')
@@ -33,7 +33,30 @@ def show_header(state):
   info('')
   info('  # of CPUs:      %i', state.nr_cpus)
   info('  # of CPU cores: %i', state.nr_cores)
+  info('  # of binaries:  %i', state.binaries)
   info('')
+
+def show_binaries(state):
+  info('=== Binaries ===')
+
+  mc_index = 0
+
+  for bs in state.binary_states:
+    info('  Path: %s', state.string_table.get_string(bs.path))
+    info('  CS: %s DS: %s', UINT8_FMT(bs.cs), UINT8_FMT(bs.ds))
+    info('')
+
+    table = [
+      ['Section', 'Address', 'Size', 'Flags', 'First page', 'Last page']
+    ]
+
+    for rs in state.memory_region_states[mc_index:mc_index + bs.memory_regions]:
+      table.append([state.string_table.get_string(rs.name), ADDR_FMT(rs.address), rs.size, rs.flags, rs.pages_start, rs.pages_start + rs.pages_cnt - 1])
+
+    mc_index += bs.memory_regions
+
+    print_table(table)
+    info('')
 
 def show_cores(state):
   info('=== Cores ===')
@@ -66,31 +89,59 @@ def show_memory(state):
   info('  # of pages:    %s', state.mm_state.pages)
   info('')
 
-def show_segments(state, binaries):
+def show_stack(state):
+  info('=== Stack ===')
+
+  stacks = [pg for pg in state.mm_page_states if pg.stack == 1]
+
+  sps = {}
+  for cs in state.core_states:
+    sps[mm.segment_addr_to_addr(cs.ds, cs.sp)] = '#%i:#%i' % (cs.cpuid, cs.coreid)
+
+  for pg in stacks:
+    pg_address = pg.index * PAGE_SIZE
+    pg_segment = mm.addr_to_segment(pg_address)
+
+    info('=== Page %s - %s %s ===', pg.index, UINT8_FMT(pg_segment), ADDR_FMT(pg_address))
+
+    for ri in range(0, 16):
+      row = []
+      for ci in range(0, 8):
+        offset = PAGE_SIZE - 2 - (ci * 16 + ri) * 2
+        segment_offset = pg_address + offset
+
+        v = buff_to_uint16(pg.content, offset)
+        row.append((sps.get(segment_offset, None), v))
+
+      info('  ' + '  '.join(['%s %s' % (' ' if sp == None else '*', console.WHITE(UINT16_FMT(v)) if v.u16 != 0 else console.GREEN(UINT16_FMT(v))) for sp, v in row]))
+
+    info('')
+
+def show_segments(state):
   info('=== Memory segments ===')
 
   for s in state.mm_segment_states:
     info('  Segment: %s', UINT8_FMT(s.index))
 
-    for cs, ds, symbols, binary in binaries:
-      if s.index == cs.u8:
-        info('    CS of %s', binary.name)
-      if s.index == ds.u8:
-        info('    DS of %s', binary.name)
+    for bs in state.binary_states:
+      if s.index == bs.cs:
+        info('    CS of %s', state.string_table.get_string(bs.path))
+      if s.index == bs.ds:
+        info('    DS of %s', state.string_table.get_string(bs.path))
 
   info('')
 
-def show_pages(state, binaries):
+def show_pages(state):
   info('=== Memory pages ===')
 
   for pg in sorted(state.mm_page_states, key = lambda x: x.index):
     pg_addr = pg.index * PAGE_SIZE
     pg_segment = mm.addr_to_segment(pg_addr)
 
-    for cs, ds, symbols, binary in binaries:
-      if pg_segment == cs.u8:
+    for bs in state.binary_states:
+      if pg_segment == bs.cs:
         break
-      if pg_segment == ds.u8:
+      if pg_segment == bs.ds:
         break
 
     else:
@@ -99,12 +150,15 @@ def show_pages(state, binaries):
     info('  Page #%i (segment %s)', pg.index, UINT8_FMT(pg_segment))
     info('    Flags: %s%s%s%s', 'r' if pg.read == 1 else '-', 'w' if pg.write == 1 else '-', 'x' if pg.execute == 1 else '-', 'd' if pg.dirty == 1 else '-')
 
-    for i in range(0, 8):
+    CPR = 16
+
+    for i in range(0, 256 / CPR):
       s = []
       t = []
 
-      for b in pg.content[32 * i:32 * (i + 1)]:
-        s.append('%02X' % b)
+      for b in pg.content[CPR * i:CPR * (i + 1)]:
+        c = '%02X' % b
+        s.append(console.GREEN(c) if b == 0 else console.WHITE(c))
 
         c = chr(b)
         if c in string.printable[0:-5]:
@@ -120,23 +174,43 @@ def show_pages(state, binaries):
         else:
           t.append('  ')
 
-      info('    ' + ADDR_FMT(pg_addr + i * 32) + ': ' + ' '.join(s))
+      info('    ' + ADDR_FMT(pg_addr + i * CPR) + ': ' + ' '.join(s))
       info('              ' + ' '.join(t))
 
-      if not symbols:
-        continue
-
       row_symbols = []
-      for j in range(pg_addr + i * 32, pg_addr + i * 32 + 32):
-        if j not in symbols:
+      for j in range(pg_addr + i * CPR, pg_addr + i * CPR + CPR):
+        if j not in bs.symbols:
           continue
 
-        row_symbols.append((j - (pg_addr + i * 32)) * 3 * ' ' + '^' + ', '.join(symbols[j]))
+        row_symbols.append((j - (pg_addr + i * CPR)) * 3 * ' ' + '^' + ', '.join(bs.symbols[j]))
 
       for symbol in row_symbols:
         info('              ' + symbol)
 
     info('')
+
+def load_binary_symbols(state, bs):
+  bs.raw_binary = mm.binary.File(state.string_table.get_string(bs.path), 'r')
+  bs.raw_binary.load()
+
+  bs.symbols = {}
+  for i in range(0, bs.raw_binary.get_header().sections):
+    s_header, s_content = bs.raw_binary.get_section(i)
+
+    if s_header.type != mm.binary.SectionTypes.SYMBOLS:
+      continue
+
+    for entry in s_content:
+      _header, _content = bs.raw_binary.get_section(entry.section)
+
+      segment = bs.cs if _header.type == mm.binary.SectionTypes.TEXT else bs.ds
+
+      symbol_name = bs.raw_binary.string_table.get_string(entry.name)
+      symbol_address = mm.segment_addr_to_addr(segment, entry.address)
+
+      if symbol_address not in bs.symbols:
+        bs.symbols[symbol_address] = []
+      bs.symbols[symbol_address].append(symbol_name)
 
 def main():
   parser = optparse.OptionParser()
@@ -150,10 +224,9 @@ def main():
   parser.add_option('-M',         dest = 'memory',   default = False, action = 'store_true', help = 'Show memory')
   parser.add_option('--segments', dest = 'segments', default = False, action = 'store_true', help = 'Show segments')
   parser.add_option('--pages',    dest = 'pages',    default = False, action = 'store_true', help = 'Show pages')
+  parser.add_option('-b',         dest = 'binaries', default = False, action = 'store_true', help = 'Show binaries')
+  parser.add_option('-s',         dest = 'stack',    default = False, action = 'store_true', help = 'Show stack content')
   parser.add_option('-a',         dest = 'all',      default = False, action = 'store_true', help = 'All of above')
-
-  parser.add_option('-b', '--binary',
-                    action = 'append', dest = 'binaries', default = [])
 
   options, args = parser.parse_args()
 
@@ -164,48 +237,23 @@ def main():
     sys.exit(1)
 
   if options.all:
-    options.header = options.cores = options.memory = options.segments = options.pages = True
-
-  binaries = []
-  for binary in options.binaries:
-    cs, ds, binary = binary.split(',')
-
-    cs = UInt8(str2int(cs))
-    ds = UInt8(str2int(ds))
-
-    raw_binary = mm.binary.File(binary, 'r')
-    raw_binary.load()
-
-    symbols = {}
-    for i in range(0, raw_binary.get_header().sections):
-      s_header, s_content = raw_binary.get_section(i)
-
-      if s_header.type != mm.binary.SectionTypes.SYMBOLS:
-        continue
-
-      for entry in s_content:
-        _header, _content = raw_binary.get_section(entry.section)
-
-        segment = cs if _header.type == mm.binary.SectionTypes.TEXT else ds
-
-        symbol_name = entry.get_name()
-        symbol_address = mm.segment_addr_to_addr(segment.u8, entry.address)
-
-        if symbol_address not in symbols:
-          symbols[symbol_address] = []
-        symbols[symbol_address].append(symbol_name)
-
-      binaries.append((cs, ds, symbols, raw_binary))
+    options.header = options.cores = options.memory = options.segments = options.pages = options.binaries = options.stack = True
 
   info('Input file: %s', options.file_in)
 
   with core.CoreDumpFile(options.file_in, 'r') as f_in:
     state = f_in.load()
 
+    for bs in state.binary_states:
+      load_binary_symbols(state, bs)
+
     info('')
 
     if options.header:
       show_header(state)
+
+    if options.binaries:
+      show_binaries(state)
 
     if options.cores:
       show_cores(state)
@@ -214,10 +262,13 @@ def main():
       show_memory(state)
 
     if options.segments:
-      show_segments(state, binaries)
+      show_segments(state)
+
+    if options.stack:
+      show_stack(state)
 
     if options.pages:
-      show_pages(state, binaries)
+      show_pages(state)
 
 if __name__ == '__main__':
   main()

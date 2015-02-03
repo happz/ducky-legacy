@@ -35,6 +35,13 @@ COLORS = [
   colorama.Fore.WHITE
 ]
 
+__COLOR_RESET = colorama.Fore.RESET + colorama.Back.RESET + colorama.Style.RESET_ALL
+
+RED = lambda s: colorama.Fore.RED + s + __COLOR_RESET
+GREEN = lambda s: colorama.Fore.GREEN + s + __COLOR_RESET
+BLUE  = lambda s: colorama.Fore.BLUE + s + __COLOR_RESET
+WHITE = lambda s: colorama.Fore.WHITE + s + __COLOR_RESET
+
 class Console(object):
   console_id = 0
   commands = {}
@@ -102,7 +109,7 @@ class Console(object):
           self.logfile.flush()
 
   def writeln(self, level, *args):
-    if self.quiet_mode:
+    if level == VerbosityLevels.DEBUG and self.quiet_mode:
       return
 
     fmt = args[0]

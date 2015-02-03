@@ -20,7 +20,7 @@ def assert_registers(state, **regs):
 
     default = 0
     if reg in ('fp', 'sp'):
-      default = 0x01DA
+      default = 0x02DA
 
     elif reg in ('cs', 'ds'):
       default = 0x01
@@ -67,10 +67,11 @@ def run_machine(code, coredump_file = None, **kwargs):
 
   sections = cpu.assemble.translate_buffer(code)
 
-  csr, dsr, sp, ip, symbols = M.memory.load_raw_sections(sections)
-  ip = symbols.get('main', mm.UInt16(0))
-  M.init_states.append((csr, dsr, sp, ip, False))
-  M.binaries.append((csr, dsr, sp, ip, symbols))
+  binary = machine.Binary('<dummy>')
+  binary.cs, binary.ds, binary.sp, binary.ip, binary.symbols, binary.regions = M.memory.load_raw_sections(sections)
+  binary.ip = binary.symbols.get('main', mm.UInt16(0))
+
+  M.binaries.append(binary)
 
   M.boot()
   M.run()

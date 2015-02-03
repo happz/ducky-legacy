@@ -169,8 +169,9 @@ def main():
 
   M.boot()
 
-  info('Press Enter to start execution of loaded binaries')
-  util.CONSOLE.wait_on_line()
+  if not options.go_on:
+    info('Press Enter to start execution of loaded binaries')
+    util.CONSOLE.wait_on_line()
 
   M.run()
   M.wait()

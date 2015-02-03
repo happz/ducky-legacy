@@ -1,4 +1,5 @@
 import collections
+import ctypes
 import functools
 import Queue
 import sys
@@ -330,6 +331,8 @@ class CPUCore(object):
       self.DEBUG('__pop: %s (%s) from %s', reg_id, reg, UInt16(self.SP().u16 - 2))
 
   def __create_frame(self):
+    self.DEBUG('__create_frame')
+
     self.__push(Registers.IP, Registers.FP)
 
     self.FP().u16 = self.SP().u16
@@ -337,6 +340,8 @@ class CPUCore(object):
     self.frames.append(StackFrame(self.CS(), self.DS(), self.FP()))
 
   def __destroy_frame(self):
+    self.DEBUG('__destroy_frame')
+
     if self.frames[-1].FP.u16 != self.SP().u16:
       raise CPUException('Leaving frame with wrong SP: IP=%s, saved SP=%s, current SP=%s' % (ADDR_FMT(self.IP().u16), ADDR_FMT(self.frames[-1].FP.u16), ADDR_FMT(self.SP().u16)))
 
@@ -351,15 +356,13 @@ class CPUCore(object):
 
     iv = self.memory.load_interrupt_vector(table_address, index)
 
-    stack_page = self.memory.get_page(self.memory.alloc_page(UInt8(iv.ds)))
-    stack_page.read = True
-    stack_page.write = True
+    stack_pg, sp = self.memory.alloc_stack(segment = UInt8(iv.ds))
 
     old_SP = UInt16(self.SP().u16)
     old_DS = UInt16(self.DS().u16)
 
     self.DS().u16 = iv.ds
-    self.SP().u16 = UInt16(stack_page.segment_address + mm.PAGE_SIZE).u16
+    self.SP().u16 = sp.u16
 
     self.__raw_push(old_DS)
     self.__raw_push(old_SP)
@@ -392,9 +395,17 @@ class CPUCore(object):
   def __do_int(self, index):
     self.DEBUG('__do_int: %s', index)
 
-    self.__enter_interrupt(UInt24(self.memory.int_table_address), index)
+    if index in self.cpu.machine.virtual_interrupts:
+      self.DEBUG('__do_int: calling virtual interrupt')
 
-    self.DEBUG('__do_int: CPU state prepared to handle interrupt')
+      self.cpu.machine.virtual_interrupts[index].run(self)
+
+      self.DEBUG('__do_int: virtual interrupt finished')
+
+    else:
+      self.__enter_interrupt(UInt24(self.memory.int_table_address), index)
+
+      self.DEBUG('__do_int: CPU state prepared to handle interrupt')
 
   def __do_irq(self, index):
     self.DEBUG('__do_irq: %s', index)
@@ -447,16 +458,19 @@ class CPUCore(object):
     self.FLAGS().o = 0
     self.FLAGS().s = 0
 
-    if   x == y:
+    x = ctypes.cast((ctypes.c_ushort * 1)(x), ctypes.POINTER(ctypes.c_short)).contents
+    y = ctypes.cast((ctypes.c_ushort * 1)(y), ctypes.POINTER(ctypes.c_short)).contents
+
+    if   x.value == y.value:
       self.FLAGS().e = 1
 
-      if x == 0:
+      if x.value == 0:
         self.FLAGS().z = 1
 
-    elif x  < y:
+    elif x.value < y.value:
       self.FLAGS().s = 1
 
-    elif x > y:
+    elif x.value > y.value:
       self.FLAGS().s = 0
 
   def OFFSET_ADDR(self, inst):
@@ -543,7 +557,7 @@ class CPUCore(object):
     self.FLAGS().hwint = 1
 
   def inst_HLT(self, inst):
-    self.__check_protected_ins()
+    #self.__check_protected_ins()
 
     self.exit_code = self.RI_VAL(inst)
 

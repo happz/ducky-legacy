@@ -4,6 +4,7 @@ import patch
 
 import ctypes
 import optparse
+import re
 import struct
 import sys
 import types
@@ -39,16 +40,17 @@ def show_sections(f):
   f_header = f.get_header()
 
   table = [
-    ['Name', 'Type', 'Flags', 'Base', 'Items', 'Size', 'Offset']
+    ['Index', 'Name', 'Type', 'Flags', 'Base', 'Items', 'Size', 'Offset']
   ]
 
   for i in range(0, f_header.sections):
     header, content = f.get_section(i)
 
     table.append([
+      header.index,
       f.string_table.get_string(header.name),
       mm.binary.SECTION_TYPES[header.type],
-      '%s (0x%02X)' % (''.join(['R' if header.flags.readable == 1 else '-', 'W' if header.flags.writable == 1 else '-', 'X' if header.flags.executable == 1 else '-']), ctypes.cast(ctypes.byref(header.flags), ctypes.POINTER(ctypes.c_ubyte)).contents.value),
+      '%s (0x%02X)' % (''.join(['R' if header.flags.readable == 1 else '-', 'W' if header.flags.writable == 1 else '-', 'X' if header.flags.executable == 1 else '-', 'B' if header.flags.bss == 1 else '-']), ctypes.cast(ctypes.byref(header.flags), ctypes.POINTER(ctypes.c_ubyte)).contents.value),
       ADDR_FMT(header.base),
       header.items,
       SIZE_FMT(header.size),
@@ -84,6 +86,15 @@ def show_disassemble(f):
   info('')
 
 def show_symbols(f):
+  ascii_replacements = {
+    '\n':   '\\n',
+    '\r':   '\\r',
+    '\x00': '\\0'
+  }
+
+  ascii_replacer = lambda m: ascii_replacements[m.group(0)]
+  ascii_replace = re.compile('|'.join(ascii_replacements.keys()))
+
   info('=== Symbols ===')
   info('')
 
@@ -99,14 +110,14 @@ def show_symbols(f):
     if header.type != mm.binary.SectionTypes.SYMBOLS:
       continue
 
-    for entry in content:
+    for index, entry in enumerate(content):
       _header, _content = f.get_section(entry.section)
 
       table_row = [
         f.string_table.get_string(entry.name),
         f.string_table.get_string(_header.name),
         ADDR_FMT(entry.address),
-        mm.binary.SYMBOL_DATA_TYPES[entry.type],
+        '%s (%i)' % (mm.binary.SYMBOL_DATA_TYPES[entry.type], entry.type),
         SIZE_FMT(entry.size)
       ]
 
@@ -127,7 +138,7 @@ def show_symbols(f):
         if len(symbol_content) > 32:
           symbol_content = symbol_content[0:29] + '...'
 
-        symbol_content = '"' + symbol_content.replace('\r', '\\r').replace('\n', '\\n') + '"'
+        symbol_content = '"' + ascii_replace.sub(ascii_replacer, symbol_content) + '"'
 
       table_row.append(symbol_content)
       table.append(table_row)

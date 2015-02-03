@@ -1,5 +1,7 @@
 #!/usr/bin/python
 
+import functools
+import mmap
 import optparse
 import re
 import struct
@@ -13,10 +15,10 @@ from mm import UInt8, UInt16, UINT8_FMT, UINT16_FMT, SEGM_FMT, ADDR_FMT, SIZE_FM
 from mm.binary import SectionTypes
 from cpu.errors import CompilationError
 
-from util import debug, info, warn
+from util import debug, info, warn, align
 
-def align_to_next_page(addr):
-  return (((addr & PAGE_MASK) >> PAGE_SHIFT) + 1) * PAGE_SIZE
+align_to_next_page = functools.partial(align, PAGE_SIZE)
+align_to_next_mmap = functools.partial(align, mmap.PAGESIZE)
 
 class Section(object):
   def __init__(self, s_name, s_type, s_flags):
@@ -30,16 +32,19 @@ class Section(object):
     self.base = UInt16(0)
     self.ptr  = UInt16(0)
 
-    self.offset = 0
-    self.length = 0
+  def __getattr__(self, name):
+    if name == 'size':
+      return sum([sizeof(i) for i in self.content])
+      #return self.ptr.u16 - self.base.u16 if self.items == 0 else mm.binary.SECTION_ITEM_SIZE[self.type] * self.items
 
-  def __len__(self):
-    # pylint: disable-msg=E1101
-    # Instance of 'UInt16' has no 'u16' member
-    return self.ptr.u16 - self.base.u16
+    if name == 'items':
+      return len(self.content)
+
+    if name == 'is_bss':
+      return 'b' in self.flags
 
   def __repr__(self):
-    return '<Section: name=%s, type=%s, flags=%s, base=%s, ptr=%s, offset=%s, length=%s>' % (self.name, self.type, self.flags, self.base, self.ptr, self.offset, self.length)
+    return '<Section: name=%s, type=%s, flags=%s, base=%s, ptr=%s, items=%s, size=%s>' % (self.name, self.type, self.flags, self.base, self.ptr, self.items, self.size)
 
 class TextSection(Section):
   def __init__(self, s_name, flags = None):
@@ -64,8 +69,29 @@ def preprocess_buffer(buff):
 
   buff = r_comment.sub('', buff)
 
+  r_include   = re.compile(r'^\s*\.include\s+"(?P<file>[a-zA-Z0-9_/\.]*)\s*"$', re.MULTILINE)
+
   r_var_def   = re.compile(r'^\.def\s+(?P<var_name>[a-zA-Z][a-zA-Z0-9_]*):\s*(?P<var_body>.*?)$', re.MULTILINE)
   r_macro_def = re.compile(r'^\.macro\s+(?P<macro_name>[a-zA-Z][a-zA-Z0-9_]*)(?:\s+(?P<macro_params>.*?))?:$(?P<macro_body>.*?)^.end$', re.MULTILINE | re.DOTALL)
+
+
+  includes = r_include.findall(buff)
+
+  while True:
+    matches = r_include.search(buff)
+    if not matches:
+      break
+
+    matches = matches.groupdict()
+    f_in = matches['file']
+
+    debug('include directive found: %s', f_in)
+
+    r_replace = re.compile(r'^\s*\.include\s+"%s"\s*$' % f_in, re.MULTILINE)
+    with open(f_in, 'r') as f_in:
+      replace = f_in.read()
+
+    buff = r_replace.sub(replace, buff)
 
   vars = r_var_def.findall(buff)
 
@@ -185,6 +211,16 @@ class CharSlot(DataSlot):
   def __repr__(self):
     return '<CharSlot: name=%s, section=%s, value=%s>' % (self.name, self.section.name if self.section else '', self.value)
 
+class SpaceSlot(DataSlot):
+  symbol_type = mm.binary.SymbolDataTypes.ASCII
+
+  def close(self):
+    self.value = None
+    self.size = UInt16(self.size)
+
+  def __repr__(self):
+    return '<SpaceSlot: name=%s, size=%s, section=%s>' % (self.name, self.size, self.section.name if self.section else '')
+
 class AsciiSlot(DataSlot):
   symbol_type = mm.binary.SymbolDataTypes.ASCII
 
@@ -227,7 +263,7 @@ def sizeof(o):
 
   return None
 
-def translate_buffer(buff, base_address = None):
+def translate_buffer(buff, base_address = None, mmapable_sections = False):
   buff = preprocess_buffer(buff)
 
   base_address = base_address or UInt16(0)
@@ -317,7 +353,7 @@ def translate_buffer(buff, base_address = None):
   def __parse_space(var, line):
     matches = r_space.match(line).groupdict()
 
-    var.value = ''.join(['\0' for _ in range(0, int(matches['size']))])
+    var.size = int(matches['size'])
 
   def __handle_symbol_variable(v_name, v_type):
     if v_type == 'char':
@@ -336,7 +372,7 @@ def translate_buffer(buff, base_address = None):
       var = StringSlot()
 
     elif v_type == 'space':
-      var = AsciiSlot()
+      var = SpaceSlot()
 
     var.name = Label(v_name, curr_section)
 
@@ -379,7 +415,7 @@ def translate_buffer(buff, base_address = None):
   r_data    = re.compile(r'\.data\s+(?P<name>\.[a-z][a-z0-9_]*)?')
   r_int     = re.compile(r'\.int\s+(?:(?P<value_hex>-?0x[a-fA-F0-9]+)|(?P<value_dec>0|(?:-?[1-9][0-9]*))|(?P<value_var>[a-zA-Z][a-zA-Z0-9_]*)|(?P<value_label>&[a-zA-Z_][a-zA-Z0-9_]*))')
   r_section = re.compile(r'\.section\s+(?P<name>\.[a-zA-z0-9_]+)(?:,\s*(?P<flags>[rwxb]*))?')
-  r_set     = re.compile(r'\.set\s+(?P<name>[a-zA-Z_][a-zA-Z0-9_]*),\s*(?:(?P<value_hex>-?0x[a-fA-F0-9]+)|(?P<value_dec>0|(?:-?[1-9][0-9]*))|(?P<value_label>&[a-zA-Z][a-zA-Z0-9_]*))\s*$', re.MULTILINE)
+  r_set     = re.compile(r'\.set\s+(?P<name>[a-zA-Z_][a-zA-Z0-9_]*),\s*(?:(?P<current>\.)|(?P<value_hex>-?0x[a-fA-F0-9]+)|(?P<value_dec>0|(?:-?[1-9][0-9]*))|(?P<value_label>&[a-zA-Z][a-zA-Z0-9_]*))\s*$', re.MULTILINE)
   r_size    = re.compile(r'\.size\s+(?P<size>[1-9][0-9]*)')
   r_space   = re.compile(r'\.space\s+(?P<size>[1-9][0-9]*)')
   r_string  = re.compile(r'\.string\s+"(?P<value>.*?)"')
@@ -411,7 +447,7 @@ def translate_buffer(buff, base_address = None):
         flags = matches.get('flags', None)
         section_type = SectionTypes.TEXT if flags and 'x' in flags else SectionTypes.DATA
 
-        section = sections_pass1[s_name] = Section(s_name, section_type, matches.get('flags', None))
+        section = sections_pass1[s_name] = Section(s_name, section_type, flags)
         debug('pass #1: section %s created', s_name)
 
       curr_section = sections_pass1[s_name]
@@ -525,7 +561,7 @@ def translate_buffer(buff, base_address = None):
       continue
 
     if line.startswith('.space '):
-      var = AsciiSlot()
+      var = SpaceSlot()
       __parse_space(var, line)
 
       assert len(labels) <= 1, 'Too many data labels: %s' % labels
@@ -544,7 +580,10 @@ def translate_buffer(buff, base_address = None):
 
       name = matches['name']
 
-      if 'value_dec' in matches and matches['value_dec']:
+      if 'current' in matches and matches['current']:
+        value = (curr_section.name, UInt16(curr_section.ptr.u16))
+
+      elif 'value_dec' in matches and matches['value_dec']:
         value = int(matches['value_dec'])
 
       elif 'value_hex' in matches and matches['value_hex']:
@@ -647,7 +686,14 @@ def translate_buffer(buff, base_address = None):
         if var.refers_to:
           refers_to = var.refers_to
 
-          if refers_to not in references:
+          if type(refers_to) == types.TupleType:
+            var.value = sections_pass2[refers_to[0]].base.u16 + refers_to[1].u16
+            var.refers_to = None
+            var.close()
+
+            debug(ptr_prefix + 'reference "%s" replaced with %s', refers_to, ADDR_FMT(var.value))
+
+          elif refers_to not in references:
             debug(ptr_prefix  + 'unresolved reference to %s', refers_to)
 
           else:
@@ -658,10 +704,6 @@ def translate_buffer(buff, base_address = None):
             var.close()
 
             debug(ptr_prefix + 'reference "%s" replaced with %s', refers_to, ADDR_FMT(refers_to_addr))
-
-        if 'b' in section.flags:
-          section.ptr.u16 += var.size.u16
-          continue
 
         if type(var) == IntSlot:
           if var.value:
@@ -689,6 +731,11 @@ def translate_buffer(buff, base_address = None):
             section.content.append(UInt8(0))
             section.ptr.u16 += 1
 
+          debug(ptr_prefix + 'value stored')
+
+        elif type(var) == SpaceSlot:
+          section.content.append(var)
+          section.ptr.u16 += var.size.u16
           debug(ptr_prefix + 'value stored')
 
     if section.type == SectionTypes.TEXT:
@@ -727,7 +774,7 @@ def translate_buffer(buff, base_address = None):
         debug(ptr_prefix + cpu.instructions.disassemble_instruction(inst))
         section.ptr.u16 += 4
 
-    base_ptr.u16 += align_to_next_page(section.ptr.u16 - section.base.u16)
+    base_ptr.u16 = align_to_next_mmap(section.ptr.u16) if mmapable_sections else align_to_next_page(section.ptr.u16)
 
   debug('Pass #3')
 
@@ -769,7 +816,10 @@ def translate_buffer(buff, base_address = None):
 
         refers_to_var = references[item.refers_to]
         refers_to_addr = refers_to_var.section_ptr.u16
-        if refers_to_var.section.type == SectionTypes.TEXT:
+        debug(ptr_prefix + 'raw addr: %s', ADDR_FMT(refers_to_addr))
+        #if refers_to_var.section.type == SectionTypes.TEXT:
+        if item.desc.relative_address == True:
+          debug(ptr_prefix + 'convert to relative address')
           refers_to_addr -= (item.address.u16 + 4)
 
         item.desc.fix_refers_to(item, refers_to_addr)
@@ -785,11 +835,11 @@ def translate_buffer(buff, base_address = None):
         section.content.append(i)
         section.ptr.u16 += sizeof(i)
 
-    debug('pass #3: section %s finished, size %s', section.name, len(section.content))
+    debug('pass #3: section %s finished: %s', section.name, section)
 
   debug('Bytecode sections:')
   for s_name, section in sections_pass3.items():
-    debug('name=%s, base=%s, items=%s, size=%s, flags=%s', section.name, ADDR_FMT(section.base.u16), len(section.content), SIZE_FMT(len(section)), section.flags)
+    debug(str(section))
 
   info('Bytecode translation completed')
 

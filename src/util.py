@@ -12,6 +12,9 @@ from console import VerbosityLevels
 
 __all__ = ['debug', 'warn', 'error', 'info', 'quiet']
 
+def align(boundary, n):
+  return (n + boundary - 1) & ~(boundary - 1)
+
 def str2int(s):
   if type(s) == types.IntType:
     return s
@@ -107,3 +110,35 @@ class LRUCache(collections.OrderedDict):
 
     self[key] = value = self.get_object(key)
     return value
+
+class StringTable(object):
+  def __init__(self):
+    super(StringTable, self).__init__()
+
+    self.buff = ''
+
+  def put_string(self, s):
+    offset = len(self.buff)
+
+    #debug('put_string: s=%s, offset=%s', s, offset)
+
+    self.buff += s + '\x00'
+
+    return offset
+
+  def get_string(self, offset):
+    #debug('get_string: offset=%s', offset)
+
+    s = ''
+
+    for i in range(offset, len(self.buff)):
+      c = self.buff[i]
+
+      if c == '\x00':
+        break
+
+      s += c
+
+    #debug('  string="%s"', s)
+
+    return s

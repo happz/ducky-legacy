@@ -140,7 +140,15 @@ class Tests(unittest.TestCase):
     self.common_case(['main:', 'li r0, 0xFF', 'j &label', 'li r0, 0xEE', 'label:', 'int 0'], r0 = 0xFF)
 
   def test_be(self):
-    self.common_case(['main:', 'li r0, 0xFF', 'cmp r0, r0', 'be &label', 'li r0, 0xEE', 'label:', 'int 0'], r0 = 0xFF, e = 1)
+    self.common_case("""
+    main:
+      li r0, 0xFF
+      cmp r0, r0
+      be &label
+      li r0, 0xEE
+    label:
+      int 0""",
+    r0 = 0xFF, e = 1)
 
   def test_bne(self):
     self.common_case(['main:', 'li r0, 0xFF', 'cmp r0, 0xDD', 'bne &label', 'li r0, 0xEE', 'label:', 'int 0'], r0 = 0xFF)
@@ -193,7 +201,7 @@ class Tests(unittest.TestCase):
       '  int 0'
     ]
 
-    self.common_case(code, r0 = 0x100, r1 = 0xDEAD)
+    self.common_case(code, r1 = 0xDEAD)
 
   def test_lb(self):
     code = [
@@ -207,7 +215,7 @@ class Tests(unittest.TestCase):
       '  int 0'
     ]
 
-    self.common_case(code, r0 = 0x100, r1 = 0xAD)
+    self.common_case(code, r1 = 0xAD)
 
   def test_stw(self):
     code = [
@@ -223,7 +231,7 @@ class Tests(unittest.TestCase):
       '  int 0',
     ]
 
-    self.common_case(code, r0 = 0x100, r1 = 0xF00, r2 = 0xDEAD, mm = {'0x020100': 0xDEAD, '0x020102': 0})
+    self.common_case(code, r1 = 0xF00, r2 = 0xDEAD, mm = {'0x020000': 0xDEAD, '0x020002': 0})
 
   def test_stb(self):
     code = [
@@ -239,5 +247,5 @@ class Tests(unittest.TestCase):
       '  int 0',
     ]
 
-    self.common_case(code, r0 = 0x100, r2 = 0xDEAD, mm = {'0x020100': 0xAD, '0x020102': 0})
+    self.common_case(code, r2 = 0xDEAD, mm = {'0x020000': 0xAD, '0x020002': 0})
 
