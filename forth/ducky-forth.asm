@@ -189,6 +189,12 @@ write:
   ret
 
 
+writec:
+  ; r0 - char
+  outb $PORT_CONIO_STDOUT, r0
+  ret
+
+
 writes:
   ; r0 - ptr
   push r1
@@ -422,13 +428,41 @@ $DEFCODE "INTERPRET", 9, 0, INTERPRET
   $NEXT
 
 .__INTERPRET_parse_error:
-  ; print error message
+  ; error message
   li r0, &parse_error_msg
   call &writes
-  ; print input buffer
+  ; input buffer label
+  li r0, &parse_error_input_buffer_prefix
+  call &writes
+  ; prefix
+  li r0, &buffer_print_prefix
+  call &writes
+  ; input buffer
   li r0, &input_buffer
   li r1, &input_buffer_length
   lw r1, r1
+  call &write
+  ; new line
+  li r0, 0
+  li r1, 0
+  call &writeln
+  ; word buffer label
+  li r0, &parse_error_word_buffer_prefix
+  call &writes
+  ; prefix
+  li r0, &buffer_print_prefix
+  call &writes
+  ; word buffer
+  li r0, &word_buffer
+  li r1, &word_buffer_length
+  lw r1, r1
+  call &write
+  ; postfix
+  li r0, &buffer_print_postfix
+  call &writes
+  ; new line
+  li r0, 0
+  li r1, 0
   call &writeln
 
   call &halt
@@ -443,6 +477,17 @@ $DEFCODE "INTERPRET", 9, 0, INTERPRET
   .type parse_error_msg, string
   .string "\r\nPARSE ERROR!\r\n"
 
+  .type parse_error_input_buffer_prefix, string
+  .string "Input buffer: "
+
+  .type parse_error_word_buffer_prefix, string
+  .string "Word buffer: "
+
+  .type buffer_print_prefix, string
+  .string ">>>"
+
+  .type buffer_print_postfix, string
+  .string "<<<"
 
 $DEFCODE ">IN", 3, 0, TOIN
   push &input_buffer_index
@@ -1010,7 +1055,11 @@ $DEFCODE "0>=", 3, 0, ZGE
 $DEFCODE "?DUP", 4, 0, QDUP
   pop $W
   cmp $W, 0
-  bnz &.__QDUP_next
+  bnz &.__QDUP_nonzero
+  push 0
+  j &.__QDUP_next
+.__QDUP_nonzero:
+  push $W
   push $W
 .__QDUP_next:
   $NEXT
@@ -1443,6 +1492,10 @@ $DEFCONST "TRUE", 4, 0, TRUE, 0xFFFF
 $DEFCONST "FALSE", 5, 0, FALSE, 0x0000
 
 
+; Include non-kernel words
+.include "forth/ducky-forth-words.asm"
+
+
 ;
 ; The last command - if it's not the last one, modify initial value of LATEST
 ;
@@ -1451,7 +1504,6 @@ $DEFCODE "BYE", 3, 0, BYE
   call &writes
 
   call &halt
-
 
 
 

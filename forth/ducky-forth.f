@@ -7,251 +7,39 @@ VMDEBUGOFF
 \ Heavily based on absolutely amazing FORTH tutorial by
 \ Richard W.M. Jones <rich@annexia.org> http://annexia.org/forth
 \
-
-\ - Some utilities -----------------------------------------------------------------------
-
-\ This is fake - exceptions are not implemented yet
-: ABORT
-  \ ( -- )
-  BYE
-;
+\ This file contains words that I find useful to be implemented using FORTH words, in text.
+\ Later there should be more of right-now hardcoded words but this separation helps a lot
+\ to speed up loading, development and testing.
+\
 
 
-\ - Character constants -------------------------------------------------------------------
-
-: '\n' 10 ;
-
-: BL   32 ;
+: CONSTANT CREATE DOCOL , ' LIT , , ' EXIT , ;
+: VARIABLE 1 CELLS ALLOT CREATE DOCOL , ' LIT , , ' EXIT , ;
+: VALUE CREATE DOCOL , ' LIT , , ' EXIT , ;
 
 
-\ - Helpers -------------------------------------------------------------------------------
-
-\ Prints a carriage return
-: CR    '\n' EMIT ;
-
-\ Prints a space
-: SPACE BL   EMIT ;
-
-\ NEGATE leaves the negative of a number on the stack.
-: NEGATE 0 SWAP - ;
-
-\ Negate condition
-: NOT   0= ;
-
-\ LITERAL takes whatever is on the stack and compiles LIT <foo>
-: LITERAL IMMEDIATE
-	' LIT ,
-	,
-	;
-
-\ Literals calculated at compile time
-: ':' [ CHAR : ] LITERAL ;
-
-: ';' [ CHAR ; ] LITERAL ;
-: '(' [ CHAR ( ] LITERAL ;
-: ')' [ CHAR ) ] LITERAL ;
-: '"' [ CHAR " ] LITERAL ;
-: 'A' [ CHAR A ] LITERAL ;
-: '0' [ CHAR 0 ] LITERAL ;
-: '-' [ CHAR - ] LITERAL ;
-: '.' [ CHAR . ] LITERAL ;
-
-\ Multiply TOS by 2 (cell size)
-: CELLS 2 * ;
-
-\ Alloc N bytes in userspace memory by putting old value of HERE on stack and increasing its value
-: ALLOT   \ n -- addr
-  HERE @ SWAP \ here n
-  HERE +!     \ adds n to HERE
-;
-
-\ - CONSTANTS AND VARIABLES ---------------------------------------------------------------------
-: CONSTANT
-	CREATE
-	DOCOL ,
-	' LIT ,
-	,
-	' EXIT ,
-;
-
-: ARRAY
-  \ ( n_items -- )
-  CELLS ALLOT
-  CREATE
-  DOCOL ,
-  ' LIT ,
-  ,
-  ' EXIT ,
-;
-
-: VARIABLE
-	1 CELLS ALLOT
-	CREATE
-	DOCOL ,
-	' LIT ,
-	,
-	' EXIT ,
-;
-
-: VALUE
-	CREATE
-	DOCOL ,
-	' LIT ,
-	,
-	' EXIT ,
-;
-
-\ While compiling, '[COMPILE] word' compiles 'word' if it would otherwise be IMMEDIATE.
-: [COMPILE] IMMEDIATE
-	WORD		\ get the next word
-	FIND		\ find it in the dictionary
-	>CFA		\ get its codeword
-	,		\ and compile that
-;
-
-\ RECURSE makes a recursive call to the current word that is being compiled.
-: RECURSE IMMEDIATE
-	LATEST @	\ LATEST points to the word being compiled at the moment
-	>CFA		\ get the codeword
-	,		\ compile it
-;
-
-\	- Control structures ----------------------------------------------------------------------
-
-\ IF is an IMMEDIATE word which compiles 0BRANCH followed by a dummy offset, and places
-\ the address of the 0BRANCH on the stack.  Later when we see THEN, we pop that address
-\ off the stack, calculate the offset, and back-fill the offset.
-: IF IMMEDIATE
-	' 0BRANCH ,	\ compile 0BRANCH
-	HERE @		\ save location of the offset on the stack
-	0 ,		\ compile a dummy offset
-;
-
-: THEN IMMEDIATE
-	DUP
-	HERE @ SWAP -	\ calculate the offset from the address saved on the stack
-	SWAP !		\ store the offset in the back-filled location
-;
-
-: ELSE IMMEDIATE
-	' BRANCH ,	\ definite branch to just over the false-part
-	HERE @		\ save location of the offset on the stack
-	0 ,		\ compile a dummy offset
-	SWAP		\ now back-fill the original (IF) offset
-	DUP		\ same as for THEN word above
-	HERE @ SWAP -
-	SWAP !
-;
-
-\ BEGIN loop-part condition UNTIL
-\	-- compiles to: --> loop-part condition 0BRANCH OFFSET
-\	where OFFSET points back to the loop-part
-\ This is like do { loop-part } while (condition) in the C language
-: BEGIN IMMEDIATE
-	HERE @		\ save location on the stack
-;
-
-: UNTIL IMMEDIATE
-	' 0BRANCH ,	\ compile 0BRANCH
-	HERE @ -	\ calculate the offset from the address saved on the stack
-	,		\ compile the offset here
-;
-
-\ BEGIN loop-part AGAIN
-\	-- compiles to: --> loop-part BRANCH OFFSET
-\	where OFFSET points back to the loop-part
-\ In other words, an infinite loop which can only be returned from with EXIT
-: AGAIN IMMEDIATE
-	' BRANCH ,	\ compile BRANCH
-	HERE @ -	\ calculate the offset back
-	,		\ compile the offset here
-;
-
-\ BEGIN condition WHILE loop-part REPEAT
-\	-- compiles to: --> condition 0BRANCH OFFSET2 loop-part BRANCH OFFSET
-\	where OFFSET points back to condition (the beginning) and OFFSET2 points to after the whole piece of code
-\ So this is like a while (condition) { loop-part } loop in the C language
-: WHILE IMMEDIATE
-	' 0BRANCH ,	\ compile 0BRANCH
-	HERE @		\ save location of the offset2 on the stack
-	0 ,		\ compile a dummy offset2
-;
-
-: REPEAT IMMEDIATE
-	' BRANCH ,	\ compile BRANCH
-	SWAP		\ get the original offset (from BEGIN)
-	HERE @ - ,	\ and compile it after BRANCH
-	DUP
-	HERE @ SWAP -	\ calculate the offset2
-	SWAP !		\ and back-fill it in the original location
-;
-
-\ UNLESS is the same as IF but the test is reversed.
-: UNLESS IMMEDIATE
-	' NOT ,		\ compile NOT (to reverse the test)
-	[COMPILE] IF	\ continue by calling the normal IF
-;
+: [COMPILE] IMMEDIATE WORD FIND >CFA , ;
+: IF IMMEDIATE ' 0BRANCH , HERE @ 0 , ;
+: THEN IMMEDIATE DUP HERE @ SWAP - SWAP ! ;
+: ELSE IMMEDIATE ' BRANCH , HERE @ 0 , SWAP DUP HERE @ SWAP - SWAP ! ;
+: BEGIN IMMEDIATE HERE @ ;
+: WHILE IMMEDIATE ' 0BRANCH , HERE @ 0 , ;
+: REPEAT IMMEDIATE ' BRANCH , SWAP HERE @ - , DUP HERE @ SWAP - SWAP ! ;
+: RECURSE IMMEDIATE LATEST @ >CFA , ;
+: UNTIL IMMEDIATE ' 0BRANCH ,	HERE @ - , ;
+: AGAIN IMMEDIATE ' BRANCH , HERE @ -	, ;
+: UNLESS IMMEDIATE ' NOT , [COMPILE] IF ;
 
 32 CELLS ARRAY LEAVE-SP
 LEAVE-SP LEAVE-SP !
 
-: LEAVE
-  ' UNLOOP ,
-  ' BRANCH ,
-  LEAVE-SP @ LEAVE-SP - 31 CELLS >
-  IF ABORT THEN
-  1 CELLS LEAVE-SP +!
-  HERE @ LEAVE-SP @ !
-  0 ,
-; IMMEDIATE
-
-: RESOLVE-LEAVES \ ( here - )
-  BEGIN
-    LEAVE-SP @ @ OVER >
-    LEAVE-SP @ LEAVE-SP >  AND
-  WHILE
-    HERE @ LEAVE-SP @ @ - LEAVE-SP @ @ !
-    1 CELLS NEGATE LEAVE-SP +!
-  REPEAT
-  DROP
-;
-
-: DO
-  ' (DO) ,
-  HERE @ 0
-; IMMEDIATE
-
-: ?DO
-  ' 2DUP ,
-  ' <> ,
-  ' 0BRANCH ,
-  0 ,
-  ' (DO) ,
-  HERE @ 1
-; IMMEDIATE
-
-: RESOLVE-DO
-  \ ( here 0|1 -- here )
-  IF \ ( ?DO )
-    DUP HERE @ - ,
-    DUP 2 CELLS - HERE @ OVER - SWAP !
-  ELSE \ ( DO )
-    DUP HERE @ - ,
-  THEN
-;
-
-: LOOP
-  \ ( here 0|1 -- )
-  ' (LOOP) ,
-  RESOLVE-DO
-  RESOLVE-LEAVES
-; IMMEDIATE
-
-\ : +LOOP
-\   \ ( here 0|1 --)
-\   ' (+LOOP) ,
-\   RESOLVE-DO
-\ ; IMMEDIATE
+: LEAVE IMMEDIATE ' UNLOOP , ' BRANCH , LEAVE-SP @ LEAVE-SP - 31 CELLS > IF ABORT THEN 1 CELLS LEAVE-SP +! HERE @ LEAVE-SP @ ! 0 , ;
+: RESOLVE-DO IF DUP HERE @ - , DUP 2 CELLS - HERE @ OVER - SWAP ! ELSE DUP HERE @ - , THEN ;
+: RESOLVE-LEAVES BEGIN LEAVE-SP @ @ OVER > LEAVE-SP @ LEAVE-SP > AND WHILE HERE @ LEAVE-SP @ @ - LEAVE-SP @ @ ! 1 CELLS NEGATE LEAVE-SP +! REPEAT DROP ;
+: DO IMMEDIATE ' (DO) , HERE @ 0 ;
+: ?DO IMMEDIATE ' 2DUP , ' <> , ' 0BRANCH , 0 , ' (DO) , HERE @ 1 ;
+: LOOP IMMEDIATE ' (LOOP) , RESOLVE-DO RESOLVE-LEAVES ;
+\ : +LOOP IMMEDIATE ' (+LOOP) , RESOLVE-DO RESOLVE-LEAVES ;
 
 
 \	COMMENTS ----------------------------------------------------------------------
@@ -274,24 +62,6 @@ LEAVE-SP LEAVE-SP !
 	DROP		\ drop the depth counter
 ;
 
-(
-	From now on we can use ( ... ) for comments.
-
-	STACK NOTATION ----------------------------------------------------------------------
-
-	In FORTH style we can also use ( ... -- ... ) to show the effects that a word has on the
-	parameter stack.  For example:
-
-	( n -- )	means that the word consumes an integer (n) from the parameter stack.
-	( b a -- c )	means that the word uses two integers (a and b, where a is at the top of stack)
-				and returns a single integer (c).
-	( -- )		means the word has no effect on the stack
-)
-
-: NIP ( x y -- y ) SWAP DROP ;
-
-: TUCK ( x y -- y x y ) SWAP OVER ;
-
 : PICK ( x_n ... x_1 x_0 n -- x_u ... x_1 x_0 x_n )
 	1+		 ( add one because of 'n' on the stack )
   CELLS  ( multiply by the word size )
@@ -299,20 +69,6 @@ LEAVE-SP LEAVE-SP !
 	@      ( and fetch )
 ;
 
-( With the looping constructs, we can now write SPACES, which writes n spaces to stdout. )
-: SPACES	( n -- )
-	BEGIN
-		DUP 0>		( while n > 0 )
-	WHILE
-		SPACE		( print a space )
-		1-		( until we count down to 0 )
-	REPEAT
-	DROP
-;
-
-( Standard words for manipulating BASE. )
-: DECIMAL ( -- ) 10 BASE ! ;
-: HEX ( -- ) 16 BASE ! ;
 
 \ PRINTING NUMBERS ----------------------------------------------------------------------
 
@@ -412,44 +168,8 @@ LEAVE-SP LEAVE-SP !
 \ ? fetches the integer at an address and prints it.
 : ? ( addr -- ) @ . ;
 
-\ c a b WITHIN returns true if a <= c and c < b
-\  or define without ifs: OVER - >R - R>  U<
-: WITHIN
-	-ROT		( b c a )
-	OVER		( b c a c )
-	<= IF
-		> IF		( b c -- )
-			TRUE
-		ELSE
-			FALSE
-		THEN
-	ELSE
-		2DROP		( b c -- )
-		FALSE
-	THEN
-;
-
-\ DEPTH returns the depth of the stack.
-: DEPTH		( -- n )
-	S0 @ DSP@ -
-	2-			( adjust because S0 was on the stack when we pushed DSP )
-;
-
-\	ALIGNED takes an address and rounds it up (aligns it) to the next cell boundary.
-: ALIGNED	( addr -- addr )
-  1 + 1 INVERT AND ( (addr + 1) & ~1 )
-;
-
-\ ALIGN aligns the HERE pointer, so the next word appended will be aligned properly.
-: ALIGN HERE @ ALIGNED HERE ! ;
 
 \ - STRINGS ---------------------------------------------------------------------
-\ C, appends a byte to the current compiled word.
-: C,
-	HERE @ C!	( store the character in the compiled image )
-	1 HERE +!	( increment HERE pointer by 1 byte )
-;
-
 : S" IMMEDIATE		( -- addr len )
 	STATE @ IF	( compiling? )
 		' LITSTRING ,	( compile LITSTRING )
