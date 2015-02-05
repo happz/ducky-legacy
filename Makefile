@@ -13,8 +13,10 @@ all: $(BINARIES)
 
 tests: tests/instructions/interrupts-basic.bin
 	PYTHONPATH=$(CURDIR)/src nosetests -v --all-modules --with-coverage --cover-erase --cover-html --cover-html-dir=$(CURDIR)/coverage --with-xunit --xunit-file=$(CURDIR)/tests/nosetests.xml
+ifdef CIRCLE_TEST_REPORTS
+  cp $(CURDIR)/tests/nosetests.xml $(CIRCLE_TEST_REPORTS)/
+endif
 ifdef CIRCLE_ARTIFACTS
-	cp $(CURDIR)/tests/nosetests.xml $(CIRCLE_ARTIFACTS)/
 	cp -r $(CURDIR)/coverage $(CIRCLE_ARTIFACTS)/
 endif
 
