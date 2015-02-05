@@ -9,6 +9,7 @@ dependencies:
     - pip install tabulate
     - pip install colorama
     - pip install pytty
+    - pip install coverage
 
 test:
   override:
