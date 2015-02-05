@@ -10,6 +10,6 @@ dependencies:
     - pip install colorama
     - pip install pytty
 
-tests:
+test:
   override:
     - make tests
