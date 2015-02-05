@@ -69,10 +69,10 @@ def preprocess_buffer(buff):
 
   buff = r_comment.sub('', buff)
 
-  r_include   = re.compile(r'^\s*\.include\s+"(?P<file>[a-zA-Z0-9_/\.]*)\s*"$', re.MULTILINE)
+  r_include   = re.compile(r'^\s*\.include\s+"(?P<file>[a-zA-Z0-9_\-/\.]+)\s*"$', re.MULTILINE)
 
-  r_var_def   = re.compile(r'^\.def\s+(?P<var_name>[a-zA-Z][a-zA-Z0-9_]*):\s*(?P<var_body>.*?)$', re.MULTILINE)
-  r_macro_def = re.compile(r'^\.macro\s+(?P<macro_name>[a-zA-Z][a-zA-Z0-9_]*)(?:\s+(?P<macro_params>.*?))?:$(?P<macro_body>.*?)^.end$', re.MULTILINE | re.DOTALL)
+  r_var_def   = re.compile(r'^\s*\.def\s+(?P<var_name>[a-zA-Z][a-zA-Z0-9_]*):\s*(?P<var_body>.*?)$', re.MULTILINE)
+  r_macro_def = re.compile(r'^\s*\.macro\s+(?P<macro_name>[a-zA-Z][a-zA-Z0-9_]*)(?:\s+(?P<macro_params>.*?))?:$(?P<macro_body>.*?)^.end$', re.MULTILINE | re.DOTALL)
 
 
   includes = r_include.findall(buff)
@@ -106,7 +106,7 @@ def preprocess_buffer(buff):
 
     debug('variable found: %s', v_name)
 
-    r_remove = re.compile(r'^\.def\s+%s:\s+.*?$' % v_name, re.MULTILINE)
+    r_remove = re.compile(r'^\s*\.def\s+%s:\s+.*?$' % v_name, re.MULTILINE)
     r_replace = re.compile(r'\$%s' % v_name)
 
     v_body = v_body.strip()
@@ -128,7 +128,7 @@ def preprocess_buffer(buff):
 
     params = [p.strip() for p in m_params.strip().split(',')] if m_params else []
 
-    r_remove  = re.compile(r'^.macro\s+%s(?:\s+.*?)?:$.*?^.end$' % m_name, re.MULTILINE | re.DOTALL)
+    r_remove  = re.compile(r'^\s*.macro\s+%s(?:\s+.*?)?:$.*?^.end$' % m_name, re.MULTILINE | re.DOTALL)
     buff = r_remove.sub('', buff)
 
     if params and len(params[0]):
@@ -336,7 +336,7 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False):
     matches = r_ascii.match(line).groupdict()
 
     if 'value' in matches and matches['value']:
-      var.value = matches['value'].replace('\\r', '\r').replace('\\n', '\n')
+      var.value = matches['value'].replace('\\r', '\r').replace('\\n', '\n').replace('\\"', '"')
 
     else:
       assert False, matches
@@ -345,7 +345,7 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False):
     matches = r_string.match(line).groupdict()
 
     if 'value' in matches and matches['value']:
-      var.value = matches['value'].replace('\\r', '\r').replace('\\n', '\n')
+      var.value = matches['value'].replace('\\r', '\r').replace('\\n', '\n').replace('\\"', '"')
 
     else:
       assert False, matches
@@ -410,7 +410,7 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False):
         else:
           raise CompilationError('Unknown variable type: %s' % v_type)
 
-  r_ascii   = re.compile(r'\.ascii\s+"(?P<value>.*?)"')
+  r_ascii   = re.compile(r'^\s*\.ascii\s+"(?P<value>.*?)"\s*$', re.MULTILINE)
   r_byte    = re.compile(r'\.byte\s+(?:(?P<value_hex>-?0x[a-fA-F0-9]+)|(?P<value_dec>(?:0)|(?:-?[1-9][0-9]*))|(?P<value_var>[a-zA-Z][a-zA-Z0-9_]*))')
   r_data    = re.compile(r'\.data\s+(?P<name>\.[a-z][a-z0-9_]*)?')
   r_int     = re.compile(r'\.int\s+(?:(?P<value_hex>-?0x[a-fA-F0-9]+)|(?P<value_dec>0|(?:-?[1-9][0-9]*))|(?P<value_var>[a-zA-Z][a-zA-Z0-9_]*)|(?P<value_label>&[a-zA-Z_][a-zA-Z0-9_]*))')
