@@ -11,7 +11,7 @@
 ; IO ports
 ;
 
-; Console IO ports
+; Console IO
 .def PORT_CONIO_STDIN:  0x100
 .def PORT_CONIO_STDOUT: 0x100
 .def PORT_CONIO_STDERR: 0x101
