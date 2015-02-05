@@ -226,6 +226,10 @@ main:
   ; init RSP
   li $RSP, &rstack_top
 
+  ; init LEAVESP
+  li r0, &__LEAVE_SP
+  stw r0, r0
+
   ; save stack base
   li r0, &var_SZ
   stw r0, sp

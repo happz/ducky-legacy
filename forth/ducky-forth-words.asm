@@ -186,6 +186,16 @@ $DEFCODE "SPACES", 6, 0, SPACES
 
 ; - Loops -------------------------------------------------------------------------------
 
+  .data
+
+  .type __LEAVE_SP, space
+  .space 64
+
+
+$DEFCODE "LEAVE-SP", 8, 0, LEAVE_SP
+  push &__LEAVE_SP
+  $NEXT
+
 
 ; - Stack -------------------------------------------------------------------------------
 
@@ -255,7 +265,6 @@ $DEFWORD "ARRAY", 5, 0, ARRAY
 
 
 ; This is fake - exceptions are not implemented yet
-$DEFWORD "ABORT", 5, 0, ABORT
-  .int &BYE
-  .int &EXIT
+$DEFCODE "ABORT", 5, 0, ABORT
+  call &code_BYE
 
