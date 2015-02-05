@@ -1,0 +1,15 @@
+machine:
+  python:
+    version: 2.7.9
+
+dependencies:
+  pre:
+    - pip install threading2
+    - pip install enum34
+    - pip install tabulate
+    - pip install colorama
+    - pip install pytty
+
+tests:
+  override:
+    - make tests
