@@ -3,6 +3,8 @@ ducky
 
 Simple virtual CPU/machine
 
+[![Circle CI](https://circleci.com/gh/happz/ducky.svg?style=svg)](https://circleci.com/gh/happz/ducky)
+
 - - -
 
 # Features
