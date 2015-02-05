@@ -54,6 +54,13 @@ def assert_mm(state, **cells):
     else:
       assert False, 'Page %i (address %s) not found in memory' % (page_index, mm.ADDR_FMT(addr))
 
+def assert_file_content(filename, cells):
+  with open(filename, 'rb') as f:
+    for cell_offset, cell_value in cells.iteritems():
+      f.seek(cell_offset)
+      real_value = ord(f.read(1))
+      assert real_value == cell_value, 'Value at %s (file %s) should be %s, %s found instead' % (cell_offset, filename, mm.UINT8_FMT(cell_value), mm.UINT8_FMT(real_value))
+
 def run_machine(code, coredump_file = None, mmaps = None, **kwargs):
   M = machine.Machine()
 

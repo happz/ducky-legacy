@@ -7,21 +7,23 @@ import types
 import mm
 
 from mm import ADDR_FMT, segment_addr_to_addr
-from tests import run_machine, assert_registers, assert_flags, assert_mm
+from tests import run_machine, assert_registers, assert_flags, assert_mm, assert_file_content
 
 class Tests(unittest.TestCase):
-  def common_case(self, code, mmaps, **kwargs):
+  def common_case(self, code, mmaps, mm, files, **kwargs):
     if type(code) == types.ListType:
       code = '\n'.join(code)
 
     state = run_machine(code, cpus = 1, cores = 1, irq_routines = 'tests/instructions/interrupts-basic.bin', mmaps = mmaps)
+
     assert_registers(state.core_states[0], **kwargs)
     assert_flags(state.core_states[0], **kwargs)
+    assert_mm(state, **mm)
 
-    if 'mm' in kwargs:
-      assert_mm(state, **kwargs['mm'])
+    for filename, cells in files:
+      assert_file_content(filename, cells)
 
-  def test_read(self):
+  def test_mmap_read(self):
     # size of mmapable file
     mmap_size   = 0x4000
     # message length
@@ -55,8 +57,14 @@ class Tests(unittest.TestCase):
       ADDR_FMT(segment_addr_to_addr(2, 2 + msg_length)): 0xBFBF
     }
 
+    file_assert = [
+      (f_tmp.name, {})
+    ]
+
     for i in range(0, msg_length, 2):
       mm_assert[ADDR_FMT(segment_addr_to_addr(2, 2 + i))] = ord(msg[i]) | (ord(msg[i + 1]) << 8)
+      file_assert[0][1][msg_offset + i] = ord(msg[i])
+      file_assert[0][1][msg_offset + i + 1] = ord(msg[i + 1])
 
     code = """
       .def MMAP_START: {mmap_offset}
@@ -93,5 +101,71 @@ class Tests(unittest.TestCase):
         int 0
     """.format(**{'mmap_offset': mmap_offset, 'msg_offset': msg_offset, 'msg_length': msg_length})
 
-    self.common_case(code, [mmap_desc], r0 = mmap_offset + msg_offset + msg_length, r1 = 2 + msg_length, r3 = ord(msg[-1]), e = 1, z = 1, mm = mm_assert)
+    self.common_case(code, [mmap_desc], mm_assert, file_assert, r0 = mmap_offset + msg_offset + msg_length, r1 = 2 + msg_length, r3 = ord(msg[-1]), e = 1, z = 1)
+
+  def test_mmap_write(self):
+    # size of mmapable file
+    mmap_size   = 0x4000
+    # message length
+    msg_length  = 64
+    # msg starts at this offset
+    msg_offset  = random.randint(0, mmap_size - msg_length)
+    # area will be placed at this address
+    mmap_offset = 0x8000
+
+    # create random message
+    msg = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(msg_length))
+
+    # create file that we later mmap, filled with pseudodata
+    f_tmp = tempfile.NamedTemporaryFile('w+b', delete = False)
+    f_tmp.seek(0)
+    for _ in range(0, mmap_size):
+      f_tmp.write(chr(0xDE))
+
+    f_tmp.close()
+
+    mmap_desc = (f_tmp.name, segment_addr_to_addr(2, mmap_offset), mmap_size, 0, 'w', True)
+
+    mm_assert = {
+    }
+
+    file_assert = [
+      (f_tmp.name, {})
+    ]
+
+    for i in range(0, msg_length, 2):
+      mm_assert[ADDR_FMT(segment_addr_to_addr(2, i))] = ord(msg[i]) | (ord(msg[i + 1]) << 8)
+      file_assert[0][1][msg_offset + i] = ord(msg[i])
+      file_assert[0][1][msg_offset + i + 1] = ord(msg[i + 1])
+
+    code = """
+      .def MMAP_START: {mmap_offset}
+      .def MSG_OFFSET: {msg_offset}
+      .def MSG_LENGTH: {msg_length}
+
+        .data
+        .type buff, ascii
+        .ascii "{msg}"
+
+        .text
+
+      main:
+        li r0, $MMAP_START
+        add r0, $MSG_OFFSET
+        li r1, &buff
+        li r2, $MSG_LENGTH
+      copy_loop:
+        cmp r2, r2
+        bz &quit
+        lb r3, r1
+        stb r0, r3
+        inc r0
+        inc r1
+        dec r2
+        j &copy_loop
+      quit:
+        int 0
+    """.format(**{'mmap_offset': mmap_offset, 'msg_offset': msg_offset, 'msg_length': msg_length, 'msg': msg})
+
+    self.common_case(code, [mmap_desc], mm_assert, file_assert, r0 = mmap_offset + msg_offset + msg_length, r1 = msg_length, r3 = ord(msg[-1]), e = 1, z = 1)
 
