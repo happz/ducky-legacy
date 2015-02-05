@@ -54,7 +54,7 @@ def assert_mm(state, **cells):
     else:
       assert False, 'Page %i (address %s) not found in memory' % (page_index, mm.ADDR_FMT(addr))
 
-def run_machine(code, coredump_file = None, **kwargs):
+def run_machine(code, coredump_file = None, mmaps = None, **kwargs):
   M = machine.Machine()
 
   if not hasattr(util, 'CONSOLE'):
@@ -72,6 +72,10 @@ def run_machine(code, coredump_file = None, **kwargs):
   binary.ip = binary.symbols.get('main', mm.UInt16(0))
 
   M.binaries.append(binary)
+
+  mmaps = mmaps or []
+  for path, addr, size, offset, access, shared in mmaps:
+    M.memory.mmap_area(path, addr, size, offset = offset, access = access, shared = shared)
 
   M.boot()
   M.run()
