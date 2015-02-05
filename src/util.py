@@ -3,7 +3,6 @@ import colorama
 import enum
 import functools
 import sys
-import threading
 import tabulate
 import types
 
