@@ -620,6 +620,8 @@ class MemoryController(object):
     return ptr
 
   def __load_content_u8(self, segment, base, content):
+    from cpu.assemble import SpaceSlot
+
     bsp  = UInt24(segment_addr_to_addr(segment.u8, base.u16))
     sp   = UInt24(bsp.u24)
     size = UInt16(len(content))
@@ -627,8 +629,11 @@ class MemoryController(object):
     debug('mc.__load_content_u8: segment=%s, base=%s, size=%s, sp=%s', segment, base, size, sp)
 
     for i in content:
-      self.write_u8(sp.u24, i.u8, privileged = True)
-      sp.u24 += 1
+      if type(i) == SpaceSlot:
+        sp.u24 += i.size.u16
+      else:
+        self.write_u8(sp.u24, i.u8, privileged = True)
+        sp.u24 += 1
 
   def __load_content_u16(self, segment, base, content):
     bsp  = UInt24(segment_addr_to_addr(segment.u8, base.u16))
