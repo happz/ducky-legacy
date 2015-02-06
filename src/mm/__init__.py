@@ -9,6 +9,19 @@ from util import debug, align
 
 from threading2 import RLock
 
+class DummyLock(object):
+  def acquire(self, *args, **kwargs):
+    pass
+
+  def release(self, *args, **kwargs):
+    pass
+
+  def __enter__(self, *args, **kwargs):
+    return self
+
+  def __exit__(self, *args, **kwargs):
+    pass
+
 MEM_IRQ_TABLE_ADDRESS   = 0x000000
 MEM_INT_TABLE_ADDRESS   = 0x000100
 
@@ -132,7 +145,8 @@ class MemoryPage(object):
     self.base_address = self.index * PAGE_SIZE
     self.segment_address = self.base_address % (SEGMENT_SIZE * PAGE_SIZE)
 
-    self.lock = RLock()
+    #self.lock = RLock()
+    self.lock = DummyLock()
 
     self.read    = False
     self.write   = False
@@ -463,7 +477,8 @@ class MemoryController(object):
     self.mmap_areas = {}
 
     # pages allocation
-    self.lock = RLock()
+    #self.lock = RLock()
+    self.lock = DummyLock()
 
     self.irq_table_address = MEM_IRQ_TABLE_ADDRESS
     self.int_table_address = MEM_INT_TABLE_ADDRESS
