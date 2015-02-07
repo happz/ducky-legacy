@@ -1423,6 +1423,7 @@ $DEFCODE "LITSTRING", 9, 0, LITSTRING
   add $FIP, 2
   push $FIP ; push address
   push $W   ; push size
+  add $FIP, $W
   $align2 $FIP
   $NEXT
 
