@@ -72,9 +72,7 @@ class RegisterSet(object):
   def __init__(self):
     super(RegisterSet, self).__init__()
 
-    self.__map_id   = {}
-    self.__map_name = {}
-    self.__map_list = []
+    self.map = {}
 
     for register_name, register_id in zip(REGISTER_NAMES, Registers):
       if not register_name:
@@ -85,34 +83,5 @@ class RegisterSet(object):
       register = register_class()
 
       setattr(self, register_name, register)
-      self.__map_name[register_name] = register
-      self.__map_id[register_id] = register
-      self.__map_list.append(register)
-
-  def __len__(self):
-    return Registers.REGISTER_COUNT
-
-  def __getitem__(self, reg):
-    if type(reg) in (types.IntType, types.LongType):
-      if reg < 0 or reg >= Registers.REGISTER_COUNT:
-        raise IndexError('Unknown register index: %i' % reg)
-
-      return self.__map_list[reg]
-
-    if type(reg) == types.StringType:
-      if reg not in REGISTER_NAMES:
-        raise IndexError('unknown register name: %s' % reg)
-
-      return self.__map_name[reg]
-
-    if type(reg) == Registers:
-      return self.__map_id[reg]
-
-    raise IndexError('Unknown register id: %s' % str(reg))
-
-  def __setitem__(self, reg, value):
-    self[reg].value = value
-
-  def __iter__(self):
-    return iter([getattr(self, reg) for reg in REGISTER_NAMES])
-
+      self.map[register_name] = register
+      self.map[register_id.value] = register

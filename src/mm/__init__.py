@@ -92,7 +92,7 @@ def segment_base_addr(segment):
   return segment * SEGMENT_SIZE * PAGE_SIZE
 
 def segment_addr_to_addr(segment, addr):
-  return segment_base_addr(segment) + addr
+  return segment * SEGMENT_SIZE * PAGE_SIZE + addr
 
 def addr_to_segment(addr):
   return (addr & 0xFF0000) >> 16

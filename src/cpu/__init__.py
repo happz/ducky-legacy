@@ -46,12 +46,12 @@ def do_log_cpu_core_state(core, logger = None):
 
   for i in range(0, Registers.REGISTER_SPECIAL, 4):
     regs = [(i + j) for j in range(0, 4) if (i + j) < Registers.REGISTER_SPECIAL]
-    s = ['reg%02i=%s' % (reg, core.REG(reg)) for reg in regs]
+    s = ['reg%02i=%s' % (reg, core.registers.map[reg]) for reg in regs]
     logger(' '.join(s))
 
-  logger('cs=%s    ds=%s' % (core.CS(), core.DS()))
-  logger('fp=%s    sp=%s    ip=%s' % (core.FP(), core.SP(), core.IP()))
-  logger('priv=%i, hwint=%i, e=%i, z=%i, o=%i, s=%i' % (core.FLAGS().privileged, core.FLAGS().hwint, core.FLAGS().e, core.FLAGS().z, core.FLAGS().o, core.FLAGS().s))
+  logger('cs=%s    ds=%s' % (core.registers.cs, core.registers.ds))
+  logger('fp=%s    sp=%s    ip=%s' % (core.registers.fp, core.registers.sp, core.registers.ip))
+  logger('priv=%i, hwint=%i, e=%i, z=%i, o=%i, s=%i' % (core.registers.flags.flags.privileged, core.registers.flags.flags.hwint, core.registers.flags.flags.e, core.registers.flags.flags.z, core.registers.flags.flags.o, core.registers.flags.flags.s))
   logger('thread=%s, keep_running=%s, idle=%s, exit=%i' % (core.thread.name if core.thread else '<unknown>', core.keep_running, core.idle, core.exit_code))
 
   if core.current_instruction:
@@ -90,7 +90,7 @@ class InstructionCache(LRUCache):
     self.core = core
 
   def get_object(self, addr):
-    return instructions.decode_instruction(self.core.MEM_IN32(addr))
+    return instructions.decode_instruction(self.core.memory.read_u32(addr))
 
 class AFLAGS_CTX(object):
   def __init__(self, core, reg):
@@ -100,15 +100,15 @@ class AFLAGS_CTX(object):
     self.reg = reg
 
   def __enter__(self):
-    self.core.FLAGS().z = 0
-    self.core.FLAGS().o = 0
-    self.core.FLAGS().s = 0
+    self.core.registers.flags.flags.z = 0
+    self.core.registers.flags.flags.o = 0
+    self.core.registers.flags.flags.s = 0
 
   def __exit__(self, *args, **kwargs):
     self.core.DEBUG('actx_exit: reg=%s' % self.reg)
 
     if self.reg.u16 == 0:
-      self.core.FLAGS().z = 1
+      self.core.registers.flags.flags.z = 1
 
     return False
 
@@ -184,7 +184,7 @@ class CPUCore(object):
         core_state.flags.u16 = self.registers.flags.u16
 
       else:
-        setattr(core_state, reg, self.registers[reg].u16)
+        setattr(core_state, reg, self.registers.map[reg].u16)
 
     core_state.exit_code = self.exit_code
     core_state.idle = 1 if self.idle else 0
@@ -198,7 +198,7 @@ class CPUCore(object):
         self.registers.flags.u16 = core_state.flags.u16
 
       else:
-        self.registers[reg].u16 = getattr(core_state, reg)
+        self.registers.map[reg].u16 = getattr(core_state, reg)
 
     self.exit_code = core_state.exit_code
     self.idle = True if core_state.idle else False
@@ -217,7 +217,7 @@ class CPUCore(object):
     return self.registers.flags.flags
 
   def REG(self, reg):
-    return self.registers[reg]
+    return self.registers.map[reg]
 
   def MEM_IN8(self, addr):
     return self.memory.read_u8(addr)
@@ -253,42 +253,46 @@ class CPUCore(object):
     return self.registers.ds
 
   def CS_ADDR(self, address):
-    return segment_addr_to_addr(self.CS().u16 & 0xFF, address)
+    return segment_addr_to_addr(self.registers.cs.u16 & 0xFF, address)
 
   def DS_ADDR(self, address):
-    return segment_addr_to_addr(self.DS().u16 & 0xFF, address)
+    return segment_addr_to_addr(self.registers.ds.u16 & 0xFF, address)
 
   def fetch_instruction(self):
-    self.DEBUG('fetch_instruction: cs=%s, ip=%s', self.CS(), self.IP())
+    ip = self.registers.ip
 
-    ip = self.IP()
+    self.DEBUG('fetch_instruction: cs=%s, ip=%s', self.registers.cs, ip)
+
     inst = self.instruction_cache[self.CS_ADDR(ip.u16)]
     ip.u16 += 4
+
     return inst
 
   def reset(self, new_ip = 0):
     for reg in registers.RESETABLE_REGISTERS:
       self.REG(reg).u16 = 0
 
-    self.FLAGS().privileged = 0
-    self.FLAGS().hwint = 1
-    self.FLAGS().e = 0
-    self.FLAGS().z = 0
-    self.FLAGS().o = 0
-    self.FLAGS().s = 0
+    self.registers.flags.flags.privileged = 0
+    self.registers.flags.flags.hwint = 1
+    self.registers.flags.flags.e = 0
+    self.registers.flags.flags.z = 0
+    self.registers.flags.flags.o = 0
+    self.registers.flags.flags.s = 0
 
-    self.IP().u16 = new_ip
+    self.registers.ip.u16 = new_ip
 
     self.instruction_cache.clear()
 
   def __symbol_for_ip(self):
-    symbol, offset = self.cpu.machine.get_symbol_by_addr(UInt8(self.CS().u16), self.IP().u16)
+    ip = self.registers.ip
+
+    symbol, offset = self.cpu.machine.get_symbol_by_addr(UInt8(self.registers.cs.u16), ip.u16)
 
     if not symbol:
-      self.WARN('symbol_for_ip: Unknown jump target: %s', self.IP())
+      self.WARN('symbol_for_ip: Unknown jump target: %s', ip)
       return
 
-    self.DEBUG('symbol_for_ip: %s%s (%s)', symbol, ' + %s' % offset.u16 if offset.u16 != 0 else '', self.IP().u16)
+    self.DEBUG('symbol_for_ip: %s%s (%s)', symbol, ' + %s' % offset.u16 if offset.u16 != 0 else '', ip.u16)
 
   def backtrace(self):
     bt = []
@@ -299,51 +303,50 @@ class CPUCore(object):
 
       bt.append((ip, symbol, offset))
 
-    ip = self.IP().u16 - 4
-    symbol, offset = self.cpu.machine.get_symbol_by_addr(UInt8(self.CS().u16), ip)
+    ip = self.registers.ip.u16 - 4
+    symbol, offset = self.cpu.machine.get_symbol_by_addr(UInt8(self.registers.cs.u16), ip)
     bt.append((ip, symbol, offset))
 
     return bt
 
   def __raw_push(self, val):
-    self.SP().u16 -= 2
-    sp = UInt24(self.DS_ADDR(self.SP().u16))
-    self.MEM_OUT16(sp.u24, val.u16)
+    self.registers.sp.u16 -= 2
+    sp = UInt24(self.DS_ADDR(self.registers.sp.u16))
+    self.memory.write_u16(sp.u24, val.u16)
 
   def __raw_pop(self):
-    sp = UInt24(self.DS_ADDR(self.SP().u16))
-    ret = self.MEM_IN16(sp.u24).u16
-    self.SP().u16 += 2
+    sp = UInt24(self.DS_ADDR(self.registers.sp.u16))
+    ret = self.memory.read_u16(sp.u24).u16
+    self.registers.sp.u16 += 2
     return UInt16(ret)
 
   def __push(self, *regs):
     for reg_id in regs:
-      reg = self.REG(reg_id)
+      reg = self.registers.map[reg_id]
 
-      self.DEBUG('__push: %s (%s) at %s', reg_id, reg, UInt16(self.SP().u16 - 2))
-      self.__raw_push(self.REG(reg_id))
+      self.DEBUG('__push: %s (%s) at %s', reg_id, reg, UInt16(self.registers.sp.u16 - 2))
+      self.__raw_push(self.registers.map[reg_id])
 
   def __pop(self, *regs):
     for reg_id in regs:
-      reg = self.REG(reg_id)
+      self.registers.map[reg_id].u16 = self.__raw_pop().u16
 
-      reg.u16 = self.__raw_pop().u16
-      self.DEBUG('__pop: %s (%s) from %s', reg_id, reg, UInt16(self.SP().u16 - 2))
+      self.DEBUG('__pop: %s (%s) from %s', reg_id, self.registers.map[reg_id], UInt16(self.registers.sp.u16 - 2))
 
   def __create_frame(self):
     self.DEBUG('__create_frame')
 
     self.__push(Registers.IP, Registers.FP)
 
-    self.FP().u16 = self.SP().u16
+    self.registers.fp.u16 = self.registers.sp.u16
 
-    self.frames.append(StackFrame(self.CS(), self.DS(), self.FP()))
+    self.frames.append(StackFrame(self.registers.cs, self.registers.ds, self.registers.fp))
 
   def __destroy_frame(self):
     self.DEBUG('__destroy_frame')
 
-    if self.frames[-1].FP.u16 != self.SP().u16:
-      raise CPUException('Leaving frame with wrong SP: IP=%s, saved SP=%s, current SP=%s' % (ADDR_FMT(self.IP().u16), ADDR_FMT(self.frames[-1].FP.u16), ADDR_FMT(self.SP().u16)))
+    if self.frames[-1].FP.u16 != self.registers.sp.u16:
+      raise CPUException('Leaving frame with wrong SP: IP=%s, saved SP=%s, current SP=%s' % (ADDR_FMT(self.registers.ip.u16), ADDR_FMT(self.frames[-1].FP.u16), ADDR_FMT(self.registers.sp.u16)))
 
     self.__pop(Registers.FP, Registers.IP)
 
@@ -358,11 +361,11 @@ class CPUCore(object):
 
     stack_pg, sp = self.memory.alloc_stack(segment = UInt8(iv.ds))
 
-    old_SP = UInt16(self.SP().u16)
-    old_DS = UInt16(self.DS().u16)
+    old_SP = UInt16(self.registers.sp.u16)
+    old_DS = UInt16(self.registers.ds.u16)
 
-    self.DS().u16 = iv.ds
-    self.SP().u16 = sp.u16
+    self.registers.ds.u16 = iv.ds
+    self.registers.sp.u16 = sp.u16
 
     self.__raw_push(old_DS)
     self.__raw_push(old_SP)
@@ -372,8 +375,8 @@ class CPUCore(object):
 
     self.privileged = 1
 
-    self.CS().u16 = iv.cs
-    self.IP().u16 = iv.ip
+    self.registers.cs.u16 = iv.cs
+    self.registers.ip.u16 = iv.ip
 
   def __exit_interrupt(self):
     self.DEBUG('__exit_interrupt')
@@ -382,13 +385,13 @@ class CPUCore(object):
     self.__pop(*[i for i in reversed(range(0, Registers.REGISTER_SPECIAL))])
     self.__pop(Registers.FLAGS, Registers.CS)
 
-    stack_page = self.memory.get_page(mm.addr_to_page(self.DS_ADDR(self.SP().u16)))
+    stack_page = self.memory.get_page(mm.addr_to_page(self.DS_ADDR(self.registers.sp.u16)))
 
     old_SP = self.__raw_pop()
     old_DS = self.__raw_pop()
 
-    self.DS().u16 = old_DS.u16
-    self.SP().u16 = old_SP.u16
+    self.registers.ds.u16 = old_DS.u16
+    self.registers.sp.u16 = old_SP.u16
 
     self.memory.free_page(stack_page)
 
@@ -411,7 +414,7 @@ class CPUCore(object):
     self.DEBUG('__do_irq: %s', index)
 
     self.__enter_interrupt(UInt24(self.memory.irq_table_address), index)
-    self.FLAGS().hwint = 0
+    self.registers.flags.flags.hwint = 0
     self.idle = False
 
     self.DEBUG('__do_irq: CPU state prepared to handle IRQ')
@@ -419,10 +422,10 @@ class CPUCore(object):
 
   # Do it this way to avoid pylint' confusion
   def __get_privileged(self):
-    return self.FLAGS().privileged
+    return self.registers.flags.flags.privileged
 
   def __set_privileged(self, value):
-    self.FLAGS().privileged = value
+    self.registers.flags.flags.privileged = value
 
   privileged = property(__get_privileged, __set_privileged)
 
@@ -442,41 +445,41 @@ class CPUCore(object):
       raise AccessViolationError('Access to port not allowed in unprivileged mode: opcode=%i, port=%u' % (self.current_instruction.opcode, opcode, port))
 
   def RI_VAL(self, inst):
-    return self.REG(inst.ireg).u16 if inst.is_reg == 1 else inst.immediate
+    return self.registers.map[inst.ireg].u16 if inst.is_reg == 1 else inst.immediate
 
   def JUMP(self, inst):
     if inst.is_reg == 1:
-      self.IP().u16 = self.REG(inst.ireg).u16
+      self.registers.ip.u16 = self.registers.map[inst.ireg].u16
     else:
-      self.IP().u16 += inst.immediate
+      self.registers.ip.u16 += inst.immediate
 
     self.__symbol_for_ip()
 
   def CMP(self, x, y):
-    self.FLAGS().e = 0
-    self.FLAGS().z = 0
-    self.FLAGS().o = 0
-    self.FLAGS().s = 0
+    self.registers.flags.flags.e = 0
+    self.registers.flags.flags.z = 0
+    self.registers.flags.flags.o = 0
+    self.registers.flags.flags.s = 0
 
     x = ctypes.cast((ctypes.c_ushort * 1)(x), ctypes.POINTER(ctypes.c_short)).contents
     y = ctypes.cast((ctypes.c_ushort * 1)(y), ctypes.POINTER(ctypes.c_short)).contents
 
     if   x.value == y.value:
-      self.FLAGS().e = 1
+      self.registers.flags.flags.e = 1
 
       if x.value == 0:
-        self.FLAGS().z = 1
+        self.registers.flags.flags.z = 1
 
     elif x.value < y.value:
-      self.FLAGS().s = 1
+      self.registers.flags.flags.s = 1
 
     elif x.value > y.value:
-      self.FLAGS().s = 0
+      self.registers.flags.flags.s = 0
 
   def OFFSET_ADDR(self, inst):
     self.DEBUG('offset addr: ireg=%s, imm=%s', inst.ireg, inst.immediate)
 
-    addr = self.REG(inst.ireg).u16
+    addr = self.registers.map[inst.ireg].u16
     if inst.immediate != 0:
       addr += inst.immediate
 
@@ -492,43 +495,43 @@ class CPUCore(object):
   def inst_LW(self, inst):
     self.__check_protected_reg(inst.reg)
 
-    with AFLAGS_CTX(self, self.REG(inst.reg)):
-      self.REG(inst.reg).u16 = self.MEM_IN16(self.OFFSET_ADDR(inst)).u16
+    with AFLAGS_CTX(self, self.registers.map[inst.reg]):
+      self.registers.map[inst.reg].u16 = self.memory.read_u16(self.OFFSET_ADDR(inst)).u16
 
   def inst_LB(self, inst):
     self.__check_protected_reg(inst.reg)
 
-    with AFLAGS_CTX(self, self.REG(inst.reg)):
-      self.REG(inst.reg).u16 = self.MEM_IN8(self.OFFSET_ADDR(inst)).u8
+    with AFLAGS_CTX(self, self.registers.map[inst.reg]):
+      self.registers.map[inst.reg].u16 = self.memory.read_u8(self.OFFSET_ADDR(inst)).u8
 
   def inst_LI(self, inst):
     self.__check_protected_reg(inst.reg)
 
-    with AFLAGS_CTX(self, self.REG(inst.reg)):
-      self.REG(inst.reg).u16 = inst.immediate
+    with AFLAGS_CTX(self, self.registers.map[inst.reg]):
+      self.registers.map[inst.reg].u16 = inst.immediate
 
   def inst_STW(self, inst):
-    self.MEM_OUT16(self.OFFSET_ADDR(inst), self.REG(inst.reg).u16)
+    self.memory.write_u16(self.OFFSET_ADDR(inst), self.registers.map[inst.reg].u16)
 
   def inst_STB(self, inst):
-    self.MEM_OUT8(self.OFFSET_ADDR(inst), self.REG(inst.reg).u16 & 0xFF)
+    self.memory.write_u8(self.OFFSET_ADDR(inst), self.registers.map[inst.reg].u16 & 0xFF)
 
   def inst_MOV(self, inst):
-    self.REG(inst.reg1).u16 = self.REG(inst.reg2).u16
+    self.registers.map[inst.reg1].u16 = self.registers.map[inst.reg2].u16
 
   def inst_SWP(self, inst):
-    v = UInt16(self.REG(inst.reg1).u16)
-    self.REG(inst.reg1).u16 = self.REG(inst.reg2).u16
-    self.REG(inst.reg2).u16 = v.u16
+    v = UInt16(self.registers.map[inst.reg1].u16)
+    self.registers.map[inst.reg1].u16 = self.registers.map[inst.reg2].u16
+    self.registers.map[inst.reg2].u16 = v.u16
 
   def inst_CAS(self, inst):
-    self.FLAGS().e = 0
+    self.registers.flags.flags.e = 0
 
-    v = self.memory.cas_16(self.DS_ADDR(self.REG(inst.r_addr)), self.REG(inst.r_test), self.REG(inst.r_rep))
+    v = self.memory.cas_16(self.DS_ADDR(self.registers.map[inst.r_addr]), self.registers.map[inst.r_test], self.registers.map[inst.r_rep])
     if v == True:
-      self.FLAGS().e = 1
+      self.registers.flags.flags.e = 1
     else:
-      self.REG(inst.r_test).u16 = v.u16
+      self.registers.map[inst.r_test].u16 = v.u16
 
   def inst_INT(self, inst):
     self.__do_int(self.RI_VAL(inst))
@@ -549,12 +552,12 @@ class CPUCore(object):
   def inst_CLI(self, inst):
     self.__check_protected_ins()
 
-    self.FLAGS().hwint = 0
+    self.registers.flags.flags.hwint = 0
 
   def inst_STI(self, inst):
     self.__check_protected_ins()
 
-    self.FLAGS().hwint = 1
+    self.registers.flags.flags.hwint = 1
 
   def inst_HLT(self, inst):
     #self.__check_protected_ins()
@@ -582,68 +585,68 @@ class CPUCore(object):
   def inst_INC(self, inst):
     self.__check_protected_reg(inst.reg)
 
-    with AFLAGS_CTX(self, self.REG(inst.reg)):
-      self.REG(inst.reg).u16 += 1
+    with AFLAGS_CTX(self, self.registers.map[inst.reg]):
+      self.registers.map[inst.reg].u16 += 1
 
   def inst_DEC(self, inst):
     self.__check_protected_reg(inst.reg)
 
-    with AFLAGS_CTX(self, self.REG(inst.reg)):
-      self.REG(inst.reg).u16 -= 1
+    with AFLAGS_CTX(self, self.registers.map[inst.reg]):
+      self.registers.map[inst.reg].u16 -= 1
 
   def inst_ADD(self, inst):
     self. __check_protected_reg(inst.reg)
 
-    with AFLAGS_CTX(self, self.REG(inst.reg)):
-      if self.REG(inst.reg).u16 + self.RI_VAL(inst) > 0xFFFF:
-        self.FLAGS().o = 1
+    with AFLAGS_CTX(self, self.registers.map[inst.reg]):
+      if self.registers.map[inst.reg].u16 + self.RI_VAL(inst) > 0xFFFF:
+        self.registers.flags.flags.o = 1
 
-      self.REG(inst.reg).u16 += self.RI_VAL(inst)
+      self.registers.map[inst.reg].u16 += self.RI_VAL(inst)
 
   def inst_SUB(self, inst):
     self.__check_protected_reg(inst.reg)
 
-    with AFLAGS_CTX(self, self.REG(inst.reg)):
-      if self.RI_VAL(inst) > self.REG(inst.reg).u16:
-        self.FLAGS().s = 1
+    with AFLAGS_CTX(self, self.registers.map[inst.reg]):
+      if self.RI_VAL(inst) > self.registers.map[inst.reg].u16:
+        self.registers.flags.flags.s = 1
 
-      self.REG(inst.reg).u16 -= self.RI_VAL(inst)
+      self.registers.map[inst.reg].u16 -= self.RI_VAL(inst)
 
   def inst_AND(self, inst):
     self.__check_protected_reg(inst.reg)
 
-    with AFLAGS_CTX(self, self.REG(inst.reg)):
-      self.REG(inst.reg).u16 &= self.RI_VAL(inst)
+    with AFLAGS_CTX(self, self.registers.map[inst.reg]):
+      self.registers.map[inst.reg].u16 &= self.RI_VAL(inst)
 
   def inst_OR(self, inst):
     self.__check_protected_reg(inst.reg)
 
-    with AFLAGS_CTX(self, self.REG(inst.reg)):
-      self.REG(inst.reg).u16 |= self.RI_VAL(inst)
+    with AFLAGS_CTX(self, self.registers.map[inst.reg]):
+      self.registers.map[inst.reg].u16 |= self.RI_VAL(inst)
 
   def inst_XOR(self, inst):
     self.__check_protected_reg(inst.reg)
 
-    with AFLAGS_CTX(self, self.REG(inst.reg)):
-      self.REG(inst.reg).u16 ^= self.RI_VAL(inst)
+    with AFLAGS_CTX(self, self.registers.map[inst.reg]):
+      self.registers.map[inst.reg].u16 ^= self.RI_VAL(inst)
 
   def inst_NOT(self, inst):
     self.__check_protected_reg(inst.reg)
 
-    with AFLAGS_CTX(self, self.REG(inst.reg)):
-      self.REG(inst.reg).u16 = ~self.REG(inst.reg).u16
+    with AFLAGS_CTX(self, self.registers.map[inst.reg]):
+      self.registers.map[inst.reg].u16 = ~self.registers.map[inst.reg].u16
 
   def inst_SHIFTL(self, inst):
     self.__check_protected_reg(inst.reg)
 
-    with AFLAGS_CTX(self, self.REG(inst.reg)):
-      self.REG(inst.reg).u16 <<= self.RI_VAL(inst)
+    with AFLAGS_CTX(self, self.registers.map[inst.reg]):
+      self.registers.map[inst.reg].u16 <<= self.RI_VAL(inst)
 
   def inst_SHIFTR(self, inst):
     self.__check_protected_reg(inst.reg)
 
-    with AFLAGS_CTX(self, self.REG(inst.reg)):
-      self.REG(inst.reg).u16 >>= self.RI_VAL(inst)
+    with AFLAGS_CTX(self, self.registers.map[inst.reg]):
+      self.registers.map[inst.reg].u16 >>= self.RI_VAL(inst)
 
   def inst_IN(self, inst):
     port = UInt16(self.RI_VAL(inst))
@@ -651,7 +654,7 @@ class CPUCore(object):
     self.__check_protected_port(port)
     self.__check_protected_reg(inst.reg)
 
-    self.REG(inst.reg).u16 = self.cpu.machine.ports[port.u16].read_u16(port).u16
+    self.registers.map[inst.reg].u16 = self.cpu.machine.ports[port.u16].read_u16(port).u16
 
   def inst_INB(self, inst):
     port = UInt16(self.RI_VAL(inst))
@@ -659,85 +662,85 @@ class CPUCore(object):
     self.__check_protected_port(port)
     self.__check_protected_reg(inst.reg)
 
-    self.REG(inst.reg).u16 = UInt16(self.cpu.machine.ports[port.u16].read_u8(port).u8).u16
+    self.registers.map[inst.reg].u16 = UInt16(self.cpu.machine.ports[port.u16].read_u8(port).u8).u16
 
   def inst_OUT(self, inst):
     port = UInt16(self.RI_VAL(inst))
 
     self.__check_protected_port(port)
 
-    self.cpu.machine.ports[port.u16].write_u16(port, self.REG(inst.reg))
+    self.cpu.machine.ports[port.u16].write_u16(port, self.registers.map[inst.reg])
 
   def inst_OUTB(self, inst):
     port = UInt16(self.RI_VAL(inst))
 
     self.__check_protected_port(port)
 
-    self.cpu.machine.ports[port.u16].write_u8(port, UInt8(self.REG(inst.reg).u16 & 0xFF))
+    self.cpu.machine.ports[port.u16].write_u8(port, UInt8(self.registers.map[inst.reg].u16 & 0xFF))
 
   def inst_CMP(self, inst):
-    self.CMP(self.REG(inst.reg).u16, self.RI_VAL(inst))
+    self.CMP(self.registers.map[inst.reg].u16, self.RI_VAL(inst))
 
   def inst_J(self, inst):
     self.JUMP(inst)
 
   def inst_BE(self, inst):
-    if self.FLAGS().e == 1:
+    if self.registers.flags.flags.e == 1:
       self.JUMP(inst)
 
   def inst_BNE(self, inst):
-    if self.FLAGS().e == 0:
+    if self.registers.flags.flags.e == 0:
       self.JUMP(inst)
 
   def inst_BZ(self, inst):
-    if self.FLAGS().z == 1:
+    if self.registers.flags.flags.z == 1:
       self.JUMP(inst)
 
   def inst_BNZ(self, inst):
-    if self.FLAGS().z == 0:
+    if self.registers.flags.flags.z == 0:
       self.JUMP(inst)
 
   def inst_BS(self, inst):
-    if self.FLAGS().s == 1:
+    if self.registers.flags.flags.s == 1:
       self.JUMP(inst)
 
   def inst_BNS(self, inst):
-    if self.FLAGS().s == 0:
+    if self.registers.flags.flags.s == 0:
       self.JUMP(inst)
 
   def inst_BG(self, inst):
-    if self.FLAGS().s == 0 and self.FLAGS().e == 0:
+    if self.registers.flags.flags.s == 0 and self.registers.flags.flags.e == 0:
       self.JUMP(inst)
 
   def inst_BL(self, inst):
-    if self.FLAGS().s == 1 and self.FLAGS().e == 0:
+    if self.registers.flags.flags.s == 1 and self.registers.flags.flags.e == 0:
       self.JUMP(inst)
 
   def inst_BGE(self, inst):
-    if self.FLAGS().s == 0 or self.FLAGS().e == 1:
+    if self.registers.flags.flags.s == 0 or self.registers.flags.flags.e == 1:
       self.JUMP(inst)
 
   def inst_BLE(self, inst):
-    if self.FLAGS().s == 1 or self.FLAGS().e == 1:
+    if self.registers.flags.flags.s == 1 or self.registers.flags.flags.e == 1:
       self.JUMP(inst)
 
   def inst_MUL(self, inst):
     self. __check_protected_reg(inst.reg)
 
-    with AFLAGS_CTX(self, self.REG(inst.reg)):
-      self.REG(inst.reg).u16 *= self.RI_VAL(inst)
+    with AFLAGS_CTX(self, self.registers.map[inst.reg]):
+      self.registers.map[inst.reg].u16 *= self.RI_VAL(inst)
 
   def inst_DIV(self, inst):
     self.__check_protected_reg(inst.reg)
 
-    with AFLAGS_CTX(self, self.REG(inst.reg)):
-      self.REG(inst.reg).u16 /= self.RI_VAL(inst)
+    with AFLAGS_CTX(self, self.registers.map[inst.reg]):
+      self.registers.map[inst.reg].u16 /= self.RI_VAL(inst)
 
   def inst_MOD(self, inst):
     self.__check_protected_reg(inst.reg)
 
-    with AFLAGS_CTX(self, self.REG(inst.reg)):
-      self.REG(inst.reg).u16 %= self.RI_VAL(inst)
+    with AFLAGS_CTX(self, self.registers.map[inst.reg]):
+      self.registers.map[inst.reg].u16 %= self.RI_VAL(inst)
 
   def step(self):
     # pylint: disable-msg=R0912,R0914,R0915
@@ -745,7 +748,7 @@ class CPUCore(object):
     # "Too many local variables"
     # "Too many statements"
 
-    saved_IP = UInt16(self.IP().u16)
+    saved_IP = UInt16(self.registers.ip.u16)
 
     self.DEBUG('----- * ----- * ----- * ----- * ----- * ----- * ----- * -----')
 
@@ -907,7 +910,7 @@ class CPUCore(object):
     self.registers.ds.u16 = ds.u8
     self.registers.ip.u16 = ip.u16
     self.registers.sp.u16 = sp.u16
-    self.FLAGS().privileged = 1 if privileged else 0
+    self.registers.flags.flags.privileged = 1 if privileged else 0
 
     log_cpu_core_state(self)
 
@@ -1021,15 +1024,15 @@ def cmd_next(console, cmd):
     return
 
   def __ip_addr(offset = 0):
-    return core.CS_ADDR(core.IP().u16 + offset)
+    return core.CS_ADDR(core.registers.ip.u16 + offset)
 
   try:
-    inst = instructions.decode_instruction(core.MEM_IN32(__ip_addr()))
+    inst = instructions.decode_instruction(core.memory.read_u32(__ip_addr()))
 
     if inst.opcode == Opcodes.CALL:
       from debugging import add_breakpoint
 
-      add_breakpoint(core, core.IP().u16 + 4, ephemeral = True)
+      add_breakpoint(core, core.registers.ip.u16 + 4, ephemeral = True)
 
       core.wake_up()
 
