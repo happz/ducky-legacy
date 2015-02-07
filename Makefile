@@ -17,37 +17,37 @@ FORTH_TESTS_IN  := $(shell find $(CURDIR) -name 'test-*.f')
 FORTH_TESTS_OUT := $(FORTH_TESTS_IN:%.f=%.f.out)
 
 tests-pre:
-	@mkdir -p $(CURDIR)/coverage
-	@mkdir -p $(CURDIR)/profile
-	@rm -f $(shell find $(CURDIR)/coverage -name '.coverage.*')
-	@rm -f $(shell find $(CURDIR)/tests -name '*.xml')
-	@rm -f $(shell find $(CURDIR)/tests/forth -name '*.out' -o -name '*.machine')
-	@rm -rf coverage/*
-	@rm -rf profile/*
+	$(Q)mkdir -p $(CURDIR)/coverage
+	$(Q)mkdir -p $(CURDIR)/profile
+	$(Q)rm -f $(shell find $(CURDIR)/coverage -name '.coverage.*')
+	$(Q)rm -f $(shell find $(CURDIR)/tests -name '*.xml')
+	$(Q)rm -f $(shell find $(CURDIR)/tests/forth -name '*.out' -o -name '*.machine')
+	$(Q)rm -rf coverage/*
+	$(Q)rm -rf profile/*
 
 tests-engine: tests/instructions/interrupts-basic.bin
-	@echo "[TEST] Engine unit tests"
-	-@COVERAGE_FILE="$(CURDIR)/coverage/.coverage.tests-engine" PYTHONPATH=$(CURDIR)/src nosetests -v --all-modules --with-coverage --with-xunit --xunit-file=$(CURDIR)/tests/nosetests.xml &> tests-engine.log
+	$(Q)echo "[TEST] Engine unit tests"
+	-$(Q)COVERAGE_FILE="$(CURDIR)/coverage/.coverage.tests-engine" PYTHONPATH=$(CURDIR)/src nosetests -v --all-modules --with-coverage --with-xunit --xunit-file=$(CURDIR)/tests/nosetests.xml 2>&1 | tee tests-engine.log
 
 tests-forth-units: interrupts.bin $(FORTH_KERNEL) $(FORTH_TESTS_OUT)
 
 tests-forth-asn: interrupts.bin $(FORTH_KERNEL)
-	@echo "[TEST] FORTH ANS testsuite"
-	-@PYTHONUNBUFFERED=yes PYTHONPATH=$(CURDIR)/src tools/vm --machine-config=$(CURDIR)/tests/test-machine.conf --machine-in=forth/ducky-forth.f --machine-in=tests/forth/ans/tester.fr --machine-in=tests/forth/ans/core.fr --machine-out=m.out -g
+	$(Q)echo "[TEST] FORTH ANS testsuite"
+	-$(Q)PYTHONUNBUFFERED=yes PYTHONPATH=$(CURDIR)/src tools/vm --machine-config=$(CURDIR)/tests/test-machine.conf --machine-in=forth/ducky-forth.f --machine-in=tests/forth/ans/tester.fr --machine-in=tests/forth/ans/core.fr --machine-out=m.out -g
 
 tests-post:
 	# merge all coverage reports
-	@cd coverage && coverage combine && cd ..
+	$(Q)cd coverage && coverage combine && cd ..
 	# create html coverage report
-	@COVERAGE_FILE="coverage/.coverage" coverage html -d coverage/
+	$(Q)COVERAGE_FILE="coverage/.coverage" coverage html -d coverage/
 
 tests-submit-results:
 ifdef CIRCLE_TEST_REPORTS
-	@cp $(shell find $(CURDIR)/tests -name '*.xml') $(CIRCLE_TEST_REPORTS)/
+	$(Q)cp $(shell find $(CURDIR)/tests -name '*.xml') $(CIRCLE_TEST_REPORTS)/
 endif
 ifdef CIRCLE_ARTIFACTS
-	@cp -r $(CURDIR)/coverage $(CIRCLE_ARTIFACTS)/
-	@cp -r $(CURDIR)/tests-engine.log
+	$(Q)cp -r $(CURDIR)/coverage $(CIRCLE_ARTIFACTS)/
+	$(Q)cp -r $(CURDIR)/tests-engine.log
 endif
 
 tests: tests-pre tests-engine tests-forth-units tests-post tests-submit-results
@@ -65,18 +65,18 @@ docs:
 	make -C docs html
 
 clean: tests-pre
-	@rm -f $(BINARIES) $(FORTH_TESTS_OUT) $(shell find $(CURDIR) -name '*.f.machine')
+	$(Q)rm -f $(BINARIES) $(FORTH_TESTS_OUT) $(shell find $(CURDIR) -name '*.f.machine')
 
 
 #
 # Wildcard targets
 #
 %.bin: %.asm
-	@echo "[COMPILE] $< => $@"
-	@PYTHONPATH=$(CURDIR)/src tools/as -i $< -o $@ -f
+	$(Q)echo "[COMPILE] $< => $@"
+	$(Q)PYTHONPATH=$(CURDIR)/src tools/as -i $< -o $@ -f
 
 %.f.out: %.f
-	@echo "[TEST] FORTH $(notdir $(<:%.f=%))"
-	-@COVERAGE_FILE="$(CURDIR)/coverage/.coverage.forth-unit.$(notdir $(<:%.f=%))" PYTHONUNBUFFERED=yes PYTHONPATH=$(CURDIR)/src coverage run tools/vm --machine-config=tests/forth/test-machine.conf --machine-in=forth/ducky-forth.f --machine-in=$< --machine-out=$@ -g --no-conio-echo &> $(@:%.f.out=%.f.machine)
-	@$(CURDIR)/tests/xunit-record $(<:%.f=%.f.xml) $(notdir $(<:%.f=%)) $(subst /,.,$<)
+	$(Q)echo "[TEST] FORTH $(notdir $(<:%.f=%))"
+	-$(Q)COVERAGE_FILE="$(CURDIR)/coverage/.coverage.forth-unit.$(notdir $(<:%.f=%))" PYTHONUNBUFFERED=yes PYTHONPATH=$(CURDIR)/src coverage run tools/vm --machine-config=tests/forth/test-machine.conf --machine-in=forth/ducky-forth.f --machine-in=$< --machine-out=$@ -g --no-conio-echo &> $(@:%.f.out=%.f.machine)
+	$(Q)$(CURDIR)/tests/xunit-record $(<:%.f=%.f.xml) $(notdir $(<:%.f=%)) $(subst /,.,$<)
 
