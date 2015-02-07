@@ -197,6 +197,14 @@ $DEFCODE "LEAVE-SP", 8, 0, LEAVE_SP
   $NEXT
 
 
+$DEFCODE "RECURSE", 7, $F_IMMED, RECURSE
+  li r0, &var_LATEST
+  lw r0, r0
+  call &.__TCFA
+  call &.__COMMA
+  $NEXT
+
+
 ; - Stack -------------------------------------------------------------------------------
 
 $DEFWORD "NIP", 3, 0, NIP
