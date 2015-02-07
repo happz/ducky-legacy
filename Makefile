@@ -35,17 +35,17 @@ tests-forth-asn: interrupts.bin $(FORTH_KERNEL)
 
 tests-post:
 	# merge all coverage reports
-	cd coverage && coverage combine && cd ..
+	@cd coverage && coverage combine && cd ..
 	# create html coverage report
-	COVERAGE_FILE="coverage/.coverage" coverage html -d coverage/
+	@COVERAGE_FILE="coverage/.coverage" coverage html -d coverage/
 
 tests-submit-results:
 ifdef CIRCLE_TEST_REPORTS
-  cp $(shell find $(CURDIR)/tests -name '*.xml') $(CIRCLE_TEST_REPORTS)/
+	@cp $(shell find $(CURDIR)/tests -name '*.xml') $(CIRCLE_TEST_REPORTS)/
 endif
 ifdef CIRCLE_ARTIFACTS
-	cp -r $(CURDIR)/coverage $(CIRCLE_ARTIFACTS)/
-	cp -r $(CURDIR)/tests-engine.log
+	@cp -r $(CURDIR)/coverage $(CIRCLE_ARTIFACTS)/
+	@cp -r $(CURDIR)/tests-engine.log
 endif
 
 tests: tests-pre tests-engine tests-forth-units tests-post tests-submit-results
