@@ -14,5 +14,5 @@ dependencies:
 
 test:
   override:
-    - make tests
+    - make tests:
         timeout: 300
