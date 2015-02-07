@@ -10,7 +10,9 @@ dependencies:
     - pip install colorama
     - pip install pytty
     - pip install coverage
+    - pip install xunitgen
 
 test:
   override:
     - make tests
+        timeout: 300
