@@ -17,6 +17,8 @@ FORTH_TESTS_IN  := $(shell find $(CURDIR) -name 'test-*.f')
 FORTH_TESTS_OUT := $(FORTH_TESTS_IN:%.f=%.f.out)
 
 tests-pre:
+	@mkdir -p $(CURDIR)/coverage
+	@mkdir -p $(CURDIR)/profile
 	@rm -f $(shell find $(CURDIR)/coverage -name '.coverage.*')
 	@rm -f $(shell find $(CURDIR)/tests -name '*.xml')
 	@rm -f $(shell find $(CURDIR)/tests/forth -name '*.out' -o -name '*.machine')
