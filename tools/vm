@@ -43,7 +43,7 @@ def main():
   opt_group.add_option('--machine-config',
                        dest = 'machine_config',
                        action = 'store',
-                       default = None
+                       default = None,
                        help = 'Path to machine configuration file')
   opt_group.add_option('--machine-out',
                        dest = 'machine_out',
@@ -57,6 +57,10 @@ def main():
                        default = [],
                        metavar = 'FILE',
                        help = 'Read machine input from FILE')
+  opt_group.add_option('--no-conio-echo',
+                       dest = 'no_conio_echo',
+                       action = 'store_true',
+                       default = False)
 
   # Debug options
   opt_group = optparse.OptionGroup(parser, 'Debug options')
@@ -94,11 +98,13 @@ def main():
     util.CONSOLE.set_logfile(options.logfile)
 
   machine_config = config.MachineConfig()
-  machine_config.load(options.machine_config)
+  machine_config.read(options.machine_config)
 
   M.hw_setup(machine_config,
              machine_in = options.machine_in,
              machine_out = options.machine_out)
+
+  M.conio.echo = not options.no_conio_echo
 
   def signal_handler(sig, frame):
     if sig == signal.SIGUSR1:

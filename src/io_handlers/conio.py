@@ -22,8 +22,12 @@ CR = UInt8(ord('\r'))
 LF = UInt8(ord('\n'))
 
 class ControlMessages(enum.IntEnum):
-  CRLF_ON  = 1024
-  CRLF_OFF = 1025
+  CRLF_ON   = 1024
+  CRLF_OFF  = 1025
+  ECHO_ON   = 1026
+  ECHO_OFF  = 1027
+  FLUSH_ON  = 1028
+  FLUSH_OFF = 1029
 
   CONTROL_MESSAGE_FIRST = 1024
 
@@ -73,13 +77,14 @@ class ConsoleIOHandler(io_handlers.IOHandler):
       self.input = stream
       self.input_fd = self.pttys[0]
       self.queue.put(ControlMessages.CRLF_ON)
-      self.immediate_flush = True
+      self.queue.put(ControlMessages.ECHO_ON)
+      self.queue.put(ControlMessages.FLUSH_ON)
 
     elif type(stream) == types.StringType:
       self.input = open(stream, 'rb')
       self.input_fd = self.input.fileno()
       self.queue.put(ControlMessages.CRLF_OFF)
-      self.immediate_flush = False
+      self.queue.put(ControlMessages.FLUSH_OFF)
 
     else:
       warn('__open_input_stream: Unknown input stream type: %s of type %s', stream, type(stream))
@@ -111,11 +116,17 @@ class ConsoleIOHandler(io_handlers.IOHandler):
     ptty.baud = 115200
     self.input_streams.append(ptty)
 
+    self.queue.put(ControlMessages.ECHO_ON if self.echo else ControlMessages.ECHO_OFF)
+
+    self.queue.put(ControlMessages.FLUSH_OFF)
+
     if self.output_streams:
       self.output = open(self.output_streams, 'wb')
 
     else:
       self.output = pytty.TTY(self.pttys[0])
+      self.queue.put(ControlMessages.ECHO_ON)
+      self.queue.put(ControlMessages.FLUSH_ON)
 
     self.terminal_device = os.ttyname(self.pttys[1])
 
@@ -210,6 +221,12 @@ class ConsoleIOHandler(io_handlers.IOHandler):
 
         elif c == ControlMessages.CRLF_OFF:
           self.crlf = False
+
+        elif c == ControlMessages.ECHO_ON:
+          self.echo = True
+
+        elif c == ControlMessages.ECHO_OFF:
+          self.echo = False
 
         continue
 
