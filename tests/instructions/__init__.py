@@ -5,14 +5,14 @@ import unittest
 from util import str2int
 from mm import addr_to_page, addr_to_offset, buff_to_uint16, ADDR_FMT, UINT8_FMT, UINT16_FMT
 
-from tests import run_machine, assert_registers, assert_flags, assert_mm
+from tests import common_run_machine, assert_registers, assert_flags, assert_mm
 
 class Tests(unittest.TestCase):
   def common_case(self, code, **kwargs):
     if type(code) == types.ListType:
       code = '\n'.join(code)
 
-    state = run_machine(code, cpus = 1, cores = 1, irq_routines = 'tests/instructions/interrupts-basic.bin')
+    state = common_run_machine(code)
     assert_registers(state.core_states[0], **kwargs)
     assert_flags(state.core_states[0], **kwargs)
 

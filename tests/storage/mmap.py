@@ -4,17 +4,23 @@ import string
 import tempfile
 import types
 
+import config
 import mm
 
 from mm import ADDR_FMT, segment_addr_to_addr
-from tests import run_machine, assert_registers, assert_flags, assert_mm, assert_file_content
+from tests import prepare_file, common_run_machine, assert_registers, assert_flags, assert_mm, assert_file_content
 
 class Tests(unittest.TestCase):
   def common_case(self, code, mmaps, mm, files, **kwargs):
     if type(code) == types.ListType:
       code = '\n'.join(code)
 
-    state = run_machine(code, cpus = 1, cores = 1, irq_routines = 'tests/instructions/interrupts-basic.bin', mmaps = mmaps)
+    machine_config = config.MachineConfig()
+
+    for path, addr, size, offset, access, shared in mmaps:
+      machine_config.add_mmap(path, addr, size, offset = offset, access = access, shared = shared)
+
+    state = common_run_machine(code, machine_config = machine_config)
 
     assert_registers(state.core_states[0], **kwargs)
     assert_flags(state.core_states[0], **kwargs)
@@ -37,17 +43,7 @@ class Tests(unittest.TestCase):
     msg = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(msg_length))
 
     # create file that we later mmap, filled with pseudodata
-    f_tmp = tempfile.NamedTemporaryFile('w+b', delete = False)
-    f_tmp.seek(0)
-    for _ in range(0, mmap_size):
-      f_tmp.write(chr(0xDE))
-
-    # write out the message
-    f_tmp.seek(msg_offset)
-    for i in range(0, msg_length):
-      f_tmp.write(msg[i])
-
-    f_tmp.close()
+    f_tmp = prepare_file(mmap_size, messages = [(msg_offset, msg)])
 
     mmap_desc = (f_tmp.name, segment_addr_to_addr(2, mmap_offset), mmap_size, 0, 'r', False)
 
@@ -117,12 +113,7 @@ class Tests(unittest.TestCase):
     msg = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(msg_length))
 
     # create file that we later mmap, filled with pseudodata
-    f_tmp = tempfile.NamedTemporaryFile('w+b', delete = False)
-    f_tmp.seek(0)
-    for _ in range(0, mmap_size):
-      f_tmp.write(chr(0xDE))
-
-    f_tmp.close()
+    f_tmp = prepare_file(mmap_size)
 
     mmap_desc = (f_tmp.name, segment_addr_to_addr(2, mmap_offset), mmap_size, 0, 'w', True)
 

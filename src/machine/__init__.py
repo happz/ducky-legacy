@@ -1,3 +1,4 @@
+import functools
 import os
 import Queue
 import sys
@@ -150,7 +151,7 @@ class Machine(object):
   def get_symbol_by_addr(self, cs, address):
     return self.symbol_cache[segment_addr_to_addr(cs.u8, address)]
 
-  def hw_setup(self, cpus = 1, cores = 1, memory_size = None, binaries = None, breakpoints = None, irq_routines = None, storages = None, mmaps = None, machine_in = None, machine_out = None):
+  def hw_setup(self, machine_config, machine_in = None, machine_out = None):
     def __print_regions(regions):
       table = [
         ['Section', 'Address', 'Size', 'Flags', 'First page', 'Last page']
@@ -161,15 +162,16 @@ class Machine(object):
 
       print_table(table)
 
+    self.config = machine_config
+
     self.profiler = profiler.STORE.get_profiler()
 
-    self.nr_cpus = cpus
-    self.nr_cores = cores
+    self.nr_cpus = self.config.getint('machine', 'cpus')
+    self.nr_cores = self.config.getint('machine', 'cores')
 
     self.symbol_cache = SymbolCache(self, 256)
     self.address_cache = AddressCache(self, 256)
 
-    binaries = binaries or []
     self.binaries = []
 
     self.cpus = []
@@ -186,8 +188,8 @@ class Machine(object):
 
     self.message_bus = bus.MessageBus()
 
-    for cpuid in range(0, cpus):
-      self.cpus.append(cpu.CPU(self, cpuid, cores = cores, memory_controller = self.memory))
+    for cpuid in range(0, self.nr_cpus):
+      self.cpus.append(cpu.CPU(self, cpuid, cores = self.nr_cores, memory_controller = self.memory))
 
     self.conio = io_handlers.conio.ConsoleIOHandler(machine_in, machine_out)
     self.conio.echo = True
@@ -204,15 +206,15 @@ class Machine(object):
     for index, cls in irq.virtual.VIRTUAL_INTERRUPTS.iteritems():
       self.virtual_interrupts[index] = cls(self)
 
-    if irq_routines:
-      binary = Binary(irq_routines, run = False)
+    if self.config.has_option('machine', 'interrupt-routines'):
+      binary = Binary(self.config.get('machine', 'interrupt-routines'), run = False)
       self.binaries.append(binary)
 
       info('Loading IRQ routines from file %s', binary.path)
 
       from mm import UInt8, UInt16, UInt24
 
-      binary.cs, binary.ds, binary.sp, binary.ip, binary.symbols, binary.regions = self.memory.load_file(irq_routines)
+      binary.cs, binary.ds, binary.sp, binary.ip, binary.symbols, binary.regions = self.memory.load_file(binary.path)
 
       desc = cpu.InterruptVector()
       desc.cs = binary.cs.u8
@@ -236,24 +238,15 @@ class Machine(object):
 
       info('')
 
-    for desc in binaries:
-      desc = desc.split(',')
-
-      binary = Binary(desc.pop(0))
+    for binary_section in self.config.iter_binaries():
+      binary = Binary(self.config.get(binary_section, 'file'))
       self.binaries.append(binary)
 
       info('Loading binary from file %s', binary.path)
 
       binary.cs, binary.ds, binary.sp, binary.ip, binary.symbols, binary.regions = self.memory.load_file(binary.path)
 
-      entry_label = 'main'
-
-      if desc:
-        for attr in desc:
-          attr_name, attr_value = attr.split('=')
-          if attr_name == 'entry':
-            entry_label = attr_value
-
+      entry_label = self.config.get(binary_section, 'entry', 'main')
       binary.ip = binary.symbols.get(entry_label)
 
       if not binary.ip:
@@ -264,54 +257,42 @@ class Machine(object):
 
       info('')
 
-    mmaps = mmaps or []
-    for mmap in mmaps:
-      mmap = mmap.split(',')
+    for mmap_section in self.config.iter_mmaps():
+      _get     = functools.partial(self.config.get, mmap_section)
+      _getbool  = functools.partial(self.config.getbool, mmap_section)
+      _getint  = functools.partial(self.config.getint, mmap_section)
 
-      if len(mmap) < 3:
-        error('Memory map area not specified correctly: %s', mmap)
-        continue
-
-      file_path = mmap.pop(0)
-      address = str2int(mmap.pop(0))
-      size = str2int(mmap.pop(0))
-      offset = str2int(mmap.pop(0)) if mmap else 0
-      access = mmap.pop(0) if mmap else 'r'
-      shared = mmap.pop(0).lower() in ['true', 'y', 'yes', '1'] if mmap else False
-
-      self.memory.mmap_area(file_path, address, size, offset = offset, access = access, shared = shared)
+      self.memory.mmap_area(_get('file'),
+                            _getint('address'),
+                            _getint('size'),
+                            offset = _getint('offset', 0),
+                            access = _get('access', 'r'),
+                            shared = _getbool('shared', False))
 
     # Breakpoints
     from debugging import add_breakpoint
 
-    breakpoints = breakpoints or []
-    for bp in breakpoints:
-      bp = bp.split(',')
+    for bp_section in self.config.iter_breakpoints():
+      _get     = functools.partial(self.config.get, bp_section)
+      _getbool = functools.partial(self.config.getbool, bp_section)
+      _getint  = functools.partial(self.config.getint, bp_section)
 
-      core = self.core(bp[0])
+      core = self.core(_get('core', '#0:#0'))
 
-      if bp[1].startswith('0x'):
-        address = int(bp[1], base = 16)
-
-      elif bp[1][0].isdigit():
-        address = int(bp[1])
+      address = _get('address', '0x000000')
+      if address[0].isdigit():
+        address = str2int(address)
 
       else:
-        address = self.get_addr_by_symbol(bp[1])
+        address = self.get_addr_by_symbol(address)
         if address:
           address = address[1].u16
 
       if not address:
-        error('Unknown breakpoint address: %s on %s', bp[1], bp[1])
+        error('Unknown breakpoint address: %s on %s', _get('address', '0x000000'), _get('core', '#0:#0'))
         continue
 
-      bp_params = {}
-      if len(bp) > 2:
-        for property in bp[2:]:
-          name, value = property.split('=')
-          bp_params[name] = value
-
-      p = add_breakpoint(core, address, **bp_params)
+      p = add_breakpoint(core, address, ephemeral = _getbool('ephemeral', False), countdown = _getint('countdown', 0))
 
     # Storage
     from storage import STORAGES, StorageIOHandler
@@ -319,12 +300,15 @@ class Machine(object):
     self.storageio = StorageIOHandler(self)
 
     self.storages = {}
-    storages = storages or []
 
-    for storage_desc in storages:
+    for st_section in self.config.iter_storages():
+      _get     = functools.partial(self.config.get, st_section)
+      _getbool = functools.partial(self.config.getbool, st_section)
+      _getint  = functools.partial(self.config.getint, st_section)
+
       s_type, s_id, s_data = storage_desc.split(',')
 
-      self.storages[s_id] = STORAGES[s_type](self, s_id, s_data)
+      self.storages[_getint('id')] = STORAGES[_get('type')](self, _getint('id'), _get('file'))
 
     self.register_port(0x200, self.storageio)
     self.register_port(0x202, self.storageio)

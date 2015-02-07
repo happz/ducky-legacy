@@ -3,8 +3,10 @@ import patch
 import functools
 import os
 import sys
+import tempfile
 import unittest
 
+import config
 import cpu.assemble
 import cpu.registers
 import console
@@ -12,6 +14,25 @@ import core
 import machine
 import mm
 import util
+
+def prepare_file(size, messages = None, pattern = 0xDE):
+  f_tmp = tempfile.NamedTemporaryFile('w+b', delete = False)
+
+  # fill file with pattern
+  f_tmp.seek(0)
+  for _ in range(0, size):
+    f_tmp.write(chr(pattern))
+
+  messages = messages or []
+
+  # write out messages
+  for offset, msg in messages:
+    f_tmp.seek(offset)
+    f_tmp.write(msg)
+
+  f_tmp.close()
+
+  return f_tmp
 
 def assert_registers(state, **regs):
   for reg in cpu.registers.REGISTER_NAMES:
@@ -61,7 +82,7 @@ def assert_file_content(filename, cells):
       real_value = ord(f.read(1))
       assert real_value == cell_value, 'Value at %s (file %s) should be %s, %s found instead' % (cell_offset, filename, mm.UINT8_FMT(cell_value), mm.UINT8_FMT(real_value))
 
-def run_machine(code, coredump_file = None, mmaps = None, **kwargs):
+def run_machine(code, machine_config, coredump_file = None):
   M = machine.Machine()
 
   if not hasattr(util, 'CONSOLE'):
@@ -70,7 +91,7 @@ def run_machine(code, coredump_file = None, mmaps = None, **kwargs):
 
     util.CONSOLE.set_quiet_mode('VERBOSE' not in os.environ)
 
-  M.hw_setup(**kwargs)
+  M.hw_setup(machine_config)
 
   sections = cpu.assemble.translate_buffer(code)
 
@@ -79,10 +100,6 @@ def run_machine(code, coredump_file = None, mmaps = None, **kwargs):
   binary.ip = binary.symbols.get('main', mm.UInt16(0))
 
   M.binaries.append(binary)
-
-  mmaps = mmaps or []
-  for path, addr, size, offset, access, shared in mmaps:
-    M.memory.mmap_area(path, addr, size, offset = offset, access = access, shared = shared)
 
   M.boot()
   M.run()
@@ -95,5 +112,13 @@ def run_machine(code, coredump_file = None, mmaps = None, **kwargs):
 
   return state
 
-common_machine_run = functools.partial(run_machine, cpus = 1, cores = 1, irq_routines = 'instructions/interrupts-basic.bin')
+def common_run_machine(code, machine_config = None, cpus = 1, cores = 1, irq_routines = 'instructions/interrupts-basic.bin'):
+  if not machine_config:
+    machine_config = config.MachineConfig()
 
+  machine_config.add_section('machine')
+  machine_config.set('machine', 'cpus', cpus)
+  machine_config.set('machine', 'cores', cores)
+  machine_config.set('machine', 'interrupt-routines', 'tests/instructions/interrupts-basic.bin')
+
+  return run_machine(code, machine_config)

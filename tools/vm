@@ -8,6 +8,7 @@ import signal
 import sys
 import time
 
+import config
 import cpu
 import cpu.assemble
 import console
@@ -36,32 +37,14 @@ def main():
                        default = None,
                        help = 'Log file')
 
-  # Machine hardware
+  # Machine configuration
   opt_group = optparse.OptionGroup(parser, 'Machine hardware')
   parser.add_option_group(opt_group)
-  opt_group.add_option('-c', '--cpus',
-                       dest = 'cpus',
+  opt_group.add_option('--machine-config',
+                       dest = 'machine_config',
                        action = 'store',
-                       default = 1,
-                       help = 'Number of CPUs')
-  opt_group.add_option('-t', '--cores',
-                       dest = 'cores',
-                       action = 'store',
-                       default = 1,
-                       help = 'Number of cores per CPU')
-  opt_group.add_option('-s', '--storage',
-                       dest = 'storages',
-                       action = 'append',
-                       default = [],
-                       help = 'Storage device')
-
-  opt_group.add_option('-m', '--mmap',
-                       dest = 'mmaps',
-                       action = 'append',
-                       default = [],
-                       metavar = 'file:address:size[:offset[:access[:shared]]][,...]',
-                       help = 'Map file into memory')
-
+                       default = None
+                       help = 'Path to machine configuration file')
   opt_group.add_option('--machine-out',
                        dest = 'machine_out',
                        action = 'store',
@@ -75,28 +58,9 @@ def main():
                        metavar = 'FILE',
                        help = 'Read machine input from FILE')
 
-  # Binary files
-  opt_group = optparse.OptionGroup(parser, 'Binary files')
-  parser.add_option_group(opt_group)
-  opt_group.add_option('-i', '--irq',
-                       dest = 'irq_routines',
-                       action = 'store',
-                       default = None,
-                       help = 'Bytecode file with IRQ routines')
-  opt_group.add_option('-b', '--binary',
-                       dest = 'binaries',
-                       action = 'append',
-                       default = None,
-                       help = 'Binary file to run')
-
   # Debug options
   opt_group = optparse.OptionGroup(parser, 'Debug options')
   parser.add_option_group(opt_group)
-  opt_group.add_option('-B', '--breakpoint',
-                       dest = 'breakpoints',
-                       action = 'append',
-                       default = [],
-                       help = 'Insert breakpoint at address')
   opt_group.add_option('-d', '--debug',
                        dest = 'debug',
                        action = 'store_true',
@@ -129,13 +93,10 @@ def main():
   if options.logfile:
     util.CONSOLE.set_logfile(options.logfile)
 
-  M.hw_setup(cpus = int(options.cpus),
-             cores = int(options.cores),
-             binaries = options.binaries,
-             storages = options.storages,
-             irq_routines = options.irq_routines,
-             breakpoints = options.breakpoints,
-             mmaps = options.mmaps,
+  machine_config = config.MachineConfig()
+  machine_config.load(options.machine_config)
+
+  M.hw_setup(machine_config,
              machine_in = options.machine_in,
              machine_out = options.machine_out)
 
