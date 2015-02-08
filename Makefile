@@ -47,7 +47,7 @@ ifdef CIRCLE_TEST_REPORTS
 endif
 ifdef CIRCLE_ARTIFACTS
 	$(Q)cp -r $(CURDIR)/coverage $(CIRCLE_ARTIFACTS)/
-	$(Q)cp -r $(CURDIR)/tests-engine.log
+	$(Q)cp -r $(CURDIR)/tests-engine.log $(CIRCLE_ARTIFACTS)/
 endif
 
 tests: tests-pre tests-engine tests-forth-units tests-post tests-submit-results
