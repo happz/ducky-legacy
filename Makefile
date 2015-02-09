@@ -21,9 +21,10 @@ tests-pre:
 	$(Q)mkdir -p $(CURDIR)/profile
 	$(Q)rm -f $(shell find $(CURDIR)/coverage -name '.coverage.*')
 	$(Q)rm -f $(shell find $(CURDIR)/tests -name '*.xml')
-	$(Q)rm -f $(shell find $(CURDIR)/tests/forth -name '*.out' -o -name '*.machine')
+	$(Q)rm -f $(shell find $(CURDIR)/tests/forth -name '*.f.out' -o -name '*.machine')
 	$(Q)rm -rf coverage/*
 	$(Q)rm -rf profile/*
+	$(Q)rm -f tests-engine.log
 
 tests-engine: tests/instructions/interrupts-basic.bin
 	$(Q)echo "[TEST] Engine unit tests"
@@ -33,7 +34,7 @@ tests-forth-units: interrupts.bin $(FORTH_KERNEL) $(FORTH_TESTS_OUT)
 
 tests-forth-asn: interrupts.bin $(FORTH_KERNEL)
 	$(Q)echo "[TEST] FORTH ANS testsuite"
-	-$(Q)PYTHONUNBUFFERED=yes PYTHONPATH=$(CURDIR)/src tools/vm --machine-config=$(CURDIR)/tests/test-machine.conf --machine-in=forth/ducky-forth.f --machine-in=tests/forth/ans/tester.fr --machine-in=tests/forth/ans/core.fr --machine-out=m.out -g
+	-$(Q)PYTHONUNBUFFERED=yes PYTHONPATH=$(CURDIR)/src tools/vm --machine-config=$(CURDIR)/tests/test-machine.conf --machine-in=forth/ducky-forth.f --machine-in=tests/forth/ans/tester.fr --machine-in=tests/forth/ans/core.fr --machine-out=m.out -g --conio-echo=no --conio-console=no
 
 tests-post:
 	# merge all coverage reports
@@ -51,6 +52,10 @@ ifdef CIRCLE_ARTIFACTS
 endif
 
 tests: tests-pre tests-engine tests-forth-units tests-post tests-submit-results
+
+tests-engine-only: tests-pre tests-engine tests-post tests-submit-results
+
+tests-forth-only: tests-pre tests-forth-units tests-post tests-submit-results
 
 
 #
@@ -76,7 +81,14 @@ clean: tests-pre
 	$(Q)PYTHONPATH=$(CURDIR)/src tools/as -i $< -o $@ -f
 
 %.f.out: %.f
-	$(Q)echo "[TEST] FORTH $(notdir $(<:%.f=%))"
-	-$(Q)COVERAGE_FILE="$(CURDIR)/coverage/.coverage.forth-unit.$(notdir $(<:%.f=%))" PYTHONUNBUFFERED=yes PYTHONPATH=$(CURDIR)/src coverage run tools/vm --machine-config=tests/forth/test-machine.conf --machine-in=forth/ducky-forth.f --machine-in=$< --machine-out=$@ -g --no-conio-echo &> $(@:%.f.out=%.f.machine)
-	$(Q)$(CURDIR)/tests/xunit-record $(<:%.f=%.f.xml) $(notdir $(<:%.f=%)) $(subst /,.,$<)
+	$(eval tc_name     := $(notdir $(<:%.f=%)))
+	$(eval tc_coverage := $(CURDIR)/coverage/.coverage.forth-unit.$(tc_name))
+	$(eval tc_machine  := $(<:%.f=%.f.machine))
+	$(eval tc_expected := $(<:%.f=%.f.expected))
+	$(eval tc_xunit    := $(<:%.f=%.f.xml))
+
+	$(Q)echo "[TEST] FORTH $(tc_name)"
+	-$(Q)COVERAGE_FILE="$(tc_coverage)" PYTHONUNBUFFERED=yes PYTHONPATH=$(CURDIR)/src coverage run tools/vm --machine-config=tests/forth/test-machine.conf --machine-in=forth/ducky-forth.f --machine-in=$< --machine-out=$@ -g --conio-echo=no --conio-console=no &> $(tc_machine)
+	-$(Q)diff -u $(tc_expected) $@ &> /dev/null
+	$(Q)$(CURDIR)/tests/xunit-record $(tc_xunit) $(tc_name) $(subst /,.,$<)
 

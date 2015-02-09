@@ -10,5 +10,3 @@ DEPTH . CR
 1 2 3 4 2SWAP . . . . CR
 DEPTH . CR
 
-BYE
-
