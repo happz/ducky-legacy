@@ -19,14 +19,14 @@ VMDEBUGOFF
 
 
 : [COMPILE] IMMEDIATE WORD FIND >CFA , ;
-: IF IMMEDIATE ' 0BRANCH , HERE @ 0 , ;
-: THEN IMMEDIATE DUP HERE @ SWAP - SWAP ! ;
-: ELSE IMMEDIATE ' BRANCH , HERE @ 0 , SWAP DUP HERE @ SWAP - SWAP ! ;
-: BEGIN IMMEDIATE HERE @ ;
-: WHILE IMMEDIATE ' 0BRANCH , HERE @ 0 , ;
+\ : IF IMMEDIATE ' 0BRANCH , HERE @ 0 , ;
+\ : THEN IMMEDIATE DUP HERE @ SWAP - SWAP ! ;
+\ : ELSE IMMEDIATE ' BRANCH , HERE @ 0 , SWAP DUP HERE @ SWAP - SWAP ! ;
+\ : BEGIN IMMEDIATE HERE @ ;
+\ : WHILE IMMEDIATE ' 0BRANCH , HERE @ 0 , ;
 : REPEAT IMMEDIATE ' BRANCH , SWAP HERE @ - , DUP HERE @ SWAP - SWAP ! ;
 \ : RECURSE IMMEDIATE LATEST @ >CFA , ;
-: UNTIL IMMEDIATE ' 0BRANCH ,	HERE @ - , ;
+\ : UNTIL IMMEDIATE ' 0BRANCH ,	HERE @ - , ;
 : AGAIN IMMEDIATE ' BRANCH , HERE @ -	, ;
 : UNLESS IMMEDIATE ' NOT , [COMPILE] IF ;
 
@@ -104,14 +104,7 @@ VMDEBUGOFF
 ;
 
 \ Returns the width (in characters) of an unsigned number in the current base
-: UWIDTH	( u -- width )
-	BASE @ /	( rem quot )
-	?DUP IF		( if quotient <> 0 then )
-		RECURSE 1+	( return 1+recursive call )
-	ELSE
-		1		( return 1 )
-	THEN
-;
+\ : UWIDTH BASE @ /	?DUP IF RECURSE 1+ ELSE 1 THEN ;
 
 \ Prints an unsigned number, padded to a certain width
 : U.R		( u width -- )
@@ -147,10 +140,10 @@ VMDEBUGOFF
 	DUP		( flag width u u )
 	UWIDTH		( flag width u uwidth )
 	ROT		( flag u uwidth width )
-	SWAP -		( flag u width-uwidth )
+  SWAP -    ( flag u width-uwidth )
 
-	SPACES		( flag u )
-	SWAP		( u flag )
+  SPACES    ( flag u )
+  SWAP    ( u flag )
 
 	IF			( was it negative? print the - character )
 		'-' EMIT
@@ -270,18 +263,11 @@ VMDEBUGOFF
 ;
 
 \ 'WORD word FIND ?HIDDEN' returns true if 'word' is flagged as hidden.
-: ?HIDDEN
-  2+    ( skip over the link pointer )
-	C@		( get the flags byte )
-	F_HIDDEN AND	( mask the F_HIDDEN flag and return it (as a truth value) )
-;
+\ : ?HIDDEN 2+ C@ F_HIDDEN AND ;
 
 \ 'WORD word FIND ?IMMEDIATE' returns true if 'word' is flagged as immediate.
-: ?IMMEDIATE
-  2+    ( skip over the link pointer )
-	C@		( get the flags byte )
-	F_IMMED AND	( mask the F_IMMED flag and return it (as a truth value) )
-;
+\ : ?IMMEDIATE 2+ C@ F_IMMED AND ;
+
 
 \ WORDS prints all the words defined in the dictionary, starting with the word defined most recently.
 \ However it doesn't print hidden words.
@@ -299,13 +285,7 @@ VMDEBUGOFF
 	CR
 ;
 
-\ Deletes the definition of 'word' from the dictionary and everything defined
-\ after it, including any variables and other memory allocated after.
-: FORGET
-	WORD FIND	( find the word, gets the dictionary entry address )
-	DUP @ LATEST !	( set LATEST to point to the previous word )
-	HERE !		( and store HERE with the dictionary address )
-;
+\ : FORGET WORD FIND DUP @ LATEST !	HERE ! ;
 
 \ DUMP is used to dump out the contents of memory, in the 'traditional' hexdump format.
 : DUMP		( addr len -- )
@@ -368,7 +348,7 @@ VMDEBUGOFF
 	' OVER ,	( compile OVER )
 	' = ,		( compile = )
 	[COMPILE] IF	( compile IF )
-	' DROP ,  	( compile DROP )
+	' DROP , ( compile DROP )
 ;
 
 : ENDOF IMMEDIATE

@@ -17,6 +17,25 @@
 ; use DEFWORD for them...
 ;
 
+
+;$DEFCODE "(", 1, $F_IMMED, PAREN
+;  li $W, 0 ; depth counter
+;.__PAREN_loop:
+;  call &.__KEY
+;  cmp r0, 0x40
+;  be &.__PAREN_enter
+;  cmp r0, 0x41
+;  be &.__PAREN_exit
+;  j &.__PAREN_loop
+;.__PAREN_enter:
+;  inc $W
+;  j &.__PAREN_loop
+;.__PAREN_exit:
+;  dec $W
+;  bnz &.__PAREN_loop
+;  $NEXT
+
+
 ; - Character constants -----------------------------------------------------------------
 
 $DEFCODE "'\\\\n'", 4, 0, CHAR_NL
@@ -172,8 +191,8 @@ $DEFCODE "SPACES", 6, 0, SPACES
   pop $W
   li r0, 32
 .__SPACES_loop:
-  cmp $W, $W
-  bz &.__SPACES_next
+  cmp $W, 0
+  ble &.__SPACES_next
   call &writec
   dec $W
   j &.__SPACES_loop
@@ -181,7 +200,101 @@ $DEFCODE "SPACES", 6, 0, SPACES
   $NEXT
 
 
+$DEFCODE "FORGET", 6, 0, FORGET
+  call &.__WORD
+  call &.__FIND
+  li $W, &var_LATEST
+  li $X, &var_HERE
+  lw $Y, r0
+  stw $W, $Y
+  stw $X, r0
+  $NEXT
+
+
+$DEFCODE "UWIDTH", 6, 0, UWIDTH
+  ; ( u -- width )
+  ; Returns the width (in characters) of an unsigned number in the current base
+  pop r0
+  call &.__UWIDTH
+  push r0
+  $NEXT
+
+.__UWIDTH:
+  li $W, &var_BASE
+  lw $W, $W
+  mov $X, r0
+  li r0, 1
+.__UWIDTH_loop:
+  div $X, $W
+  bz &.__UWIDTH_quit
+  inc r0
+  j &.__UWIDTH_loop
+.__UWIDTH_quit:
+  ret
+
+
+$DEFCODE "?HIDDEN", 7, 0, ISHIDDEN
+  pop $W
+  add $W, $wr_flags
+  lb $W, $W
+  and $W, $F_HIDDEN
+  bz &.__CMP_false
+  j &.__CMP_true
+
+
+$DEFCODE "?IMMEDIATE", 10, 0, ISIMMEDIATE
+  pop $W
+  add $W, $wr_flags
+  lb $W, $W
+  and $W, $F_IMMED
+  bz &.__CMP_false
+  j &.__CMP_true
+
+
 ; - Conditions --------------------------------------------------------------------------
+
+
+$DEFWORD "IF", 2, $F_IMMED, IF
+  .int &TICK
+  .int &ZBRANCH
+  .int &COMMA
+  .int &HERE
+  .int &FETCH
+  .int &LIT
+  .int 0
+  .int &COMMA
+  .int &EXIT
+
+
+$DEFWORD "ELSE", 4, $F_IMMED, ELSE
+  .int &TICK
+  .int &BRANCH
+  .int &COMMA
+  .int &HERE
+  .int &FETCH
+  .int &LIT
+  .int 0
+  .int &COMMA
+  .int &SWAP
+  .int &DUP
+  .int &HERE
+  .int &FETCH
+  .int &SWAP
+  .int &SUB
+  .int &SWAP
+  .int &STORE
+  .int &EXIT
+
+
+$DEFWORD "THEN", 4, $F_IMMED, THEN
+  .int &DUP
+  .int &HERE
+  .int &FETCH
+  .int &SWAP
+  .int &SUB
+  .int &SWAP
+  .int &STORE
+  .int &EXIT
 
 
 ; - Loops -------------------------------------------------------------------------------
@@ -203,6 +316,37 @@ $DEFCODE "RECURSE", 7, $F_IMMED, RECURSE
   call &.__TCFA
   call &.__COMMA
   $NEXT
+
+
+$DEFCODE "BEGIN", 5, $F_IMMED, BEGIN
+  ; ( -- HERE )
+  li r0, &var_HERE
+  lw r0, r0
+  push r0
+  $NEXT
+
+
+$DEFCODE "WHILE", 5, $F_IMMED, WHILE
+  ; ( -- HERE )
+  li r0, &ZBRANCH
+  call &.__COMMA
+  li r0, &var_HERE
+  lw r0, r0
+  push r0
+  li r0, 0
+  call &.__COMMA
+  $NEXT
+
+
+$DEFWORD "UNTIL", 5, $F_IMMED, UNTIL
+  .int &TICK
+  .int &ZBRANCH
+  .int &COMMA
+  .int &HERE
+  .int &FETCH
+  .int &SUB
+  .int &COMMA
+  .int &EXIT
 
 
 ; - Stack -------------------------------------------------------------------------------

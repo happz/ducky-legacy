@@ -280,6 +280,7 @@ readline:
   ; arrives after inb and before idle? We would be stuck until
   ; the next key arrives (and it'd be Enter, nervously pressed
   ; by programmer while watching machine "doing nothing"
+  idle
   j &.__readline_loop
 
 
@@ -1030,30 +1031,34 @@ $DEFCODE ">=", 2, 0, GE
 
 
 $DEFCODE "0<", 2, 0, ZLT
-  pop $W
-  cmp $W, 0
-  bg &.__CMP_true
-  j &.__CMP_false
-
-
-$DEFCODE "0>", 2, 0, ZGT
+  ; ( n -- flag )
+  ; flag is true if and only if n is less than zero
   pop $W
   cmp $W, 0
   bl &.__CMP_true
   j &.__CMP_false
 
 
+$DEFCODE "0>", 2, 0, ZGT
+  ; ( n -- flag )
+  ; flag is true if and only if n is greater than zero
+  pop $W
+  cmp $W, 0
+  bg &.__CMP_true
+  j &.__CMP_false
+
+
 $DEFCODE "0<=", 3, 0, ZLE
   pop $W
   cmp $W, 0
-  bge &.__CMP_true
+  ble &.__CMP_true
   j &.__CMP_false
 
 
 $DEFCODE "0>=", 3, 0, ZGE
   pop $W
   cmp $W, 0
-  ble &.__CMP_true
+  bge &.__CMP_true
   j &.__CMP_false
 
 $DEFCODE "?DUP", 4, 0, QDUP
@@ -1148,7 +1153,7 @@ $DEFCODE "*", 1, 0, MUL
 
 
 $DEFCODE "/", 1, 0, DIV
-  ; ( a b -- a/b )
+  ; ( a b -- <a / b> )
   pop $W
   pop $X
   div $X, $W
@@ -1157,7 +1162,7 @@ $DEFCODE "/", 1, 0, DIV
 
 
 $DEFCODE "MOD", 1, 0, MOD
-  ; ( a b -- a%b )
+  ; ( a b -- <a % b> )
   pop $W
   pop $X
   mod $X, $W
@@ -1166,14 +1171,14 @@ $DEFCODE "MOD", 1, 0, MOD
 
 
 $DEFCODE "/MOD", 4, 0, DIVMOD
-  ; ( a b -- b/a b%a )
+  ; ( a b -- <a % b> <a / b> )
   pop $W
   pop $X
   mov $Y, $X
-  mov $X, $W
+  mod $X, $W
   div $Y, $W
-  push $Y
   push $X
+  push $Y
   $NEXT
 
 
