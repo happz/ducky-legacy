@@ -28,6 +28,7 @@ class ControlMessages(enum.IntEnum):
   ECHO_OFF  = 1027
   FLUSH_ON  = 1028
   FLUSH_OFF = 1029
+  HALT      = 1030
 
   CONTROL_MESSAGE_FIRST = 1024
 
@@ -36,6 +37,8 @@ class ConsoleIOHandler(io_handlers.IOHandler):
     super(ConsoleIOHandler, self).__init__(*args, **kwargs)
 
     self.is_privileged = True
+
+    self.open_console = True
 
     self.pttys = None
     self.termios_attrs = None
@@ -56,6 +59,7 @@ class ConsoleIOHandler(io_handlers.IOHandler):
     self.queue = Queue.Queue()
 
     self.booted = False
+    self.halt_signaled = False
 
   def get_terminal_dev(self):
     return self.terminal_device
@@ -71,9 +75,18 @@ class ConsoleIOHandler(io_handlers.IOHandler):
       self.input = None
       self.input_fd = None
 
+    # In case input_streams are empty, there is no ptty console,
+    # just halt VM - no other input wil ever come
+    if not self.input_streams:
+      debug('conio.__open_input_stream: no additional input streams, plan halt')
+      self.queue.put(ControlMessages.HALT)
+      return
+
     stream = self.input_streams.pop(0)
 
     if type(stream) == pytty.TTY:
+      debug('conio.__open_input_stream: console attached')
+
       self.input = stream
       self.input_fd = self.pttys[0]
       self.queue.put(ControlMessages.CRLF_ON)
@@ -81,6 +94,8 @@ class ConsoleIOHandler(io_handlers.IOHandler):
       self.queue.put(ControlMessages.FLUSH_ON)
 
     elif type(stream) == types.StringType:
+      debug('conio.__open_input_stream: input file attached')
+
       self.input = open(stream, 'rb')
       self.input_fd = self.input.fileno()
       self.queue.put(ControlMessages.CRLF_OFF)
@@ -95,14 +110,14 @@ class ConsoleIOHandler(io_handlers.IOHandler):
     debug('conio.__open_input_stream: stream=%s, input_fd=%s', self.input, self.input_fd)
 
   def do_flush_output(self):
-    if not self.output or not hasattr(self.output, 'flush'):
+    if not self.output or not hasattr(self.output, 'flush') or (hasattr(self.output, 'closed') and self.output.closed != False):
       return
 
     self.output.flush()
 
   def flush_output(self):
-    if not self.immediate_flush:
-      return
+    #if not self.immediate_flush:
+    #  return
 
     self.do_flush_output()
 
@@ -110,25 +125,29 @@ class ConsoleIOHandler(io_handlers.IOHandler):
     if self.booted:
       return
 
-    self.pttys = pty.openpty()
+    if self.open_console:
+      self.pttys = pty.openpty()
 
-    ptty = pytty.TTY(self.pttys[0])
-    ptty.baud = 115200
-    self.input_streams.append(ptty)
+      ptty = pytty.TTY(self.pttys[0])
+      ptty.baud = 115200
+      self.input_streams.append(ptty)
 
     self.queue.put(ControlMessages.ECHO_ON if self.echo else ControlMessages.ECHO_OFF)
-
     self.queue.put(ControlMessages.FLUSH_OFF)
 
     if self.output_streams:
       self.output = open(self.output_streams, 'wb')
 
     else:
-      self.output = pytty.TTY(self.pttys[0])
-      self.queue.put(ControlMessages.ECHO_ON)
-      self.queue.put(ControlMessages.FLUSH_ON)
+      if not self.open_console:
+        warn('conio: you have no access to VM output')
 
-    self.terminal_device = os.ttyname(self.pttys[1])
+      else:
+        self.output = pytty.TTY(self.pttys[0])
+        self.queue.put(ControlMessages.ECHO_ON)
+        self.queue.put(ControlMessages.FLUSH_ON)
+
+    self.terminal_device = os.ttyname(self.pttys[1]) if self.pttys else '/dev/unknown'
 
     def cmd_conio_pty(console, cmd):
       """
@@ -168,6 +187,11 @@ class ConsoleIOHandler(io_handlers.IOHandler):
     if not self.input_fd:
       self.__open_input_stream()
 
+    debug('conio: input stream=%s', self.input)
+
+    if not self.input_fd:
+      return False
+
     #debug('conio.check_available_input: input_fd=%s' % self.input_fd)
 
     try:
@@ -184,11 +208,14 @@ class ConsoleIOHandler(io_handlers.IOHandler):
     while True:
       if not self.check_available_input():
         debug('conio.read_input: no input available')
-        return
+        return False
 
-      debug('conio.read_input: reading byte from input')
+      debug('conio.read_input: reading available data from input')
 
       try:
+        if not self.input:
+          return False
+
         s = self.input.read()
 
         if type(s) == types.StringType and len(s) == 0:
@@ -202,7 +229,7 @@ class ConsoleIOHandler(io_handlers.IOHandler):
       except IOError, e:
         error('conio.__read_char: %s', e)
 
-      return
+      return True
 
   def __escape_char(self, c):
     return chr(c).replace(chr(10), '\\n').replace(chr(13), '\\r')
@@ -217,16 +244,29 @@ class ConsoleIOHandler(io_handlers.IOHandler):
 
       if type(c) == ControlMessages:
         if c == ControlMessages.CRLF_ON:
+          debug('conio: CRLF on')
           self.crlf = True
 
         elif c == ControlMessages.CRLF_OFF:
+          debug('conio: CRLF off')
           self.crlf = False
 
         elif c == ControlMessages.ECHO_ON:
+          debug('conio: echo on')
           self.echo = True
 
         elif c == ControlMessages.ECHO_OFF:
+          debug('conio: echo off')
           self.echo = False
+
+        elif c == ControlMessages.HALT:
+          debug('conio: planned halt, execute')
+
+          if not self.halt_signaled:
+            self.machine.defer_halt()
+            self.halt_signaled = True
+
+          return None
 
         continue
 

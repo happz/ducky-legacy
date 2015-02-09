@@ -57,10 +57,18 @@ def main():
                        default = [],
                        metavar = 'FILE',
                        help = 'Read machine input from FILE')
-  opt_group.add_option('--no-conio-echo',
-                       dest = 'no_conio_echo',
-                       action = 'store_true',
-                       default = False)
+  opt_group.add_option('--conio-echo',
+                       dest = 'conio_echo',
+                       action = 'store',
+                       type = 'choice',
+                       choices = ['yes', 'no'],
+                       default = 'yes')
+  opt_group.add_option('--conio-console',
+                       dest = 'conio_console',
+                       action = 'store',
+                       type = 'choice',
+                       choices = ['yes', 'no'],
+                       default = 'yes')
 
   # Debug options
   opt_group = optparse.OptionGroup(parser, 'Debug options')
@@ -104,7 +112,8 @@ def main():
              machine_in = options.machine_in,
              machine_out = options.machine_out)
 
-  M.conio.echo = not options.no_conio_echo
+  M.conio.echo = True if options.conio_echo == 'yes' else False
+  M.conio.open_console = True if options.conio_console == 'yes' else False
 
   def signal_handler(sig, frame):
     if sig == signal.SIGUSR1:

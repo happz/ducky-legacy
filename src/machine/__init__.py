@@ -3,6 +3,7 @@ import os
 import Queue
 import sys
 import tabulate
+import threading2
 import time
 import types
 
@@ -191,7 +192,7 @@ class Machine(object):
     for cpuid in range(0, self.nr_cpus):
       self.cpus.append(cpu.CPU(self, cpuid, cores = self.nr_cores, memory_controller = self.memory))
 
-    self.conio = io_handlers.conio.ConsoleIOHandler(machine_in, machine_out)
+    self.conio = io_handlers.conio.ConsoleIOHandler(machine_in, machine_out, self)
     self.conio.echo = True
 
     self.register_port(0x100, self.conio)
@@ -376,6 +377,17 @@ class Machine(object):
     init_states = [binary.get_init_state() for binary in self.binaries if binary.run]
     self.for_each_cpu(lambda __cpu, machine: __cpu.boot(init_states), self)
 
+    table = [
+      ['Thread']
+    ]
+
+    for thread in threading2.enumerate():
+      table.append([thread.name])
+
+    print_table(table)
+
+    info('')
+
     info('Guest terminal available at %s', self.conio.get_terminal_dev())
 
   def run(self):
@@ -410,6 +422,9 @@ class Machine(object):
 
     halt_msg.wait()
 
+    self.on_halt()
+
+  def on_halt(self):
     self.for_each_irq(lambda src: src.halt())
 
     for handler in self.ports:
@@ -420,6 +435,10 @@ class Machine(object):
 
     if not self.thread:
       self.thread = Thread(target = self.loop, name = 'Machine', priority = 0.0)
+
+  def defer_halt(self):
+    thread = Thread(target = self.halt, name = 'Halting thread', priority = 0.0)
+    thread.start()
 
   def wait(self):
     while not self.thread or self.thread.is_alive():

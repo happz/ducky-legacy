@@ -15,10 +15,8 @@ class StorageAccessError(Exception):
   pass
 
 class StorageIOHandler(IOHandler):
-  def __init__(self, machine, *args, **kwargs):
+  def __init__(self, *args, **kwargs):
     super(StorageIOHandler, self).__init__(*args, **kwargs)
-
-    self.machine = machine
 
     self.lock = Lock()
 

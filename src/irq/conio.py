@@ -23,7 +23,8 @@ class Console(irq.IRQSource):
     self.profiler.enable()
 
     while True:
-      self.conio.read_raw_input()
+      if self.conio.read_raw_input() == False:
+        break
 
       self.trigger()
 
