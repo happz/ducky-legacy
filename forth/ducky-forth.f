@@ -388,7 +388,12 @@ VMDEBUGOFF
 \ - WELCOME MESSAGE ---------------------------------------------------------------------
 
 : WELCOME
-	." DuckyFORTH VERSION " VERSION . CR
-		." OK "
+  S" TEST-MODE" FIND NOT IF
+    ." JONESFORTH VERSION " VERSION . CR
+    ." OK " CR
+  THEN
 ;
+
+WELCOME
+HIDE WELCOME
 

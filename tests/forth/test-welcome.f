@@ -3,5 +3,7 @@
   ." OK "
 ;
 
-WELCOME
+: TEST
+  WELCOME
+;
 

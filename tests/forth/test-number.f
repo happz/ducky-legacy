@@ -6,5 +6,3 @@
   [ HEX -7FF7 ] LITERAL 2 BASE ! . CR
 ;
 
-TEST
-
