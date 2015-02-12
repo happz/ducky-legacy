@@ -1,2 +1,4 @@
+VMDEBUGON
+
 TEST
 
