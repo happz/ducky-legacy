@@ -45,6 +45,7 @@ class ConsoleIOHandler(io_handlers.IOHandler):
 
     self.echo = True
     self.crlf = False
+    self.highlight = False
 
     self.input_streams = f_in or []
     self.output_streams = f_out
@@ -283,7 +284,8 @@ class ConsoleIOHandler(io_handlers.IOHandler):
 
     try:
       s = chr(c.u8)
-      #s = WHITE(s) if vm_output else c
+      if self.highlight and vm_output:
+        s = WHITE(s)
 
       self.output.write(s)
       self.flush_output()

@@ -69,6 +69,12 @@ def main():
                        type = 'choice',
                        choices = ['yes', 'no'],
                        default = 'yes')
+  opt_group.add_option('--conio-highlight',
+                       dest = 'conio_highlight',
+                       action = 'store',
+                       type = 'choice',
+                       choices = ['yes', 'no'],
+                       default = 'no')
 
   # Debug options
   opt_group = optparse.OptionGroup(parser, 'Debug options')
@@ -114,6 +120,7 @@ def main():
 
   M.conio.echo = True if options.conio_echo == 'yes' else False
   M.conio.open_console = True if options.conio_console == 'yes' else False
+  M.conio.highlight = True if options.conio_highlight == 'yes' else False
 
   def signal_handler(sig, frame):
     if sig == signal.SIGUSR1:
