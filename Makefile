@@ -61,7 +61,7 @@ ifdef CIRCLE_ARTIFACTS
 	$(Q) cp $(shell find $(CURDIR)/tests -name '*.machine') $(CIRCLE_ARTIFACTS)/
 endif
 
-tests: tests-pre tests-engine tests-forth-units tests-post tests-submit-results
+tests: tests-pre tests-engine tests-forth-units tests-forth-ans tests-post tests-submit-results
 
 tests-engine-only: tests-pre tests-engine tests-post tests-submit-results
 
