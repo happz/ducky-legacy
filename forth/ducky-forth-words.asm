@@ -36,6 +36,14 @@
 ;  $NEXT
 
 
+$DEFCODE "CORE", 4, 0, CORE
+  j &.__CMP_false
+
+
+$DEFCODE "CORE-EXT", 8, 0, COREEXT
+  j &.__CMP_false
+
+
 ; - Character constants -----------------------------------------------------------------
 
 $DEFCODE "'\\\\n'", 4, 0, CHAR_NL
@@ -325,6 +333,15 @@ $DEFWORD "TUCK", 4, 0, TUCK
   .int &EXIT
 
 
+$DEFCODE "2OVER", 5, 0, TWOOVER
+  ; ( a b c d -- a b c d a b )
+  lw $W, sp[4]
+  lw $X, sp[6]
+  push $X
+  push $W
+  $NEXT
+
+
 ; - Strings -----------------------------------------------------------------------------
 
 $DEFCODE "UWIDTH", 6, 0, UWIDTH
@@ -420,6 +437,55 @@ $DEFCODE "2/", 2, 0, TWOSLASH
   ; ( n -- n )
   pop $W
   shiftr $W, 1
+  push $W
+  $NEXT
+
+
+$DEFCODE "U<", 2, 0, ULT
+  ; ( a b -- flag )
+  j &code_LT
+
+
+$DEFCODE "U>", 2, 0, UGT
+  ; ( a b -- flag )
+  j &code_GT
+
+
+$DEFCODE "MAX", 3, 0, MAX
+  ; ( a b -- n )
+  pop $W
+  pop $X
+  cmp $W, $X
+  bg &.__MIN_greater
+  push $X
+  j &.__MIN_next
+.__MIN_greater:
+  push $W
+.__MIN_next:
+  $NEXT
+
+
+$DEFCODE "MIN", 3, 0, MIN
+  ; ( a b -- n )
+  pop $W
+  pop $X
+  cmp $W, $X
+  bl &.__MIN_lower
+  push $X
+  j &.__MIN_next
+.__MIN_lower:
+  push $W
+.__MIN_next:
+  $NEXT
+
+
+$DEFCODE "ABS", 3, 0, ABS
+  ; ( n -- n )
+  pop $W
+  cmp $W, 0
+  bge &.__ABS_next
+  mul $W, -1
+.__ABS_next:
   push $W
   $NEXT
 

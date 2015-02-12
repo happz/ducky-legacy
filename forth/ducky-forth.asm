@@ -1397,6 +1397,13 @@ $DEFCODE "RDROP", 5, 0, RDOP
   $NEXT
 
 
+$DEFCODE "R@", 2, 0, RFETCH
+  ; ( -- x ) ( R:  x -- x )
+  lw $W, $RSP
+  push $W
+  $NEXT
+
+
 ;
 ; Parameter stack
 ;
