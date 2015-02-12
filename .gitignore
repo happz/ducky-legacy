@@ -3,6 +3,12 @@ tmp
 lse
 .noseids
 
+# Test logs
+*.machine
+*.out
+*.xml
+
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
