@@ -145,31 +145,11 @@ $DEFCODE "WITHIN", 6, 0, WITHIN
   j &.__CMP_true
 
 
-$DEFCODE "DEPTH", 5, 0, DEPTH
-  ; ( -- n )
-  li $W, &var_SZ
-  lw $W, $W
-  push sp
-  pop $X
-  sub $W, $X
-  push $W
-  $NEXT
-
-
 $DEFCODE "ALIGNED", 7, 0, ALIGNED
   ; ( addr -- addr )
   pop $W
   $align2 $W
   push $W
-  $NEXT
-
-
-$DEFCODE "ALIGN", 5, 0, ALIGN
-  ; ( -- )
-  li $W, &var_HERE
-  lw $X, $W
-  $align2 $X
-  stw $W, $X
   $NEXT
 
 
@@ -209,28 +189,6 @@ $DEFCODE "FORGET", 6, 0, FORGET
   stw $W, $Y
   stw $X, r0
   $NEXT
-
-
-$DEFCODE "UWIDTH", 6, 0, UWIDTH
-  ; ( u -- width )
-  ; Returns the width (in characters) of an unsigned number in the current base
-  pop r0
-  call &.__UWIDTH
-  push r0
-  $NEXT
-
-.__UWIDTH:
-  li $W, &var_BASE
-  lw $W, $W
-  mov $X, r0
-  li r0, 1
-.__UWIDTH_loop:
-  div $X, $W
-  bz &.__UWIDTH_quit
-  inc r0
-  j &.__UWIDTH_loop
-.__UWIDTH_quit:
-  ret
 
 
 $DEFCODE "?HIDDEN", 7, 0, ISHIDDEN
@@ -299,16 +257,6 @@ $DEFWORD "THEN", 4, $F_IMMED, THEN
 
 ; - Loops -------------------------------------------------------------------------------
 
-  .data
-
-  .type __LEAVE_SP, space
-  .space 64
-
-
-$DEFCODE "LEAVE-SP", 8, 0, LEAVE_SP
-  push &__LEAVE_SP
-  $NEXT
-
 
 $DEFCODE "RECURSE", 7, $F_IMMED, RECURSE
   li r0, &var_LATEST
@@ -351,6 +299,18 @@ $DEFWORD "UNTIL", 5, $F_IMMED, UNTIL
 
 ; - Stack -------------------------------------------------------------------------------
 
+$DEFCODE "DEPTH", 5, 0, DEPTH
+  ; ( -- n )
+  li $W, &var_SZ
+  lw $W, $W
+  push sp
+  pop $X
+  sub $W, $X
+  div $W, $CELL_SIZE
+  push $W
+  $NEXT
+
+
 $DEFWORD "NIP", 3, 0, NIP
   ; ( a b -- b )
   .int &SWAP
@@ -367,6 +327,28 @@ $DEFWORD "TUCK", 4, 0, TUCK
 
 ; - Strings -----------------------------------------------------------------------------
 
+$DEFCODE "UWIDTH", 6, 0, UWIDTH
+  ; ( u -- width )
+  ; Returns the width (in characters) of an unsigned number in the current base
+  pop r0
+  call &.__UWIDTH
+  push r0
+  $NEXT
+
+.__UWIDTH:
+  li $W, &var_BASE
+  lw $W, $W
+  mov $X, r0
+  li r0, 1
+.__UWIDTH_loop:
+  div $X, $W
+  bz &.__UWIDTH_quit
+  inc r0
+  j &.__UWIDTH_loop
+.__UWIDTH_quit:
+  ret
+
+
 $DEFCODE "C,", 2, 0, CSTORE
   li $W, &var_HERE
   lw $X, $W
@@ -382,7 +364,7 @@ $DEFCODE "C,", 2, 0, CSTORE
 $DEFCODE "CELLS", 5, 0, CELLS
   ; ( n -- cell_size*n )
   pop $W
-  mul $W, 2
+  mul $W, $CELL_SIZE
   push $W
   $NEXT
 
@@ -392,28 +374,54 @@ $DEFCODE "ALLOT", 5, 0, ALLOT
   pop $W ; amount
   li $X, &var_HERE
   lw $Y, $X
-  mov $Z, $Y
   add $Y, $W
   stw $X, $Y
-  push $Z
   $NEXT
 
 
-$DEFWORD "ARRAY", 5, 0, ARRAY
-  .int &CELLS
-  .int &ALLOT
-  .int &CREATE
-  .int &LIT
-  .int &DOCOL
-  .int &COMMA
-  .int &LIT
-  .int &LIT
-  .int &COMMA
-  .int &COMMA
-  .int &LIT
-  .int &EXIT
-  .int &COMMA
-  .int &EXIT
+$DEFCODE "ALIGN", 5, 0, ALIGN
+  ; ( -- )
+  li $W, &var_HERE
+  lw $X, $W
+  $align2 $X
+  stw $W, $X
+  $NEXT
+
+
+; - Arithmetics -------------------------------------------------------------------------
+
+$DEFCODE "LSHIFT", 6, 0, LSHIFT
+  ; ( n u -- n )
+  pop $W
+  pop $X
+  shiftl $X, $W
+  push $X
+  $NEXT
+
+
+$DEFCODE "RSHIFT", 6, 0, RSHIFT
+  ; ( n u -- n )
+  pop $W
+  pop $X
+  shiftr $X, $W
+  push $X
+  $NEXT
+
+
+$DEFCODE "2*", 2, 0, TWOSTAR
+  ; ( n -- n )
+  pop $W
+  shiftl $W, 1
+  push $W
+  $NEXT
+
+
+$DEFCODE "2/", 2, 0, TWOSLASH
+  ; ( n -- n )
+  pop $W
+  shiftr $W, 1
+  push $W
+  $NEXT
 
 
 ; This is fake - exceptions are not implemented yet

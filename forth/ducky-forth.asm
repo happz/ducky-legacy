@@ -10,6 +10,9 @@
 
 .def DUCKY_VERSION: 0x0001
 
+; One cell is 16 bits, 2 bytes, this is 16-bit FORTH. I hope it's clear now :)
+.def CELL:               2
+
 ; This is actually 8096 - first two bytes are used by HERE_INIT
 ; needed for HERE inicialization. HERE_INIT's space can be then
 ; reused as userspace
@@ -56,19 +59,22 @@
 
 
 .macro pushrsp reg:
-  sub $RSP, 2
+  sub $RSP, $CELL
   stw $RSP, #reg
 .end
 
 .macro poprsp reg:
   lw #reg, $RSP
-  add $RSP, 2
+  add $RSP, $CELL
 .end
 
 .macro NEXT:
-  lw $W, $FIP
-  add $FIP, 2
-  lw $X, $W
+  ; FIP points to a cell with address of a Code Field,
+  ; and Code Field contains address of routine
+
+  lw $W, $FIP      ; W = address of a Code Field
+  add $FIP, $CELL  ; move FIP to next cell in thread
+  lw $X, $W        ; X = address of routine
   j $X
 .end
 
@@ -213,22 +219,49 @@ writeln:
   ; r0 - ptr
   ; r1 - size
   call &write
-  push r2
-  li r2, 0xA
-  outb $PORT_CONIO_STDOUT, r2
-  li r2, 0xD
-  outb $PORT_CONIO_STDOUT, r2
-  pop r2
+  call &write_new_line
+  ret
+
+
+writesln:
+  ; r0 - ptr
+  call &writes
+  call &write_new_line
+  ret
+
+
+write_new_line:
+  push r0
+  li r0, 0xA
+  outb $PORT_CONIO_STDOUT, r0
+  li r0, 0xD
+  outb $PORT_CONIO_STDOUT, r0
+  pop r0
+  ret
+
+
+write_word_buffer:
+  push r0
+  push r1
+  ; prefix
+  li r0, &buffer_print_prefix
+  call &writes
+  ; word buffer
+  li r0, &word_buffer
+  li r1, &word_buffer_length
+  lw r1, r1
+  call &write
+  ; postfix + new line
+  li r0, &buffer_print_postfix
+  call &writesln
+  pop r1
+  pop r0
   ret
 
 
 main:
   ; init RSP
   li $RSP, &rstack_top
-
-  ; init LEAVESP
-  li r0, &__LEAVE_SP
-  stw r0, r0
 
   ; save stack base
   li r0, &var_SZ
@@ -286,8 +319,31 @@ readline:
 
 DOCOL:
   $pushrsp $FIP
-  add $W, 2
+  add $W, $CELL
   mov $FIP, $W
+  $NEXT
+
+
+DODOES:
+  ; DODES is entered in the very same way as DOCOL:
+  ; X = address of Code Field routine, i.e. DODES
+  ; W = address of Code Field of this word
+  ;
+  ; Therefore:
+  ; *W       = &CF
+  ; *(W + CELL) = address of behavior words
+  ; *(W + 2 * CELL) = address of this word's data
+
+  add $W, $CELL           ; W points to Param Field #0 - behavior cell
+  lw $Z, $W
+  bz &.__DODOES_push
+
+  $pushrsp $FIP
+  mov $FIP, $W
+
+.__DODOES_push:
+  add $W, $CELL           ; W points to Param Field #1 - payload address
+  push $W
   $NEXT
 
 
@@ -454,22 +510,7 @@ $DEFCODE "INTERPRET", 9, 0, INTERPRET
   ; word buffer label
   li r0, &parse_error_word_buffer_prefix
   call &writes
-  ; prefix
-  li r0, &buffer_print_prefix
-  call &writes
-  ; word buffer
-  li r0, &word_buffer
-  li r1, &word_buffer_length
-  lw r1, r1
-  call &write
-  ; postfix
-  li r0, &buffer_print_postfix
-  call &writes
-  ; new line
-  li r0, 0
-  li r1, 0
-  call &writeln
-
+  call &write_word_buffer
   call &halt
 
 .__INTERPRET_next:
@@ -590,6 +631,7 @@ $DEFCODE "WORD", 4, 0, WORD
   stw r2, r1
   pop r2
   li r0, &word_buffer
+  ; call &write_word_buffer
   ret
 .__WORD_skip_comment:
   call &.__KEY
@@ -751,7 +793,7 @@ $DEFCODE "FIND", 4, 0, FIND
 $DEFCODE "'", 1, 0, TICK
   lw $W, $FIP
   push $W
-  add $FIP, 2
+  add $FIP, $CELL
   $NEXT
 
 
@@ -782,13 +824,17 @@ $DEFWORD ">DFA", 4, 0, TDFA
 $DEFCODE "LIT", 3, 0, LIT
   lw $W, $FIP
   push $W
-  add $FIP, 2
+  add $FIP, $CELL
   $NEXT
 
 
-$DEFCODE "CREATE", 6, 0, CREATE
-  call &.__WORD
+$DEFCODE "HEADER,", 7, 0, HEADER_COMMA
+  pop r1 ; length
+  pop r0 ; address
+  call &.__HEADER_COMMA
+  $NEXT
 
+.__HEADER_COMMA:
   ; save working registers
   push r2 ; HERE address
   push r3 ; HERE value
@@ -818,13 +864,13 @@ $DEFCODE "CREATE", 6, 0, CREATE
   $align2 r3
   ; copy word name, using its original length
   mov r6, r1
-.__CREATE_loop:
+.__HEADER_COMMA_loop:
   lb r7, r0
   stb r3, r7
   inc r3
   inc r0
   dec r6
-  bnz &.__CREATE_loop
+  bnz &.__HEADER_COMMA_loop
   ; align HERE - this will "add" padding byte to name automagicaly
   $align2 r3
   ; save vars
@@ -837,7 +883,7 @@ $DEFCODE "CREATE", 6, 0, CREATE
   pop r4
   pop r3
   pop r2
-  $NEXT
+  ret
 
 
 $DEFCODE ",", 1, 0, COMMA
@@ -873,7 +919,8 @@ $DEFCODE "]", 1, 0, RBRAC
 
 
 $DEFWORD ":", 1, 0, COLON
-  .int &CREATE
+  .int &WORD
+  .int &HEADER_COMMA
   .int &LIT
   .int &DOCOL
   .int &COMMA
@@ -927,7 +974,7 @@ $DEFCODE "0BRANCH", 7, 0, ZBRANCH
   pop $W
   cmp $W, $W
   bz &code_BRANCH
-  add $FIP, 2
+  add $FIP, $CELL
   $NEXT
 
 
@@ -1425,7 +1472,7 @@ $DEFCODE "C@", 2, 0, FETCHBYTE
 
 $DEFCODE "LITSTRING", 9, 0, LITSTRING
   lw $W, $FIP
-  add $FIP, 2
+  add $FIP, $CELL
   push $FIP ; push address
   push $W   ; push size
   add $FIP, $W
@@ -1469,7 +1516,7 @@ $DEFCODE "(LOOP)", 6, 0, PAREN_LOOP
   add $FIP, $W
   $NEXT
 .__PAREN_LOOP_next:
-  add $FIP, 2
+  add $FIP, $CELL
   $NEXT
 
 
@@ -1500,6 +1547,7 @@ $DEFCONST "F_IMMED", 7, 0, __F_IMMED, $F_IMMED
 $DEFCONST "F_HIDDEN", 8, 0, __F_HIDDEN, $F_HIDDEN
 $DEFCONST "TRUE", 4, 0, TRUE, 0xFFFF
 $DEFCONST "FALSE", 5, 0, FALSE, 0x0000
+$DEFCONST "DODOES", 6, 0, __DODOES, &DODOES
 
 
 ; Include non-kernel words
