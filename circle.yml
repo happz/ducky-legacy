@@ -10,7 +10,7 @@ dependencies:
     - pip install colorama
     - pip install pytty
     - pip install coverage
-    - pip install xunitgen
+    - pip install beautifulsoup4
 
 test:
   override:
