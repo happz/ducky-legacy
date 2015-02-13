@@ -44,34 +44,6 @@ LEAVE-SP LEAVE-SP !
 \ : +LOOP IMMEDIATE ' (+LOOP) , RESOLVE-DO RESOLVE-LEAVES ;
 
 
-\	COMMENTS ----------------------------------------------------------------------
-\
-\ FORTH allows ( ... ) as comments within function definitions.  This works by having an IMMEDIATE
-\ word called ( which just drops input characters until it hits the corresponding ).
-: ( IMMEDIATE
-	1		\ allowed nested parens by keeping track of depth
-	BEGIN
-		KEY		\ read next character
-		DUP '(' = IF	\ open paren?
-			DROP		\ drop the open paren
-			1+		\ depth increases
-		ELSE
-			')' = IF	\ close paren?
-				1-		\ depth decreases
-			THEN
-		THEN
-	DUP 0= UNTIL		\ continue until we reach matching close paren, depth 0
-	DROP		\ drop the depth counter
-;
-
-: PICK ( x_n ... x_1 x_0 n -- x_u ... x_1 x_0 x_n )
-	1+		 ( add one because of 'n' on the stack )
-  CELLS  ( multiply by the word size )
-	DSP@ + ( add to the stack pointer )
-	@      ( and fetch )
-;
-
-
 \ PRINTING NUMBERS ----------------------------------------------------------------------
 
 \ This is the underlying recursive definition of U.

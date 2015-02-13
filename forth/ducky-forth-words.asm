@@ -18,22 +18,22 @@
 ;
 
 
-;$DEFCODE "(", 1, $F_IMMED, PAREN
-;  li $W, 0 ; depth counter
-;.__PAREN_loop:
-;  call &.__KEY
-;  cmp r0, 0x40
-;  be &.__PAREN_enter
-;  cmp r0, 0x41
-;  be &.__PAREN_exit
-;  j &.__PAREN_loop
-;.__PAREN_enter:
-;  inc $W
-;  j &.__PAREN_loop
-;.__PAREN_exit:
-;  dec $W
-;  bnz &.__PAREN_loop
-;  $NEXT
+$DEFCODE "(", 1, $F_IMMED, PAREN
+  li $W, 1 ; depth counter
+.__PAREN_loop:
+  call &.__KEY
+  cmp r0, 0x28
+  be &.__PAREN_enter
+  cmp r0, 0x29
+  be &.__PAREN_exit
+  j &.__PAREN_loop
+.__PAREN_enter:
+  inc $W
+  j &.__PAREN_loop
+.__PAREN_exit:
+  dec $W
+  bnz &.__PAREN_loop
+  $NEXT
 
 
 $DEFCODE "CORE", 4, 0, CORE
@@ -338,6 +338,18 @@ $DEFCODE "2OVER", 5, 0, TWOOVER
   lw $W, sp[4]
   lw $X, sp[6]
   push $X
+  push $W
+  $NEXT
+
+
+$DEFCODE "PICK", 4, 0, PICK
+  ; ( x_n ... x_1 x_0 n -- x_u ... x_1 x_0 x_n )
+  pop $W
+  push sp
+  pop $X
+  mul $W, $CELL
+  add $X, $W
+  lw $W, $W
   push $W
   $NEXT
 
