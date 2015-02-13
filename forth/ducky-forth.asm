@@ -732,6 +732,7 @@ $DEFCODE "NUMBER", 6, 0, NUMBER
   cmp r2, r2
   bz &.__NUMBER_quit
   not r0
+  inc r0
   j &.__NUMBER_quit
 
 
@@ -1569,93 +1570,3 @@ $DEFCODE "BYE", 3, 0, BYE
   call &writes
 
   call &halt
-
-
-
-;
-; Test stuff
-;
-
-  .section .test_rodata, r
-  .section .test_data, rw
-  .section .test_text, rx
-
-.macro TEST_NUMBER id, label, str, len, ret0, ret1:
-  .section .test_rodata
-
-  .type TEST_label_#id, string
-  .string #label
-
-  .type TEST_buffer_#id, string
-  .string #str
-
-  .section .test_text
-
-.__TEST_NUMBER_#id:
-  li r0, &TEST_buffer_#id
-  li r1, #len
-  call &.__NUMBER
-  cmp r0, #ret0
-  bne &.__TEST_fail_#id
-  cmp r1, #ret1
-  bne &.__TEST_fail_#id
-  j &.__TEST_pass_#id
-.__TEST_fail_#id:
-  li r0, &TEST_label_#id
-  call &test_fail
-.__TEST_pass_#id:
-  nop
-.end
-
-.macro TEST_MSG name, label:
-  .section .test_rodata
-  .type TEST_MSG_#name, string
-  .string #label
-.end
-
-
-  $TEST_MSG EOL, "\\r\\n"
-  $TEST_MSG FAILED, "Test failed: "
-  $TEST_MSG PASSED, "Tests passed"
-
-  $TEST_MSG NUMBER1, "NUMBER"
-  $TEST_MSG SWAP1, "SWAP1"
-
-  .section .test_text
-
-
-test_fail:
-  push r0
-  li r0, &TEST_MSG_FAILED
-  call &writes
-  pop r0
-  call &writes
-  li r0, &TEST_MSG_EOL
-  call &writes
-  call &halt
-
-
-tests_main:
-  nop
-
-  ;
-  ; NUMBER
-  ;
-  $TEST_NUMBER  100, "number-0",     "0",     1,         0, 0
-  $TEST_NUMBER  101, "number-1",     "1",     1,         1, 0
-  $TEST_NUMBER  102, "number-10",    "10",    2,        10, 0
-  $TEST_NUMBER  103, "number-11",    "11",    2,        11, 0
-  $TEST_NUMBER  104, "number-0=",    "0=",    2,         0, 1
-  $TEST_NUMBER  105, "number-759",   "759",   3,       759, 0
-  $TEST_NUMBER  106, "number-16021", "16021", 5,     16021, 0
-  $TEST_NUMBER  107, "number-12",    "12+",   3,        12, 1
-  $TEST_NUMBER  108, "number--1",    "-1",    2,    0xFFFE, 0
-
-  li r0, &TEST_MSG_PASSED
-  call &writes
-  li r0, &TEST_MSG_EOL
-  call &writes
-
-  li r0, 0
-  int 0
-

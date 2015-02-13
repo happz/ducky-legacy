@@ -75,6 +75,12 @@ def main():
                        type = 'choice',
                        choices = ['yes', 'no'],
                        default = 'no')
+  opt_group.add_option('--conio-stdout-echo',
+                       dest = 'conio_stdout_echo',
+                       action = 'store',
+                       type = 'choice',
+                       choices = ['yes', 'no'],
+                       default = 'no')
 
   # Debug options
   opt_group = optparse.OptionGroup(parser, 'Debug options')
@@ -118,6 +124,7 @@ def main():
              machine_in = options.machine_in,
              machine_out = options.machine_out)
 
+  M.conio.stdout_echo = True if options.conio_stdout_echo == 'yes' else False
   M.conio.echo = True if options.conio_echo == 'yes' else False
   M.conio.open_console = True if options.conio_console == 'yes' else False
   M.conio.highlight = True if options.conio_highlight == 'yes' else False

@@ -436,19 +436,32 @@ $DEFCODE "2*", 2, 0, TWOSTAR
 $DEFCODE "2/", 2, 0, TWOSLASH
   ; ( n -- n )
   pop $W
+  mov $X, $W
   shiftr $W, 1
+  and $X, 0x8000
+  bz &.__TWOSLASH_next
+  or $W, 0x8000
+.__TWOSLASH_next:
   push $W
   $NEXT
 
 
 $DEFCODE "U<", 2, 0, ULT
   ; ( a b -- flag )
-  j &code_LT
+  pop $W
+  pop $X
+  cmpu $X, $W
+  bl &.__CMP_true
+  j &.__CMP_false
 
 
 $DEFCODE "U>", 2, 0, UGT
   ; ( a b -- flag )
-  j &code_GT
+  pop $W
+  pop $X
+  cmpu $X, $W
+  bg &.__CMP_true
+  j &.__CMP_false
 
 
 $DEFCODE "MAX", 3, 0, MAX
@@ -488,6 +501,44 @@ $DEFCODE "ABS", 3, 0, ABS
 .__ABS_next:
   push $W
   $NEXT
+
+convert_S2D:
+  ; r0 - single-cell input
+  ; r0, r1 - double-cell output
+  li r1, 0
+  cmp r0, 0
+  bge &.__convert_S2D_quit
+  not r1
+.__convert_S2D_quit:
+  ret
+
+
+$DEFCODE "S>D", 3, 0, STOD
+  ; ( n -- d )
+  pop r0
+  call &convert_S2D
+  push r0
+  push r1
+  $NEXT
+
+
+$DEFCODE "M*", 2, 0, MSTAR
+  ; ( n1 n2 -- d )
+  pop r0 ; n2
+  call &convert_S2D
+  mov $W, r0
+  mov $X, r1
+  pop r0 ; n1
+  call &convert_S2D
+  mull $W, $X, r0, r1
+  push $W
+  push $X
+  $NEXT
+
+
+$DEFCODE "UM*", 3, 0, UMSTAR
+  ; ( u1 u2 -- d )
+  j &code_MSTAR
 
 
 ; This is fake - exceptions are not implemented yet

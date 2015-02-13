@@ -43,6 +43,7 @@ class ConsoleIOHandler(io_handlers.IOHandler):
     self.pttys = None
     self.termios_attrs = None
 
+    self.stdout_echo = False
     self.echo = True
     self.crlf = False
     self.highlight = False
@@ -289,6 +290,10 @@ class ConsoleIOHandler(io_handlers.IOHandler):
 
       self.output.write(s)
       self.flush_output()
+
+      if self.stdout_echo:
+        sys.stdout.write(s)
+        sys.stdout.flush()
 
     except IOError, e:
       error('Exception raised during console write: %s', str(e))

@@ -4,6 +4,7 @@ try:
 except ImportError:
   from profile import Profile as RealProfiler
 
+import os
 import os.path
 import threading2
 
@@ -48,10 +49,12 @@ class ProfilerStore(object):
     if not self.is_enabled():
       return
 
+    filename_pattern = os.path.join(directory, 'profiler-' + str(os.getpid()) + '-%i.dat')
+
     for index, profiler in enumerate(self.profilers):
       profiler.disable()
       profiler.create_stats()
-      profiler.dump_stats(os.path.join(directory, 'profiler-%i.dat' % index))
+      profiler.dump_stats(filename_pattern % index)
 
 STORE = ProfilerStore()
 

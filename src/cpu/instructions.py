@@ -74,6 +74,16 @@ class Opcodes(enum.IntEnum):
   DIV    = 49
   MOD    = 50
 
+  INCL   = 51
+  DECL   = 52
+  ADDL   = 53
+  SUBL   = 54
+  MULL   = 55
+  DIVL   = 56
+  MODL   = 57
+
+  CMPU   = 58
+
 class GenericInstBinaryFormat_Overall(LittleEndianStructure):
   _pack_ = 0
   _fields_ = [
@@ -498,6 +508,34 @@ class InstDescriptor_Generic_Binary_R_R(InstDescriptor):
   def disassemble_operands(self, inst):
     return [REGISTER_NAMES[inst.reg1], REGISTER_NAMES[inst.reg2]]
 
+class InstDescriptor_Generic_Unary_RR(InstDescriptor):
+  operands = 'r,r'
+  binary_format = [BF_REG('reg1'), BF_REG('reg2')]
+
+  def assemble_operands(self, inst, operands):
+    debug('assemble_operands: inst=%s, operands=%s', inst, operands)
+
+    inst.reg1 = operands[0]
+    inst.reg2 = operands[1]
+
+  def disassemble_operands(self, inst):
+    return [REGISTER_NAMES[inst.reg1], REGISTER_NAMES[inst.reg2]]
+
+class InstDescriptor_Generic_Binary_RR_RR(InstDescriptor):
+  operands = 'r,r,r,r'
+  binary_format = [BF_REG('reg1'), BF_REG('reg2'), BF_REG('reg3'), BF_REG('reg4')]
+
+  def assemble_operands(self, inst, operands):
+    debug('assemble_operands: inst=%s, operands=%s', inst, operands)
+
+    inst.reg1 = operands[0]
+    inst.reg2 = operands[1]
+    inst.reg3 = operands[2]
+    inst.reg4 = operands[3]
+
+  def disassemble_operands(self, inst):
+    return [REGISTER_NAMES[inst.reg1], REGISTER_NAMES[inst.reg2], REGISTER_NAMES[inst.reg3], REGISTER_NAMES[inst.reg4]]
+
 
 class Inst_NOP(InstDescriptor_Generic):
   mnemonic = 'nop'
@@ -568,17 +606,34 @@ class Inst_INC(InstDescriptor_Generic_Unary_R):
   mnemonic = 'inc'
   opcode = Opcodes.INC
 
+class Inst_INCL(InstDescriptor_Generic_Unary_RR):
+  mnemonic = 'incl'
+  opcode = Opcodes.INCL
+
 class Inst_DEC(InstDescriptor_Generic_Unary_R):
   mnemonic = 'dec'
   opcode = Opcodes.DEC
+
+class Inst_DECL(InstDescriptor_Generic_Unary_RR):
+  mnemonic = 'decl'
+  opcode = Opcodes.DECL
 
 class Inst_ADD(InstDescriptor_Generic_Binary_R_RI):
   mnemonic = 'add'
   opcode = Opcodes.ADD
 
+class Inst_ADDL(InstDescriptor_Generic_Binary_RR_RR):
+  mnemonic = 'addl'
+  opcode = Opcodes.ADDL
+
 class Inst_SUB(InstDescriptor_Generic_Binary_R_RI):
   mnemonic = 'sub'
   opcode = Opcodes.SUB
+
+class Inst_SUBL(InstDescriptor_Generic_Binary_RR_RR):
+  mnemonic = 'subl'
+  opcode = Opcodes.SUBL
+
 
 #
 # Conditional and unconditional jumps
@@ -586,6 +641,10 @@ class Inst_SUB(InstDescriptor_Generic_Binary_R_RI):
 class Inst_CMP(InstDescriptor_Generic_Binary_R_RI):
   mnemonic = 'cmp'
   opcode = Opcodes.CMP
+
+class Inst_CMPU(InstDescriptor_Generic_Binary_R_RI):
+  mnemonic = 'cmpu'
+  opcode = Opcodes.CMPU
 
 class Inst_J(InstDescriptor_Generic_Unary_RI):
   mnemonic = 'j'
@@ -741,13 +800,25 @@ class Inst_MUL(InstDescriptor_Generic_Binary_R_RI):
   mnemonic = 'mul'
   opcode = Opcodes.MUL
 
+class Inst_MULL(InstDescriptor_Generic_Binary_RR_RR):
+  mnemonic = 'mull'
+  opcode = Opcodes.MULL
+
 class Inst_DIV(InstDescriptor_Generic_Binary_R_RI):
   mnemonic = 'div'
   opcode = Opcodes.DIV
 
+class Inst_DIVL(InstDescriptor_Generic_Binary_RR_RR):
+  mnemonic = 'divl'
+  opcode = Opcodes.DIVL
+
 class Inst_MOD(InstDescriptor_Generic_Binary_R_RI):
   mnemonic = 'mod'
   opcode = Opcodes.MOD
+
+class Inst_MODL(InstDescriptor_Generic_Binary_RR_RR):
+  mnemonic = 'modl'
+  opcode = Opcodes.MODL
 
 INSTRUCTIONS = [
 Inst_NOP(),
@@ -798,6 +869,14 @@ Inst_SWP(),
 Inst_MUL(),
 Inst_DIV(),
 Inst_MOD(),
+Inst_INCL(),
+Inst_DECL(),
+Inst_ADDL(),
+Inst_SUBL(),
+Inst_MULL(),
+Inst_DIVL(),
+Inst_MODL(),
+Inst_CMPU()
 ]
 
 def __create_binary_format_master_class():

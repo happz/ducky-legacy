@@ -30,12 +30,19 @@ ifndef CONIO_HIGHLIGHT
   CONIO_HIGHLIGHT := no
 endif
 
+ifdef PROFILE
+  PROFILE := -p
+else
+  PROFILE :=
+endif
+
 
 tests-pre:
 	$(Q) mkdir -p $(CURDIR)/coverage
 	$(Q) mkdir -p $(CURDIR)/profile
-	$(Q) rm -f $(shell find $(CURDIR)/coverage -name '.coverage.*') $(shell find $(CURDIR)/tests -name '*.xml') $(shell find $(CURDIR)/tests -name '*.out') $(shell find $(CURDIR)/tests -name '*.machine')
+	$(Q) rm -f $(shell find $(CURDIR)/coverage -name '.coverage.*') $(shell find $(CURDIR)/tests -name '*.xml') $(shell find $(CURDIR)/tests -name '*.out') $(shell find $(CURDIR)/tests -name '*.machine') $(shell find $(CURDIR)/tests -name '*.diff')
 	$(Q) rm -rf coverage/* profile/*
+	$(Q) $(CURDIR)/tests/xunit-record --init --file=$(CURDIR)/tests/forth.xml --testsuite=units --testsuite=ans
 
 tests-engine: tests/instructions/interrupts-basic.bin
 	$(Q)  echo "[TEST] Engine unit tests"
@@ -45,7 +52,7 @@ tests-forth-units: interrupts.bin $(FORTH_KERNEL) $(FORTH_TESTS_OUT)
 
 tests-forth-ans: interrupts.bin $(FORTH_KERNEL)
 	$(Q)  echo "[TEST] FORTH ANS testsuite"
-	-$(Q) COVERAGE_FILE="$(CURDIR)/coverage/.coverage.forth-ans" PYTHONPATH=$(CURDIR)/src coverage run tools/vm --machine-config=$(CURDIR)/tests/forth/test-machine.conf --machine-in=tests/forth/enable-test-mode.f --machine-in=forth/ducky-forth.f --machine-in=tests/forth/ans/tester.fr --machine-in=tests/forth/ans/core.fr --machine-out=tests/forth/ans.out -g --conio-echo=$(CONIO_ECHO) --conio-console=no --conio-highlight=$(CONIO_HIGHLIGHT) $(VMDEBUG) &> tests/forth/ans.machine
+	-$(Q) COVERAGE_FILE="$(CURDIR)/coverage/.coverage.forth-ans" PYTHONPATH=$(CURDIR)/src coverage run tools/vm $(PROFILE) --machine-config=$(CURDIR)/tests/forth/test-machine.conf --machine-in=tests/forth/enable-test-mode.f --machine-in=forth/ducky-forth.f --machine-in=tests/forth/ans/tester.fr --machine-in=tests/forth/ans/core.fr --machine-out=tests/forth/ans.out -g --conio-echo=$(CONIO_ECHO) --conio-console=no --conio-highlight=$(CONIO_HIGHLIGHT) --conio-stdout-echo=yes $(VMDEBUG) 2>&1 | stdbuf -oL -eL tee tests/forth/ans.machine | grep -v -e '\[INFO\] ' -e '#> '
 
 tests-post:
 	$(Q) cd coverage && coverage combine && cd ..
@@ -93,13 +100,17 @@ clean: tests-pre
 
 %.f.out: %.f
 	$(eval tc_name     := $(notdir $(<:%.f=%)))
-	$(eval tc_file     := $(subst /,.,$<))
 	$(eval tc_coverage := $(CURDIR)/coverage/.coverage.forth-unit.$(tc_name))
 	$(eval tc_machine  := $(<:%.f=%.f.machine))
 	$(eval tc_expected := $(<:%.f=%.f.expected))
-	$(eval tc_xunit    := $(<:%.f=%.f.xml))
+	$(eval tc_diff     := $(<:%.f=%.f.diff))
 
 	$(Q)  echo "[TEST] FORTH $(tc_name)"
-	-$(Q) COVERAGE_FILE="$(tc_coverage)" PYTHONUNBUFFERED=yes PYTHONPATH=$(CURDIR)/src coverage run tools/vm -g --conio-echo=$(CONIO_ECHO) --conio-highlight=$(CONIO_HIGHLIGHT) --conio-console=no --machine-config=tests/forth/test-machine.conf --machine-in=tests/forth/enable-test-mode.f --machine-in=forth/ducky-forth.f --machine-in=$< --machine-in=tests/forth/run-test-word.f --machine-out=$@ $(VMDEBUG) &> $(tc_machine)
-	-$(Q) diff -u $(tc_expected) $@ &> /dev/null; if [ "$$?" = "0" ]; then $(CURDIR)/tests/xunit-record $(tc_xunit) $(tc_name) $(tc_file); else $(CURDIR)/tests/xunit-record $(tc_xunit) $(tc_name) $(tc_file) 'fail' 'Failed' $(tc_file); fi
+	-$(Q) COVERAGE_FILE="$(tc_coverage)" PYTHONUNBUFFERED=yes PYTHONPATH=$(CURDIR)/src coverage run tools/vm $(PROFILE) -g --conio-echo=$(CONIO_ECHO) --conio-highlight=$(CONIO_HIGHLIGHT) --conio-console=no --machine-config=tests/forth/test-machine.conf --machine-in=tests/forth/enable-test-mode.f --machine-in=forth/ducky-forth.f --machine-in=$< --machine-in=tests/forth/run-test-word.f --machine-out=$@ $(VMDEBUG) &> $(tc_machine)
+	-$(Q) diff -u $(tc_expected) $@ &> $(tc_diff); \
+	      if [ "$$?" = "0" ]; then \
+				  $(CURDIR)/tests/xunit-record --add --file=$(CURDIR)/tests/forth.xml --ts=units --name=$(tc_name) --classname=$<; \
+				else \
+				  $(CURDIR)/tests/xunit-record --add --file=$(CURDIR)/tests/forth.xml --ts=units --name=$(tc_name) --classname=$< --result=fail; \
+				fi
 
