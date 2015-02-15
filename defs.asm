@@ -5,6 +5,24 @@
 .def INT_BLOCKIO: 1
 .def INT_VMDEBUG: 2
 .def INT_CONIO:   3
+.def INT_MM:      4
+.def INT_MATH:    5
+
+;
+; Math Coprocessor Operations
+;
+.def MATH_LTOII:  9
+.def MATH_INCL:   0
+.def MATH_DECL:   1
+.def MATH_ADDL:   2
+.def MATH_SUBL:   3
+.def MATH_MULL:   4
+.def MATH_DIVL:   5
+.def MATH_MODL:   6
+.def MATH_ITOL:   7
+.def MATH_LTOI:   8
+.def MATH_IITOL: 10
+.def MATH_DUPL:  11
 
 
 ;

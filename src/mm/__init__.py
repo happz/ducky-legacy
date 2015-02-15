@@ -107,6 +107,8 @@ def area_to_pages(addr, size):
   return (addr_to_page(addr), align(PAGE_SIZE, size) / PAGE_SIZE)
 
 def buff_to_uint16(buff, offset):
+  debug('buff_to_uint16: offset=%s, u1=%s, u2=%s', offset, buff[offset], buff[offset + 1])
+
   return UInt16(buff[offset] | buff[offset + 1] << 8)
 
 def buff_to_uint32(buff, offset):
@@ -524,6 +526,39 @@ class MemoryController(object):
     self.__pages[index] = AnonymousMemoryPage(self, index)
     return self.__pages[index]
 
+  def alloc_specific_page(self, index):
+    debug('mc.alloc_specific_page: index=%s', index)
+
+    with self.lock:
+      if index in self.__pages:
+        return None
+
+      return self.__alloc_page(index)
+
+  def alloc_pages(self, segment = None, count = 1):
+    debug('mc.alloc_pages: segment=%s, count=%s', segment if segment else '', count)
+
+    if segment:
+      pages_start = segment.u8 * SEGMENT_SIZE
+      pages_cnt = SEGMENT_SIZE
+    else:
+      pages_start = 0
+      pages_cnt = self.__pages_cnt
+
+    debug('mc.alloc_pages: page=%s, cnt=%s', pages_start, pages_cnt)
+
+    with self.lock:
+      for i in xrange(pages_start, pages_start + pages_cnt):
+        for j in xrange(i, i + count):
+          if j in self.__pages:
+            break
+
+        else:
+          return [self.__alloc_page(j, None) for j in xrange(i, i + count)]
+
+      else:
+        return None
+
   def alloc_page(self, segment = None):
     debug('mc.alloc_page: segment=%s', segment if segment else '')
 
@@ -557,6 +592,12 @@ class MemoryController(object):
 
     with self.lock:
       del self.__pages[page.index]
+
+  def free_pages(self, page, count = 1):
+    debug('mc.free_pages: page=%i, base=%s, segment=%s, count=%s', page.index, page.base_address, page.segment_address, count)
+
+    for i in range(page.index, page.index + count):
+      self.free_page(self.__pages[i])
 
   def for_each_page(self, pages_start, pages_cnt, fn):
     debug('mc.for_each_page: pages_start=%i, pages_cnt=%i, fn=%s', pages_start, pages_cnt, fn)
@@ -600,24 +641,6 @@ class MemoryController(object):
     debug('mc.reset_pages_flags: page=%s, size=%s', pages_start, pages_cnt)
 
     self.for_each_page(pages_start, pages_cnt, lambda page_index, area_index: self.get_page(page_index).flags_reset())
-
-  def __load_content_mmap(self, segment, fileno, offset, size, flags):
-    mmap_prot = 0
-    if flags.readable == 1:
-      mmap_prot |= mmap.PROT_READ
-    if flags.writable == 1:
-      mmap_prot |= mmap.PROT_WRITE
-
-    debug('mc.__load_content_mmap: fileno=%s, size=%s, flags=%s, offset=%s', fileno, size, flags, offset)
-
-    ptr = mmap.mmap(
-      fileno,
-      size,
-      mmap.MAP_PRIVATE,
-      mmap_prot,
-      offset = offset)
-
-    return ptr
 
   def __load_content_u8(self, segment, base, content):
     from cpu.assemble import SpaceSlot
@@ -761,12 +784,15 @@ class MemoryController(object):
         pages_start, pages_cnt = area_to_pages(s_base_addr.u24, s_header.size)
 
         if f_header.flags.mmapable == 1:
-          ptr = self.__load_content_mmap(csr if s_header.type == mm.binary.SectionTypes.TEXT else dsr, f_in.fileno(), s_header.offset, s_header.size, s_header.flags)
+          access = ''
+          if s_header.flags.read == 1:
+            access += 'r'
+          if s_header.flags.write == 1:
+            access += 'w'
+          if s_header.flags.execute == 1:
+            access += 'x'
 
-          def __alloc_mmap_page(page_index, area_index):
-            self.__pages[page_index] = MMapMemoryPage(self, page_index, ptr, area_index * PAGE_SIZE)
-
-          self.for_each_page(pages_start, pages_cnt, __alloc_mmap_page)
+          mmap_area = self.mmap_area(f_in.name, s_base_addr.u24, s_header.size, offset = s_header.offset, access = access, shared = False)
 
         else:
           self.for_each_page(pages_start, pages_cnt, self.__alloc_page)

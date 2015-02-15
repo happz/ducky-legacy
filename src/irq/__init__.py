@@ -15,6 +15,8 @@ class InterruptList(enum.IntEnum):
   BLOCKIO = 1
   VMDEBUG = 2
   CONIO   = 3
+  MM      = 4
+  MATH    = 5
 
   INT_COUNT = 64
 

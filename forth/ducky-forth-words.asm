@@ -17,6 +17,34 @@
 ; use DEFWORD for them...
 ;
 
+$DEFWORD "[COMPILE]", 9, $F_IMMED, BCOMPILE
+  .int &WORD
+  .int &FIND
+  .int &TCFA
+  .int &COMMA
+  .int &EXIT
+
+
+  .section .rodata
+  .type word_not_found_msg, string
+  .string "Word not found: "
+
+word_not_found:
+  li r0, &word_not_found_msg
+  call &writes
+  call &write_word_buffer
+  call &halt
+
+
+$DEFCODE "POSTPONE", 8, $F_IMMED, POSTPONE
+  call &.__WORD
+  call &.__FIND
+  cmp r0, r0
+  bz &word_not_found
+  call &.__TCFA
+  call &.__COMMA
+  $NEXT
+
 
 $DEFCODE "(", 1, $F_IMMED, PAREN
   li $W, 1 ; depth counter
@@ -356,6 +384,7 @@ $DEFCODE "PICK", 4, 0, PICK
 
 ; - Strings -----------------------------------------------------------------------------
 
+
 $DEFCODE "UWIDTH", 6, 0, UWIDTH
   ; ( u -- width )
   ; Returns the width (in characters) of an unsigned number in the current base
@@ -414,6 +443,20 @@ $DEFCODE "ALIGN", 5, 0, ALIGN
   lw $X, $W
   $align2 $X
   stw $W, $X
+  $NEXT
+
+
+$DEFCODE "UNUSED", 6, 0, UNUSED
+  ; ( -- u )
+  li $W, &var_UP
+  lw $W, $W
+  li $X, &var_HERE
+  lw $X, $X
+  sub $X, $W
+  li $W, $USERSPACE_SIZE
+  sub $W, $X
+  div $W, $CELL
+  push $W
   $NEXT
 
 
@@ -514,37 +557,131 @@ $DEFCODE "ABS", 3, 0, ABS
   push $W
   $NEXT
 
-convert_S2D:
-  ; r0 - single-cell input
-  ; r0, r1 - double-cell output
-  li r1, 0
-  cmp r0, 0
-  bge &.__convert_S2D_quit
-  not r1
-.__convert_S2D_quit:
-  ret
 
+;
+; Double-cell integer operations
+;
+; This routines use math coprocessor's (MC) interrupt
+;
+.macro DC_dup:
+  li r0, $MATH_DUPL
+  int $INT_MATH
+.end
+
+.macro DC_mul:
+  li r0, $MATH_MULL
+  int $INT_MATH
+.end
+
+.macro DC_div:
+  li r0, $MATH_DIVL
+  int $INT_MATH
+.end
+
+.macro DC_mod:
+  li r0, $MATH_MODL
+  int $INT_MATH
+.end
+
+.macro DC_itos_to_l:
+  li r0, $MATH_ITOL
+  pop r1
+  int $INT_MATH
+.end
+
+.macro DC_ir_to_l reg:
+  li r0, $MATH_ITOL
+  mov r1, #reg
+  int $INT_MATH
+.end
+
+.macro DC_dtos_to_l:
+  li r0, $MATH_IITOL
+  pop r2
+  pop r1
+  int $INT_MATH
+.end
+
+.macro DC_l_to_itos:
+  li r0, $MATH_LTOI
+  int $INT_MATH
+  push r1
+.end
+
+.macro DC_l_to_dtos:
+  li r0, $MATH_LTOII
+  int $INT_MATH
+  push r1
+  push r2
+.end
 
 $DEFCODE "S>D", 3, 0, STOD
   ; ( n -- d )
-  pop r0
-  call &convert_S2D
-  push r0
-  push r1
+  $DC_itos_to_l
+  $DC_l_to_dtos
   $NEXT
 
 
 $DEFCODE "M*", 2, 0, MSTAR
   ; ( n1 n2 -- d )
-  pop r0 ; n2
-  call &convert_S2D
-  mov $W, r0
-  mov $X, r1
-  pop r0 ; n1
-  call &convert_S2D
-  mull $W, $X, r0, r1
+  $DC_itos_to_l
+  $DC_itos_to_l
+  $DC_mul
+  $DC_l_to_dtos
+  $NEXT
+
+$DEFCODE "FM/MOD", 6, 0, FMMOD
+  ; ( d1 n1 -- n2 n3 )
+  pop $W
+
+  $DC_dtos_to_l
+  $DC_dup
+
+  $DC_ir_to_l $W
+  $DC_mod
+  $DC_l_to_itos
+
+  $DC_ir_to_l $W
+  $DC_div
+  $DC_l_to_itos
+
+  $NEXT
+
+
+$DEFCODE "SM/REM", 6, 0, SMMOD
+  j &code_FMMOD
+
+
+$DEFCODE "UM/MOD", 6, 0, UMMOD
+  j &code_FMMOD
+
+
+$DEFCODE "*/", 2, 0, STARSLASH
+  ; ( n1 n2 n3 -- n4 )
+  $DC_itos_to_l
+  $DC_itos_to_l
+  $DC_mul
+  $DC_itos_to_l
+  $DC_div
+  $DC_l_to_itos
+  $NEXT
+
+
+$DEFCODE "*/MOD", 5, 0, STARMOD
+  ; ( n1 n2 n3 -- n4 n5 )
+  lw $W, sp[4]
+
+  $DC_itos_to_l
+  $DC_itos_to_l
+  $DC_mul
+  $DC_dup
+  $DC_itos_to_l
+  $DC_mod
+  $DC_l_to_itos
   push $W
-  push $X
+  $DC_itos_to_l
+  $DC_div
+  $DC_l_to_itos
   $NEXT
 
 

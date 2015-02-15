@@ -5,6 +5,7 @@ import Queue
 import sys
 import threading2
 import time
+import traceback
 
 import assemble
 import console
@@ -18,7 +19,7 @@ import profiler
 import util
 
 from mm import UInt8, UInt16, UInt24, UInt32
-from mm import SEGM_FMT, ADDR_FMT, UINT8_FMT, UINT16_FMT
+from mm import SEGM_FMT, ADDR_FMT, UINT8_FMT, UINT16_FMT, UINT32_FMT
 from mm import segment_addr_to_addr
 
 from console import VerbosityLevels
@@ -54,6 +55,10 @@ def do_log_cpu_core_state(core, logger = None):
   logger('priv=%i, hwint=%i, e=%i, z=%i, o=%i, s=%i' % (core.registers.flags.flags.privileged, core.registers.flags.flags.hwint, core.registers.flags.flags.e, core.registers.flags.flags.z, core.registers.flags.flags.o, core.registers.flags.flags.s))
   logger('thread=%s, keep_running=%s, idle=%s, exit=%i' % (core.thread.name if core.thread else '<unknown>', core.keep_running, core.idle, core.exit_code))
 
+  if hasattr(core, 'math_registers'):
+    for index, v in enumerate(core.math_registers.stack):
+      logger('MS: %02i: %s', index, UINT32_FMT(v))
+
   if core.current_instruction:
     inst = instructions.disassemble_instruction(core.current_instruction)
     logger('current=%s' % inst)
@@ -65,12 +70,6 @@ def do_log_cpu_core_state(core, logger = None):
 
 def log_cpu_core_state(*args, **kwargs):
   do_log_cpu_core_state(*args, **kwargs)
-
-def u32_pack_regs(r1, r2):
-  return UInt32(r1.u16 | (r2.u16 << 16))
-
-def u32_unpack_regs(u32):
-  return (UInt16(u32.u32 & 0xFFFF), UInt16(u32.u32 >> 16))
 
 class StackFrame(object):
   def __init__(self, cs, ds, fp):
@@ -136,6 +135,11 @@ class CPUCore(object):
 
     self.instruction_cache = InstructionCache(self, CPU_INST_CACHE_SIZE)
 
+    if self.cpu.machine.config.getbool('cpu', 'math-coprocessor', False):
+      import cpu.math_coprocessor
+
+      self.math_coprocessor = cpu.math_coprocessor.MathCoprocessor(self)
+
   def LOG(self, logger, *args):
     args = ('%s ' + args[0],) + (self.cpuid_prefix,) + args[1:]
     logger(*args)
@@ -194,6 +198,17 @@ class CPUCore(object):
     self.exit_code = 1
 
     self.ERROR(str(exc))
+    self.ERROR('')
+
+    if hasattr(exc, 'exc_stack'):
+      for line in traceback.format_exception(*exc.exc_stack):
+        line = line.rstrip()
+        for line in line.split('\n'):
+          line = line.replace('%', '%%')
+          self.ERROR(line)
+
+      self.ERROR('')
+
     do_log_cpu_core_state(self, logger = self.ERROR)
     self.keep_running = False
 
@@ -419,7 +434,7 @@ class CPUCore(object):
     if not self.privileged:
       raise AccessViolationError('Instruction not allowed in unprivileged mode: opcode=%i' % self.current_instruction.opcode)
 
-  def __check_protected_reg(self, *regs):
+  def check_protected_reg(self, *regs):
     for reg in regs:
       if reg in registers.PROTECTED_REGISTERS and not self.privileged:
         raise AccessViolationError('Access not allowed in unprivileged mode: opcode=%i reg=%i' % (self.current_instruction.opcode, reg))
@@ -494,17 +509,17 @@ class CPUCore(object):
     pass
 
   def inst_LW(self, inst):
-    self.__check_protected_reg(inst.reg)
+    self.check_protected_reg(inst.reg)
     self.registers.map[inst.reg].u16 = self.memory.read_u16(self.OFFSET_ADDR(inst)).u16
     self.__update_arith_flags(self.registers.map[inst.reg])
 
   def inst_LB(self, inst):
-    self.__check_protected_reg(inst.reg)
+    self.check_protected_reg(inst.reg)
     self.registers.map[inst.reg].u16 = self.memory.read_u8(self.OFFSET_ADDR(inst)).u8
     self.__update_arith_flags(self.registers.map[inst.reg])
 
   def inst_LI(self, inst):
-    self.__check_protected_reg(inst.reg)
+    self.check_protected_reg(inst.reg)
     self.registers.map[inst.reg].u16 = inst.immediate
     self.__update_arith_flags(self.registers.map[inst.reg])
 
@@ -576,135 +591,64 @@ class CPUCore(object):
     self.__raw_push(UInt16(self.RI_VAL(inst)))
 
   def inst_POP(self, inst):
-    self.__check_protected_reg(inst.reg)
+    self.check_protected_reg(inst.reg)
 
     self.__pop(inst.reg)
 
   def inst_INC(self, inst):
-    self.__check_protected_reg(inst.reg)
+    self.check_protected_reg(inst.reg)
     self.registers.map[inst.reg].u16 += 1
     self.__update_arith_flags(self.registers.map[inst.reg])
 
-  def inst_INCL(self, inst):
-    self.__check_protected_reg(inst.reg1, inst.reg2)
-
-    r1 = self.registers.map[inst.reg1]
-    r2 = self.registers.map[inst.reg2]
-
-    x = u32_pack_regs(r1, r2)
-
-    x.u32 += 1
-
-    _r1, _r2 = u32_unpack_regs(x)
-    r1.u16 = _r1.u16
-    r2.u16 = _r2.u16
-
-    self.__update_arith_flags(r1, r2)
-
   def inst_DEC(self, inst):
-    self.__check_protected_reg(inst.reg)
+    self.check_protected_reg(inst.reg)
     self.registers.map[inst.reg].u16 -= 1
     self.__update_arith_flags(self.registers.map[inst.reg])
 
-  def inst_DECL(self, inst):
-    self.__check_protected_reg(inst.reg1, inst.reg2)
-
-    r1 = self.registers.map[inst.reg1]
-    r2 = self.registers.map[inst.reg2]
-
-    x = u32_pack_regs(r1, r2)
-
-    x.u32 -= 1
-
-    _r1, _r2 = u32_unpack_regs(x)
-    r1.u16 = _r1.u16
-    r2.u16 = _r2.u16
-
-    self.__update_arith_flags(r1, r2)
-
   def inst_ADD(self, inst):
-    self.__check_protected_reg(inst.reg)
+    self.check_protected_reg(inst.reg)
     v = self.registers.map[inst.reg].u16 + self.RI_VAL(inst)
     self.registers.map[inst.reg].u16 += self.RI_VAL(inst)
     self.__update_arith_flags(self.registers.map[inst.reg])
     if v > 0xFFFF:
       self.registers.flags.flags.o = 1
 
-  def inst_ADDL(self, inst):
-    self.__check_protected_reg(inst.reg1, inst.reg2)
-    r1 = self.registers.map[inst.reg1]
-    r2 = self.registers.map[inst.reg2]
-    r3 = self.registers.map[inst.reg3]
-    r4 = self.registers.map[inst.reg4]
-    x = u32_pack_regs(r1, r2)
-    y = u32_pack_regs(r3, r4)
-    v = x.u32 + y.u32
-    x.u32 += y.u32
-    _r1, _r2 = u32_unpack_regs(x)
-    _r3, _r4 = u32_unpack_regs(y)
-    r1.u16 = _r1.u16
-    r2.u16 = _r2.u16
-    r3.u16 = _r3.u16
-    r4.u16 = _r4.u16
-    self.__update_arith_flags(r1, r2)
-    if v > 0xFFFFFFFF:
-      self.registers.flags.flags.o = 1
-
   def inst_SUB(self, inst):
-    self.__check_protected_reg(inst.reg)
+    self.check_protected_reg(inst.reg)
     v = self.RI_VAL(inst) > self.registers.map[inst.reg].u16
     self.registers.map[inst.reg].u16 -= self.RI_VAL(inst)
     self.__update_arith_flags(self.registers.map[inst.reg])
-    if v:
-      self.registers.flags.flags.s = 1
 
-  def inst_SUBL(self, inst):
-    self.__check_protected_reg(inst.reg1, inst.reg2)
-    r1 = self.registers.map[inst.reg1]
-    r2 = self.registers.map[inst.reg2]
-    r3 = self.registers.map[inst.reg3]
-    r4 = self.registers.map[inst.reg4]
-    x = u32_pack_regs(r1, r2)
-    y = u32_pack_regs(r3, r4)
-    v = y.u32 > x.u32
-    x.u32 -= y.u32
-    _r1, _r2 = u32_unpack_regs(x)
-    _r3, _r4 = u32_unpack_regs(y)
-    r1.u16 = _r1.u16
-    r2.u16 = _r2.u16
-    r3.u16 = _r3.u16
-    r4.u16 = _r4.u16
-    self.__update_arith_flags(r1, r2)
     if v:
       self.registers.flags.flags.s = 1
 
   def inst_AND(self, inst):
-    self.__check_protected_reg(inst.reg)
+    self.check_protected_reg(inst.reg)
     self.registers.map[inst.reg].u16 &= self.RI_VAL(inst)
     self.__update_arith_flags(self.registers.map[inst.reg])
 
   def inst_OR(self, inst):
-    self.__check_protected_reg(inst.reg)
+    self.check_protected_reg(inst.reg)
     self.registers.map[inst.reg].u16 |= self.RI_VAL(inst)
     self.__update_arith_flags(self.registers.map[inst.reg])
 
   def inst_XOR(self, inst):
-    self.__check_protected_reg(inst.reg)
+    self.check_protected_reg(inst.reg)
     self.registers.map[inst.reg].u16 ^= self.RI_VAL(inst)
     self.__update_arith_flags(self.registers.map[inst.reg])
 
   def inst_NOT(self, inst):
-    self.__check_protected_reg(inst.reg)
+    self.check_protected_reg(inst.reg)
     self.registers.map[inst.reg].u16 = ~self.registers.map[inst.reg].u16
     self.__update_arith_flags(self.registers.map[inst.reg])
 
   def inst_SHIFTL(self, inst):
-    self.__check_protected_reg(inst.reg)
+    self.check_protected_reg(inst.reg)
     self.registers.map[inst.reg].u16 <<= self.RI_VAL(inst)
     self.__update_arith_flags(self.registers.map[inst.reg])
 
   def inst_SHIFTR(self, inst):
-    self.__check_protected_reg(inst.reg)
+    self.check_protected_reg(inst.reg)
     self.registers.map[inst.reg].u16 >>= self.RI_VAL(inst)
     self.__update_arith_flags(self.registers.map[inst.reg])
 
@@ -712,7 +656,7 @@ class CPUCore(object):
     port = UInt16(self.RI_VAL(inst))
 
     self.__check_protected_port(port)
-    self.__check_protected_reg(inst.reg)
+    self.check_protected_reg(inst.reg)
 
     self.registers.map[inst.reg].u16 = self.cpu.machine.ports[port.u16].read_u16(port).u16
 
@@ -720,7 +664,7 @@ class CPUCore(object):
     port = UInt16(self.RI_VAL(inst))
 
     self.__check_protected_port(port)
-    self.__check_protected_reg(inst.reg)
+    self.check_protected_reg(inst.reg)
 
     self.registers.map[inst.reg].u16 = UInt16(self.cpu.machine.ports[port.u16].read_u8(port).u8).u16
 
@@ -788,70 +732,19 @@ class CPUCore(object):
       self.JUMP(inst)
 
   def inst_MUL(self, inst):
-    self. __check_protected_reg(inst.reg)
+    self.check_protected_reg(inst.reg)
     self.registers.map[inst.reg].u16 *= self.RI_VAL(inst)
     self.__update_arith_flags(self.registers.map[inst.reg])
 
-  def inst_MULL(self, inst):
-    self.__check_protected_reg(inst.reg1, inst.reg2)
-    r1 = self.registers.map[inst.reg1]
-    r2 = self.registers.map[inst.reg2]
-    r3 = self.registers.map[inst.reg3]
-    r4 = self.registers.map[inst.reg4]
-    x = u32_pack_regs(r1, r2)
-    y = u32_pack_regs(r3, r4)
-    x.u32 *= y.u32
-    _r1, _r2 = u32_unpack_regs(x)
-    _r3, _r4 = u32_unpack_regs(y)
-    r1.u16 = _r1.u16
-    r2.u16 = _r2.u16
-    r3.u16 = _r3.u16
-    r4.u16 = _r4.u16
-    self.__update_arith_flags(r1, r2)
-
   def inst_DIV(self, inst):
-    self.__check_protected_reg(inst.reg)
+    self.check_protected_reg(inst.reg)
     self.registers.map[inst.reg].u16 /= self.RI_VAL(inst)
     self.__update_arith_flags(self.registers.map[inst.reg])
 
-  def inst_DIVL(self, inst):
-    self.__check_protected_reg(inst.reg1, inst.reg2)
-    r1 = self.registers.map[inst.reg1]
-    r2 = self.registers.map[inst.reg2]
-    r3 = self.registers.map[inst.reg3]
-    r4 = self.registers.map[inst.reg4]
-    x = u32_pack_regs(r1, r2)
-    y = u32_pack_regs(r3, r4)
-    x.u32 /= y.u32
-    _r1, _r2 = u32_unpack_regs(x)
-    _r3, _r4 = u32_unpack_regs(y)
-    r1.u16 = _r1.u16
-    r2.u16 = _r2.u16
-    r3.u16 = _r3.u16
-    r4.u16 = _r4.u16
-    self.__update_arith_flags(r1, r2)
-
   def inst_MOD(self, inst):
-    self.__check_protected_reg(inst.reg)
+    self.check_protected_reg(inst.reg)
     self.registers.map[inst.reg].u16 %= self.RI_VAL(inst)
     self.__update_arith_flags(self.registers.map[inst.reg])
-
-  def inst_MODL(self, inst):
-    self.__check_protected_reg(inst.reg1, inst.reg2)
-    r1 = self.registers.map[inst.reg1]
-    r2 = self.registers.map[inst.reg2]
-    r3 = self.registers.map[inst.reg3]
-    r4 = self.registers.map[inst.reg4]
-    x = u32_pack_regs(r1, r2)
-    y = u32_pack_regs(r3, r4)
-    x.u32 %= y.u32
-    _r1, _r2 = u32_unpack_regs(x)
-    _r3, _r4 = u32_unpack_regs(y)
-    r1.u16 = _r1.u16
-    r2.u16 = _r2.u16
-    r3.u16 = _r3.u16
-    r4.u16 = _r4.u16
-    self.__update_arith_flags(r1, r2)
 
   def step(self):
     # pylint: disable-msg=R0912,R0914,R0915
@@ -953,7 +846,8 @@ class CPUCore(object):
         try:
           self.__do_irq(msg.irq_source.irq)
 
-        except CPUException, e:
+        except (CPUException, ZeroDivisionError) as e:
+          e.exc_stack = sys.exc_info()
           self.die(e)
           return False
 
@@ -997,7 +891,8 @@ class CPUCore(object):
       try:
         self.step()
 
-      except CPUException, e:
+      except (CPUException, ZeroDivisionError) as e:
+        e.exc_stack = sys.exc_info()
         self.die(e)
         break
 

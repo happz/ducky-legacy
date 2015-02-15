@@ -13,10 +13,10 @@
 ; One cell is 16 bits, 2 bytes, this is 16-bit FORTH. I hope it's clear now :)
 .def CELL:               2
 
-; This is actually 8096 - first two bytes are used by HERE_INIT
+; This is actually 8192 - first two bytes are used by HERE_INIT
 ; needed for HERE inicialization. HERE_INIT's space can be then
 ; reused as userspace
-.def USERSPACE_SIZE:   8096
+.def USERSPACE_SIZE:   8192
 
 ; 32 cells
 .def RSTACK_SIZE:        64
@@ -382,11 +382,13 @@ cold_start:
   .set HERE_INIT, .
   .space $USERSPACE_SIZE
 
+
   .set link, 0
 
 ;
 ; Variables
 ;
+$DEFVAR "UP", 2, 0, UP, HERE_INIT
 $DEFVAR "STATE", 5, 0, STATE, 0
 $DEFVAR "HERE", 4, 0, HERE, HERE_INIT
 $DEFVAR "LATEST", 6, 0, LATEST, &name_BYE
@@ -611,8 +613,8 @@ $DEFCODE "WORD", 4, 0, WORD
 .__WORD:
   call &.__KEY
   ; if key's backslash, comment starts - skip it, to the end of line
-  cmp r0, 0x5C ; backslash
-  be &.__WORD_skip_comment
+  ; cmp r0, 0x5C ; backslash
+  ; be &.__WORD_skip_comment
   ; if key's lower or eaqual to space, it's considered as a white space, and ignored.
   ; this removes leading white space
   cmp r0, 0x20
@@ -1560,6 +1562,14 @@ $DEFCONST "DODOES", 6, 0, __DODOES, &DODOES
 
 ; Include non-kernel words
 .include "forth/ducky-forth-words.asm"
+
+
+$DEFCODE "\", 1, $F_IMMED, BACKSLASH
+  li $W, &input_buffer_length
+  lw $W, $W
+  li $X, &input_buffer_index
+  stw $X, $W
+  $NEXT
 
 
 ;

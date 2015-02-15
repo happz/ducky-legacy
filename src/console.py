@@ -113,7 +113,7 @@ class Console(object):
       return
 
     fmt = args[0]
-    args = tuple(args[1:]) if len(args) else ()
+    args = tuple(args[1:]) if len(args) > 1 else ()
 
     msg = '{color_start}[{level}] {msgs}{color_stop}\n'.format(**{
       'color_start': COLORS[level],

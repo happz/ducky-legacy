@@ -150,7 +150,7 @@ def show_pages(state):
     info('  Page #%i (segment %s)', pg.index, UINT8_FMT(pg_segment))
     info('    Flags: %s%s%s%s', 'r' if pg.read == 1 else '-', 'w' if pg.write == 1 else '-', 'x' if pg.execute == 1 else '-', 'd' if pg.dirty == 1 else '-')
 
-    CPR = 16
+    CPR = 32
 
     for i in range(0, 256 / CPR):
       s = []
