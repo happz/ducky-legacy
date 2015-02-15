@@ -120,5 +120,7 @@ def common_run_machine(code, machine_config = None, cpus = 1, cores = 1, irq_rou
   machine_config.set('machine', 'cpus', cpus)
   machine_config.set('machine', 'cores', cores)
   machine_config.set('machine', 'interrupt-routines', 'tests/instructions/interrupts-basic.bin')
+  machine_config.add_section('cpu')
+  machine_config.set('cpu', 'math-coprocessor', 'yes')
 
   return run_machine(code, machine_config)
