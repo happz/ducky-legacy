@@ -14,6 +14,6 @@ dependencies:
     - pip install beautifulsoup4
 
 test:
-  ovierride:
+  override:
     - Q=@ make tests
         timeout: 300
