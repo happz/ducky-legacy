@@ -1,18 +1,19 @@
 import os
-import stat
 
 import profiler
 
 from io_handlers import IOHandler
-from mm import ADDR_FMT, UINT8_FMT, UInt8, UInt16, UInt24, UInt32, segment_addr_to_addr
+from mm import UInt8, UInt16, UInt24, UInt32, segment_addr_to_addr
 from util import debug, warn
 
 from threading2 import Thread, Lock, Event
 
 BLOCK_SIZE = 1024
 
+
 class StorageAccessError(Exception):
   pass
+
 
 class StorageIOHandler(IOHandler):
   def __init__(self, *args, **kwargs):
@@ -174,4 +175,3 @@ class FileBackedStorage(Storage):
 STORAGES = {
   'block': FileBackedStorage,
 }
-

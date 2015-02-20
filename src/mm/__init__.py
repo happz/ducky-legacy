@@ -104,7 +104,7 @@ def addr_to_offset(addr):
   return (addr & (PAGE_SIZE - 1))
 
 def area_to_pages(addr, size):
-  return (addr_to_page(addr), align(PAGE_SIZE, size) / PAGE_SIZE)
+  return ((addr & PAGE_MASK) >> PAGE_SHIFT, align(PAGE_SIZE, size) / PAGE_SIZE)
 
 def buff_to_uint16(buff, offset):
   debug('buff_to_uint16: offset=%s, u1=%s, u2=%s', offset, buff[offset], buff[offset + 1])
@@ -341,7 +341,8 @@ class AnonymousMemoryPage(MemoryPage):
   def do_write_u16(self, offset, value):
     debug('mp.do_write_u16: page=%s, offset=%s, value=%s', self.index, offset, value)
 
-    uint16_to_buff(value, self.data, offset)
+    self.data[offset]     =  value & 0x00FF
+    self.data[offset + 1] = (value & 0xFF00) >> 8
 
   def do_write_u32(self, offset, value):
     debug('mp.do_write_u32: page=%s, offset=%s, value=%s', self.index, offset, value)
@@ -898,10 +899,10 @@ class MemoryController(object):
     self.__put_mmap_fileno(mmap_area.file_path)
 
   def cas_u16(self, addr, test, rep):
-    page = self.get_page(addr_to_page(addr))
+    page = self.get_page((addr & PAGE_MASK) >> PAGE_SHIFT)
 
     with page.lock:
-      v = page.read_u16(addr_to_offset(addr))
+      v = page.read_u16(addr & (PAGE_SIZE - 1))
       if v.u16 == test.u16:
         v.u16 = rep.u16
         return True
@@ -910,7 +911,7 @@ class MemoryController(object):
   def read_u8(self, addr, privileged = False):
     debug('mc.read_u8: addr=%s, priv=%i', addr, privileged)
 
-    return self.get_page(addr_to_page(addr)).read_u8(addr_to_offset(addr), privileged = privileged)
+    return self.get_page((addr & PAGE_MASK) >> PAGE_SHIFT).read_u8(addr & (PAGE_SIZE - 1), privileged = privileged)
 
   def read_u16(self, addr, privileged = False):
     debug('mc.read_u16: addr=%s, priv=%i', addr, privileged)
@@ -918,7 +919,7 @@ class MemoryController(object):
     if addr % 2:
       raise AccessViolationError('Unable to access unaligned address: addr=%s' % ADDR_FMT(addr))
 
-    return self.get_page(addr_to_page(addr)).read_u16(addr_to_offset(addr), privileged = privileged)
+    return self.get_page((addr & PAGE_MASK) >> PAGE_SHIFT).read_u16(addr & (PAGE_SIZE - 1), privileged = privileged)
 
   def read_u32(self, addr, privileged = False):
     debug('mc.read_u32: addr=%s, priv=%i', addr, privileged)
@@ -926,11 +927,11 @@ class MemoryController(object):
     if addr % 4:
       raise AccessViolationError('Unable to access unaligned address: addr=%s' % ADDR_FMT(addr))
 
-    return self.get_page(addr_to_page(addr)).read_u32(addr_to_offset(addr), privileged = privileged)
+    return self.get_page((addr & PAGE_MASK) >> PAGE_SHIFT).read_u32(addr & (PAGE_SIZE - 1), privileged = privileged)
 
   def write_u8(self, addr, value, privileged = False, dirty = True):
     debug('mc.write_u8: addr=%s, value=%s, priv=%i, dirty=%i', addr, value, privileged, dirty)
-    self.get_page(addr_to_page(addr)).write_u8(addr_to_offset(addr), value, privileged = privileged, dirty = dirty)
+    self.get_page((addr & PAGE_MASK) >> PAGE_SHIFT).write_u8(addr & (PAGE_SIZE - 1), value, privileged = privileged, dirty = dirty)
 
   def write_u16(self, addr, value, privileged = False, dirty = True):
     debug('mc.write_u16: addr=%s, value=%s, priv=%i, dirty=%i', addr, value, privileged, dirty)
@@ -938,7 +939,7 @@ class MemoryController(object):
     if addr % 2:
       raise AccessViolationError('Unable to access unaligned address: addr=%s' % ADDR_FMT(addr))
 
-    self.get_page(addr_to_page(addr)).write_u16(addr_to_offset(addr), value, privileged = privileged, dirty = dirty)
+    self.get_page((addr & PAGE_MASK) >> PAGE_SHIFT).write_u16(addr & (PAGE_SIZE - 1), value, privileged = privileged, dirty = dirty)
 
   def write_u32(self, addr, value, privileged = False, dirty = True):
     debug('mc.write_u32: addr=%s, value=%s, priv=%i, dirty=%i', addr, value, privileged, dirty)
@@ -946,7 +947,7 @@ class MemoryController(object):
     if addr % 4:
       raise AccessViolationError('Unable to access unaligned address: addr=%s' % ADDR_FMT(addr))
 
-    self.get_page(addr_to_page(addr)).write_u32(addr_to_offset(addr), value, privileged = privileged, dirty = dirty)
+    self.get_page((addr & PAGE_MASK) >> PAGE_SHIFT).write_u32(addr & (PAGE_SIZE - 1), value, privileged = privileged, dirty = dirty)
 
   def read_block(self, addr, size, privileged = False):
     debug('mc.read_block: addr=%s, size=%s, privileged=%s', addr, size, privileged)
@@ -954,7 +955,7 @@ class MemoryController(object):
     if size % 32 != 0:
       raise AccessViolationError('Unable to access unaligned address: addr=%s' % ADDR_FMT(addr))
 
-    return self.get_page(addr_to_page(addr)).read_block(addr_to_offset(addr), 32)
+    return self.get_page((addr & PAGE_MASK) >> PAGE_SHIFT).read_block(addr & (PAGE_SIZE - 1), 32)
 
   def write_block(self, addr, size, buff, privileged = False):
     debug('mc.write_block: addr=%s, size=%s, privileged=%s', addr, size, privileged)
@@ -962,7 +963,7 @@ class MemoryController(object):
     if size % 32 != 0:
       raise AccessViolationError('Unable to access unaligned address: addr=%s' % ADDR_FMT(addr))
 
-    self.get_page(addr_to_page(addr)).write_block(addr_to_offset(addr), size, buff)
+    self.get_page((addr & PAGE_MASK) >> PAGE_SHIFT).write_block(addr & (PAGE_SIZE - 1), size, buff)
 
   def save_interrupt_vector(self, table, index, desc):
     """

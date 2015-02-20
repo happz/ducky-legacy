@@ -56,7 +56,7 @@ def main():
 
   elif options.action == 'add':
     with open(options.file, 'r') as f:
-      soup = BeautifulSoup(f)
+      soup = BeautifulSoup(f, 'xml')
 
     tc_tag = soup.new_tag('testcase')
     if options.name:

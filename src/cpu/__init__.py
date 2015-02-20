@@ -19,8 +19,7 @@ import profiler
 import util
 
 from mm import UInt8, UInt16, UInt24, UInt32
-from mm import SEGM_FMT, ADDR_FMT, UINT8_FMT, UINT16_FMT, UINT32_FMT
-from mm import segment_addr_to_addr
+from mm import SEGM_FMT, ADDR_FMT, UINT8_FMT, UINT16_FMT, UINT32_FMT, SEGMENT_SIZE, PAGE_SIZE, addr_to_page
 
 from console import VerbosityLevels
 from registers import Registers, REGISTER_NAMES
@@ -81,7 +80,7 @@ class StackFrame(object):
 
   def __getattribute__(self, name):
     if name == 'address':
-      return segment_addr_to_addr(self.DS.u8, self.FP.u16)
+      return self.DS.u8 * SEGMENT_SIZE * PAGE_SIZE + self.FP.u16
 
     return super(StackFrame, self).__getattribute__(name)
 
@@ -96,6 +95,72 @@ class InstructionCache(LRUCache):
 
   def get_object(self, addr):
     return instructions.decode_instruction(self.core.memory.read_u32(addr))
+
+class DataCache(LRUCache):
+  def __init__(self, core, size, *args, **kwargs):
+    super(DataCache, self).__init__(size, *args, **kwargs)
+
+    self.core = core
+
+  def make_space(self):
+    addr, value = self.popitem(last = False)
+    dirty, value = value
+
+    self.core.DEBUG('data_cache.make_space: addr=%s, value=%s', ADDR_FMT(addr), UINT16_FMT(value))
+
+    if dirty:
+      self.core.memory.write_u16(addr, value.u16)
+    self.prunes += 1
+
+  def get_object(self, addr):
+    self.core.DEBUG('data_cache.get_object: addr=%s', ADDR_FMT(addr))
+
+    return [False, self.core.memory.read_u16(addr)]
+
+  def read_u16(self, addr):
+    self.core.DEBUG('data_cache.read_u16: addr=%s', ADDR_FMT(addr))
+
+    return self[addr][1]
+
+  def write_u16(self, addr, value):
+    self.core.DEBUG('data_cache.write_u16: addr=%s, value=%s', ADDR_FMT(addr), UINT16_FMT(value))
+
+    if addr not in self:
+      self.__missing__(addr)
+
+    self[addr] = [True, UInt16(value)]
+
+  def remove_page_references(self, page, writeback = True):
+    self.core.DEBUG('data_cache.remove_page_references: page=%s', page.index)
+
+    addresses = [i for i in range(page.base_address, page.base_address + PAGE_SIZE, 2)]
+
+    for addr in self.keys():
+      if addr not in addresses:
+        continue
+
+      dirty, value = self[addr]
+
+      if dirty and writeback:
+        self.core.memory.write_u16(addr, value.u16)
+        self.core.DEBUG('data_cache.remove_page_references: %s written back', ADDR_FMT(addr))
+
+      self.core.DEBUG('data_cache.remove_page_references: %s removed', ADDR_FMT(addr))
+
+      del self[addr]
+
+  def flush(self):
+    self.core.DEBUG('data_cache.flush')
+
+    for addr in self.keys():
+      dirty, value = self[addr]
+
+      if not dirty:
+        continue
+
+      self.core.memory.write_u16(addr, value.u16)
+      self[addr][0] = False
+      self.core.DEBUG('data_cache.flush: %s written back', ADDR_FMT(addr))
 
 class CPUCore(object):
   def __init__(self, coreid, cpu, memory_controller):
@@ -134,6 +199,7 @@ class CPUCore(object):
       self.opcode_map[opcode.value] = getattr(self, 'inst_%s' % opcode.name)
 
     self.instruction_cache = InstructionCache(self, CPU_INST_CACHE_SIZE)
+    self.data_cache = DataCache(self, CPU_INST_CACHE_SIZE * 4)
 
     if self.cpu.machine.config.getbool('cpu', 'math-coprocessor', False):
       import cpu.math_coprocessor
@@ -197,6 +263,8 @@ class CPUCore(object):
   def die(self, exc):
     self.exit_code = 1
 
+    self.data_cache.flush()
+
     self.ERROR(str(exc))
     self.ERROR('')
 
@@ -224,7 +292,7 @@ class CPUCore(object):
     return self.memory.read_u8(addr)
 
   def MEM_IN16(self, addr):
-    return self.memory.read_u16(addr)
+    return self.data_cache.read_u16(addr)
 
   def MEM_IN32(self, addr):
     return self.memory.read_u32(addr)
@@ -233,10 +301,10 @@ class CPUCore(object):
     self.memory.write_u8(addr, value)
 
   def MEM_OUT16(self, addr, value):
-    self.memory.write_u16(addr, value)
+    self.data_cache.write_u16(addr, value)
 
   def MEM_OUT32(self, addr, value):
-    self.memory.write_u16(addr, value)
+    self.memory.write_u32(addr, value)
 
   def IP(self):
     return self.registers.ip
@@ -254,10 +322,10 @@ class CPUCore(object):
     return self.registers.ds
 
   def CS_ADDR(self, address):
-    return segment_addr_to_addr(self.registers.cs.u16 & 0xFF, address)
+    return (self.registers.cs.u16 & 0xFF) * SEGMENT_SIZE * PAGE_SIZE + address
 
   def DS_ADDR(self, address):
-    return segment_addr_to_addr(self.registers.ds.u16 & 0xFF, address)
+    return (self.registers.ds.u16 & 0xFF) * SEGMENT_SIZE * PAGE_SIZE + address
 
   def fetch_instruction(self):
     ip = self.registers.ip
@@ -313,11 +381,11 @@ class CPUCore(object):
   def __raw_push(self, val):
     self.registers.sp.u16 -= 2
     sp = UInt24(self.DS_ADDR(self.registers.sp.u16))
-    self.memory.write_u16(sp.u24, val.u16)
+    self.data_cache.write_u16(sp.u24, val.u16)
 
   def __raw_pop(self):
     sp = UInt24(self.DS_ADDR(self.registers.sp.u16))
-    ret = self.memory.read_u16(sp.u24).u16
+    ret = self.data_cache.read_u16(sp.u24).u16
     self.registers.sp.u16 += 2
     return UInt16(ret)
 
@@ -394,6 +462,7 @@ class CPUCore(object):
     self.registers.ds.u16 = old_DS.u16
     self.registers.sp.u16 = old_SP.u16
 
+    self.data_cache.remove_page_references(stack_page, writeback = False)
     self.memory.free_page(stack_page)
 
   def __do_int(self, index):
@@ -510,7 +579,7 @@ class CPUCore(object):
 
   def inst_LW(self, inst):
     self.check_protected_reg(inst.reg)
-    self.registers.map[inst.reg].u16 = self.memory.read_u16(self.OFFSET_ADDR(inst)).u16
+    self.registers.map[inst.reg].u16 = self.data_cache.read_u16(self.OFFSET_ADDR(inst)).u16
     self.__update_arith_flags(self.registers.map[inst.reg])
 
   def inst_LB(self, inst):
@@ -524,7 +593,7 @@ class CPUCore(object):
     self.__update_arith_flags(self.registers.map[inst.reg])
 
   def inst_STW(self, inst):
-    self.memory.write_u16(self.OFFSET_ADDR(inst), self.registers.map[inst.reg].u16)
+    self.data_cache.write_u16(self.OFFSET_ADDR(inst), self.registers.map[inst.reg].u16)
 
   def inst_STB(self, inst):
     self.memory.write_u8(self.OFFSET_ADDR(inst), self.registers.map[inst.reg].u16 & 0xFF)
@@ -667,6 +736,7 @@ class CPUCore(object):
     self.check_protected_reg(inst.reg)
 
     self.registers.map[inst.reg].u16 = UInt16(self.cpu.machine.ports[port.u16].read_u8(port).u8).u16
+    self.__update_arith_flags(self.registers.map[inst.reg])
 
   def inst_OUT(self, inst):
     port = UInt16(self.RI_VAL(inst))
@@ -733,17 +803,26 @@ class CPUCore(object):
 
   def inst_MUL(self, inst):
     self.check_protected_reg(inst.reg)
-    self.registers.map[inst.reg].u16 *= self.RI_VAL(inst)
+    r = self.registers.map[inst.reg]
+    x = ctypes.cast((ctypes.c_ushort * 1)(r.u16), ctypes.POINTER(ctypes.c_short)).contents.value
+    y = ctypes.cast((ctypes.c_ushort * 1)(self.RI_VAL(inst)), ctypes.POINTER(ctypes.c_short)).contents.value
+    r.u16 = x * y
     self.__update_arith_flags(self.registers.map[inst.reg])
 
   def inst_DIV(self, inst):
     self.check_protected_reg(inst.reg)
-    self.registers.map[inst.reg].u16 /= self.RI_VAL(inst)
+    r = self.registers.map[inst.reg]
+    x = ctypes.cast((ctypes.c_ushort * 1)(r.u16), ctypes.POINTER(ctypes.c_short)).contents.value
+    y = ctypes.cast((ctypes.c_ushort * 1)(self.RI_VAL(inst)), ctypes.POINTER(ctypes.c_short)).contents.value
+    r.u16 = x / y
     self.__update_arith_flags(self.registers.map[inst.reg])
 
   def inst_MOD(self, inst):
     self.check_protected_reg(inst.reg)
-    self.registers.map[inst.reg].u16 %= self.RI_VAL(inst)
+    r = self.registers.map[inst.reg]
+    x = ctypes.cast((ctypes.c_ushort * 1)(r.u16), ctypes.POINTER(ctypes.c_short)).contents.value
+    y = ctypes.cast((ctypes.c_ushort * 1)(self.RI_VAL(inst)), ctypes.POINTER(ctypes.c_short)).contents.value
+    r.u16 = x % y
     self.__update_arith_flags(self.registers.map[inst.reg])
 
   def step(self):
@@ -895,6 +974,8 @@ class CPUCore(object):
         e.exc_stack = sys.exc_info()
         self.die(e)
         break
+
+    self.data_cache.flush()
 
     self.INFO('halted')
     log_cpu_core_state(self)

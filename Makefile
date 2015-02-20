@@ -36,6 +36,16 @@ else
   PROFILE :=
 endif
 
+ifndef COVERAGE
+  COVERAGE=yes
+endif
+
+ifdef PYPY
+  PYTHON := PYTHONPATH=$(VIRTUAL_ENV)/lib/python2.7/site-packages:$(CURDIR)/src /usr/bin/pypy
+else
+  PYTHON := PYTHONPATH=$(CURDIR)/src
+endif
+
 
 tests-pre:
 	$(Q) mkdir -p $(CURDIR)/coverage
@@ -52,7 +62,14 @@ tests-forth-units: interrupts.bin $(FORTH_KERNEL) $(FORTH_TESTS_OUT)
 
 tests-forth-ans: interrupts.bin $(FORTH_KERNEL)
 	$(Q)  echo "[TEST] FORTH ANS testsuite"
-	-$(Q) COVERAGE_FILE="$(CURDIR)/coverage/.coverage.forth-ans" PYTHONPATH=$(CURDIR)/src coverage run tools/vm $(PROFILE) --machine-config=$(CURDIR)/tests/forth/test-machine.conf --machine-in=tests/forth/enable-test-mode.f --machine-in=forth/ducky-forth.f --machine-in=tests/forth/ans/tester.fr --machine-in=tests/forth/ans/core.fr --machine-out=tests/forth/ans.out -g --conio-echo=$(CONIO_ECHO) --conio-console=no --conio-highlight=$(CONIO_HIGHLIGHT) --conio-stdout-echo=yes $(VMDEBUG) 2>&1 | stdbuf -oL -eL tee tests/forth/ans.machine | grep -v -e '\[INFO\] ' -e '#> '
+ifeq ($(COVERAGE),yes)
+	$(eval COVERAGE_FILE := COVERAGE_FILE="$(CURDIR)/coverage/.coverage.forth-ans")
+	$(eval COVERAGE_BIN  := $(VIRTUAL_ENV)/bin/coverage run)
+else
+	$(eval COVERAGE_FILE := )
+	$(eval COVERAGE_BIN  := )
+endif
+	-$(Q) $(COVERAGE_FILE) $(PYTHON) $(COVERAGE_BIN) tools/vm $(PROFILE) --machine-config=$(CURDIR)/tests/forth/test-machine.conf --machine-in=tests/forth/enable-test-mode.f --machine-in=forth/ducky-forth.f --machine-in=tests/forth/ans/tester.fr --machine-in=tests/forth/ans/core.fr --machine-out=tests/forth/ans.out -g --conio-echo=$(CONIO_ECHO) --conio-console=no --conio-highlight=$(CONIO_HIGHLIGHT) --conio-stdout-echo=yes $(VMDEBUG) 2>&1 | stdbuf -oL -eL tee tests/forth/ans.machine | grep -v -e '\[INFO\] ' -e '#> '
 
 tests-post:
 	$(Q) cd coverage && coverage combine && cd ..
@@ -95,22 +112,27 @@ clean: tests-pre
 #
 %.bin: %.asm
 	$(Q) echo "[COMPILE] $< => $@"
-	$(Q) PYTHONPATH=$(CURDIR)/src tools/as -i $< -o $@ -f
+	$(Q) $(PYTHON) tools/as -i $< -o $@ -f
 
 
-%.f.out: %.f
+%.f.out: %.f $(FORTH_KERNEL)
 	$(eval tc_name     := $(notdir $(<:%.f=%)))
 	$(eval tc_coverage := $(CURDIR)/coverage/.coverage.forth-unit.$(tc_name))
 	$(eval tc_machine  := $(<:%.f=%.f.machine))
 	$(eval tc_expected := $(<:%.f=%.f.expected))
 	$(eval tc_diff     := $(<:%.f=%.f.diff))
-
+ifeq ($(COVERAGE),yes)
+	$(eval COVERAGE_FILE := COVERAGE_FILE="$(tc_coverage)")
+	$(eval COVERAGE_BIN  := $(VIRTUAL_ENV)/bin/coverage run)
+else
+	$(eval COVERAGE_FILE := )
+	$(eval COVERAGE_BIN  := )
+endif
 	$(Q)  echo "[TEST] FORTH $(tc_name)"
-	-$(Q) COVERAGE_FILE="$(tc_coverage)" PYTHONUNBUFFERED=yes PYTHONPATH=$(CURDIR)/src coverage run tools/vm $(PROFILE) -g --conio-echo=$(CONIO_ECHO) --conio-highlight=$(CONIO_HIGHLIGHT) --conio-console=no --machine-config=tests/forth/test-machine.conf --machine-in=tests/forth/enable-test-mode.f --machine-in=forth/ducky-forth.f --machine-in=$< --machine-in=tests/forth/run-test-word.f --machine-out=$@ $(VMDEBUG) &> $(tc_machine)
+	-$(Q) $(COVERAGE_FILE) PYTHONUNBUFFERED=yes $(PYTHON) $(COVERAGE_BIN) tools/vm $(PROFILE) -g --conio-stdout-echo=yes --conio-echo=$(CONIO_ECHO) --conio-highlight=$(CONIO_HIGHLIGHT) --conio-console=no --machine-config=tests/forth/test-machine.conf --machine-in=tests/forth/enable-test-mode.f --machine-in=forth/ducky-forth.f --machine-in=$< --machine-in=tests/forth/run-test-word.f --machine-out=$@ $(VMDEBUG) 2>&1 | stdbuf -oL -eL tee $(tc_machine) | grep -v -e '\[INFO\] ' -e '#> '
 	-$(Q) diff -u $(tc_expected) $@ &> $(tc_diff); \
 	      if [ "$$?" = "0" ]; then \
 				  $(CURDIR)/tests/xunit-record --add --file=$(CURDIR)/tests/forth.xml --ts=units --name=$(tc_name) --classname=$<; \
 				else \
 				  $(CURDIR)/tests/xunit-record --add --file=$(CURDIR)/tests/forth.xml --ts=units --name=$(tc_name) --classname=$< --result=fail; \
 				fi
-

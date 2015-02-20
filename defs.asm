@@ -23,6 +23,9 @@
 .def MATH_LTOI:   8
 .def MATH_IITOL: 10
 .def MATH_DUPL:  11
+.def MATH_UTOL:  12
+.def MATH_SYMDIVL: 13
+.def MATH_SYMMODL: 14
 
 
 ;

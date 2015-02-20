@@ -79,6 +79,10 @@ class LRUCache(collections.OrderedDict):
     self.misses  = 0
     self.prunes  = 0
 
+  def make_space(self):
+    self.popitem(last = False)
+    self.prunes += 1
+
   def __getitem__(self, key):
     debug('LRUCache: get: key=%s', key)
 
@@ -95,8 +99,7 @@ class LRUCache(collections.OrderedDict):
     debug('LRUCache: set: key=%s, value=%s', key, value)
 
     if len(self) == self.size:
-      self.popitem(last = False)
-      self.prunes += 1
+      self.make_space()
 
     super(LRUCache, self).__setitem__(key, value)
     self.inserts += 1

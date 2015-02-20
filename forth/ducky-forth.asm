@@ -57,7 +57,6 @@
 .def INT_VMDEBUG:    3
 .def INT_CONIO:      4
 
-
 .macro pushrsp reg:
   sub $RSP, $CELL
   stw $RSP, #reg
@@ -128,6 +127,12 @@ code_#label:
 .macro align4 reg, mask_reg:
   add #reg, 3
   and #reg, 0xFFFC
+.end
+
+.macro unpack_word_for_find:
+  mov r1, r0    ; copy c-addr to r1
+  add r0, $CELL ; point r0 to string
+  lw r1, r1     ; load string length
 .end
 
 
@@ -355,11 +360,11 @@ cold_start:
 
   .section .data
 
-  .type word_buffer, space
-  .space $WORD_SIZE
-
   .type word_buffer_length, int
   .int 0
+
+  .type word_buffer, space
+  .space $WORD_SIZE
 
   .type input_buffer, space
   .space $INPUT_BUFFER_SIZE
@@ -390,7 +395,7 @@ cold_start:
 ;
 $DEFVAR "UP", 2, 0, UP, HERE_INIT
 $DEFVAR "STATE", 5, 0, STATE, 0
-$DEFVAR "HERE", 4, 0, HERE, HERE_INIT
+$DEFVAR "DP", 4, 0, DP, HERE_INIT
 $DEFVAR "LATEST", 6, 0, LATEST, &name_BYE
 $DEFVAR "S0", 2, 0, SZ, 0
 $DEFVAR "BASE", 4, 0, BASE, 10
@@ -439,10 +444,11 @@ $DEFCODE "INTERPRET", 9, 0, INTERPRET
   ; search dictionary
   push r0
   push r1
+  $unpack_word_for_find
   call &.__FIND
   cmp r0, r0
   bz &.__INTERPRET_as_lit
-  pop r6 ; pop r1
+  pop r1
   pop r6 ; pop r0
   li r6, 0 ; restore interpret_as_lit
   mov r1, r0
@@ -458,6 +464,7 @@ $DEFCODE "INTERPRET", 9, 0, INTERPRET
   pop r1
   pop r0
   inc r6
+  $unpack_word_for_find
   call &.__NUMBER
   ; r0 - number, r1 - unparsed chars
   cmp r1, r1
@@ -604,21 +611,18 @@ $DEFCODE "TYPE", 4, 0, TYPE
 
 
 $DEFCODE "WORD", 4, 0, WORD
-  ; ( -- address length )
+  ; ( -- c-addr )
   call &.__WORD
   push r0
-  push r1
   $NEXT
 
 .__WORD:
   call &.__KEY
-  ; if key's backslash, comment starts - skip it, to the end of line
-  ; cmp r0, 0x5C ; backslash
-  ; be &.__WORD_skip_comment
   ; if key's lower or eaqual to space, it's considered as a white space, and ignored.
   ; this removes leading white space
   cmp r0, 0x20
   ble &.__WORD
+  push r1
   li r1, &word_buffer
 .__WORD_store_char:
   stb r1, r0
@@ -627,12 +631,9 @@ $DEFCODE "WORD", 4, 0, WORD
   cmp r0, 0x20 ; space
   bg &.__WORD_store_char
   sub r1, &word_buffer
-  ; save word length for debugging purposes
-  push r2
-  li r2, &word_buffer_length
-  stw r2, r1
-  pop r2
-  li r0, &word_buffer
+  li r0, &word_buffer_length
+  stw r0, r1
+  pop r1
   ; call &write_word_buffer
   ret
 .__WORD_skip_comment:
@@ -739,9 +740,12 @@ $DEFCODE "NUMBER", 6, 0, NUMBER
 
 
 $DEFCODE "FIND", 4, 0, FIND
-  ; ( address length -- address )
+  ; ( c-addr -- c-addr 0 | xt 1 | xt -1 )
+  ; ( c-addr -- c-addr )
   pop r1
-  pop r0
+  mov r0, r1
+  add r0, $CELL
+  lw r1, r1
   call &.__FIND
   push r0
   $NEXT
@@ -793,7 +797,16 @@ $DEFCODE "FIND", 4, 0, FIND
   ret
 
 
-$DEFCODE "'", 1, 0, TICK
+$DEFCODE "'", 1, $F_IMMED, TICK
+  call &.__WORD
+  $unpack_word_for_find
+  call &.__FIND
+  call &.__TCFA
+  push r0
+  $NEXT
+
+
+$DEFCODE "[']", 3, 0, BRACKET_TICK
   lw $W, $FIP
   push $W
   add $FIP, $CELL
@@ -824,6 +837,12 @@ $DEFWORD ">DFA", 4, 0, TDFA
   .int &EXIT
 
 
+$DEFCODE "EXECUTE", 7, 0, EXECUTE
+  pop $W
+  lw $X, $W
+  j $X
+
+
 $DEFCODE "LIT", 3, 0, LIT
   lw $W, $FIP
   push $W
@@ -832,29 +851,34 @@ $DEFCODE "LIT", 3, 0, LIT
 
 
 $DEFCODE "HEADER,", 7, 0, HEADER_COMMA
-  pop r1 ; length
-  pop r0 ; address
+  ; ( c-addr -- )
+  pop r1
+  mov r0, r1
+  add r0, $CELL
+  lw r1, r1
   call &.__HEADER_COMMA
   $NEXT
 
 .__HEADER_COMMA:
   ; save working registers
-  push r2 ; HERE address
-  push r3 ; HERE value
+  push r2 ; DP address
+  push r3 ; DP value
   push r4 ; LATEST address
   push r5 ; LATEST value
   push r6 ; flags/length
   push r7 ; current word char
   ; init registers
-  li r2, &var_HERE
+  li r2, &var_DP
   lw r3, r2
   li r4, &var_LATEST
   lw r5, r4
+  ; align DP, I want words aligned
+  $align2 r3
   ; store LATEST as a link value of new word
   stw r3, r5
   mov r5, r3
   stw r4, r5
-  ; and move HERE to next cell
+  ; and move DP to next cell
   add r3, 2
   ; save flags
   li r6, 0
@@ -863,7 +887,7 @@ $DEFCODE "HEADER,", 7, 0, HEADER_COMMA
   ; save unaligned length ...
   stb r3, r1
   inc r3
-  ; but shift HERE to next aligned address
+  ; but shift DP to next aligned address
   $align2 r3
   ; copy word name, using its original length
   mov r6, r1
@@ -874,10 +898,10 @@ $DEFCODE "HEADER,", 7, 0, HEADER_COMMA
   inc r0
   dec r6
   bnz &.__HEADER_COMMA_loop
-  ; align HERE - this will "add" padding byte to name automagicaly
+  ; align DP - this will "add" padding byte to name automagicaly
   $align2 r3
   ; save vars
-  stw r2, r3 ; HERE
+  stw r2, r3 ; DP
   stw r4, r5 ; LATEST
   ; restore working registers
   pop r7
@@ -895,9 +919,9 @@ $DEFCODE ",", 1, 0, COMMA
   $NEXT
 
 .__COMMA:
-  push r1 ; HERE address
-  push r2 ; HERE value
-  li r1, &var_HERE
+  push r1 ; DP address
+  push r2 ; DP value
+  li r1, &var_DP
   lw r2, r1
   stw r2, r0
   add r2, 2
@@ -1211,7 +1235,7 @@ $DEFCODE "/", 1, 0, DIV
   $NEXT
 
 
-$DEFCODE "MOD", 1, 0, MOD
+$DEFCODE "MOD", 3, 0, MOD
   ; ( a b -- <a % b> )
   pop $W
   pop $X
@@ -1360,13 +1384,21 @@ $DEFCODE "2SWAP", 5, 0, TWOSWAP
 $DEFCODE "CHAR", 4, 0, CHAR
   ; ( -- n )
   call &.__WORD
+  add r0, $CELL
   lb $W, r0 ; load the first character of next word into W...
   push $W
   $NEXT
 
 
-$DEFCODE "[CHAR]", 6, 0, BRACKETCHAR
-  j &code_CHAR
+$DEFCODE "[CHAR]", 6, $F_IMMED, BRACKETCHAR
+  call &.__WORD
+  add r0, $CELL
+  lb $W, r0
+  li r0, &LIT
+  call &.__COMMA
+  mov r0, $W
+  call &.__COMMA
+  $NEXT
 
 
 ;
@@ -1481,19 +1513,20 @@ $DEFCODE "C@", 2, 0, FETCHBYTE
 ;
 
 $DEFCODE "LITSTRING", 9, 0, LITSTRING
-  lw $W, $FIP
-  add $FIP, $CELL
-  push $FIP ; push address
-  push $W   ; push size
-  add $FIP, $W
-  $align2 $FIP
+  lw $W, $FIP     ; load length
+  push $FIP       ; push c-addr
+  add $FIP, $CELL ; skip length cell
+  add $FIP, $W    ; skip string
+  $align2 $FIP    ; align FIP
   $NEXT
 
 
 $DEFCODE "TELL", 4, 0, TELL
-  ; ( address size -- )
+  ; ( c-addr -- )
   pop r1
-  pop r0
+  mov r0, r1
+  add r0, $CELL
+  lw r1, r1
   call &write
   $NEXT
 
@@ -1569,6 +1602,12 @@ $DEFCODE "\", 1, $F_IMMED, BACKSLASH
   lw $W, $W
   li $X, &input_buffer_index
   stw $X, $W
+  $NEXT
+
+$DEFCODE "HERE", 4, 0, HERE
+  li $W, &var_DP
+  lw $W, $W
+  push $W
   $NEXT
 
 

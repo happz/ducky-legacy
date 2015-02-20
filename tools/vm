@@ -24,6 +24,7 @@ import machine
 import profiler
 
 from util import *
+from util import print_table
 
 def main():
   parser = optparse.OptionParser()
@@ -178,6 +179,9 @@ def main():
   table_inst_caches = [
     ['Core', 'Reads', 'Inserts', 'Hits', 'Misses', 'Prunes']
   ]
+  table_data_caches = [
+    ['Core', 'Reads', 'Inserts', 'Hits', 'Misses', 'Prunes']
+  ]
 
   def __check_stats(core):
     table_exits.append([str(core), core.exit_code])
@@ -191,15 +195,26 @@ def main():
       core.instruction_cache.prunes
     ])
 
+    table_data_caches.append([
+      str(core),
+      core.data_cache.reads,
+      core.data_cache.inserts,
+      core.data_cache.hits,
+      core.data_cache.misses,
+      core.data_cache.prunes
+    ])
+
   M.for_each_core(__check_stats)
 
-  for line in tabulate.tabulate(table_exits, headers = 'firstrow', tablefmt = 'simple', numalign = 'right').split('\n'):
-    info(line)
-
+  info('Exit codes')
+  print_table(table_exits)
   info('')
-
-  for line in tabulate.tabulate(table_inst_caches, headers = 'firstrow', tablefmt = 'simple', numalign = 'right').split('\n'):
-    info(line)
+  info('Instruction caches')
+  print_table(table_inst_caches)
+  info('')
+  info('Data caches')
+  print_table(table_data_caches)
+  info('')
 
   main_profiler.disable()
 

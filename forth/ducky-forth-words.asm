@@ -38,6 +38,7 @@ word_not_found:
 
 $DEFCODE "POSTPONE", 8, $F_IMMED, POSTPONE
   call &.__WORD
+  $unpack_word_for_find
   call &.__FIND
   cmp r0, r0
   bz &word_not_found
@@ -218,9 +219,10 @@ $DEFCODE "SPACES", 6, 0, SPACES
 
 $DEFCODE "FORGET", 6, 0, FORGET
   call &.__WORD
+  $unpack_word_for_find
   call &.__FIND
   li $W, &var_LATEST
-  li $X, &var_HERE
+  li $X, &var_DP
   lw $Y, r0
   stw $W, $Y
   stw $X, r0
@@ -249,11 +251,10 @@ $DEFCODE "?IMMEDIATE", 10, 0, ISIMMEDIATE
 
 
 $DEFWORD "IF", 2, $F_IMMED, IF
-  .int &TICK
+  .int &LIT
   .int &ZBRANCH
   .int &COMMA
   .int &HERE
-  .int &FETCH
   .int &LIT
   .int 0
   .int &COMMA
@@ -261,18 +262,16 @@ $DEFWORD "IF", 2, $F_IMMED, IF
 
 
 $DEFWORD "ELSE", 4, $F_IMMED, ELSE
-  .int &TICK
+  .int &LIT
   .int &BRANCH
   .int &COMMA
   .int &HERE
-  .int &FETCH
   .int &LIT
   .int 0
   .int &COMMA
   .int &SWAP
   .int &DUP
   .int &HERE
-  .int &FETCH
   .int &SWAP
   .int &SUB
   .int &SWAP
@@ -283,7 +282,6 @@ $DEFWORD "ELSE", 4, $F_IMMED, ELSE
 $DEFWORD "THEN", 4, $F_IMMED, THEN
   .int &DUP
   .int &HERE
-  .int &FETCH
   .int &SWAP
   .int &SUB
   .int &SWAP
@@ -304,9 +302,9 @@ $DEFCODE "RECURSE", 7, $F_IMMED, RECURSE
 
 $DEFCODE "BEGIN", 5, $F_IMMED, BEGIN
   ; ( -- HERE )
-  li r0, &var_HERE
-  lw r0, r0
-  push r0
+  li $W, &var_DP
+  lw $W, $W
+  push $W
   $NEXT
 
 
@@ -314,20 +312,19 @@ $DEFCODE "WHILE", 5, $F_IMMED, WHILE
   ; ( -- HERE )
   li r0, &ZBRANCH
   call &.__COMMA
-  li r0, &var_HERE
-  lw r0, r0
-  push r0
+  li $W, &var_DP
+  lw $W, $W
+  push $W
   li r0, 0
   call &.__COMMA
   $NEXT
 
 
 $DEFWORD "UNTIL", 5, $F_IMMED, UNTIL
-  .int &TICK
+  .int &LIT
   .int &ZBRANCH
   .int &COMMA
   .int &HERE
-  .int &FETCH
   .int &SUB
   .int &COMMA
   .int &EXIT
@@ -385,6 +382,63 @@ $DEFCODE "PICK", 4, 0, PICK
 ; - Strings -----------------------------------------------------------------------------
 
 
+__SQUOTE_read_and_store:
+  ; > r0 - ptr
+  ; < r0 - length
+  push r1 ; ptr
+  push r2 ; length
+  mov r1, r0 ; save ptr - r0 is used by __KEY
+  li r2, 0
+.__SQUOTE_read_and_store_loop:
+  call &.__KEY
+  cmp r0, 0x22
+  be &.__SQUOTE_read_and_store_finish
+  stb r1, r0
+  inc r1
+  inc r2
+  j &.__SQUOTE_read_and_store_loop
+.__SQUOTE_read_and_store_finish:
+  mov r0, r2
+  pop r2
+  pop r1
+  ret
+
+
+$DEFCODE "S\"", 2, $F_IMMED, SQUOTE
+  li r0, &var_STATE
+  lw r0, r0
+
+  li r4, &var_DP ; &DP
+  lw r5, r4        ; HERE
+
+  cmp r0, 0
+  be &.__SQUOTE_exec
+
+  ; r6 - &length
+  ; r7 - length
+  li r6, &LITSTRING
+  stw r5, r6
+  add r5, $CELL
+  mov r6, r5       ; &strlen
+  add r5, $CELL
+  mov r0, r5
+  call &__SQUOTE_read_and_store
+  stw r6, r0
+  add r5, r0
+  $align2 r5
+  stw r4, r5
+  j &.__SQUOTE_next
+
+.__SQUOTE_exec:
+  mov r0, r5
+  call &__SQUOTE_read_and_store
+  push r5
+  push r0
+
+.__SQUOTE_next:
+  $NEXT
+
+
 $DEFCODE "UWIDTH", 6, 0, UWIDTH
   ; ( u -- width )
   ; Returns the width (in characters) of an unsigned number in the current base
@@ -408,12 +462,19 @@ $DEFCODE "UWIDTH", 6, 0, UWIDTH
 
 
 $DEFCODE "C,", 2, 0, CSTORE
-  li $W, &var_HERE
-  lw $X, $W
-  pop $Y
-  stb $X, $Y
-  inc $X
-  stw $W, $X
+  ; ( char -- )
+  pop $W
+  li $X, &var_DP
+  lw $Y, $X
+  stb $Y, $W
+  inc $Y
+  stw $X, $Y
+  $NEXT
+
+
+$DEFCODE "CHARS", 5, 0, CHARS
+  ; ( n1 -- n2 )
+  ; this is in fact NOP - each char is 1 byte, n1 chars need n1 bytes of memory
   $NEXT
 
 
@@ -427,10 +488,46 @@ $DEFCODE "CELLS", 5, 0, CELLS
   $NEXT
 
 
+$DEFCODE "CELL+", 5, 0, CELLADD
+  ; ( a-addr1 -- a-addr2 )
+  pop $W
+  add $W, $CELL
+  push $W
+  $NEXT
+
+
+$DEFCODE "CHAR+", 5, 0, CHARADD
+  ; ( a-addr1 -- a-addr2 )
+  pop $W
+  inc $W
+  push $W
+  $NEXT
+
+
+$DEFCODE "2@", 2, 0, TWOFETCH
+  ; ( a-addr -- x1 x2 )
+  pop $W
+  lw $X, $W
+  lw $Y, $W[$CELL]
+  push $Y
+  push $X
+  $NEXT
+
+
+$DEFCODE "2!", 2, 0, TWOSTORE
+  ; ( x1 x2 a-addr -- )
+  pop $W
+  pop $X
+  pop $Y
+  stw $W, $X
+  stw $W[$CELL], $Y
+  $NEXT
+
+
 $DEFCODE "ALLOT", 5, 0, ALLOT
   ; (n -- )
   pop $W ; amount
-  li $X, &var_HERE
+  li $X, &var_DP
   lw $Y, $X
   add $Y, $W
   stw $X, $Y
@@ -439,7 +536,7 @@ $DEFCODE "ALLOT", 5, 0, ALLOT
 
 $DEFCODE "ALIGN", 5, 0, ALIGN
   ; ( -- )
-  li $W, &var_HERE
+  li $W, &var_DP
   lw $X, $W
   $align2 $X
   stw $W, $X
@@ -450,7 +547,7 @@ $DEFCODE "UNUSED", 6, 0, UNUSED
   ; ( -- u )
   li $W, &var_UP
   lw $W, $W
-  li $X, &var_HERE
+  li $X, &var_DP
   lw $X, $X
   sub $X, $W
   li $W, $USERSPACE_SIZE
@@ -583,8 +680,24 @@ $DEFCODE "ABS", 3, 0, ABS
   int $INT_MATH
 .end
 
+.macro DC_symdiv:
+  li r0, $MATH_SYMDIVL
+  int $INT_MATH
+.end
+
+.macro DC_symmod:
+  li r0, $MATH_SYMMODL
+  int $INT_MATH
+.end
+
 .macro DC_itos_to_l:
   li r0, $MATH_ITOL
+  pop r1
+  int $INT_MATH
+.end
+
+.macro DC_utos_to_l:
+  li r0, $MATH_UTOL
   pop r1
   int $INT_MATH
 .end
@@ -649,7 +762,21 @@ $DEFCODE "FM/MOD", 6, 0, FMMOD
 
 
 $DEFCODE "SM/REM", 6, 0, SMMOD
-  j &code_FMMOD
+  ; ( d1 n1 -- n2 n3 )
+  pop $W
+
+  $DC_dtos_to_l
+  $DC_dup
+
+  $DC_ir_to_l $W
+  $DC_symmod
+  $DC_l_to_itos
+
+  $DC_ir_to_l $W
+  $DC_symdiv
+  $DC_l_to_itos
+
+  $NEXT
 
 
 $DEFCODE "UM/MOD", 6, 0, UMMOD
@@ -658,10 +785,13 @@ $DEFCODE "UM/MOD", 6, 0, UMMOD
 
 $DEFCODE "*/", 2, 0, STARSLASH
   ; ( n1 n2 n3 -- n4 )
-  $DC_itos_to_l
-  $DC_itos_to_l
+  pop $W
+  pop $X
+  pop $Y
+  $DC_ir_to_l $Y
+  $DC_ir_to_l $X
   $DC_mul
-  $DC_itos_to_l
+  $DC_ir_to_l $W
   $DC_div
   $DC_l_to_itos
   $NEXT
@@ -669,25 +799,30 @@ $DEFCODE "*/", 2, 0, STARSLASH
 
 $DEFCODE "*/MOD", 5, 0, STARMOD
   ; ( n1 n2 n3 -- n4 n5 )
-  lw $W, sp[4]
+  pop $W
+  pop $X
+  pop $Y
 
-  $DC_itos_to_l
-  $DC_itos_to_l
+  $DC_ir_to_l $Y
+  $DC_ir_to_l $X
   $DC_mul
   $DC_dup
-  $DC_itos_to_l
+  $DC_ir_to_l $W
   $DC_mod
   $DC_l_to_itos
-  push $W
-  $DC_itos_to_l
+  $DC_ir_to_l $W
   $DC_div
   $DC_l_to_itos
   $NEXT
 
 
 $DEFCODE "UM*", 3, 0, UMSTAR
-  ; ( u1 u2 -- d )
-  j &code_MSTAR
+  ; ( u1 u2 -- ud )
+  $DC_utos_to_l
+  $DC_utos_to_l
+  $DC_mul
+  $DC_l_to_dtos
+  $NEXT
 
 
 ; This is fake - exceptions are not implemented yet

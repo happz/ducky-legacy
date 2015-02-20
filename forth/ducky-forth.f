@@ -13,35 +13,26 @@ VMDEBUGOFF
 \
 
 
-: CONSTANT WORD HEADER, DOCOL , ' LIT , , ' EXIT , ;
+: CONSTANT WORD HEADER, DOCOL , ['] LIT , , ['] EXIT , ;
 : VARIABLE WORD HEADER, DODOES , 0 ,  1 CELLS ALLOT ;
 : CREATE   WORD HEADER, DODOES , 0 ,  ;
 : DOES> R> LATEST @ >DFA ! ;
-: VALUE WORD HEADER, DOCOL , ' LIT , , ' EXIT , ;
+: VALUE WORD HEADER, DOCOL , ['] LIT , , ['] EXIT , ;
 
 
-\ : [COMPILE] IMMEDIATE WORD FIND >CFA , ;
-\ : IF IMMEDIATE ' 0BRANCH , HERE @ 0 , ;
-\ : THEN IMMEDIATE DUP HERE @ SWAP - SWAP ! ;
-\ : ELSE IMMEDIATE ' BRANCH , HERE @ 0 , SWAP DUP HERE @ SWAP - SWAP ! ;
-\ : BEGIN IMMEDIATE HERE @ ;
-\ : WHILE IMMEDIATE ' 0BRANCH , HERE @ 0 , ;
-: REPEAT IMMEDIATE ' BRANCH , SWAP HERE @ - , DUP HERE @ SWAP - SWAP ! ;
-\ : RECURSE IMMEDIATE LATEST @ >CFA , ;
-\ : UNTIL IMMEDIATE ' 0BRANCH ,	HERE @ - , ;
-: AGAIN IMMEDIATE ' BRANCH , HERE @ -	, ;
-: UNLESS IMMEDIATE ' NOT , [COMPILE] IF ;
+: REPEAT IMMEDIATE ['] BRANCH , SWAP HERE - , DUP HERE SWAP - SWAP ! ;
+: AGAIN IMMEDIATE ['] BRANCH , HERE - , ;
+: UNLESS IMMEDIATE ['] NOT , [COMPILE] IF ;
 
 CREATE LEAVE-SP 32 CELLS ALLOT
 LEAVE-SP LEAVE-SP !
 
-: LEAVE IMMEDIATE ' UNLOOP , ' BRANCH , LEAVE-SP @ LEAVE-SP - 31 CELLS > IF ABORT THEN 1 CELLS LEAVE-SP +! HERE @ LEAVE-SP @ ! 0 , ;
-: RESOLVE-DO IF DUP HERE @ - , DUP 2 CELLS - HERE @ OVER - SWAP ! ELSE DUP HERE @ - , THEN ;
-: RESOLVE-LEAVES BEGIN LEAVE-SP @ @ OVER > LEAVE-SP @ LEAVE-SP > AND WHILE HERE @ LEAVE-SP @ @ - LEAVE-SP @ @ ! 1 CELLS NEGATE LEAVE-SP +! REPEAT DROP ;
-: DO IMMEDIATE ' (DO) , HERE @ 0 ;
-: ?DO IMMEDIATE ' 2DUP , ' <> , ' 0BRANCH , 0 , ' (DO) , HERE @ 1 ;
-: LOOP IMMEDIATE ' (LOOP) , RESOLVE-DO RESOLVE-LEAVES ;
-\ : +LOOP IMMEDIATE ' (+LOOP) , RESOLVE-DO RESOLVE-LEAVES ;
+: LEAVE IMMEDIATE ['] UNLOOP , ['] BRANCH , LEAVE-SP @ LEAVE-SP - 31 CELLS > IF ABORT THEN 1 CELLS LEAVE-SP +! HERE LEAVE-SP @ ! 0 , ;
+: RESOLVE-DO IF DUP HERE - , DUP 2 CELLS - HERE OVER - SWAP ! ELSE DUP HERE - , THEN ;
+: RESOLVE-LEAVES BEGIN LEAVE-SP @ @ OVER > LEAVE-SP @ LEAVE-SP > AND WHILE HERE LEAVE-SP @ @ - LEAVE-SP @ @ ! 1 CELLS NEGATE LEAVE-SP +! REPEAT DROP ;
+: DO IMMEDIATE ['] (DO) , HERE 0 ;
+: ?DO IMMEDIATE ['] 2DUP , ['] <> , ['] 0BRANCH , 0 , ['] (DO) , HERE 1 ;
+: LOOP IMMEDIATE ['] (LOOP) , RESOLVE-DO RESOLVE-LEAVES ;
 
 
 \ PRINTING NUMBERS ----------------------------------------------------------------------
@@ -137,44 +128,12 @@ LEAVE-SP LEAVE-SP !
 
 
 \ - STRINGS ---------------------------------------------------------------------
-: S" IMMEDIATE		( -- addr len )
-	STATE @ IF	( compiling? )
-		' LITSTRING ,	( compile LITSTRING )
-		HERE @		( save the address of the length word on the stack )
-		0 ,		( dummy length - we don't know what it is yet )
-		BEGIN
-			KEY 		( get next character of the string )
-			DUP '"' <>
-		WHILE
-			C,		( copy character )
-		REPEAT
-		DROP		( drop the double quote character at the end )
-		DUP		( get the saved address of the length word )
-		HERE @ SWAP -	( calculate the length )
-		2-		( subtract 2 (because we measured from the start of the length word) )
-		SWAP !		( and back-fill the length location )
-		ALIGN		( round up to next multiple of 2 bytes for the remaining code )
-	ELSE		( immediate mode )
-		HERE @		( get the start address of the temporary space )
-		BEGIN
-			KEY
-			DUP '"' <>
-		WHILE
-			OVER C!		( save next character )
-			1+		( increment address )
-		REPEAT
-		DROP		( drop the final " character )
-		HERE @ -	( calculate the length )
-		HERE @		( push the start address )
-		SWAP 		( addr len )
-	THEN
-;
 
 \ ." is the print string operator in FORTH.  Example: ." Something to print"
 : ." IMMEDIATE		( -- )
 	STATE @ IF	( compiling? )
 		[COMPILE] S"	( read the string, and compile LITSTRING, etc. )
-		' TELL ,	( compile the final TELL )
+		['] TELL , ( compile the final TELL )
 	ELSE
 		( In immediate mode, just read characters and print them until we get
 		  to the ending double quote. )
@@ -195,9 +154,9 @@ LEAVE-SP LEAVE-SP !
 	>DFA		( get a pointer to the first data field (the 'LIT') )
 	2+		( increment to point at the value )
 	STATE @ IF	( compiling? )
-		' LIT ,		( compile LIT )
+		['] LIT	,	( compile LIT )
 		,		( compile the address of the value )
-		' ! ,		( compile ! )
+		['] !	,	( compile ! )
 	ELSE		( immediate mode )
 		!		( update it straightaway )
 	THEN
@@ -210,9 +169,9 @@ LEAVE-SP LEAVE-SP !
 	>DFA		( get a pointer to the first data field (the 'LIT') )
 	2+		( increment to point at the value )
 	STATE @ IF	( compiling? )
-		' LIT ,		( compile LIT )
+		['] LIT	,	( compile LIT )
 		,		( compile the address of the value )
-		' +! ,		( compile +! )
+		['] +! ,		( compile +! )
 	ELSE		( immediate mode )
 		+!		( update it straightaway )
 	THEN
@@ -235,13 +194,6 @@ LEAVE-SP LEAVE-SP !
 	REPEAT
 	2DROP		( len addr -- )
 ;
-
-\ 'WORD word FIND ?HIDDEN' returns true if 'word' is flagged as hidden.
-\ : ?HIDDEN 2+ C@ F_HIDDEN AND ;
-
-\ 'WORD word FIND ?IMMEDIATE' returns true if 'word' is flagged as immediate.
-\ : ?IMMEDIATE 2+ C@ F_IMMED AND ;
-
 
 \ WORDS prints all the words defined in the dictionary, starting with the word defined most recently.
 \ However it doesn't print hidden words.
@@ -319,10 +271,10 @@ LEAVE-SP LEAVE-SP !
 ;
 
 : OF IMMEDIATE
-	' OVER ,	( compile OVER )
-	' = ,		( compile = )
+	['] OVER , ( compile OVER )
+	['] = ,		( compile = )
 	[COMPILE] IF	( compile IF )
-	' DROP , ( compile DROP )
+	['] DROP , ( compile DROP )
 ;
 
 : ENDOF IMMEDIATE
@@ -330,7 +282,7 @@ LEAVE-SP LEAVE-SP !
 ;
 
 : ENDCASE IMMEDIATE
-	' DROP ,	( compile DROP )
+	['] DROP , ( compile DROP )
 
 	( keep compiling THEN until we get to our zero marker )
 	BEGIN
