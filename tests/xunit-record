@@ -40,6 +40,7 @@ def main():
   opt_group.add_option('--time', dest = 'time', default = None)
   opt_group.add_option('--result', dest = 'result', type = 'choice', choices = ['pass', 'fail'], default = 'pass')
   opt_group.add_option('--message', dest = 'message', default = None)
+  opt_group.add_option('--diff', dest = 'diff', default = None)
 
   options, args = parser.parse_args()
 
@@ -72,6 +73,11 @@ def main():
         tc_fail_tag['message'] = options.message
 
       tc_tag.append(tc_fail_tag)
+
+      if options.diff:
+        with open(options.diff, 'r') as f:
+          diff = f.read()
+        tc_fail_tag.string = diff
 
     ts_tag = soup.find('testsuite', attrs = {'name': options.testsuite})
     ts_tag.append(tc_tag)

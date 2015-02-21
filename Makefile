@@ -52,7 +52,7 @@ tests-pre:
 	$(Q) mkdir -p $(CURDIR)/profile
 	$(Q) rm -f $(shell find $(CURDIR)/coverage -name '.coverage.*') $(shell find $(CURDIR)/tests -name '*.xml') $(shell find $(CURDIR)/tests -name '*.out') $(shell find $(CURDIR)/tests -name '*.machine') $(shell find $(CURDIR)/tests -name '*.diff')
 	$(Q) rm -rf coverage/* profile/*
-	$(Q) $(CURDIR)/tests/xunit-record --init --file=$(CURDIR)/tests/forth.xml --testsuite=units --testsuite=ans
+	$(Q) $(CURDIR)/tests/xunit-record --init --file=$(CURDIR)/tests/forth.xml --testsuite=forth.units --testsuite=forth.ans
 
 tests-engine: tests/instructions/interrupts-basic.bin
 	$(Q)  echo "[TEST] Engine unit tests"
@@ -134,5 +134,5 @@ endif
 	      if [ "$$?" = "0" ]; then \
 				  $(CURDIR)/tests/xunit-record --add --file=$(CURDIR)/tests/forth.xml --ts=units --name=$(tc_name) --classname=$<; \
 				else \
-				  $(CURDIR)/tests/xunit-record --add --file=$(CURDIR)/tests/forth.xml --ts=units --name=$(tc_name) --classname=$< --result=fail; \
+				  $(CURDIR)/tests/xunit-record --add --file=$(CURDIR)/tests/forth.xml --ts=units --name=$(tc_name) --classname=$< --result=fail --message="Actual output failed to match the expected" --diff=$(tc_diff); \
 				fi
