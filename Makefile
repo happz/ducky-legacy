@@ -132,7 +132,7 @@ endif
 	-$(Q) $(COVERAGE_FILE) PYTHONUNBUFFERED=yes $(PYTHON) $(COVERAGE_BIN) tools/vm $(PROFILE) -g --conio-stdout-echo=yes --conio-echo=$(CONIO_ECHO) --conio-highlight=$(CONIO_HIGHLIGHT) --conio-console=no --machine-config=tests/forth/test-machine.conf --machine-in=tests/forth/enable-test-mode.f --machine-in=forth/ducky-forth.f --machine-in=$< --machine-in=tests/forth/run-test-word.f --machine-out=$@ $(VMDEBUG) 2>&1 | stdbuf -oL -eL tee $(tc_machine) | grep -v -e '\[INFO\] ' -e '#> '
 	-$(Q) diff -u $(tc_expected) $@ &> $(tc_diff); \
 	      if [ "$$?" = "0" ]; then \
-				  $(CURDIR)/tests/xunit-record --add --file=$(CURDIR)/tests/forth.xml --ts=units --name=$(tc_name) --classname=$<; \
+				  $(CURDIR)/tests/xunit-record --add --file=$(CURDIR)/tests/forth.xml --ts=forth.units --name=$(tc_name) --classname=$<; \
 				else \
-				  $(CURDIR)/tests/xunit-record --add --file=$(CURDIR)/tests/forth.xml --ts=units --name=$(tc_name) --classname=$< --result=fail --message="Actual output failed to match the expected" --diff=$(tc_diff); \
+				  $(CURDIR)/tests/xunit-record --add --file=$(CURDIR)/tests/forth.xml --ts=forth.units --name=$(tc_name) --classname=$< --result=fail --message="Actual output failed to match the expected" --diff=$(tc_diff); \
 				fi
