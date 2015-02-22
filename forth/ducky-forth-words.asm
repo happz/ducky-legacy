@@ -17,10 +17,15 @@
 ; use DEFWORD for them...
 ;
 
+
+$DEFCODE "ENVIRONMENT?", 12, 0, ENVIRONMENT
+  j &.__CMP_false
+
+
 $DEFWORD "[COMPILE]", 9, $F_IMMED, BCOMPILE
   .int &WORD
   .int &FIND
-  .int &TCFA
+  .int &DROP
   .int &COMMA
   .int &EXIT
 
@@ -63,14 +68,6 @@ $DEFCODE "(", 1, $F_IMMED, PAREN
   dec $W
   bnz &.__PAREN_loop
   $NEXT
-
-
-$DEFCODE "CORE", 4, 0, CORE
-  j &.__CMP_false
-
-
-$DEFCODE "CORE-EXT", 8, 0, COREEXT
-  j &.__CMP_false
 
 
 ; - Character constants -----------------------------------------------------------------
@@ -382,60 +379,92 @@ $DEFCODE "PICK", 4, 0, PICK
 ; - Strings -----------------------------------------------------------------------------
 
 
-__SQUOTE_read_and_store:
+__string_read_and_store:
   ; > r0 - ptr
   ; < r0 - length
   push r1 ; ptr
   push r2 ; length
   mov r1, r0 ; save ptr - r0 is used by __KEY
   li r2, 0
-.__SQUOTE_read_and_store_loop:
+.__string_read_and_store_loop:
   call &.__KEY
   cmp r0, 0x22
-  be &.__SQUOTE_read_and_store_finish
+  be &.__string_read_and_store_finish
   stb r1, r0
   inc r1
   inc r2
-  j &.__SQUOTE_read_and_store_loop
-.__SQUOTE_read_and_store_finish:
+  j &.__string_read_and_store_loop
+.__string_read_and_store_finish:
   mov r0, r2
   pop r2
   pop r1
   ret
 
 
-$DEFCODE "S\"", 2, $F_IMMED, SQUOTE
-  li r0, &var_STATE
-  lw r0, r0
+.__string_quote:
+  ; r0 contains LITSTRING variant this routine should push
+  push r1
+  push r4
+  push r5
 
-  li r4, &var_DP ; &DP
-  lw r5, r4        ; HERE
+  li r1, &var_STATE
+  lw r1, r1
 
-  cmp r0, 0
-  be &.__SQUOTE_exec
+  li r4, &var_DP
+  lw r5, r4
+
+  cmp r1, 0
+  be &.__string_quote_exec
 
   ; r6 - &length
   ; r7 - length
-  li r6, &LITSTRING
-  stw r5, r6
+  stw r5, r0
   add r5, $CELL
   mov r6, r5       ; &strlen
-  add r5, $CELL
+  inc r5
   mov r0, r5
-  call &__SQUOTE_read_and_store
-  stw r6, r0
+  call &__string_read_and_store
+  stb r6, r0
   add r5, r0
   $align2 r5
   stw r4, r5
-  j &.__SQUOTE_next
 
-.__SQUOTE_exec:
+.__string_quote_quit:
+  pop r5
+  pop r4
+  pop r1
+  ret
+
+.__string_quote_exec:
+  mov r4, r0
   mov r0, r5
-  call &__SQUOTE_read_and_store
-  push r5
-  push r0
+  call &__string_read_and_store
+  ; r0 = string length
+  ; r5 = HERE before storing string, i.e. its length cell, c-addr
+  ; r4 = original LITSTRING variant
+  cmp r4, &SQUOTE_LITSTRING
+  bne &.__string_quote_cquote_litstring
+  ; r5 points to HERE before storing string, i.e. its length cell, c-addr
+  inc r5 ; now it points to string itself
+  push r5 ; push it
+  push r0 ; and push string length
+  j &.__string_quote_quit
+.__string_quote_cquote_litstring:
+  push r5 ; push c-addr
+  j &.__string_quote_quit
 
-.__SQUOTE_next:
+
+$DEFCODE "S\"", 2, $F_IMMED, SQUOTE
+  ; ( -- c-addr u )
+  li r0, &SQUOTE_LITSTRING
+  call &.__string_quote
+  $NEXT
+
+
+$DEFCODE "C\"", 2, $F_IMMED, CQUOTE
+  ; ( -- c-addr )
+  li r0, &CQUOTE_LITSTRING
+  call &.__string_quote
   $NEXT
 
 
@@ -475,6 +504,16 @@ $DEFCODE "C,", 2, 0, CSTORE
 $DEFCODE "CHARS", 5, 0, CHARS
   ; ( n1 -- n2 )
   ; this is in fact NOP - each char is 1 byte, n1 chars need n1 bytes of memory
+  $NEXT
+
+
+$DEFCODE "COUNT", 5, 0, COUNT
+  ; ( c-addr -- c-addr u )
+  pop $W
+  lb $X, $W
+  inc $W
+  push $W
+  push $X
   $NEXT
 
 

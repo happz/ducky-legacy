@@ -148,35 +148,6 @@ LEAVE-SP LEAVE-SP !
 	THEN
 ;
 
-: TO IMMEDIATE	( n -- )
-	WORD		( get the name of the value )
-	FIND		( look it up in the dictionary )
-	>DFA		( get a pointer to the first data field (the 'LIT') )
-	2+		( increment to point at the value )
-	STATE @ IF	( compiling? )
-		['] LIT	,	( compile LIT )
-		,		( compile the address of the value )
-		['] !	,	( compile ! )
-	ELSE		( immediate mode )
-		!		( update it straightaway )
-	THEN
-;
-
-( x +TO VAL adds x to VAL )
-: +TO IMMEDIATE
-	WORD		( get the name of the value )
-	FIND		( look it up in the dictionary )
-	>DFA		( get a pointer to the first data field (the 'LIT') )
-	2+		( increment to point at the value )
-	STATE @ IF	( compiling? )
-		['] LIT	,	( compile LIT )
-		,		( compile the address of the value )
-		['] +! ,		( compile +! )
-	ELSE		( immediate mode )
-		+!		( update it straightaway )
-	THEN
-;
-
 \ - PRINTING THE DICTIONARY ---------------------------------------------------------------------
 
 \ ID. takes an address of a dictionary entry and prints the word's name.
@@ -210,8 +181,6 @@ LEAVE-SP LEAVE-SP !
 	REPEAT
 	CR
 ;
-
-\ : FORGET WORD FIND DUP @ LATEST !	HERE ! ;
 
 \ DUMP is used to dump out the contents of memory, in the 'traditional' hexdump format.
 : DUMP		( addr len -- )
@@ -314,7 +283,7 @@ LEAVE-SP LEAVE-SP !
 \ - WELCOME MESSAGE ---------------------------------------------------------------------
 
 : WELCOME
-  S" TEST-MODE" FIND NOT IF
+  C" TEST-MODE" FIND SWAP DROP NOT IF
     ." DuckyFORTH VERSION " VERSION . CR
     UNUSED . ." CELLS REMAINING" CR
     ." OK " CR

@@ -179,9 +179,15 @@ class DataSlot(object):
     pass
 
 class ByteSlot(DataSlot):
+  symbol_type = mm.binary.SymbolDataTypes.CHAR
+
   def close(self):
-    self.value = UInt8(self.value or 0)
     self.size = UInt16(1)
+
+    if self.refers_to:
+      return
+
+    self.value = UInt8(self.value or 0)
 
   def __repr__(self):
     return '<ByteSlot: name=%s, size=%s, section=%s, value=%s>' % (self.name, self.size, self.section.name if self.section else '', self.value)
@@ -309,6 +315,26 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False):
     else:
       return None
 
+  def __parse_byte(var, line):
+    matches = r_byte.match(line).groupdict()
+
+    if 'value_dec' in matches and matches['value_dec']:
+      var.value = int(matches['value_dec'])
+
+    elif 'value_hex' in matches and matches['value_hex']:
+      var.value = int(matches['value_hex'], base = 16)
+
+    elif 'value_var' in matches and matches['value_var']:
+      referred_var = variables[matches['value_var']]
+
+      if type(referred_var) is types.IntType:
+        var.value = referred_var
+      else:
+        var.refers_to = referred_var
+
+    else:
+      assert False, matches
+
   def __parse_int(var, line):
     matches = r_int.match(line).groupdict()
 
@@ -406,6 +432,9 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False):
 
         elif v_type == 'space':
           __parse_space(var, line)
+
+        elif v_type == 'byte':
+          __parse_byte(var, line)
 
         else:
           raise CompilationError('Unknown variable type: %s' % v_type)

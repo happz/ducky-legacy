@@ -131,8 +131,8 @@ code_#label:
 
 .macro unpack_word_for_find:
   mov r1, r0    ; copy c-addr to r1
-  add r0, $CELL ; point r0 to string
-  lw r1, r1     ; load string length
+  inc r0        ; point r0 to string
+  lb r1, r1     ; load string length
 .end
 
 
@@ -254,7 +254,7 @@ write_word_buffer:
   ; word buffer
   li r0, &word_buffer
   li r1, &word_buffer_length
-  lw r1, r1
+  lb r1, r1
   call &write
   ; postfix + new line
   li r0, &buffer_print_postfix
@@ -360,8 +360,11 @@ cold_start:
 
   .section .data
 
-  .type word_buffer_length, int
-  .int 0
+  .type __unused__, byte
+  .byte 0
+
+  .type word_buffer_length, byte
+  .byte 0
 
   .type word_buffer, space
   .space $WORD_SIZE
@@ -510,7 +513,7 @@ $DEFCODE "INTERPRET", 9, 0, INTERPRET
   ; input buffer
   li r0, &input_buffer
   li r1, &input_buffer_length
-  lw r1, r1
+  lb r1, r1
   call &write
   ; new line
   li r0, 0
@@ -632,7 +635,7 @@ $DEFCODE "WORD", 4, 0, WORD
   bg &.__WORD_store_char
   sub r1, &word_buffer
   li r0, &word_buffer_length
-  stw r0, r1
+  stb r0, r1
   pop r1
   ; call &write_word_buffer
   ret
@@ -740,15 +743,22 @@ $DEFCODE "NUMBER", 6, 0, NUMBER
 
 
 $DEFCODE "FIND", 4, 0, FIND
-  ; ( c-addr -- c-addr 0 | xt 1 | xt -1 )
-  ; ( c-addr -- c-addr )
+  ; ( c-addr -- 0 0 | xt 1 | xt -1 )
   pop r1
   mov r0, r1
-  add r0, $CELL
-  lw r1, r1
+  inc r0
+  lb r1, r1
   call &.__FIND
+  cmp r0, 0
+  bz &.__FIND_next
+  push r1
+  call &.__TCFA
+  pop r1
   push r0
+  push r1
+.__FIND_next:
   $NEXT
+
 
 .__FIND:
   ; r0 - address
@@ -789,11 +799,21 @@ $DEFCODE "FIND", 4, 0, FIND
   pop r1
   pop r0
   mov r0, r2
+  add r2, $wr_flags
+  lb r2, r2
+  and r2, $F_IMMED
+  bnz &.__FIND_immed
+  li r1, 0xFFFF
+  j &.__FIND_finish
+.__FIND_immed:
+  li r1, 1
+.__FIND_finish:
   pop r2
   ret
 .__FIND_fail:
   pop r2
   li r0, 0
+  li r1, 0
   ret
 
 
@@ -854,8 +874,8 @@ $DEFCODE "HEADER,", 7, 0, HEADER_COMMA
   ; ( c-addr -- )
   pop r1
   mov r0, r1
-  add r0, $CELL
-  lw r1, r1
+  inc r0
+  lb r1, r1
   call &.__HEADER_COMMA
   $NEXT
 
@@ -1016,6 +1036,7 @@ $DEFWORD "QUIT", 4, 0, QUIT
 $DEFWORD "HIDE", 4, 0, HIDE
   .int &WORD
   .int &FIND
+  .int &DROP
   .int &HIDDEN
   .int &EXIT
 
@@ -1384,7 +1405,7 @@ $DEFCODE "2SWAP", 5, 0, TWOSWAP
 $DEFCODE "CHAR", 4, 0, CHAR
   ; ( -- n )
   call &.__WORD
-  add r0, $CELL
+  inc r0
   lb $W, r0 ; load the first character of next word into W...
   push $W
   $NEXT
@@ -1392,7 +1413,7 @@ $DEFCODE "CHAR", 4, 0, CHAR
 
 $DEFCODE "[CHAR]", 6, $F_IMMED, BRACKETCHAR
   call &.__WORD
-  add r0, $CELL
+  inc r0
   lb $W, r0
   li r0, &LIT
   call &.__COMMA
@@ -1512,21 +1533,30 @@ $DEFCODE "C@", 2, 0, FETCHBYTE
 ; Strings
 ;
 
-$DEFCODE "LITSTRING", 9, 0, LITSTRING
-  lw $W, $FIP     ; load length
+$DEFCODE "SQUOTE_LITSTRING", 9, 0, SQUOTE_LITSTRING
+  ; ( -- c-addr u )
+  lb $W, $FIP     ; load length
+  inc $FIP        ; FIP points to string
+  push $FIP       ; push string addr
+  push $W         ; push string length
+  add $FIP, $W    ; skip string
+  $align2 $FIP    ; align FIP
+  $NEXT
+
+$DEFCODE "CQUOTE_LITSTRING", 9, 0, CQUOTE_LITSTRING
+  ; ( -- c-addr )
   push $FIP       ; push c-addr
-  add $FIP, $CELL ; skip length cell
+  lb $W, $FIP     ; load string length
+  inc $FIP        ; skip length
   add $FIP, $W    ; skip string
   $align2 $FIP    ; align FIP
   $NEXT
 
 
 $DEFCODE "TELL", 4, 0, TELL
-  ; ( c-addr -- )
+  ; ( c-addr u -- )
   pop r1
-  mov r0, r1
-  add r0, $CELL
-  lw r1, r1
+  pop r0
   call &write
   $NEXT
 
