@@ -519,6 +519,15 @@ $DEFCODE "COUNT", 5, 0, COUNT
 
 ; - Memory ------------------------------------------------------------------------------
 
+
+$DEFCODE ">BODY", 5, 0, TOBODY
+  ; ( xt -- a-addr )
+  pop $W
+  add $W, $CELL
+  push $W
+  $NEXT
+
+
 $DEFCODE "CELLS", 5, 0, CELLS
   ; ( n -- cell_size*n )
   pop $W

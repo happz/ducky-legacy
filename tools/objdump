@@ -101,7 +101,7 @@ def show_symbols(f):
   f_header = f.get_header()
 
   table = [
-    ['Name', 'Section', 'Address', 'Type', 'Size', 'Content']
+    ['Name', 'Section', 'Address', 'Type', 'Size', 'File', 'Line', 'Content']
   ]
 
   for i in range(0, f_header.sections):
@@ -118,7 +118,9 @@ def show_symbols(f):
         f.string_table.get_string(_header.name),
         ADDR_FMT(entry.address),
         '%s (%i)' % (mm.binary.SYMBOL_DATA_TYPES[entry.type], entry.type),
-        SIZE_FMT(entry.size)
+        SIZE_FMT(entry.size),
+        f.string_table.get_string(entry.filename),
+        entry.lineno
       ]
 
       symbol_content = ''

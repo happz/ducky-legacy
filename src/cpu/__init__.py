@@ -526,6 +526,10 @@ class CPUCore(object):
       if reg.u16 == 0:
         F.z = 1
 
+      x = ctypes.cast((ctypes.c_ushort * 1)(reg.u16), ctypes.POINTER(ctypes.c_short)).contents.value
+      if x < 0:
+        F.s = 1
+
   def RI_VAL(self, inst):
     return self.registers.map[inst.ireg].u16 if inst.is_reg == 1 else inst.immediate
 
@@ -663,6 +667,7 @@ class CPUCore(object):
     self.check_protected_reg(inst.reg)
 
     self.__pop(inst.reg)
+    self.__update_arith_flags(self.registers.map[inst.reg])
 
   def inst_INC(self, inst):
     self.check_protected_reg(inst.reg)

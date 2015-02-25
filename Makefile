@@ -47,6 +47,16 @@ else
 endif
 
 
+run:
+ifeq ($(COVERAGE),yes)
+	$(eval COVERAGE_FILE := COVERAGE_FILE="$(CURDIR)/coverage/.coverage.run")
+	$(eval COVERAGE_BIN  := $(VIRTUAL_ENV)/bin/coverage run)
+else
+	$(eval COVERAGE_FILE := )
+	$(eval COVERAGE_BIN  := )
+endif
+	$(Q) $(COVERAGE_FILE) PYTHONUNBUFFERED=yes $(PYTHON) $(COVERAGE_BIN) tools/vm --conio-echo=no --conio-highlight=no --machine-config=tests/forth/test-machine.conf --machine-in=forth/ducky-forth.f
+
 tests-pre:
 	$(Q) mkdir -p $(CURDIR)/coverage
 	$(Q) mkdir -p $(CURDIR)/profile
@@ -112,7 +122,7 @@ clean: tests-pre
 #
 %.bin: %.asm
 	$(Q) echo "[COMPILE] $< => $@"
-	$(Q) $(PYTHON) tools/as -i $< -o $@ -f
+	$(Q) $(PYTHON) tools/as -i $< -o $@ -f $(VMDEBUG)
 
 
 %.f.out: %.f $(FORTH_KERNEL)

@@ -1,15 +1,14 @@
-import collections
 import ctypes
 import enum
 import re
 import types
 
-from ctypes import LittleEndianStructure, Union, c_uint, c_int
+from ctypes import LittleEndianStructure, c_uint, c_int
 
 from util import debug
-from mm import UInt32, UInt16, UINT16_FMT, ADDR_FMT, OFFSET_FMT
+from mm import UInt32, UINT16_FMT, OFFSET_FMT
 from cpu.registers import Registers, REGISTER_NAMES
-from cpu.errors import CompilationError, InvalidOpcode
+from cpu.errors import InvalidOpcode
 
 class Opcodes(enum.IntEnum):
   NOP    =  0
@@ -169,7 +168,7 @@ class InstDescriptor(object):
   def __init__(self):
     super(InstDescriptor, self).__init__()
 
-    pattern = self.mnemonic
+    pattern = r'\s*' + self.mnemonic
 
     if self.operands:
       operand_patterns = []
@@ -211,7 +210,7 @@ class InstDescriptor(object):
     return []
 
   def emit_instruction(self, line):
-    debug('emit_instruction: %s' % line)
+    debug('emit_instruction: input line: %s' % line)
 
     master = InstBinaryFormat_Master()
     master.overall.u16 = 0
@@ -319,11 +318,11 @@ class InstDescriptor_Generic_Unary_RI(InstDescriptor):
       inst.is_reg = 1
       inst.ireg = v
 
-    elif type(v) == types.IntType:
+    elif isinstance(v, types.IntType):
       inst.is_reg = 0
       inst.immediate = v
 
-    elif type(v) == types.StringType:
+    elif isinstance(v, types.StringType):
       inst.is_reg = 0
       inst.refers_to = v
 
@@ -350,7 +349,7 @@ class InstDescriptor_Generic_Binary_R_I(InstDescriptor):
 
     v = operands[1]
 
-    if type(v) == types.IntType:
+    if isinstance(v, types.IntType):
       inst.immediate = v
 
     else:
@@ -380,11 +379,11 @@ class InstDescriptor_Generic_Binary_R_RI(InstDescriptor):
       inst.is_reg = 1
       inst.ireg = v
 
-    elif type(v) == types.IntType:
+    elif isinstance(v, types.IntType):
       inst.is_reg = 0
       inst.immediate = v
 
-    elif type(v) == types.StringType:
+    elif isinstance(v, types.StringType):
       inst.is_reg = 0
       inst.refers_to = v
 
@@ -415,11 +414,11 @@ class InstDescriptor_Generic_Binary_RI_R(InstDescriptor):
       inst.is_reg = 1
       inst.ireg = v
 
-    elif type(v) == types.IntType:
+    elif isinstance(v, types.IntType):
       inst.is_reg = 0
       inst.immediate = v
 
-    elif type(v) == types.StringType:
+    elif isinstance(v, types.StringType):
       inst.is_reg = 0
       inst.refers_to = v
 
@@ -756,55 +755,55 @@ class Inst_MOD(InstDescriptor_Generic_Binary_R_RI):
   opcode = Opcodes.MOD
 
 INSTRUCTIONS = [
-Inst_NOP(),
-Inst_INT(),
-Inst_RETINT(),
-Inst_CALL(),
-Inst_RET(),
-Inst_CLI(),
-Inst_STI(),
-Inst_HLT(),
-Inst_RST(),
-Inst_IDLE(),
-Inst_PUSH(),
-Inst_POP(),
-Inst_INC(),
-Inst_DEC(),
-Inst_ADD(),
-Inst_SUB(),
-Inst_CMP(),
-Inst_J(),
-Inst_BE(),
-Inst_BNE(),
-Inst_BNS(),
-Inst_BNZ(),
-Inst_BS(),
-Inst_BZ(),
-Inst_BG(),
-Inst_BGE(),
-Inst_BL(),
-Inst_BLE(),
-Inst_IN(),
-Inst_INB(),
-Inst_OUT(),
-Inst_OUTB(),
-Inst_AND(),
-Inst_OR(),
-Inst_XOR(),
-Inst_NOT(),
-Inst_SHIFTL(),
-Inst_SHIFTR(),
-Inst_LW(),
-Inst_LB(),
-Inst_LI(),
-Inst_STW(),
-Inst_STB(),
-Inst_MOV(),
-Inst_SWP(),
-Inst_MUL(),
-Inst_DIV(),
-Inst_MOD(),
-Inst_CMPU()
+  Inst_NOP(),
+  Inst_INT(),
+  Inst_RETINT(),
+  Inst_CALL(),
+  Inst_RET(),
+  Inst_CLI(),
+  Inst_STI(),
+  Inst_HLT(),
+  Inst_RST(),
+  Inst_IDLE(),
+  Inst_PUSH(),
+  Inst_POP(),
+  Inst_INC(),
+  Inst_DEC(),
+  Inst_ADD(),
+  Inst_SUB(),
+  Inst_CMP(),
+  Inst_J(),
+  Inst_BE(),
+  Inst_BNE(),
+  Inst_BNS(),
+  Inst_BNZ(),
+  Inst_BS(),
+  Inst_BZ(),
+  Inst_BG(),
+  Inst_BGE(),
+  Inst_BL(),
+  Inst_BLE(),
+  Inst_IN(),
+  Inst_INB(),
+  Inst_OUT(),
+  Inst_OUTB(),
+  Inst_AND(),
+  Inst_OR(),
+  Inst_XOR(),
+  Inst_NOT(),
+  Inst_SHIFTL(),
+  Inst_SHIFTR(),
+  Inst_LW(),
+  Inst_LB(),
+  Inst_LI(),
+  Inst_STW(),
+  Inst_STB(),
+  Inst_MOV(),
+  Inst_SWP(),
+  Inst_MUL(),
+  Inst_DIV(),
+  Inst_MOD(),
+  Inst_CMPU()
 ]
 
 def __create_binary_format_master_class():

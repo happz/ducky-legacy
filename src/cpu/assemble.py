@@ -1,24 +1,112 @@
 #!/usr/bin/python
 
+import collections
+import ctypes
 import functools
 import mmap
-import optparse
+import os.path
 import re
-import struct
-import sys
 import types
 
 import cpu
 import mm
 
-from mm import UInt8, UInt16, UINT8_FMT, UINT16_FMT, SEGM_FMT, ADDR_FMT, SIZE_FMT, PAGE_MASK, PAGE_SHIFT, PAGE_SIZE
+from mm import UInt8, UInt16, ADDR_FMT, PAGE_SIZE
 from mm.binary import SectionTypes
-from cpu.errors import CompilationError
 
-from util import debug, info, warn, align
+from util import debug, info, align
 
 align_to_next_page = functools.partial(align, PAGE_SIZE)
 align_to_next_mmap = functools.partial(align, mmap.PAGESIZE)
+
+RE_COMMENT = re.compile(r'^\s*[/;].*?$', re.MULTILINE)
+RE_INCLUDE = re.compile(r'^\s*\.include\s+"(?P<file>[a-zA-Z0-9_\-/\.]+)\s*"$', re.MULTILINE)
+RE_IFDEF = re.compile(r'^\s*\.include\s+(?P<var>[a-zA-Z0-9_]+)\s*$', re.MULTILINE)
+RE_ENDIF = re.compile(r'^\s*\.endif\s*$', re.MULTILINE)
+RE_VAR_DEF = re.compile(r'^\s*\.def\s+(?P<var_name>[a-zA-Z][a-zA-Z0-9_]*):\s*(?P<var_body>.*?)$', re.MULTILINE)
+RE_MACRO_DEF = re.compile(r'^\s*\.macro\s+(?P<macro_name>[a-zA-Z][a-zA-Z0-9_]*)(?:\s+(?P<macro_params>.*?))?:$', re.MULTILINE | re.DOTALL)
+RE_MACRO_END = re.compile(r'^\s*\.end\s*$', re.MULTILINE)
+RE_ASCII = re.compile(r'^\s*\.ascii\s+"(?P<value>.*?)"\s*$', re.MULTILINE)
+RE_BYTE = re.compile(r'^\s*\.byte\s+(?:(?P<value_hex>-?0x[a-fA-F0-9]+)|(?P<value_dec>(?:0)|(?:-?[1-9][0-9]*))|(?P<value_var>[a-zA-Z][a-zA-Z0-9_]*))\s*$', re.MULTILINE)
+RE_DATA = re.compile(r'^\s*\.data(?:\s+(?P<name>\.[a-z][a-z0-9_]*))?\s*$', re.MULTILINE)
+RE_INT = re.compile(r'^\s*\.int\s+(?:(?P<value_hex>-?0x[a-fA-F0-9]+)|(?P<value_dec>0|(?:-?[1-9][0-9]*))|(?P<value_var>[a-zA-Z][a-zA-Z0-9_]*)|(?P<value_label>&[a-zA-Z_][a-zA-Z0-9_]*))\s*$', re.MULTILINE)
+RE_SECTION = re.compile(r'^\s*\.section\s+(?P<name>\.[a-zA-z0-9_]+)(?:,\s*(?P<flags>[rwxb]*))?\s*$', re.MULTILINE)
+RE_SET = re.compile(r'^\s*\.set\s+(?P<name>[a-zA-Z_][a-zA-Z0-9_]*),\s*(?:(?P<current>\.)|(?P<value_hex>-?0x[a-fA-F0-9]+)|(?P<value_dec>0|(?:-?[1-9][0-9]*))|(?P<value_label>&[a-zA-Z][a-zA-Z0-9_]*))\s*$', re.MULTILINE)
+RE_SIZE = re.compile(r'^\s*\.size\s+(?P<size>[1-9][0-9]*)\s*$', re.MULTILINE)
+RE_SPACE = re.compile(r'^\s*\.space\s+(?P<size>[1-9][0-9]*)\s*$', re.MULTILINE)
+RE_STRING = re.compile(r'^\s*\.string\s+"(?P<value>.*?)"\s*$', re.MULTILINE)
+RE_TEXT = re.compile(r'^\s*\.text(?:\s+(?P<name>\.[a-z][a-z0-9_]*))?\s*$', re.MULTILINE)
+RE_TYPE = re.compile(r'^\s*\.type\s+(?P<name>[a-zA-Z_][a-zA-Z0-9_]*),\s*(?P<type>(?:char|byte|int|ascii|string|space))\s*$', re.MULTILINE)
+
+class AssemblerError(Exception):
+  def __init__(self, filename, lineno, msg, line):
+    super(AssemblerError, self).__init__('%s:%s: %s' % (filename, lineno, msg))
+
+    self.filename = filename
+    self.lineno   = lineno
+    self.msg      = msg
+    self.line     = line
+
+class IncompleteDirectiveError(AssemblerError):
+  def __init__(self, filename, lineno, msg, line):
+    super(IncompleteDirectiveError, self).__init__(filename, lineno, 'Incomplete directive: %s' % msg, line)
+
+class Buffer(object):
+  def __init__(self, filename, buff):
+    super(Buffer, self).__init__()
+
+    self.buff = buff
+
+    self.filename = filename
+    self.lineno = 0
+    self.last_line = None
+
+  def get_line(self):
+    while len(self.buff):
+      self.lineno += 1
+
+      line = self.buff.pop(0)
+
+      if isinstance(line, types.TupleType):
+        self.lineno = line[1]
+        self.filename = line[0]
+
+        debug('buffer: file switch: filename=%s, lineno=%s', self.filename, self.lineno)
+        continue
+
+      if not line:
+        continue
+
+      debug('buffer: new line %s:%s: %s', self.filename, self.lineno, line)
+      self.last_line = line
+      return line
+
+    else:
+      self.last_line = None
+      return None
+
+  def put_line(self, line):
+    self.buff.insert(0, line)
+    self.lineno -= 1
+
+  def put_buffer(self, buff, filename = None):
+    filename = filename or '<unknown>'
+
+    self.buff.insert(0, (self.filename, self.lineno))
+
+    if isinstance(buff, types.StringType):
+      buff = buff.split('\n')
+
+    for line in reversed(buff):
+      self.buff.insert(0, line)
+
+    self.buff.insert(0, (filename, 0))
+
+  def has_lines(self):
+    return len(self.buff) > 0
+
+  def get_error(self, cls, msg):
+    return cls(self.filename, self.lineno, msg, self.last_line)
 
 class Section(object):
   def __init__(self, s_name, s_type, s_flags):
@@ -35,7 +123,6 @@ class Section(object):
   def __getattr__(self, name):
     if name == 'size':
       return sum([sizeof(i) for i in self.content])
-      #return self.ptr.u16 - self.base.u16 if self.items == 0 else mm.binary.SECTION_ITEM_SIZE[self.type] * self.items
 
     if name == 'items':
       return len(self.content)
@@ -62,106 +149,18 @@ class BssSection(Section):
   def __init__(self, s_name, flags = None):
     super(BssSection, self).__init__(s_name, SectionTypes.DATA, flags or 'rwb')
 
-def preprocess_buffer(buff):
-  debug('preprocess_buffer')
-
-  r_comment = re.compile(r'^\s*[/;*].*?$', re.MULTILINE)
-
-  buff = r_comment.sub('', buff)
-
-  r_include   = re.compile(r'^\s*\.include\s+"(?P<file>[a-zA-Z0-9_\-/\.]+)\s*"$', re.MULTILINE)
-
-  r_var_def   = re.compile(r'^\s*\.def\s+(?P<var_name>[a-zA-Z][a-zA-Z0-9_]*):\s*(?P<var_body>.*?)$', re.MULTILINE)
-  r_macro_def = re.compile(r'^\s*\.macro\s+(?P<macro_name>[a-zA-Z][a-zA-Z0-9_]*)(?:\s+(?P<macro_params>.*?))?:$(?P<macro_body>.*?)^.end$', re.MULTILINE | re.DOTALL)
-
-
-  includes = r_include.findall(buff)
-
-  while True:
-    matches = r_include.search(buff)
-    if not matches:
-      break
-
-    matches = matches.groupdict()
-    f_in = matches['file']
-
-    debug('include directive found: %s', f_in)
-
-    r_replace = re.compile(r'^\s*\.include\s+"%s"\s*$' % f_in, re.MULTILINE)
-    with open(f_in, 'r') as f_in:
-      replace = f_in.read()
-
-    buff = r_replace.sub(replace, buff)
-
-  vars = r_var_def.findall(buff)
-
-  while True:
-    matches = r_var_def.search(buff)
-    if not matches:
-      break
-
-    matches = matches.groupdict()
-    v_name = matches['var_name']
-    v_body = matches['var_body']
-
-    debug('variable found: %s', v_name)
-
-    r_remove = re.compile(r'^\s*\.def\s+%s:\s+.*?$' % v_name, re.MULTILINE)
-    r_replace = re.compile(r'\$%s' % v_name)
-
-    v_body = v_body.strip()
-
-    buff = r_remove.sub('', buff)
-    buff = r_replace.sub(v_body, buff)
-
-  while True:
-    matches = r_macro_def.search(buff)
-    if not matches:
-      break
-
-    matches = matches.groupdict()
-    m_name = matches['macro_name']
-    m_params = matches['macro_params']
-    m_body = matches['macro_body']
-
-    debug('macro found: %s', m_name)
-
-    params = [p.strip() for p in m_params.strip().split(',')] if m_params else []
-
-    r_remove  = re.compile(r'^\s*.macro\s+%s(?:\s+.*?)?:$.*?^.end$' % m_name, re.MULTILINE | re.DOTALL)
-    buff = r_remove.sub('', buff)
-
-    if params and len(params[0]):
-      def __replace_usage(m):
-        m_body_with_args = m_body
-
-        for i in range(1, len(params) + 1):
-          m_body_with_args = re.sub('#%s' % params[i - 1], m.group(i), m_body_with_args)
-
-        return m_body_with_args
-
-      arg_pattern = r'(?P<arg%i>(?:".*?")|(?:.*?))'
-      arg_patterns = ',\s*'.join([arg_pattern % i for i in range(0, len(params))])
-      r_usage = re.compile(r'\$%s\s+%s[\s$]' % (m_name, arg_patterns), re.MULTILINE)
-
-      buff = r_usage.sub(__replace_usage, buff)
-
-    else:
-      r_replace = re.compile(r'\$%s' % m_name)
-
-      buff = r_replace.sub(m_body, buff)
-
-  return buff
-
 class Label(object):
-  def __init__(self, name, section):
+  def __init__(self, name, section, filename, lineno):
     super(Label, self).__init__()
 
     self.name = name
     self.section = section
 
+    self.filename = filename
+    self.lineno = lineno
+
   def __repr__(self):
-    return '<label %s in section %s>' % (self.name, self.section.name)
+    return '<label %s in section %s (%s:%s)>' % (self.name, self.section.name, self.filename, self.lineno)
 
 class DataSlot(object):
   def __init__(self):
@@ -174,6 +173,9 @@ class DataSlot(object):
 
     self.section = None
     self.section_ptr = None
+
+    self.filename = None
+    self.lineno = None
 
   def close(self):
     pass
@@ -262,15 +264,15 @@ def sizeof(o):
   if isinstance(o, DataSlot):
     return o.size.u16
 
-  import ctypes
-
   if isinstance(o, ctypes.LittleEndianStructure):
     return ctypes.sizeof(o)
 
   return None
 
-def translate_buffer(buff, base_address = None, mmapable_sections = False):
-  buff = preprocess_buffer(buff)
+def translate_buffer(buff, base_address = None, mmapable_sections = False, filename = None):
+  filename = filename or '<unknown>'
+
+  buff = Buffer(filename, buff.split('\n'))
 
   base_address = base_address or UInt16(0)
 
@@ -282,11 +284,56 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False):
     '.symtab': Section('.symtab', SectionTypes.SYMBOLS, '')
   }
 
-  buff = buff.split('\n')
-
   debug('Pass #1')
 
   labeled = []
+
+  line = None
+  lineno = None
+
+  def __apply_defs(line):
+    orig_line = line
+
+    for def_pattern, def_value in defs.iteritems():
+      line = def_pattern.sub(def_value, line)
+
+    if orig_line != line:
+      debug(msg_prefix + 'variables replaced: line="%s"', line)
+
+    return line
+
+  def __apply_macros(line):
+    for m_pattern, m_desc in macros.iteritems():
+      matches = m_pattern.match(line)
+      if not matches:
+        continue
+
+      debug(msg_prefix + 'replacing macro: name=%s', m_desc['name'])
+
+      if len(m_desc['params']):
+        matches = matches.groupdict()
+
+        replace_map = {}
+        for i in range(0, len(m_desc['params'])):
+          replace_map[re.compile(r'#%s' % m_desc['params'][i])] = matches['arg%i' % i]
+
+        debug(msg_prefix + 'macro args: %s', ', '.join(['%s => %s' % (pattern.pattern, repl) for pattern, repl in replace_map.iteritems()]))
+
+        body = []
+        for line in m_desc['body']:
+          for pattern, repl in replace_map.iteritems():
+            line = pattern.sub(repl, line)
+          body.append(line)
+
+        buff.put_buffer(body)
+
+      else:
+        buff.put_buffer(m_desc['body'])
+
+      return True
+
+    else:
+      return False
 
   def __get_refers_to_operand(inst):
     r_address = references[inst.refers_to].section_ptr.u16
@@ -296,88 +343,106 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False):
 
     return r_address
 
-  def __get_line():
-    while len(buff):
-      line = buff.pop(0)
+  def __parse_byte(var, matches):
+    if not var.lineno:
+      var.filename = buff.filename
+      var.lineno = buff.lineno
 
-      if not line:
-        continue
+    matches = matches.groupdict()
 
-      line = line.strip()
+    v_value = matches.get('value_dec', None)
+    if v_value:
+      var.value = int(v_value)
+      return
 
-      # Skip comments and empty lines
-      if not line or line[0] in ('#', '/', ';'):
-        continue
+    v_value = matches.get('value_hex', None)
+    if v_value:
+      var.value = int(v_value, base = 16)
+      return
 
-      debug('new line from buffer: %s', line)
-      return line
-
-    else:
-      return None
-
-  def __parse_byte(var, line):
-    matches = r_byte.match(line).groupdict()
-
-    if 'value_dec' in matches and matches['value_dec']:
-      var.value = int(matches['value_dec'])
-
-    elif 'value_hex' in matches and matches['value_hex']:
-      var.value = int(matches['value_hex'], base = 16)
-
-    elif 'value_var' in matches and matches['value_var']:
+    v_value = matches.get('value_var', None)
+    if v_value:
       referred_var = variables[matches['value_var']]
 
-      if type(referred_var) is types.IntType:
+      if isinstance(referred_var, types.IntType):
         var.value = referred_var
       else:
         var.refers_to = referred_var
 
-    else:
-      assert False, matches
+      return
 
-  def __parse_int(var, line):
-    matches = r_int.match(line).groupdict()
+    raise buff.get_error(IncompleteDirectiveError, '.byte directive without a meaningful value')
 
-    if 'value_dec' in matches and matches['value_dec']:
-      var.value = int(matches['value_dec'])
+  def __parse_int(var, matches):
+    if not var.lineno:
+      var.filename = buff.filename
+      var.lineno = buff.lineno
 
-    elif 'value_hex' in matches and matches['value_hex']:
-      var.value = int(matches['value_hex'], base = 16)
+    matches = matches.groupdict()
 
-    elif 'value_var' in matches and matches['value_var']:
+    v_value = matches.get('value_dec', None)
+    if v_value:
+      var.value = int(v_value)
+      return
+
+    v_value = matches.get('value_hex', None)
+    if v_value:
+      var.value = int(v_value, base = 16)
+      return
+
+    v_value = matches.get('value_var', None)
+    if v_value:
       referred_var = variables[matches['value_var']]
 
-      if type(referred_var) is types.IntType:
+      if isinstance(referred_var, types.IntType):
         var.value = referred_var
       else:
         var.refers_to = referred_var
 
-    elif 'value_label' in matches and matches['value_label']:
-      var.refers_to = matches['value_label']
+      return
 
-    else:
-      assert False, matches
+    v_value = matches.get('value_label')
+    if v_value:
+      var.refers_to = v_value
+      return
 
-  def __parse_ascii(var, line):
-    matches = r_ascii.match(line).groupdict()
+    raise buff.get_error(IncompleteDirectiveError, '.byte directive without a meaningful value')
 
-    if 'value' in matches and matches['value']:
-      var.value = matches['value'].replace('\\r', '\r').replace('\\n', '\n').replace('\\"', '"')
+  def __parse_ascii(var, matches):
+    if not var.lineno:
+      var.filename = buff.filename
+      var.lineno = lineno
 
-    else:
-      assert False, matches
+    matches = matches.groupdict()
 
-  def __parse_string(var, line):
-    matches = r_string.match(line).groupdict()
+    v_value = matches.get('value', None)
+    if not v_value:
+      raise buff.get_error(IncompleteDirectiveError, '.ascii directive without a string')
 
-    if 'value' in matches and matches['value']:
-      var.value = matches['value'].replace('\\r', '\r').replace('\\n', '\n').replace('\\"', '"')
+    var.value = v_value.replace('\\r', '\r').replace('\\n', '\n').replace('\\"', '"')
 
-    else:
-      assert False, matches
+  def __parse_string(var, matches):
+    if not var.lineno:
+      var.filename = buff.filename
+      var.lineno = lineno
 
-  def __parse_space(var, line):
-    matches = r_space.match(line).groupdict()
+    matches = matches.groupdict()
+
+    v_value = matches.get('value', None)
+    if not v_value:
+      raise buff.get_error(IncompleteDirectiveError, '.string directive without a string')
+
+    var.value = v_value.replace('\\r', '\r').replace('\\n', '\n').replace('\\"', '"')
+
+  def __parse_space(var, matches):
+    if not var.lineno:
+      var.filename = buff.filename
+      var.lineno = lineno
+
+    matches = matches.groupdict()
+
+    if 'size' not in matches:
+      raise buff.get_error(IncompleteDirectiveError, '.size directive without a size')
 
     var.size = int(matches['size'])
 
@@ -400,59 +465,83 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False):
     elif v_type == 'space':
       var = SpaceSlot()
 
-    var.name = Label(v_name, curr_section)
+    var.name = Label(v_name, curr_section, buff.filename, buff.lineno)
+    var.filename = buff.filename
+    var.lineno = buff.lineno
 
-    while len(buff):
-      line = __get_line()
+    while buff.has_lines():
+      line = buff.get_line()
 
-      handled_pseudoops = ('.size', '.%s' % v_type)
-
-      if not line or line.startswith('.type') or not line.startswith(handled_pseudoops):
-        # reserve variable
+      if line is None:
         var.close()
         data_section.content.append(var)
-
-        # return current line and start from the beginning
-        buff.insert(0, line)
         return
 
-      if line.startswith('.size'):
-        matches = r_size.match(line).groupdict()
+      matches = RE_COMMENT.match(line)
+      if matches:
+        continue
+
+      msg_prefix = 'pass #1: %s:%s: ' % (os.path.split(buff.filename)[1], buff.lineno)
+
+      line = __apply_defs(line)
+
+      if not current_macro and __apply_macros(line):
+        debug(msg_prefix + 'macro replaced, get fresh line')
+        continue
+
+      matches = RE_TYPE.match(line)
+      if matches:
+        buff.put_line(line)
+        break
+
+      matches = RE_SIZE.match(line)
+      if matches:
+        matches = matches.groupdict()
+
+        if 'size' not in matches:
+          raise buff.get_error(IncompleteDirectiveError, '.size directive without a size')
+
         var.size = UInt16(int(matches['size']))
+        continue
 
-      elif line.startswith('.%s' % v_type):
-        if v_type == 'int':
-          __parse_int(var, line)
+      matches = RE_INT.match(line)
+      if matches:
+        __parse_int(var, matches)
+        continue
 
-        elif v_type == 'ascii':
-          __parse_ascii(var, line)
+      matches = RE_ASCII.match(line)
+      if matches:
+        __parse_ascii(var, matches)
+        continue
 
-        elif v_type == 'string':
-          __parse_string(var, line)
+      matches = RE_STRING.match(line)
+      if matches:
+        __parse_string(var, matches)
+        continue
 
-        elif v_type == 'space':
-          __parse_space(var, line)
+      matches = RE_SPACE.match(line)
+      if matches:
+        __parse_space(var, matches)
+        continue
 
-        elif v_type == 'byte':
-          __parse_byte(var, line)
+      matches = RE_BYTE.match(line)
+      if matches:
+        __parse_byte(var, matches)
+        continue
 
-        else:
-          raise CompilationError('Unknown variable type: %s' % v_type)
+      buff.put_line(line)
+      break
 
-  r_ascii   = re.compile(r'^\s*\.ascii\s+"(?P<value>.*?)"\s*$', re.MULTILINE)
-  r_byte    = re.compile(r'\.byte\s+(?:(?P<value_hex>-?0x[a-fA-F0-9]+)|(?P<value_dec>(?:0)|(?:-?[1-9][0-9]*))|(?P<value_var>[a-zA-Z][a-zA-Z0-9_]*))')
-  r_data    = re.compile(r'\.data\s+(?P<name>\.[a-z][a-z0-9_]*)?')
-  r_int     = re.compile(r'\.int\s+(?:(?P<value_hex>-?0x[a-fA-F0-9]+)|(?P<value_dec>0|(?:-?[1-9][0-9]*))|(?P<value_var>[a-zA-Z][a-zA-Z0-9_]*)|(?P<value_label>&[a-zA-Z_][a-zA-Z0-9_]*))')
-  r_section = re.compile(r'\.section\s+(?P<name>\.[a-zA-z0-9_]+)(?:,\s*(?P<flags>[rwxb]*))?')
-  r_set     = re.compile(r'\.set\s+(?P<name>[a-zA-Z_][a-zA-Z0-9_]*),\s*(?:(?P<current>\.)|(?P<value_hex>-?0x[a-fA-F0-9]+)|(?P<value_dec>0|(?:-?[1-9][0-9]*))|(?P<value_label>&[a-zA-Z][a-zA-Z0-9_]*))\s*$', re.MULTILINE)
-  r_size    = re.compile(r'\.size\s+(?P<size>[1-9][0-9]*)')
-  r_space   = re.compile(r'\.space\s+(?P<size>[1-9][0-9]*)')
-  r_string  = re.compile(r'\.string\s+"(?P<value>.*?)"')
-  r_text    = re.compile(r'\.text\s+(?P<name>\.[a-z][a-z0-9_]*)?')
-  r_type    = re.compile(r'\.type\s+(?P<name>[a-zA-Z_][a-zA-Z0-9_]*),\s*(?P<type>(?:char|byte|int|ascii|string|space))')
+    var.close()
+    data_section.content.append(var)
 
   labels = []
   variables = {}
+
+  defs = collections.OrderedDict()
+
+  macros = collections.OrderedDict()
+  current_macro = None
 
   debug('Pass #1: text section is .text')
   debug('Pass #1: data section is .data')
@@ -461,14 +550,114 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False):
   data_section = sections_pass1['.data']
   curr_section = text_section
 
-  while len(buff):
-    line = __get_line()
+  while buff.has_lines():
+    line = buff.get_line()
 
-    if not line:
+    if line is None:
       break
 
-    if line.startswith('.section'):
-      matches = r_section.match(line).groupdict()
+    if not line.strip():
+      continue
+
+    msg_prefix = 'pass #1: %s:%s: ' % (os.path.split(buff.filename)[1], buff.lineno)
+
+    line = __apply_defs(line)
+
+    if not current_macro and __apply_macros(line):
+      debug(msg_prefix + 'macro replaced, get fresh line')
+      continue
+
+    matches = RE_COMMENT.match(line)
+    if matches:
+      continue
+
+    msg_prefix = 'pass #1: %s:%s: ' % (os.path.split(buff.filename)[1], buff.lineno)
+
+    matches = RE_INCLUDE.match(line)
+    if matches:
+      matches = matches.groupdict()
+
+      if 'file' not in matches:
+        raise buff.get_error(IncompleteDirectiveError, '.include directive without path')
+
+      debug(msg_prefix + 'include: file=%s', matches['file'])
+
+      with open(matches['file'], 'r') as f_in:
+        replace = f_in.read()
+
+      buff.put_buffer(replace, filename = matches['file'])
+
+      continue
+
+    matches = RE_VAR_DEF.match(line)
+    if matches:
+      matches = matches.groupdict()
+
+      v_name = matches.get('var_name', None)
+      v_body = matches.get('var_body', None)
+
+      if not v_name or not v_body:
+        raise buff.get_error(IncompleteDirectiveError, 'bad variable definition')
+
+      debug(msg_prefix + 'variable defined: name=%s, value=%s', v_name, v_body)
+
+      defs[re.compile(r'\$%s' % v_name)] = v_body.strip()
+
+      continue
+
+    matches = RE_MACRO_DEF.match(line)
+    if matches:
+      matches = matches.groupdict()
+
+      m_name = matches.get('macro_name', None)
+      m_params = matches.get('macro_params', None)
+
+      if not m_name:
+        raise buff.get_error(IncompleteDirectiveError, 'bad macro definition')
+
+      debug(msg_prefix + 'macro defined: name=%s', m_name)
+
+      if current_macro:
+        raise buff.get_error(AssemblerError, 'overlapping macro definitions')
+
+      current_macro = {
+        'name':    m_name,
+        'pattern': None,
+        'params':  [p.strip() for p in m_params.strip().split(',')] if m_params else [],
+        'body':    []
+      }
+
+      if current_macro['params'] and len(current_macro['params'][0]):
+        arg_pattern = r'(?P<arg%i>(?:".*?")|(?:.*?))'
+        arg_patterns = ',\s*'.join([arg_pattern % i for i in range(0, len(current_macro['params']))])
+
+        current_macro['pattern'] = re.compile(r'^\s*\$%s\s+%s\s*(?:[;/#].*)?$' % (m_name, arg_patterns), re.MULTILINE)
+
+      else:
+        current_macro['pattern'] = re.compile(r'\s*\$%s' % m_name)
+
+      continue
+
+    matches = RE_MACRO_END.match(line)
+    if matches:
+      if not current_macro:
+        raise buff.get_error(AssemblerError, 'closing non-existing macro')
+
+      macros[current_macro['pattern']] = current_macro
+      debug(msg_prefix + 'macro definition closed: name=%s', current_macro['name'])
+      current_macro = None
+      continue
+
+    if current_macro:
+      current_macro['body'].append(line)
+      continue
+
+    matches = RE_SECTION.match(line)
+    if matches:
+      matches = matches.groupdict()
+
+      if 'name' not in matches:
+        raise buff.get_error(IncompleteDirectiveError, '.section directive without section name')
 
       s_name = matches['name']
 
@@ -477,166 +666,171 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False):
         section_type = SectionTypes.TEXT if flags and 'x' in flags else SectionTypes.DATA
 
         section = sections_pass1[s_name] = Section(s_name, section_type, flags)
-        debug('pass #1: section %s created', s_name)
+        debug(msg_prefix + 'section %s created', s_name)
 
       curr_section = sections_pass1[s_name]
 
       if curr_section.type == SectionTypes.TEXT:
         text_section = curr_section
-        debug('pass #1: text section changed to %s', s_name)
+        debug(msg_prefix + 'text section changed to %s', s_name)
       else:
         data_section = curr_section
-        debug('pass #1: data section changed to %s', s_name)
+        debug(msg_prefix + 'data section changed to %s', s_name)
 
       continue
 
-    if line.startswith('.data'):
-      matches = r_data.match(line)
-      matches = matches.groupdict() if matches else {}
+    matches = RE_DATA.match(line)
+    if matches:
+      matches = matches.groupdict()
 
-      curr_section = data_section = sections_pass1[matches.get('name', None) or '.data']
-      debug('pass #1: data section is %s', data_section.name)
+      curr_section = data_section = sections_pass1[matches['name'] if 'name' in matches and matches['name'] else '.data']
+      debug(msg_prefix + 'data section is %s', data_section.name)
       continue
 
-    if line.startswith('.text'):
-      matches = r_text.match(line)
-      matches = matches.groupdict() if matches else {}
+    matches = RE_TEXT.match(line)
+    if matches:
+      matches = matches.groupdict()
 
-      curr_section = text_section = sections_pass1[matches.get('name', None) or '.text']
-      debug('pass #1: text section is %s', text_section.name)
+      curr_section = text_section = sections_pass1[matches['name'] if 'name' in matches and matches['name'] else '.text']
+      debug(msg_prefix + 'text section is %s', text_section.name)
       continue
 
-    if line.startswith('.type '):
-      matches = r_type.match(line).groupdict()
+    matches = RE_TYPE.match(line)
+    if matches:
+      matches = matches.groupdict()
 
-      if matches['type'] == 'function':
-        __handle_symbol_function()
+      if 'type' not in matches:
+        raise buff.get_error(IncompleteDirectiveError, '.type directive without a type')
 
-      else:
-        __handle_symbol_variable(matches['name'], matches['type'])
+      if 'name' not in matches:
+        raise buff.get_error(IncompleteDirectiveError, '.type directive without a name')
+
+      __handle_symbol_variable(matches['name'], matches['type'])
 
       continue
 
-    if line.startswith('.byte '):
+    matches = RE_BYTE.match(line)
+    if matches:
       var = ByteSlot()
-      matches = r_byte.match(line).groupdict()
+      __parse_byte(var, matches)
 
-      if 'value_dec' in matches and matches['value_dec']:
-        var.value = int(matches['value_dec'])
-
-      elif 'value_hex' in matches and matches['value_hex']:
-        var.value = int(matches['value_hex'], base = 16)
-
-      elif 'value_var' in matches and matches['value_var']:
-        var.value = variables[matches['value_var']]
-
-      else:
-        assert False, matches
-
-      assert len(labels) <= 1, 'Too many data labels: %s' % labels
+      if len(labels) > 1:
+        raise buff.get_error(AssemblerError, 'Too many data labels: %s' % labels)
 
       var.name = labels[0] if labels else None
       var.close()
 
-      debug('pass #1: record byte value: name=%s, value=%s', var.name, var.value)
+      debug(msg_prefix + 'record byte value: name=%s, value=%s', var.name, var.value)
       data_section.content.append(var)
 
       labels = []
       continue
 
-    if line.startswith('.int '):
+    matches = RE_INT.match(line)
+    if matches:
       var = IntSlot()
-      __parse_int(var, line)
+      __parse_int(var, matches)
 
-      assert len(labels) <= 1, 'Too many data labels: %s' % labels
+      if len(labels) > 1:
+        raise buff.get_error(AssemblerError, 'Too many data labels: %s' % labels)
 
       var.name = labels[0] if labels else None
       var.close()
 
-      debug('pass #1: record int value: name=%s, value=%s, refers_to=%s', var.name, var.value, var.refers_to)
+      debug(msg_prefix + 'record int value: name=%s, value=%s, refers_to=%s', var.name, var.value, var.refers_to)
       data_section.content.append(var)
 
       labels = []
       continue
 
-    if line.startswith('.ascii '):
+    matches = RE_ASCII.match(line)
+    if matches:
       var = AsciiSlot()
-      __parse_ascii(var, line)
+      __parse_ascii(var, matches)
 
-      assert len(labels) <= 1, 'Too many data labels: %s' % labels
+      if len(labels) > 1:
+        raise buff.get_error(AssemblerError, 'Too many data labels: %s' % labels)
 
       var.name = labels[0] if labels else None
       var.close()
 
-      debug('pass #1: record ascii value: name=%s, value=%s', var.name, var.value)
+      debug(msg_prefix + 'record ascii value: name=%s, value=%s', var.name, var.value)
       data_section.content.append(var)
 
       labels = []
       continue
 
-    if line.startswith('.string '):
+    matches = RE_STRING.match(line)
+    if matches:
       var = StringSlot()
-      __parse_string()
+      __parse_string(var, matches)
 
-      assert len(labels) <= 1, 'Too many data labels: %s' % labels
+      if len(labels) > 1:
+        raise buff.get_error(AssemblerError, 'Too many data labels: %s' % labels)
 
       var.name = labels[0] if labels else None
       var.close()
 
-      debug('pass #1: record string value: name=%s, value=%s', var.name, var.value)
+      debug(msg_prefix + 'record string value: name=%s, value=%s', var.name, var.value)
       data_section.content.append(var)
 
       labels = []
       continue
 
-    if line.startswith('.space '):
+    matches = RE_SPACE.match(line)
+    if matches:
       var = SpaceSlot()
-      __parse_space(var, line)
+      __parse_space(var, matches)
 
-      assert len(labels) <= 1, 'Too many data labels: %s' % labels
+      if len(labels) > 1:
+        raise buff.get_error(AssemblerError, 'Too many data labels: %s' % labels)
 
       var.name = labels[0] if labels else None
       var.close()
 
-      debug('pass #1: record space: name=%s, value=%s', var.name, var.size)
+      debug(msg_prefix + 'record space: name=%s, value=%s', var.name, var.size)
       data_section.content.append(var)
 
       labels = []
       continue
 
-    if line.startswith('.set '):
-      matches = r_set.match(line).groupdict()
+    matches = RE_SET.match(line)
+    if matches:
+      matches = matches.groupdict()
+
+      if 'name' not in matches:
+        raise buff.get_error(IncompleteDirectiveError, '.set directive without variable')
 
       name = matches['name']
 
-      if 'current' in matches and matches['current']:
+      if matches.get('current', None):
         value = (curr_section.name, UInt16(curr_section.ptr.u16))
 
-      elif 'value_dec' in matches and matches['value_dec']:
+      elif matches.get('value_dec', None):
         value = int(matches['value_dec'])
 
-      elif 'value_hex' in matches and matches['value_hex']:
+      elif matches.get('value_hex', None):
         value = int(matches['value_hex'], base = 16)
 
-      elif 'value_label' in matches and matches['value_label']:
+      elif matches.get('value_label', None):
         value = matches['value_label']
 
       else:
-        assert False, matches
+        raise buff.get_error(IncompleteDirectiveError, '.set directive with unknown value')
 
-      debug('pass #1: set variable: name=%s, value=%s', name, value)
+      debug(msg_prefix + 'set variable: name=%s, value=%s', name, value)
       variables[name] = value
 
       continue
 
     if line.endswith(':'):
-      label = Label(line[:-1], curr_section)
+      label = Label(line.strip()[:-1], curr_section, buff.filename, buff.lineno)
       labels.append(label)
 
-      debug('pass #1: record label: name=%s', label.name)
+      debug(msg_prefix + 'record label: name=%s', label.name)
       continue
 
-    debug('pass #1: line: %s', line)
+    debug(msg_prefix + 'line: %s', line)
 
     # label, instruction, 2nd pass flags
     emited_inst = None
@@ -648,7 +842,7 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False):
       break
 
     else:
-      raise CompilationError('Unknown pattern: line="%s"' % line)
+      raise buff.get_error(AssemblerError, 'Unknown pattern: line="%s"' % line)
 
     # pylint: disable-msg=W0631
     emited_inst = desc.emit_instruction(line)
@@ -662,7 +856,7 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False):
 
     labels = []
 
-    debug('pass #1: emitted instruction: %s', cpu.instructions.disassemble_instruction(emited_inst))
+    debug(msg_prefix + 'emitted instruction: %s', cpu.instructions.disassemble_instruction(emited_inst))
 
   for s_name, section in sections_pass1.items():
     debug('pass #1: section %s', s_name)
@@ -715,7 +909,7 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False):
         if var.refers_to:
           refers_to = var.refers_to
 
-          if type(refers_to) == types.TupleType:
+          if isinstance(refers_to, types.TupleType):
             var.value = sections_pass2[refers_to[0]].base.u16 + refers_to[1].u16
             var.refers_to = None
             var.close()
@@ -779,6 +973,10 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False):
             var.name = label
             var.section = section
             var.section_ptr = UInt16(section.ptr.u16)
+
+            var.filename = label.filename
+            var.lineno = label.lineno
+
             var.close()
 
             symtab.content.append(var)
@@ -828,7 +1026,7 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False):
         debug(ptr_prefix + 'fix reference: %s', item)
 
         if item.refers_to not in references:
-          raise CompilationError('Unknown reference: %s' % item.refers_to)
+          raise buff.get_error(AssemblerError, 'Unknown reference: name=%s' % item.refers_to)
 
         item.value = references[item.refers_to].section_ptr.u16
         debug(ptr_prefix + 'reference replaced with %s', ADDR_FMT(item.value))
@@ -841,13 +1039,12 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False):
         debug(ptr_prefix + 'fix reference: %s', item)
 
         if item.refers_to not in references:
-          raise CompilationError('No such label: "%s"' % item.refers_to)
+          raise buff.get_error(AssemblerError, 'No such label: name=%s' % item.refers_to)
 
         refers_to_var = references[item.refers_to]
         refers_to_addr = refers_to_var.section_ptr.u16
         debug(ptr_prefix + 'raw addr: %s', ADDR_FMT(refers_to_addr))
-        #if refers_to_var.section.type == SectionTypes.TEXT:
-        if item.desc.relative_address == True:
+        if item.desc.relative_address is True:
           debug(ptr_prefix + 'convert to relative address')
           refers_to_addr -= (item.address.u16 + 4)
 
@@ -857,7 +1054,7 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False):
 
       debug(ptr_prefix + str(item))
 
-      if type(item) != types.ListType:
+      if not isinstance(item, types.ListType):
         item = [item]
 
       for i in item:

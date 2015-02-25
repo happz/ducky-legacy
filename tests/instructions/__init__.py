@@ -25,12 +25,12 @@ class Tests(unittest.TestCase):
   def test_inc(self):
     self.common_case('main:\nli r0, 0\ninc r0\nint 0', r0 = 1)
     self.common_case('main:\nli r0, 1\ninc r0\nint 0', r0 = 2)
-    self.common_case('main:\nli r0, 0xFFFE\ninc r0\nint 0', r0 = 0xFFFF)
+    self.common_case('main:\nli r0, 0xFFFE\ninc r0\nint 0', r0 = 0xFFFF, s = 1)
     self.common_case('main:\nli r0, 0xFFFF\ninc r0\nint 0', r0 = 0, z = 1)
 
   def test_dec(self):
     self.common_case('main:\nli r0, 1\ndec r0\nint 0', z = 1)
-    self.common_case('main:\nli r0, 0\ndec r0\nint 0', r0 = 0xFFFF)
+    self.common_case('main:\nli r0, 0\ndec r0\nint 0', r0 = 0xFFFF, s = 1)
     self.common_case('main:\nli r0, 2\ndec r0\nint 0', r0 = 1)
 
   def test_add(self):
@@ -83,10 +83,10 @@ class Tests(unittest.TestCase):
     self.common_case('main:\nli r0, 0x0008\nand r0, 0x0004\nint 0', z = 1)
 
   def test_or(self):
-    self.common_case('main:\nli r0, 0xFFF0\nli r1, 0x000F\nor r0, r1\nint 0', r0 = 0xFFFF, r1 = 0x000F)
-    self.common_case('main:\nli r0, 0xFFF0\nli r1, 0x00F0\nor r0, r1\nint 0', r0 = 0xFFF0, r1 = 0x00F0)
-    self.common_case('main:\nli r0, 0xFFF0\nor r0, 0x000F\nint 0', r0 = 0xFFFF)
-    self.common_case('main:\nli r0, 0xFFF0\nor r0, 0x00F0\nint 0', r0 = 0xFFF0)
+    self.common_case('main:\nli r0, 0xFFF0\nli r1, 0x000F\nor r0, r1\nint 0', r0 = 0xFFFF, r1 = 0x000F, s = 1)
+    self.common_case('main:\nli r0, 0xFFF0\nli r1, 0x00F0\nor r0, r1\nint 0', r0 = 0xFFF0, r1 = 0x00F0, s = 1)
+    self.common_case('main:\nli r0, 0xFFF0\nor r0, 0x000F\nint 0', r0 = 0xFFFF, s = 1)
+    self.common_case('main:\nli r0, 0xFFF0\nor r0, 0x00F0\nint 0', r0 = 0xFFF0, s = 1)
 
   def test_xor(self):
     self.common_case('main:\nli r0, 0x00F0\nli r1, 0x0F0F\nxor r0, r1\nint 0', r0 = 0x0FFF, r1 = 0x0F0F)
@@ -97,7 +97,7 @@ class Tests(unittest.TestCase):
 
   def test_not(self):
     self.common_case('main:\nli r0, 0xFFF0\nnot r0\nint 0', r0 = 0x000F)
-    self.common_case('main:\nli r0, 0x0\nnot r0\nint 0', r0 = 0xFFFF)
+    self.common_case('main:\nli r0, 0x0\nnot r0\nint 0', r0 = 0xFFFF, s = 1)
     self.common_case('main:\nli r0, 0xFFFF\nnot r0\nint 0', z = 1)
 
   def test_shiftl(self):
@@ -187,7 +187,7 @@ class Tests(unittest.TestCase):
     self.common_case(['main:', 'li r0, 0xFF', 'call &fn', 'int 0', 'fn:', 'li r0, 0xEE', 'ret'], r0 = 0xEE)
 
   def test_li(self):
-    self.common_case(['main:', 'li r0, 0xDEAD', 'int 0'], r0 = 0xDEAD)
+    self.common_case(['main:', 'li r0, 0xDEAD', 'int 0'], r0 = 0xDEAD, s = 1)
 
   def test_lw(self):
     code = [
@@ -201,21 +201,29 @@ class Tests(unittest.TestCase):
       '  int 0'
     ]
 
-    self.common_case(code, r1 = 0xDEAD)
+    self.common_case(code, r1 = 0xDEAD, s = 1)
 
   def test_lb(self):
-    code = [
-      '  .data',
-      '  .type foo, int',
-      '  .int 0xDEAD',
-      '  .text',
-      'main:',
-      '  li r0, &foo',
-      '  lb r1, r0',
-      '  int 0'
-    ]
+    code = """
+        .data
 
-    self.common_case(code, r1 = 0xAD)
+        .type redzone_pre, int
+        .int 0xBFBF
+
+        .type foo, int
+        .int 0xDEAD
+
+        .type redzone_post, int
+        .int 0xBFBF
+
+        .text
+      main:
+        li r0, &foo
+        lb r1, r0
+        int 0
+    """
+
+    self.common_case(code, r0 = 2, r1 = 0xAD)
 
   def test_stw(self):
     code = [
@@ -231,7 +239,7 @@ class Tests(unittest.TestCase):
       '  int 0',
     ]
 
-    self.common_case(code, r1 = 0xF00, r2 = 0xDEAD, mm = {'0x020000': 0xDEAD, '0x020002': 0})
+    self.common_case(code, r1 = 0xF00, r2 = 0xDEAD, s = 1, mm = {'0x020000': 0xDEAD, '0x020002': 0})
 
   def test_stb(self):
     code = [
@@ -247,5 +255,5 @@ class Tests(unittest.TestCase):
       '  int 0',
     ]
 
-    self.common_case(code, r2 = 0xDEAD, mm = {'0x020000': 0xAD, '0x020002': 0})
+    self.common_case(code, r2 = 0xDEAD, s = 1, mm = {'0x020000': 0xAD, '0x020002': 0})
 

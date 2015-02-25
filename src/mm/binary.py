@@ -95,7 +95,9 @@ class SymbolEntry(LittleEndianStructure):
     ('address', c_ushort),
     ('size',    c_ushort),
     ('section', c_ubyte),
-    ('type',    c_ubyte)
+    ('type',    c_ubyte),
+    ('filename', c_uint),
+    ('lineno',  c_uint)
   ]
 
   def __repr__(self):

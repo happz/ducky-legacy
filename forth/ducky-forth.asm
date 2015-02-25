@@ -1593,6 +1593,30 @@ $DEFCODE "(LOOP)", 6, 0, PAREN_LOOP
   $NEXT
 
 
+$DEFCODE "(+LOOP)", 7, 0, PAREN_PLUSLOOP
+  $poprsp $W ; index
+  $poprsp $X ; control
+  pop $Y     ; increment N
+  bs &.__PAREN_PLUSLOOP_dec
+  add $W, $Y
+  cmp $W, $X
+  bg &.__PAREN_PLUSLOOP_next
+  j &.__PAREN_PLUSLOOP_iter
+.__PAREN_PLUSLOOP_dec:
+  add $W, $Y
+  cmp $W, $X
+  bl &.__PAREN_PLUSLOOP_next
+.__PAREN_PLUSLOOP_iter:
+  $pushrsp $X
+  $pushrsp $W
+  lw $W, $FIP
+  add $FIP, $W
+  $NEXT
+.__PAREN_PLUSLOOP_next:
+  add $FIP, $CELL
+  $NEXT
+
+
 $DEFCODE "UNLOOP", 6, 0, UNLOOP
   add $RSP, 4
   $NEXT

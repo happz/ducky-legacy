@@ -4,12 +4,13 @@ import enum
 import functools
 import sys
 import tabulate
+import traceback
 import types
 
 from ctypes import sizeof
 from console import VerbosityLevels
 
-__all__ = ['debug', 'warn', 'error', 'info', 'quiet']
+__all__ = ['debug', 'warn', 'error', 'info', 'quiet', 'exception']
 
 def align(boundary, n):
   return (n + boundary - 1) & ~(boundary - 1)
@@ -35,6 +36,22 @@ info  = functools.partial(__log, VerbosityLevels.INFO)
 warn  = functools.partial(__log, VerbosityLevels.WARNING)
 error = functools.partial(__log, VerbosityLevels.ERROR)
 quiet = functools.partial(__log, VerbosityLevels.QUIET)
+
+def exception(exc, logger = None):
+  logger = logger or error
+
+  logger(str(exc))
+  logger('')
+
+  if hasattr(exc, 'exc_stack'):
+    for line in traceback.format_exception(*exc.exc_stack):
+      line = line.rstrip()
+
+      for line in line.split('\n'):
+        line = line.replace('%', '%%')
+        logger(line)
+
+    logger('')
 
 def print_table(table, fn = info, **kwargs):
   for line in tabulate.tabulate(table, headers = 'firstrow', tablefmt = 'simple', numalign = 'right').split('\n'):

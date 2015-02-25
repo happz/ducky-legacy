@@ -33,6 +33,7 @@ LEAVE-SP LEAVE-SP !
 : DO IMMEDIATE ['] (DO) , HERE 0 ;
 : ?DO IMMEDIATE ['] 2DUP , ['] <> , ['] 0BRANCH , 0 , ['] (DO) , HERE 1 ;
 : LOOP IMMEDIATE ['] (LOOP) , RESOLVE-DO RESOLVE-LEAVES ;
+: +LOOP IMMEDIATE ['] (+LOOP) , RESOLVE-DO RESOLVE-LEAVES ;
 
 
 \ PRINTING NUMBERS ----------------------------------------------------------------------
