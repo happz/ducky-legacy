@@ -1,8 +1,13 @@
 import ctypes
 import enum
-import types
 
-import mm
+class Flags(enum.IntEnum):
+  PRIVILEGED = 0x01
+  HWINT      = 0x02
+  EQUAL      = 0x04
+  ZERO       = 0x08
+  OVERFLOW   = 0x10
+  SIGNED     = 0x20
 
 class Registers(enum.IntEnum):
   # 16 16bit registers available
@@ -40,33 +45,28 @@ RESETABLE_REGISTERS = [i for i in range(0, Registers.REGISTER_COUNT) if i != Reg
 
 REGISTER_NAMES = ['r%i' % i for i in range(0, Registers.REGISTER_SPECIAL)] + ['fp', 'sp', 'ds', 'cs', 'ip', 'flags']
 
-class Register(mm.UInt16):
-  pass
+class FlagsRegister(object):
+  def __init__(self):
+    self.privileged = 0
+    self.hwint = 1
+    self.e = 0
+    self.z = 0
+    self.o = 0
+    self.s = 0
 
-class RealFlagsRegister(ctypes.LittleEndianStructure):
-  PRIVILEGED_ENABLED = 0
-  HWINT_ENABLED      = 1
-  EQ                 = 2
+  def to_uint16(self):
+    return self.privileged | self.hwint << 1 | self.e << 2 | self.z << 3 | self.o << 4 | self.s << 5
 
-  _pack_ = 0
-  _fields_ = [
-    ('privileged', ctypes.c_ubyte, 1),
-    ('hwint',      ctypes.c_ubyte, 1),
-    ('e',          ctypes.c_ubyte, 1),
-    ('z',          ctypes.c_ubyte, 1),
-    ('o',          ctypes.c_ubyte, 1),
-    ('s',          ctypes.c_ubyte, 1)
-  ]
+  def from_uint16(self, u):
+    self.privileged = 1 if u & Flags.PRIVILEGED else 0
+    self.hwint = 1 if u & Flags.HWINT else 0
+    self.e = 1 if u & Flags.EQUAL else 0
+    self.z = 1 if u & Flags.ZERO else 0
+    self.o = 1 if u & Flags.OVERFLOW else 0
+    self.s = 1 if u & Flags.SIGNED else 0
 
   def __repr__(self):
-    return '<RealFlagsRegister: privileged=%i, hwint=%i, e=%i, z=%i, o=%i, s=%i>' % (self.privileged, self.hwint, self.e, self.z, self.o, self.s)
-
-class FlagsRegister(ctypes.Union):
-  _pack_ = 0
-  _fields_ = [
-    ('u16', ctypes.c_ushort),
-    ('flags', RealFlagsRegister)
-  ]
+    return '<FlagsRegister: privileged=%i, hwint=%i, e=%i, z=%i, o=%i, s=%i>' % (self.privileged, self.hwint, self.e, self.z, self.o, self.s)
 
 class RegisterSet(object):
   def __init__(self):
@@ -78,7 +78,7 @@ class RegisterSet(object):
       if not register_name:
         break
 
-      register_class = Register if register_name != 'flags' else FlagsRegister
+      register_class = ctypes.c_ushort if register_name != 'flags' else FlagsRegister
 
       register = register_class()
 

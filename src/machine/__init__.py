@@ -15,7 +15,7 @@ import profiler
 
 from cpu.errors import InvalidResourceError
 from util import debug, info, error, str2int, LRUCache, warn, print_table
-from mm import SEGM_FMT, ADDR_FMT, UINT8_FMT, UINT16_FMT, segment_base_addr, UInt16, addr_to_segment, segment_addr_to_addr, UInt8
+from mm import SEGM_FMT, ADDR_FMT, UINT8_FMT, UINT16_FMT, segment_base_addr, addr_to_segment, segment_addr_to_addr
 
 import irq
 import irq.conio
@@ -33,29 +33,30 @@ class SymbolCache(LRUCache):
     self.machine = machine
 
   def get_object(self, address):
-    cs = UInt8(addr_to_segment(address))
-    address = UInt16(address & 0xFFFF)
+    cs = addr_to_segment(address)
+    address = address & 0xFFFF
 
     debug('SymbolCache.get_object: cs=%s, address=%s', cs, address)
 
     for binary in self.machine.binaries:
-      if binary.cs.u8 != cs.u8:
+      if binary.cs != cs:
         continue
 
       last_symbol = None
-      last_symbol_offset = UInt16(0xFFFE)
+      last_symbol_offset = 0xFFFE
 
       for symbol_name, symbol_address in binary.symbols.items():
-        if symbol_address.u16 > address.u16:
+        symbol_address = symbol_address.u16
+        if symbol_address > address:
           continue
 
-        if symbol_address.u16 == address.u16:
-          return (symbol_name, UInt16(0))
+        if symbol_address == address:
+          return (symbol_name, 0)
 
-        offset = abs(address.u16 - symbol_address.u16)
-        if offset < last_symbol_offset.u16:
+        offset = abs(address - symbol_address)
+        if offset < last_symbol_offset:
           last_symbol = symbol_name
-          last_symbol_offset = UInt16(offset)
+          last_symbol_offset = offset
 
       return (last_symbol, last_symbol_offset)
 
@@ -76,7 +77,7 @@ class AddressCache(LRUCache):
       if symbol not in symbols:
         continue
 
-      return (UInt8(csr.u8), symbols[symbol])
+      return (csr, symbols[symbol])
 
     else:
       return None
@@ -150,7 +151,7 @@ class Machine(object):
     return self.address_cache[symbol]
 
   def get_symbol_by_addr(self, cs, address):
-    return self.symbol_cache[segment_addr_to_addr(cs.u8, address)]
+    return self.symbol_cache[segment_addr_to_addr(cs, address)]
 
   def hw_setup(self, machine_config, machine_in = None, machine_out = None):
     def __print_regions(regions):
@@ -165,7 +166,7 @@ class Machine(object):
 
     self.config = machine_config
 
-    self.profiler = profiler.STORE.get_profiler()
+    self.profiler = profiler.STORE.get_machine_profiler()
 
     self.nr_cpus = self.config.getint('machine', 'cpus')
     self.nr_cores = self.config.getint('machine', 'cores')
@@ -213,13 +214,11 @@ class Machine(object):
 
       info('Loading IRQ routines from file %s', binary.path)
 
-      from mm import UInt8, UInt16, UInt24
-
       binary.cs, binary.ds, binary.sp, binary.ip, binary.symbols, binary.regions = self.memory.load_file(binary.path)
 
       desc = cpu.InterruptVector()
-      desc.cs = binary.cs.u8
-      desc.ds = binary.ds.u8
+      desc.cs = binary.cs
+      desc.ds = binary.ds
 
       def __save_iv(name, table, index):
         if name not in binary.symbols:
@@ -248,11 +247,11 @@ class Machine(object):
       binary.cs, binary.ds, binary.sp, binary.ip, binary.symbols, binary.regions = self.memory.load_file(binary.path)
 
       entry_label = self.config.get(binary_section, 'entry', 'main')
-      binary.ip = binary.symbols.get(entry_label)
+      binary.ip = binary.symbols.get(entry_label).u16
 
       if not binary.ip:
         warn('Entry point "%s" not found', entry_label)
-        binary.ip = mm.UInt16(0)
+        binary.ip = 0
 
       __print_regions(binary.regions)
 
@@ -287,7 +286,7 @@ class Machine(object):
       else:
         address = self.get_addr_by_symbol(address)
         if address:
-          address = address[1].u16
+          address = address[1]
 
       if not address:
         error('Unknown breakpoint address: %s on %s', _get('address', '0x000000'), _get('core', '#0:#0'))

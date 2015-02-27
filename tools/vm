@@ -82,6 +82,11 @@ def main():
                        type = 'choice',
                        choices = ['yes', 'no'],
                        default = 'no')
+  opt_group.add_option('--machine-profile',
+                       dest = 'machine_profile',
+                       action = 'store_true',
+                       default = False,
+                       help = 'Enable profiling of runningbinaries')
 
   # Debug options
   opt_group = optparse.OptionGroup(parser, 'Debug options')
@@ -100,14 +105,17 @@ def main():
                        dest = 'profile',
                        action = 'store_true',
                        default = False,
-                       help = 'Run with profiler')
+                       help = 'Enable profiling of the whole virtual machine')
 
   options, args = parser.parse_args()
 
   if options.profile == True:
-    profiler.STORE.enable()
+    profiler.STORE.enable_machine()
 
-  main_profiler = profiler.STORE.get_profiler()
+  if options.machine_profile == True:
+    profiler.STORE.enable_cpu()
+
+  main_profiler = profiler.STORE.get_machine_profiler()
   main_profiler.enable()
 
   M = machine.Machine()

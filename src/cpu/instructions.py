@@ -89,9 +89,9 @@ class GenericInstBinaryFormat_Opcode(LittleEndianStructure):
   ]
 
 def decode_instruction(inst):
-  if type(inst) == UInt32:
+  if type(inst) in (types.LongType, types.IntType):
     master = InstBinaryFormat_Master()
-    master.overall.u32 = inst.u32
+    master.overall.u32 = inst
     inst = master
 
   if type(inst) == InstBinaryFormat_Master:

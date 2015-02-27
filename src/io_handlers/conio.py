@@ -14,12 +14,12 @@ import io_handlers
 import util
 
 from util import debug, warn
-from mm import UInt8, UINT8_FMT
+from mm import UINT8_FMT
 from util import info, warn, error
 from console import WHITE
 
-CR = UInt8(ord('\r'))
-LF = UInt8(ord('\n'))
+CR = ord('\r')
+LF = ord('\n')
 
 class ControlMessages(enum.IntEnum):
   CRLF_ON   = 1024
@@ -274,17 +274,17 @@ class ConsoleIOHandler(io_handlers.IOHandler):
 
       break
 
-    c = UInt8(ord(c))
+    c = ord(c)
 
-    debug('conio.__read_char: c=%s (%s)', c, self.__escape_char(c.u8))
+    debug('conio.__read_char: c=%s (%s)', c, self.__escape_char(c))
 
     return c
 
   def __write_char(self, c, vm_output = True):
-    debug('conio.__write_char: c=%s (%s)', c, self.__escape_char(c.u8))
+    debug('conio.__write_char: c=%s (%s)', c, self.__escape_char(c))
 
     try:
-      s = chr(c.u8)
+      s = chr(c)
       if self.highlight and vm_output:
         s = WHITE(s)
 
@@ -304,14 +304,14 @@ class ConsoleIOHandler(io_handlers.IOHandler):
     c = self.__read_char()
     if not c:
       debug('conio.read_u8_256: empty input, signal it downstream')
-      return UInt8(0xFF)
+      return 0xFF
 
     debug('conio.read_u8_256: input byte is %s', c)
 
     if self.echo:
       self.__write_char(c, vm_output = False)
 
-    if self.crlf == True and c.u8 == CR.u8:
+    if self.crlf == True and c == CR:
       self.__write_char(LF, vm_output = False)
 
     return c
@@ -330,7 +330,7 @@ class ConsoleIOHandler(io_handlers.IOHandler):
     debug('conio.writeln: line=%s', line)
 
     for c in line:
-      self.__write_char(UInt8(ord(c)))
+      self.__write_char(ord(c))
 
     self.__write_char(CR)
     self.__write_char(LF)

@@ -11,7 +11,7 @@ class Console(irq.IRQSource):
     self.conio = conio
     self.thread = None
 
-    self.profiler = profiler.STORE.get_profiler()
+    self.profiler = profiler.STORE.get_machine_profiler()
 
   def boot(self):
     super(Console, self).boot()

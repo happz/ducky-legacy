@@ -21,9 +21,9 @@ import cpu.instructions
 import mm.binary
 import util
 
-from mm import UInt8, UInt16, ADDR_FMT, UINT16_FMT, UINT8_FMT, SIZE_FMT, PAGE_SIZE, buff_to_uint16
+from mm import UInt8, UInt16, ADDR_FMT, UINT16_FMT, UINT8_FMT, SIZE_FMT, PAGE_SIZE
 from cpu.errors import CPUException
-from cpu.registers import Registers, REGISTER_NAMES
+from cpu.registers import Flags, Registers, REGISTER_NAMES
 from util import str2int, info, print_table
 
 def show_header(state):
@@ -62,7 +62,7 @@ def show_cores(state):
   info('=== Cores ===')
 
   __reg = lambda name: UINT16_FMT(getattr(cs, name))
-  __flag = lambda name: getattr(cs.flags.flags, name)
+  __flag = lambda mask: (cs.flags & mask) != 0
 
   for cs in state.core_states:
     info('Core #%i:#%i', cs.cpuid, cs.coreid)
@@ -74,7 +74,7 @@ def show_cores(state):
 
     info('  cs=%s    ds=%s', __reg('cs'), __reg('ds'))
     info('  fp=%s    sp=%s    ip=%s', __reg('fp'), __reg('sp'), __reg('ip'))
-    info('  priv=%i, hwint=%i, e=%i, z=%i, o=%i', __flag('privileged'), __flag('hwint'), __flag('e'), __flag('z'), __flag('o'))
+    info('  priv=%i, hwint=%i, e=%i, z=%i, o=%i, s=%i', __flag(Flags.PRIVILEGED), __flag(Flags.HWINT), __flag(Flags.EQUAL), __flag(Flags.ZERO), __flag(Flags.OVERFLOW), __flag(Flags.SIGNED))
     info('  keep_running=%s, idle=%s, exit=%i', cs.keep_running, cs.idle, cs.exit_code)
 
     info('')
@@ -110,10 +110,10 @@ def show_stack(state):
         offset = PAGE_SIZE - 2 - (ci * 16 + ri) * 2
         segment_offset = pg_address + offset
 
-        v = buff_to_uint16(pg.content, offset)
+        v = pg.content[offset] | (pg.content[offset + 1] << 8)
         row.append((sps.get(segment_offset, None), v))
 
-      info('  ' + '  '.join(['%s %s' % (' ' if sp == None else '*', console.WHITE(UINT16_FMT(v)) if v.u16 != 0 else console.GREEN(UINT16_FMT(v))) for sp, v in row]))
+      info('  ' + '  '.join(['%s %s' % (' ' if sp == None else '*', console.WHITE(UINT16_FMT(v)) if v != 0 else console.GREEN(UINT16_FMT(v))) for sp, v in row]))
 
     info('')
 

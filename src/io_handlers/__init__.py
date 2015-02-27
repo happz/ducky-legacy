@@ -25,38 +25,40 @@ class IOHandler(object):
     pass
 
   def read_u8(self, port):
-    handler_name = 'read_u8_%i' % port.u16
+    handler_name = 'read_u8_%i' % port
 
     if not hasattr(self, handler_name):
-      raise cpu.AccessViolationError('Unable to read from port: port=%i' % port.u16)
+      raise cpu.AccessViolationError('Unable to read from port: port=%i' % port)
 
     return getattr(self, handler_name)()
 
   def read_u16(self, port):
-    handler_name = 'read_u16_%i' % port.u16
+    handler_name = 'read_u16_%i' % port
+
+    debug('read_u16: port=%s', port)
 
     if not hasattr(self, handler_name):
-      raise cpu.AccessViolationError('Unable to read from port: port=%i' % port.u16)
+      raise cpu.AccessViolationError('Unable to read from port: port=%i' % port)
 
     return getattr(self, handler_name)()
 
   def write_u8(self, port, value):
-    handler_name = 'write_u8_%i' % port.u16
+    handler_name = 'write_u8_%i' % port
 
     debug('write_u8: port=%s, value=%s', port, value)
 
     if not hasattr(self, handler_name):
-      raise cpu.AccessViolationError('Unable to write to port: port=%s' % UINT16_FMT(port.u16))
+      raise cpu.AccessViolationError('Unable to write to port: port=%s' % UINT16_FMT(port))
 
     getattr(self, handler_name)(value)
 
   def write_u16(self, port, value):
-    handler_name = 'write_u16_%i' % port.u16
+    handler_name = 'write_u16_%i' % port
 
     debug('write_u16: port=%s, value=%s', port, value)
 
     if not hasattr(self, handler_name):
-      raise cpu.AccessViolationError('Unable to write to port: port=%s' % UINT16_FMT(port.u16))
+      raise cpu.AccessViolationError('Unable to write to port: port=%s' % UINT16_FMT(port))
 
     getattr(self, handler_name)(value)
 

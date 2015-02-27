@@ -51,11 +51,14 @@ def assert_registers(state, **regs):
     assert getattr(state, reg) == val, 'Register %s expected to have value %s (%s), %s (%s) found instead' % (reg, mm.UINT16_FMT(val), val, mm.UINT16_FMT(getattr(state, reg)), getattr(state, reg))
 
 def assert_flags(state, **flags):
-  assert state.flags.flags.privileged == flags.get('privileged', 1), 'PRIV flag expected to be %s' % flags.get('privileged', 1)
-  assert state.flags.flags.e == flags.get('e', 0), 'E flag expected to be %s' % flags.get('e', 0)
-  assert state.flags.flags.z == flags.get('z', 0), 'Z flag expected to be %s' % flags.get('z', 0)
-  assert state.flags.flags.o == flags.get('o', 0), 'O flag expected to be %s' % flags.get('o', 0)
-  assert state.flags.flags.s == flags.get('s', 0), 'S flag expected to be %s' % flags.get('s', 0)
+  real_flags = cpu.registers.FlagsRegister()
+  real_flags.from_uint16(state.flags)
+
+  assert real_flags.privileged == flags.get('privileged', 1), 'PRIV flag expected to be %s' % flags.get('privileged', 1)
+  assert real_flags.e == flags.get('e', 0), 'E flag expected to be %s' % flags.get('e', 0)
+  assert real_flags.z == flags.get('z', 0), 'Z flag expected to be %s' % flags.get('z', 0)
+  assert real_flags.o == flags.get('o', 0), 'O flag expected to be %s' % flags.get('o', 0)
+  assert real_flags.s == flags.get('s', 0), 'S flag expected to be %s' % flags.get('s', 0)
 
 def assert_mm(state, **cells):
   for addr, expected_value in cells.items():
@@ -68,8 +71,8 @@ def assert_mm(state, **cells):
       if page.index != page_index:
         continue
 
-      real_value = mm.buff_to_uint16(page.content, page_offset)
-      assert real_value.u16 == expected_value, 'Value at %s (page %s, offset %s) should be %s, %s found instead' % (mm.ADDR_FMT(addr), page_index, mm.UINT8_FMT(page_offset), mm.UINT16_FMT(expected_value), mm.UINT16_FMT(real_value))
+      real_value = page.content[page_offset] | (page.content[page_offset + 1] << 8)
+      assert real_value == expected_value, 'Value at %s (page %s, offset %s) should be %s, %s found instead' % (mm.ADDR_FMT(addr), page_index, mm.UINT8_FMT(page_offset), mm.UINT16_FMT(expected_value), mm.UINT16_FMT(real_value))
       break
 
     else:
@@ -97,7 +100,7 @@ def run_machine(code, machine_config, coredump_file = None):
 
   binary = machine.Binary('<dummy>')
   binary.cs, binary.ds, binary.sp, binary.ip, binary.symbols, binary.regions = M.memory.load_raw_sections(sections)
-  binary.ip = binary.symbols.get('main', mm.UInt16(0))
+  binary.ip = binary.symbols.get('main', mm.UInt16(0)).u16
 
   M.binaries.append(binary)
 

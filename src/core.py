@@ -45,7 +45,7 @@ class CPUCoreState(LittleEndianStructure):
     ('ds', c_ushort),
     ('cs', c_ushort),
     ('ip', c_ushort),
-    ('flags', FlagsRegister),
+    ('flags', c_ushort),
     ('exit_code', c_ushort),
     ('idle',         c_ubyte, 1),
     ('keep_running', c_ubyte, 1),
@@ -155,8 +155,8 @@ class VMState(object):
     for binary in vm.binaries:
       bs = BinaryState()
       bs.path = state.string_table.put_string(binary.path)
-      bs.cs = binary.cs.u8
-      bs.ds = binary.cs.u8
+      bs.cs = binary.cs
+      bs.ds = binary.cs
       bs.memory_regions = len(binary.regions)
       state.binary_states.append(bs)
 

@@ -3,7 +3,7 @@ import types
 import unittest
 
 from util import str2int
-from mm import addr_to_page, addr_to_offset, buff_to_uint16, ADDR_FMT, UINT8_FMT, UINT16_FMT
+from mm import addr_to_page, addr_to_offset, ADDR_FMT, UINT8_FMT, UINT16_FMT
 
 from tests import common_run_machine, assert_registers, assert_flags, assert_mm
 

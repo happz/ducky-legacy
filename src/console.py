@@ -64,7 +64,7 @@ class Console(object):
     self.keep_running = True
     self.thread = None
 
-    self.profiler = profiler.STORE.get_profiler()
+    self.profiler = profiler.STORE.get_machine_profiler()
 
     self.history = []
     self.history_index = 0
