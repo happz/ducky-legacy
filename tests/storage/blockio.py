@@ -25,10 +25,50 @@ class Tests(unittest.TestCase):
 
     assert_registers(state.core_states[0], **kwargs)
     assert_flags(state.core_states[0], **kwargs)
-    assert_mm(state, **mm)  
+    if mm:
+      assert_mm(state, **mm)
 
     for filename, cells in files:
       assert_file_content(filename, cells)
+
+  def test_unknown_device(self):
+    file_size = blockio.BLOCK_SIZE * 10
+    f_tmp = prepare_file(file_size)
+    storage_desc = ('block', 1, f_tmp.name)
+
+    code = """
+      .def INT_BLOCKIO: 1
+      .def BLOCKIO_READ: 0
+
+        .text
+
+      main:
+        li r0, 7 ; there's no device with id 7...
+        li r1, $BLOCKIO_READ
+        int $INT_BLOCKIO
+        int 0
+    """
+
+    self.common_case(code, [storage_desc], None, [], r0 = 0xFFFF, z = 1)
+
+  def test_unknown_operation(self):
+    file_size = blockio.BLOCK_SIZE * 10
+    f_tmp = prepare_file(file_size)
+    storage_desc = ('block', 1, f_tmp.name)
+
+    code = """
+      .def INT_BLOCKIO: 1
+
+        .text
+
+      main:
+        li r0, 1
+        li r1, 79
+        int $INT_BLOCKIO
+        int 0
+    """
+
+    self.common_case(code, [storage_desc], None, [], r0 = 0xFFFF, r1 = 79)
 
   def test_block_read(self):
     # size of storage file
