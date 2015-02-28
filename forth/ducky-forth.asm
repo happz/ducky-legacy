@@ -30,6 +30,9 @@
 ; 32 cells, should be enough
 .def RSTACK_SIZE: 64
 
+; 255 chars should be enough for a string length (and it fits into 1 byte)
+.def STRING_SIZE:       255
+
 ; Some commonly used registers
 .def FIP: r12
 .def PSP: sp
@@ -52,10 +55,6 @@
 ; FORTH boolean "flags"
 .def FORTH_TRUE:  0xFFFF
 .def FORTH_FALSE: 0x0000
-
-; Machine interrupts
-.def INT_VMDEBUG:    3
-.def INT_CONIO:      4
 
 .macro pushrsp reg:
   sub $RSP, $CELL
@@ -150,7 +149,7 @@ code_#label:
 
 halt:
   ; r0 - exit code
-  hlt r0
+  int $INT_HALT
 
 
 strcmp:
@@ -224,15 +223,13 @@ writeln:
   ; r0 - ptr
   ; r1 - size
   call &write
-  call &write_new_line
-  ret
+  j &write_new_line ; tail call
 
 
 writesln:
   ; r0 - ptr
   call &writes
-  call &write_new_line
-  ret
+  j &write_new_line ; tail call
 
 
 write_new_line:
@@ -273,8 +270,8 @@ main:
   stw r0, sp
 
   ; print welcome message
-  li r0, &welcome_message
-  call &writes
+  ;li r0, &welcome_message
+  ;call &writes
 
   ; and boot...
   li $FIP, &cold_start ; boot
@@ -411,26 +408,28 @@ $DEFVAR ">IN", 3, 0, TOIN, 0
 
 $DEFCODE "VMDEBUGON", 9, 0, VMDEBUGON
   ; ( -- )
-  li r0, 1
+  li r0, $VMDEBUG_QUIET
+  li r1, 0
   int $INT_VMDEBUG
   $NEXT
 
 $DEFCODE "VMDEBUGOFF", 10, 0, VMDEBUGOFF
   ; ( -- )
-  li r0, 0
+  li r0, $VMDEBUG_QUIET
+  li r1, 1
   int $INT_VMDEBUG
   $NEXT
 
 $DEFCODE "CONIOECHOON", 11, 0, CONIOECHOON
   ; ( -- )
-  li r0, 0
+  li r0, $CONIO_ECHO
   li r1, 1
   int $INT_CONIO
   $NEXT
 
 $DEFCODE "CONIOECHOOFF", 12, 0, CONIOECHOOFF
   ; ( -- )
-  li r0, 0
+  li r0, $CONIO_ECHO
   li r0, 0
   int $INT_CONIO
   $NEXT

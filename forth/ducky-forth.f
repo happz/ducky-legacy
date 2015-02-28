@@ -38,40 +38,6 @@ LEAVE-SP LEAVE-SP !
 
 \ PRINTING NUMBERS ----------------------------------------------------------------------
 
-\ This is the underlying recursive definition of U.
-: U.		( u -- )
-	BASE @ /MOD	( width rem quot )
-	?DUP IF			( if quotient <> 0 then )
-		RECURSE		( print the quotient )
-	THEN
-
-	( print the remainder )
-	DUP 10 < IF
-		'0'		( decimal digits 0..9 )
-	ELSE
-		10 -		( hex and beyond digits A..Z )
-		'A'
-	THEN
-	+
-	EMIT
-;
-
-\ Prints the contents of the stack.
-: .S		( -- )
-	DSP@		( get current stack pointer )
-	BEGIN
-		DUP S0 @ <
-	WHILE
-		DUP @ U.	( print the stack element )
-		SPACE
-		2+		( move up )
-	REPEAT
-	DROP
-;
-
-\ Returns the width (in characters) of an unsigned number in the current base
-\ : UWIDTH BASE @ /	?DUP IF RECURSE 1+ ELSE 1 THEN ;
-
 \ Prints an unsigned number, padded to a certain width
 : U.R		( u width -- )
 	SWAP		( width u )

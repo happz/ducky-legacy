@@ -1,71 +1,69 @@
-: TEST
-	1 0 < . CR
-	0 1 < . CR
-	1 -1 < . CR
-	-1 1 < . CR
-	-1 0 < . CR
-	0 -1 < . CR CR
+T{ 1 0 < -> FALSE }T
+T{ 0 1 < -> TRUE }T
+T{ 1 -1 < -> FALSE }T
+T{ -1 1 < -> TRUE }T
+T{ -1 0 < -> TRUE }T
+T{ 0 -1 < -> FALSE }T
 
-	1 0 > . CR
-	0 1 > . CR
-	1 -1 > . CR
-	-1 1 > . CR
-	-1 0 > . CR
-	0 -1 > . CR CR
+T{ 1 0 > -> TRUE }T
+T{ 0 1 > -> FALSE }T
+T{ 1 -1 > -> TRUE }T
+T{ -1 1 > -> FALSE }T
+T{ -1 0 > -> FALSE }T
+T{ 0 -1 > -> TRUE }T
 
-	1 1 <= . CR
-	0 0 <= . CR
-	-1 -1 <= . CR
-	1 0 <= . CR
-	0 1 <= . CR
-	1 -1 <= . CR
-	-1 1 <= . CR
-	-1 0 <= . CR
-	0 -1 <= . CR CR
+T{ 1 1 <= -> TRUE }T
+T{ 0 0 <= -> TRUE }T
+T{ -1 -1 <= -> TRUE }T
+T{ 1 0 <= -> FALSE }T
+T{ 0 1 <= -> TRUE }T
+T{ 1 -1 <= -> FALSE }T
+T{ -1 1 <= -> TRUE }T
+T{ -1 0 <= -> TRUE }T
+T{ 0 -1 <= -> FALSE }T
 
-	1 1 >= . CR
-	0 0 >= . CR
-	-1 -1 >= . CR
-	1 0 >= . CR
-	0 1 >= . CR
-	1 -1 >= . CR
-	-1 1 >= . CR
-	-1 0 >= . CR
-	0 -1 >= . CR CR
+T{ 1 1 >= -> TRUE }T
+T{ 0 0 >= -> TRUE }T
+T{ -1 -1 >= -> TRUE }T
+T{ 1 0 >= -> TRUE }T
+T{ 0 1 >= -> FALSE }T
+T{ 1 -1 >= -> TRUE }T
+T{ -1 1 >= -> FALSE }T
+T{ -1 0 >= -> FALSE }T
+T{ 0 -1 >= -> TRUE }T
 
-	1 1 = . CR
-	1 0 = . CR
-	0 0 = . CR
-	1 -1 = . CR
-	-1 -1 = . CR CR
+T{ 1 1 = -> TRUE }T
+T{ 1 0 = -> FALSE }T
+T{ 0 0 = -> TRUE }T
+T{ 1 -1 = -> FALSE }T
+T{ -1 -1 = -> TRUE }T
 
-	1 1 <> . CR
-	1 0 <> . CR
-	0 0 <> . CR
-	1 -1 <> . CR
-	-1 -1 <> . CR CR
+T{ 1 1 <> -> FALSE }T
+T{ 1 0 <> -> TRUE }T
+T{ 0 0 <> -> FALSE }T
+T{ 1 -1 <> -> TRUE }T
+T{ -1 -1 <> -> FALSE }T
 
-	1 0= . CR
-	0 0= . CR
-	-1 0= . CR CR
+T{ 1 0= -> FALSE }T
+T{ 0 0= -> TRUE }T
+T{ -1 0= -> FALSE }T
 
-	1 0<> . CR
-	0 0<> . CR
-	-1 0<> . CR CR
+T{ 1 0<> -> TRUE }T
+T{ 0 0<> -> FALSE }T
+T{ -1 0<> -> TRUE }T
 
-	1 0< . CR
-	0 0< . CR
-	-1 0< . CR CR
+T{ 1 0< -> FALSE }T
+T{ 0 0< -> FALSE }T
+T{ -1 0< -> TRUE }T
 
-	1 0> . CR
-	0 0> . CR
-	-1 0> . CR CR
+T{ 1 0> -> TRUE }T
+T{ 0 0> -> FALSE }T
+T{ -1 0> -> FALSE }T
 
-	1 0<= . CR
-	0 0<= . CR
-	-1 0<= . CR CR
+T{ 1 0<= -> FALSE }T
+T{ 0 0<= -> TRUE }T
+T{ -1 0<= -> TRUE }T
 
-	1 0>= . CR
-	0 0>= . CR
-	-1 0>= . CR CR
-;
+T{ 1 0>= -> TRUE }T
+T{ 0 0>= -> TRUE }T
+T{ -1 0>= -> FALSE }T

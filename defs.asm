@@ -1,4 +1,10 @@
 ;
+; Memory
+;
+
+.def PAGE_SIZE: 256
+
+;
 ; Interrupts
 ;
 .def INT_HALT:    0
@@ -7,6 +13,26 @@
 .def INT_CONIO:   3
 .def INT_MM:      4
 .def INT_MATH:    5
+
+
+;
+; VMDebug Operations
+;
+.def VMDEBUG_QUIET:  0
+
+
+;
+; ConsoleIO Operations
+;
+.def CONIO_ECHO:    0
+
+
+;
+; BlockIO Operations
+;
+.def BLOCKIO_READ:  0
+.def BLOCKIO_WRITE: 1
+
 
 ;
 ; Math Coprocessor Operations
@@ -36,8 +62,3 @@
 .def PORT_CONIO_STDIN:  0x100
 .def PORT_CONIO_STDOUT: 0x100
 .def PORT_CONIO_STDERR: 0x101
-
-; Block IO
-.def PORT_BLOCKIO_CMD:  0x200
-.def PORT_BLOCKIO_DATA: 0x202
-

@@ -306,9 +306,7 @@ class Machine(object):
       _getbool = functools.partial(self.config.getbool, st_section)
       _getint  = functools.partial(self.config.getint, st_section)
 
-      s_type, s_id, s_data = storage_desc.split(',')
-
-      self.storages[_getint('id')] = STORAGES[_get('type')](self, _getint('id'), _get('file'))
+      self.storages[_getint('id')] = STORAGES[_get('driver')](self, _getint('id'), _get('file'))
 
     self.register_port(0x200, self.storageio)
     self.register_port(0x202, self.storageio)
@@ -361,6 +359,8 @@ class Machine(object):
       if len([_cpu for _cpu in self.cpus if _cpu.thread.is_alive()]) == 0:
         info('Machine halted')
         break
+
+    self.on_halt()
 
     self.profiler.disable()
 
@@ -421,7 +421,7 @@ class Machine(object):
 
     halt_msg.wait()
 
-    self.on_halt()
+    #self.on_halt()
 
   def on_halt(self):
     self.for_each_irq(lambda src: src.halt())

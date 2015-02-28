@@ -17,7 +17,7 @@ from mm import ADDR_FMT, UINT8_FMT, UINT16_FMT, UINT32_FMT, SEGMENT_SIZE, PAGE_S
 from registers import Registers, REGISTER_NAMES
 from instructions import Opcodes
 from errors import CPUException, AccessViolationError, InvalidResourceError, InvalidOpcode
-from util import debug, info, warn, error, print_table, LRUCache
+from util import debug, info, warn, error, print_table, LRUCache, exception
 
 from ctypes import LittleEndianStructure, c_ubyte, c_ushort
 from threading2 import Thread
@@ -38,7 +38,7 @@ def do_log_cpu_core_state(core, logger = None):
 
   for i in range(0, Registers.REGISTER_SPECIAL, 4):
     regs = [(i + j) for j in range(0, 4) if (i + j) < Registers.REGISTER_SPECIAL]
-    s = ['reg%02i=%s' % (reg, core.registers.map[reg]) for reg in regs]
+    s = ['reg%02i=%s' % (reg, UINT16_FMT(core.registers.map[reg].value)) for reg in regs]
     logger(' '.join(s))
 
   logger('cs=%s    ds=%s' % (core.registers.cs, core.registers.ds))
@@ -253,24 +253,18 @@ class CPUCore(object):
     self.idle = True if core_state.idle else False
     self.keep_running = True if core_state.keep_running else False
 
+  def EXCEPTION(self, exc):
+    exception(exc, logger = self.ERROR)
+
+    do_log_cpu_core_state(self, logger = self.ERROR)
+
   def die(self, exc):
     self.exit_code = 1
 
     self.data_cache.flush()
 
-    self.ERROR(str(exc))
-    self.ERROR('')
+    self.EXCEPTION(exc)
 
-    if hasattr(exc, 'exc_stack'):
-      for line in traceback.format_exception(*exc.exc_stack):
-        line = line.rstrip()
-        for line in line.split('\n'):
-          line = line.replace('%', '%%')
-          self.ERROR(line)
-
-      self.ERROR('')
-
-    do_log_cpu_core_state(self, logger = self.ERROR)
     self.keep_running = False
 
     self.wake_up()

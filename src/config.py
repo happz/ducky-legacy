@@ -1,3 +1,5 @@
+import StringIO
+
 from ConfigParser import ConfigParser, NoOptionError
 
 from util import str2int
@@ -44,6 +46,11 @@ class MachineConfig(ConfigParser):
     self.__count_binaries()
     self.__count_breakpoints()
     self.__count_mmaps()
+
+  def dumps(self):
+    s = StringIO.StringIO()
+    self.write(s)
+    return s.getvalue()
 
   def __sections_with_prefix(self, prefix):
     return [s_name for s_name in self.sections() if s_name.startswith(prefix)]

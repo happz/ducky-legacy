@@ -17,9 +17,123 @@
 ; use DEFWORD for them...
 ;
 
+;
+; - Environment queries -----------------------------------------------------------------
+;
 
-$DEFCODE "ENVIRONMENT?", 12, 0, ENVIRONMENT
-  j &.__CMP_false
+.macro ENV_ENTRY name, str, len:
+  .section .rodata
+
+  .type ENV_ENTRY_NAME_#name, ascii
+  .ascii #str
+
+  .type ENV_ENTRY_LEN_#name, int
+  .int #len
+
+  .text
+
+.__ENV_ENTRY_HANDLER_#name:
+.end
+
+.macro ENV_ENTRY_CHECK name:
+  ; save string info
+  push r0
+  push r1
+  ; load entry string info
+  li r2, &ENV_ENTRY_NAME_#name
+  li r3, &ENV_ENTRY_LEN_#name
+  lw r3, r3
+  ; compare strings
+  call &strcmp
+  ; restore string info
+  pop r1
+  pop r2 ; r0 => r2 - pop it from stack, we'll need it later
+  ; did strings match?
+  cmp r0, 0
+  bnz &.__ENVIRONMENT_QUERY_next_#name
+  push $FORTH_TRUE
+  j &.__ENV_ENTRY_HANDLER_#name
+.__ENVIRONMENT_QUERY_next_#name:
+  mov r0, r2 ; restore string ptr
+.end
+
+$ENV_ENTRY COUNTED_STRING, "/COUNTED-STRING", 15
+  push $STRING_SIZE
+  j &.__ENVIRONMENT_QUERY_next
+
+$ENV_ENTRY CORE, "CORE", 4
+  push $FORTH_FALSE
+  j &.__ENVIRONMENT_QUERY_next
+
+$ENV_ENTRY CORE_EXT, "CORE-EXT", 8
+  push $FORTH_FALSE
+  j &.__ENVIRONMENT_QUERY_next
+
+$ENV_ENTRY FLOORED, "FLOORED", 7
+  push $FORTH_TRUE
+  j &.__ENVIRONMENT_QUERY_next
+
+$ENV_ENTRY MAX_CHAR, "MAX-CHAR", 8
+  push 127
+  j &.__ENVIRONMENT_QUERY_next
+
+$ENV_ENTRY RETURN_STACK_CELLS, "RETURN-STACK-CELLS", 18
+  li r0, $RSTACK_SIZE
+  div r0, $CELL
+  push r0
+  j &.__ENVIRONMENT_QUERY_next
+
+$ENV_ENTRY STACK_CELLS, "STACK-CELLS", 11
+  li r0, $PAGE_SIZE
+  div r0, $CELL
+  push r0
+  j &.__ENVIRONMENT_QUERY_next
+
+$ENV_ENTRY ADDRESS_UNIT_BITS, "ADDRESS-UNIT-BITS", 17
+  push 8
+  j &.__ENVIRONMENT_QUERY_next
+
+$ENV_ENTRY MAX_D, "MAX-D", 5
+  push 0xFFFF
+  push 0x7FFF
+  j &.__ENVIRONMENT_QUERY_next
+
+$ENV_ENTRY MAX_UD, "MAX-UD", 6
+  push 0xFFFF
+  push 0xFFFF
+  j &.__ENVIRONMENT_QUERY_next
+
+$ENV_ENTRY MAX_N, "MAX-N", 5
+  push 0x7FFF
+  j &.__ENVIRONMENT_QUERY_next
+
+$ENV_ENTRY MAX_U, "MAX-U", 5
+  push 0xFFFF
+  j &.__ENVIRONMENT_QUERY_next
+
+$DEFCODE "ENVIRONMENT?", 12, 0, ENVIRONMENT_QUERY
+  ; ( c-addr u -- false | i*x true )
+  pop r1 ; u
+  pop r0 ; c-addr
+
+  $ENV_ENTRY_CHECK RETURN_STACK_CELLS
+  $ENV_ENTRY_CHECK COUNTED_STRING
+  $ENV_ENTRY_CHECK CORE
+  $ENV_ENTRY_CHECK CORE_EXT
+  $ENV_ENTRY_CHECK ADDRESS_UNIT_BITS
+  $ENV_ENTRY_CHECK MAX_D
+  $ENV_ENTRY_CHECK MAX_UD
+  $ENV_ENTRY_CHECK MAX_N
+  $ENV_ENTRY_CHECK MAX_U
+  $ENV_ENTRY_CHECK STACK_CELLS
+  $ENV_ENTRY_CHECK FLOORED
+  $ENV_ENTRY_CHECK MAX_CHAR
+
+  push $FORTH_FALSE
+  j &.__ENVIRONMENT_QUERY_next
+
+.__ENVIRONMENT_QUERY_next:
+  $NEXT
 
 
 $DEFWORD "[COMPILE]", 9, $F_IMMED, BCOMPILE
@@ -137,11 +251,14 @@ $DEFWORD "CR", 2, 0, CR
   .int &EXIT
 
 
-$DEFWORD "SPACE", 5, 0, SPACE
+$DEFCODE "SPACE", 5, 0, SPACE
   ; ( -- )
-  .int &CHAR_SPACE
-  .int &EMIT
-  .int &EXIT
+  call &.__SPACE
+  $NEXT
+
+.__SPACE:
+  li r0, 32
+  j &.__EMIT
 
 
 $DEFWORD "NOT", 3, 0, NOT
@@ -524,6 +641,7 @@ $DEFCODE ">BODY", 5, 0, TOBODY
   ; ( xt -- a-addr )
   pop $W
   add $W, $CELL
+  add $W, $CELL
   push $W
   $NEXT
 
@@ -870,6 +988,57 @@ $DEFCODE "UM*", 3, 0, UMSTAR
   $DC_utos_to_l
   $DC_mul
   $DC_l_to_dtos
+  $NEXT
+
+
+; - Printing ----------------------------------------------------------------------------
+
+$DEFCODE "U.", 2, 0, UDOT
+  pop r0
+  call &.__UDOT
+  $NEXT
+
+.__UDOT:
+  ; BASE
+  push r1
+  li r1, &var_BASE
+  lw r1, r1
+
+  push r0 ; save r0 for mod later
+  div r0, r1
+  bz &.__UDOT_print
+  call &.__UDOT
+
+.__UDOT_print:
+  pop r0 ; restore saved number and mod it
+  mod r0, r1
+  cmp r0, 10
+  bge &.__UDOT_print_letters
+  add r0, 48
+  pop r1
+  j &.__EMIT ; tail call
+
+.__UDOT_print_letters:
+  sub r0, 10
+  add r0, 65
+
+.__UDOT_emit:
+  pop r1
+  j &.__EMIT ; tail call
+
+
+$DEFCODE ".S", 2, 0, DOTS
+  mov $W, sp
+  li $X, &var_SZ
+  lw $X, $X
+
+.__DOTS_loop:
+  lw r0, $W
+  call &.__UDOT
+  call &.__SPACE
+  add $W, $CELL
+  cmp $W, $X
+  bl &.__DOTS_loop
   $NEXT
 
 

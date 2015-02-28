@@ -13,6 +13,7 @@ import io_handlers
 
 import util
 
+from cpu.registers import Registers
 from util import debug, warn
 from mm import UINT8_FMT
 from util import info, warn, error
@@ -334,3 +335,25 @@ class ConsoleIOHandler(io_handlers.IOHandler):
 
     self.__write_char(CR)
     self.__write_char(LF)
+
+from irq import InterruptList
+from irq.virtual import VirtualInterrupt, VIRTUAL_INTERRUPTS
+
+class ConioOperationList(enum.IntEnum):
+  ECHO = 0
+
+class ConioInterrupt(VirtualInterrupt):
+  def run(self, core):
+    core.DEBUG('ConioInterrupt: triggered')
+
+    op = core.REG(Registers.R00).value
+    core.REG(Registers.R00).value = 0
+
+    if op == ConioOperationList.ECHO:
+      core.cpu.machine.conio.echo = False if core.REG(Registers.R01).value == 0 else True
+
+    else:
+      core.WARN('Unknown conio operation requested: %s', op)
+      core.REG(Registers.R00).value = 0xFFFF
+
+VIRTUAL_INTERRUPTS[InterruptList.CONIO.value] = ConioInterrupt

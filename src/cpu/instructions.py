@@ -305,6 +305,31 @@ class InstDescriptor_Generic_Unary_R(InstDescriptor):
   def disassemble_operands(self, inst):
     return [REGISTER_NAMES[inst.reg]]
 
+
+class InstDescriptor_Generic_Unary_I(InstDescriptor):
+  operands      = 'i'
+  binary_format = [BF_IMM()]
+
+  def assemble_operands(self, inst, operands):
+    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
+
+    v = operands[0]
+
+    if type(v) == types.IntType:
+      inst.immediate = v
+
+    elif type(v) == types.StringType:
+      inst.refers_to = v
+
+  def fix_refers_to(self, inst, refers_to):
+    debug('fix_refers_to: inst=%s, refers_to=%s' % (inst, OFFSET_FMT(refers_to)))
+
+    inst.immediate = int(refers_to)
+    inst.refers_to = None
+
+  def disassemble_operands(self, inst):
+    return [inst.refers_to if hasattr(inst, 'refers_to') and inst.refers_to else OFFSET_FMT(inst.immediate)]
+
 class InstDescriptor_Generic_Unary_RI(InstDescriptor):
   operands      = 'ri'
   binary_format = [BF_FLG('is_reg'), BF_REG('ireg'), BF_IMM()]

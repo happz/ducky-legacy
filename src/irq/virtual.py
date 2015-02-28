@@ -23,32 +23,23 @@ REREG = lambda core: core.REG(Registers.R00)
 P1REG = lambda core: core.REG(Registers.R01)
 P2REG = lambda core: core.REG(Registers.R02)
 
+class VMDebugOperationList(enum.Enum):
+  QUIET_MODE = 0
+
 class VMDebugInterrupt(VirtualInterrupt):
   def run(self, core):
     core.DEBUG('VMDebugInterrupt: triggered')
 
-    if OPREG(core).value == 0:
-      util.CONSOLE.set_quiet_mode(True)
+    op = core.REG(Registers.R00).value
+    core.REG(Registers.R00).value = 0
+
+    if op == VMDebugOperationList.QUIET_MODE.value:
+      core.DEBUG('setting quiet mode to %s', core.REG(Registers.R01).value)
+      util.CONSOLE.set_quiet_mode(False if core.REG(Registers.R01).value == 0 else True)
 
     else:
-      util.CONSOLE.set_quiet_mode(False)
-
-    REREG(core).value = 0
-
-class ConioOperationList(enum.IntEnum):
-  ECHO = 0
-
-class ConioInterrupt(VirtualInterrupt):
-  def run(self, core):
-    core.DEBUG('ConioInterrupt: triggered')
-
-    if OPREG(core).value == ConioOperationList.ECHO:
-      core.cpu.machine.conio.echo = False if P1REG(core).value == 0 else True
-      REREG(core).value = 0
-
-    else:
-      warn('Unknown conio operation requested: %s', UINT16_FMT(v))
-      REREG(core).value = 0xFFFF
+      core.WARN('Unknown vmdebug operation requested: %s', op)
+      core.REG(Registers.R00).value = 0xFFFF
 
 class MMOperationList(enum.IntEnum):
   ALLOC_PAGES = 0
@@ -94,6 +85,5 @@ class MMInterrupt(VirtualInterrupt):
 
 VIRTUAL_INTERRUPTS = {
   irq.InterruptList.VMDEBUG.value: VMDebugInterrupt,
-  irq.InterruptList.CONIO.value:   ConioInterrupt,
   irq.InterruptList.MM.value:      MMInterrupt
 }

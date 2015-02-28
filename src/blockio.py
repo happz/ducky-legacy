@@ -2,7 +2,9 @@ import os
 
 import profiler
 
+from cpu.registers import Registers
 from io_handlers import IOHandler
+from irq.virtual import VirtualInterrupt
 from mm import UInt8, UInt16, UInt24, UInt32, segment_addr_to_addr
 from util import debug, warn
 
@@ -92,7 +94,7 @@ class Storage(object):
     self.id = sid
     self.size = size
 
-    self.profiler = profiler.STORE.get_profiler()
+    self.profiler = profiler.STORE.get_machine_profiler()
 
   def do_read_block(self, src, dst, cnt):
     pass
@@ -105,13 +107,14 @@ class Storage(object):
 
     debug('read_block: id=%s, src=%s, dst=%s, cnt=%s', self.id, src, dst, cnt)
     
-    if src.u32 + cnt.u8 * BLOCK_SIZE >= self.size.u24:
+    if (src + cnt) * BLOCK_SIZE >= self.size:
       self.profiler.disable()
       raise StorageAccessError('Out of bounds access: storage size %s is too small' % self.size)
 
     self.do_read_block(src, dst, cnt)
 
-    event.set()
+    if event:
+      event.set()
 
     self.profiler.disable()
 
@@ -120,13 +123,14 @@ class Storage(object):
 
     debug('write_block: id=%s, src=%s, dst=%s, cnt=%s', self.id, src, dst, cnt)
 
-    if dst.u32 + BLOCK_SIZE * cnt.u8 >= self.size.u32:
+    if (dst + cnt) * BLOCK_SIZE >= self.size:
       self.profiler.disable()
       raise StorageAccessError('Out of bounds access: storage size %s is too small' % self.size)
 
     self.do_write_block(src, dst, cnt)
 
-    event.set()
+    if event:
+      event.set()
 
     self.profiler.disable()
 
@@ -134,7 +138,7 @@ class FileBackedStorage(Storage):
   def __init__(self, machine, sid, path):
     st = os.stat(path)
 
-    super(FileBackedStorage, self).__init__(machine, sid, UInt24(st.st_size))
+    super(FileBackedStorage, self).__init__(machine, sid, st.st_size)
 
     self.lock = Lock()
     self.path = path
@@ -144,34 +148,89 @@ class FileBackedStorage(Storage):
     self.file = open(self.path, 'r+b')
 
   def halt(self):
+    debug('BIO: halt')
+
+    self.file.flush()
     self.file.close()
 
   def do_read_block(self, src, dst, cnt):
     debug('do_read_block: src=%s, dst=%s, cnt=%s', src, dst, cnt)
 
     with self.lock:
-      self.file.seek(src.u32)
-      buff = self.file.read(BLOCK_SIZE * cnt.u8)
+      self.file.seek(src * BLOCK_SIZE)
+      buff = self.file.read(cnt * BLOCK_SIZE)
 
-    u = UInt8()
     for c in buff:
-      u.u8 = ord(c)
-      self.machine.memory.write_u8(dst.u24, u.u8)
-      dst.u24 += 1
+      self.machine.memory.write_u8(dst, ord(c))
+      dst += 1
+
+    debug('BIO: %s bytes read from %s:%s', cnt * BLOCK_SIZE, self.file.name, dst * BLOCK_SIZE)
 
   def do_write_block(self, src, dst, cnt):
     buff = []
 
-    for _ in range(0, BLOCK_SIZE * cnt.u8):
-      buff.append(chr(self.machine.memory.read_u8(src.u24).u8))
-      src.u24 += 1
+    for _ in range(0, cnt * BLOCK_SIZE):
+      buff.append(chr(self.machine.memory.read_u8(src)))
+      src += 1
 
     buff = ''.join(buff)
 
     with self.lock:
-      self.file.seek(dst.u32)
+      self.file.seek(dst * BLOCK_SIZE)
       self.file.write(buff)
+
+    debug('BIO: %s bytes written at %s:%s', cnt * BLOCK_SIZE, self.file.name, dst * BLOCK_SIZE)
 
 STORAGES = {
   'block': FileBackedStorage,
 }
+
+class BlockIOInterrupt(VirtualInterrupt):
+  def run(self, core):
+    core.DEBUG('BIO requested')
+
+    r0 = core.REG(Registers.R00)
+
+    device = self.machine.get_storage_by_id(r0.value)
+    if not device:
+      core.WARN('BIO: unknown device: id=%s', r0.value)
+      r0.value = 0xFFFF
+      return
+
+    r1 = core.REG(Registers.R01)
+    r2 = core.REG(Registers.R02)
+    r3 = core.REG(Registers.R03)
+    r4 = core.REG(Registers.R04)
+    DS = core.REG(Registers.DS)
+
+    if r1.value == 0:
+      handler = device.read_block
+      src = r2.value
+      dst = segment_addr_to_addr(DS.value & 0xFF, r3.value)
+
+    elif r1.value == 1:
+      handler = device.write_block
+      src = segment_addr_to_addr(DS.value & 0xFF, r2.value)
+      dst = r3.value
+
+    else:
+      core.WARN('BIO: unknown operation: op=%s', r1.value)
+      r0.value = 0xFFFF
+      return
+
+    cnt = r4.value & 0x00FF
+
+    try:
+      handler(src, dst, cnt, None)
+      r0.value = 0
+
+    except StorageAccessError, e:
+      core.ERROR('BIO: operation failed')
+      core.EXCEPTION(e)
+
+      r0.value = 0xFFFF
+
+from irq import InterruptList
+from irq.virtual import VIRTUAL_INTERRUPTS
+
+VIRTUAL_INTERRUPTS[InterruptList.BLOCKIO.value] = BlockIOInterrupt
