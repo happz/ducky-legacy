@@ -117,7 +117,7 @@ endif
 
 tests-post:
 	$(Q) cd coverage && coverage combine && cd ..
-	$(Q) COVERAGE_FILE="coverage/.coverage" coverage html -d coverage/
+	$(Q) COVERAGE_FILE="coverage/.coverage" coverage html --omit="*/python2.7/*" -d coverage/
 
 tests-submit-results:
 ifdef CIRCLE_TEST_REPORTS
@@ -125,6 +125,7 @@ ifdef CIRCLE_TEST_REPORTS
 endif
 ifdef CIRCLE_ARTIFACTS
 	$(Q) cp -r $(CURDIR)/coverage $(CIRCLE_ARTIFACTS)/
+	$(Q) cp -r $(CURDIR)/profile $(CIRCLE_ARTIFACTS)/
 	$(Q) cp $(shell find $(CURDIR)/tests -name '*.out') $(CIRCLE_ARTIFACTS)/
 	$(Q) cp $(shell find $(CURDIR)/tests -name '*.machine') $(CIRCLE_ARTIFACTS)/
 endif
