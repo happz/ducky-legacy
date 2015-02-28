@@ -1,3 +1,5 @@
+DECIMAL
+
 : FIB ( n1 -- n2 )
   DUP 2 < IF
     DROP 1
@@ -9,5 +11,5 @@
 ;
 
 : TEST
-  DECIMAL 10 FIB .
+  10 FIB .
 ;
