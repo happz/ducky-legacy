@@ -295,7 +295,7 @@ class Machine(object):
       p = add_breakpoint(core, address, ephemeral = _getbool('ephemeral', False), countdown = _getint('countdown', 0))
 
     # Storage
-    from storage import STORAGES, StorageIOHandler
+    from blockio import STORAGES, StorageIOHandler
 
     self.storageio = StorageIOHandler(self)
 
