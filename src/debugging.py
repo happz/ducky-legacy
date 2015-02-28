@@ -1,7 +1,5 @@
-import tabulate
-
+from console import Console
 from mm import ADDR_FMT
-from cpu.errors import CPUException
 
 from threading2 import Event
 
@@ -158,8 +156,6 @@ def cmd_bp_active(console, cmd):
   point = Point.points[int(cmd[1])]
   point.active = not point.active
 
-import console
-console.Console.register_command('bp_list', cmd_bp_list)
-console.Console.register_command('bp_add', cmd_bp_add)
-console.Console.register_command('bp_active', cmd_bp_active)
-
+Console.register_command('bp_list', cmd_bp_list)
+Console.register_command('bp_add', cmd_bp_add)
+Console.register_command('bp_active', cmd_bp_active)

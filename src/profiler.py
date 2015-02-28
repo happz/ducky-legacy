@@ -85,7 +85,7 @@ class ProfilerStore(object):
     return self.machine_profiler_class == RealMachineProfiler
 
   def is_cpu_enabled(self):
-    return self.core_profiler_class == CPUCoreprofiler
+    return self.core_profiler_class == RealCPUCoreProfiler
 
   def get_machine_profiler(self):
     p = self.machine_profiler_class(builtins = False)
@@ -116,4 +116,3 @@ class ProfilerStore(object):
       profiler.dump_stats(filename_pattern % index)
 
 STORE = ProfilerStore()
-

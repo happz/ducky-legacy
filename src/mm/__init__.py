@@ -3,7 +3,6 @@ import mmap
 
 from ctypes import LittleEndianStructure, c_ubyte, c_ushort, c_uint, sizeof
 
-from cpu.errors import InvalidResourceError, AccessViolationError
 from util import debug, align
 
 from threading2 import RLock
@@ -25,8 +24,8 @@ PAGE_SIZE = (1 << PAGE_SHIFT)
 PAGE_MASK = (~(PAGE_SIZE - 1))
 
 SEGMENT_SHIFT = 16
-SEGMENT_SIZE  = 256 # pages
-SEGMENT_PROTECTED = 0 # first segment is already allocated
+SEGMENT_SIZE  = 256  # pages
+SEGMENT_PROTECTED = 0  # first segment is already allocated
 
 def __var_to_int(v):
   if type(v) == UInt8:
@@ -43,19 +42,34 @@ def __var_to_int(v):
 
   return v
 
-UINT8_FMT  = lambda v: '0x%02X' % (__var_to_int(v) & 0xFF)
-UINT16_FMT = lambda v: '0x%04X' % (__var_to_int(v) & 0xFFFF)
-UINT24_FMT = lambda v: '0x%06X' % (__var_to_int(v) & 0xFFFFFF)
-UINT32_FMT = lambda v: '0x%08X' % __var_to_int(v)
+def UINT8_FMT(v):
+  return '0x%02X' % (__var_to_int(v) & 0xFF)
 
-SEGM_FMT = lambda segment: UINT8_FMT(segment)
-ADDR_FMT = lambda address: UINT24_FMT(address)
-SIZE_FMT = lambda size: '%u' % size
+def UINT16_FMT(v):
+  return '0x%04X' % (__var_to_int(v) & 0xFFFF)
+
+def UINT24_FMT(v):
+  return '0x%06X' % (__var_to_int(v) & 0xFFFFFF)
+
+def UINT32_FMT(v):
+  return '0x%08X' % __var_to_int(v)
+
+def SEGM_FMT(segment):
+  return UINT8_FMT(segment)
+
+def ADDR_FMT(address):
+  return UINT24_FMT(address)
+
+def SIZE_FMT(size):
+  return '%u' % size
 
 def OFFSET_FMT(offset):
   s = '-' if offset < 0 else ''
 
   return '%s0x%04X' % (s, abs(offset))
+
+class MalformedBinaryError(Exception):
+  pass
 
 class UInt8(LittleEndianStructure):
   _pack_ = 0
@@ -417,7 +431,7 @@ class MemoryController(object):
     self.__segments = {}
 
     # mmap
-    self.opened_mmap_files = {} # path: (cnt, file)
+    self.opened_mmap_files = {}  # path: (cnt, file)
     self.mmap_areas = {}
 
     # pages allocation
@@ -748,7 +762,7 @@ class MemoryController(object):
           if s_header.flags.execute == 1:
             access += 'x'
 
-          mmap_area = self.mmap_area(f_in.name, s_base_addr, s_header.size, offset = s_header.offset, access = access, shared = False)
+          self.mmap_area(f_in.name, s_base_addr, s_header.size, offset = s_header.offset, access = access, shared = False)
 
         else:
           self.for_each_page(pages_start, pages_cnt, self.__alloc_page)
@@ -916,8 +930,8 @@ class MemoryController(object):
 
     vector_address = table + index * sizeof(InterruptVector)
 
-    self.write_u8( vector_address,     desc.cs, privileged = True)
-    self.write_u8( vector_address + 1, desc.ds, privileged = True)
+    self.write_u8(vector_address, desc.cs, privileged = True)
+    self.write_u8(vector_address + 1, desc.ds, privileged = True)
     self.write_u16(vector_address + 2, desc.ip, privileged = True)
 
   def load_interrupt_vector(self, table, index):
@@ -933,8 +947,8 @@ class MemoryController(object):
 
     vector_address = table + index * sizeof(InterruptVector)
 
-    desc.cs = self.read_u8( vector_address,     privileged = True)
-    desc.ds = self.read_u8( vector_address + 1, privileged = True)
+    desc.cs = self.read_u8(vector_address, privileged = True)
+    desc.ds = self.read_u8(vector_address + 1, privileged = True)
     desc.ip = self.read_u16(vector_address + 2, privileged = True)
 
     return desc

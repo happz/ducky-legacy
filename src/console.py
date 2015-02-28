@@ -1,9 +1,6 @@
 import colorama
 import enum
 import select
-import sys
-import tabulate
-import traceback
 import types
 
 import profiler
@@ -11,6 +8,9 @@ import profiler
 from threading2 import Thread, Lock, Event
 
 CONSOLE_ID = 0
+
+if 'CONSOLE' not in globals():
+  CONSOLE = None
 
 class VerbosityLevels(enum.IntEnum):
   QUIET   = 0
@@ -37,10 +37,17 @@ COLORS = [
 
 __COLOR_RESET = colorama.Fore.RESET + colorama.Back.RESET + colorama.Style.RESET_ALL
 
-RED = lambda s: colorama.Fore.RED + s + __COLOR_RESET
-GREEN = lambda s: colorama.Fore.GREEN + s + __COLOR_RESET
-BLUE  = lambda s: colorama.Fore.BLUE + s + __COLOR_RESET
-WHITE = lambda s: colorama.Fore.WHITE + s + __COLOR_RESET
+def RED(s):
+  return colorama.Fore.RED + s + __COLOR_RESET
+
+def GREEN(s):
+  return colorama.Fore.GREEN + s + __COLOR_RESET
+
+def BLUE(s):
+  return colorama.Fore.BLUE + s + __COLOR_RESET
+
+def WHITE(s):
+  return colorama.Fore.WHITE + s + __COLOR_RESET
 
 class Console(object):
   console_id = 0
@@ -93,7 +100,7 @@ class Console(object):
   def write(self, buff, flush = True):
     flush = False
 
-    if type(buff) == types.ListType:
+    if isinstance(buff, types.ListType):
       buff = ''.join([chr(c) for c in buff])
 
     with self.lock:
@@ -149,11 +156,10 @@ class Console(object):
     try:
       cmd_desc[0](self, cmd, *cmd_desc[1], **cmd_desc[2])
 
-    except Exception, e:
-      s = traceback.format_exc()
+    except Exception, exc:
+      from util import exception
 
-      for line in s.split('\n'):
-        self.error(line)
+      exception(exc)
 
   def loop(self):
     if not self.f_in:
@@ -188,7 +194,7 @@ class Console(object):
 
         if c == ord('\n'):
           if self.history_index == 0:
-            self.history[0] = ''.join([chr(c) for c in buff])
+            self.history[0] = ''.join([chr(d) for d in buff])
 
           else:
             self.history.pop(0)
@@ -279,4 +285,3 @@ def cmd_help(console, cmd):
   print_table(table)
 
 Console.register_command('?', cmd_help)
-

@@ -1,10 +1,8 @@
 import patch
 
-import functools
 import os
 import sys
 import tempfile
-import unittest
 
 import config
 import cpu.assemble
@@ -55,6 +53,7 @@ def assert_flags(state, **flags):
   real_flags.from_uint16(state.flags)
 
   assert real_flags.privileged == flags.get('privileged', 1), 'PRIV flag expected to be %s' % flags.get('privileged', 1)
+  assert real_flags.hwint == flags.get('hwint', 1), 'HWINT flag expected to be %s' % flags.get('hwint', 1)
   assert real_flags.e == flags.get('e', 0), 'E flag expected to be %s' % flags.get('e', 0)
   assert real_flags.z == flags.get('z', 0), 'Z flag expected to be %s' % flags.get('z', 0)
   assert real_flags.o == flags.get('o', 0), 'O flag expected to be %s' % flags.get('o', 0)
@@ -88,7 +87,7 @@ def assert_file_content(filename, cells):
 def run_machine(code, machine_config, coredump_file = None):
   M = machine.Machine()
 
-  if not hasattr(util, 'CONSOLE'):
+  if not hasattr(util, 'CONSOLE') or util.CONSOLE is None:
     util.CONSOLE = console.Console(M, None, sys.stdout)
     util.CONSOLE.boot()
 

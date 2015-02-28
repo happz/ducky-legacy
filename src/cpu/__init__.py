@@ -2,7 +2,6 @@ import ctypes
 import sys
 import threading2
 import time
-import traceback
 
 import console
 import debugging
@@ -16,7 +15,7 @@ from mm import ADDR_FMT, UINT8_FMT, UINT16_FMT, UINT32_FMT, SEGMENT_SIZE, PAGE_S
 
 from registers import Registers, REGISTER_NAMES
 from instructions import Opcodes
-from errors import CPUException, AccessViolationError, InvalidResourceError, InvalidOpcode
+from errors import AccessViolationError, InvalidResourceError
 from util import debug, info, warn, error, print_table, LRUCache, exception
 
 from ctypes import LittleEndianStructure, c_ubyte, c_ushort
@@ -32,6 +31,15 @@ class InterruptVector(LittleEndianStructure):
     ('ds', c_ubyte),
     ('ip', c_ushort)
   ]
+
+class InvalidOpcodeError(Exception):
+  def __init__(self, opcode, ip = None):
+    msg = 'Invalid opcode: opcode=%i, ip=%s' % (opcode, ip) if ip else 'Invalid opcode: opcode=%i' % opcode
+
+    super(InvalidOpcodeError, self).__init__(msg)
+
+    self.opcode = opcode
+    self.ip = ip
 
 def do_log_cpu_core_state(core, logger = None):
   logger = logger or core.DEBUG
@@ -844,7 +852,7 @@ class CPUCore(object):
     log_cpu_core_state(self)
 
     if opcode not in self.opcode_map:
-      raise InvalidOpcode(opcode, ip = saved_IP)
+      raise InvalidOpcodeError(opcode, ip = saved_IP)
 
     self.opcode_map[opcode](self.current_instruction)
 

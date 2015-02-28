@@ -1,18 +1,16 @@
 import unittest
 import random
 import string
-import tempfile
 import types
 
 import config
-import mm
 
 from mm import ADDR_FMT, segment_addr_to_addr
 from tests import prepare_file, common_run_machine, assert_registers, assert_flags, assert_mm, assert_file_content
 
 class Tests(unittest.TestCase):
   def common_case(self, code, mmaps, mm, files, **kwargs):
-    if type(code) == types.ListType:
+    if isinstance(code, types.ListType):
       code = '\n'.join(code)
 
     machine_config = config.MachineConfig()
@@ -159,4 +157,3 @@ class Tests(unittest.TestCase):
     """.format(**{'mmap_offset': mmap_offset, 'msg_offset': msg_offset, 'msg_length': msg_length, 'msg': msg})
 
     self.common_case(code, [mmap_desc], mm_assert, file_assert, r0 = mmap_offset + msg_offset + msg_length, r1 = msg_length, r3 = ord(msg[-1]), e = 1, z = 1)
-

@@ -1,8 +1,5 @@
 import functools
 import os
-import Queue
-import sys
-import tabulate
 import threading2
 import time
 import types
@@ -13,9 +10,10 @@ import mm
 import machine.bus
 import profiler
 
-from cpu.errors import InvalidResourceError
+from console import Console
+from errors import InvalidResourceError
 from util import debug, info, error, str2int, LRUCache, warn, print_table
-from mm import SEGM_FMT, ADDR_FMT, UINT8_FMT, UINT16_FMT, segment_base_addr, addr_to_segment, segment_addr_to_addr
+from mm import addr_to_segment, ADDR_FMT, segment_addr_to_addr
 
 import irq
 import irq.conio
@@ -27,10 +25,10 @@ import io_handlers.conio
 from threading2 import Thread
 
 class SymbolCache(LRUCache):
-  def __init__(self, machine, size, *args, **kwargs):
+  def __init__(self, _machine, size, *args, **kwargs):
     super(SymbolCache, self).__init__(size, *args, **kwargs)
 
-    self.machine = machine
+    self.machine = _machine
 
   def get_object(self, address):
     cs = addr_to_segment(address)
@@ -69,8 +67,6 @@ class AddressCache(LRUCache):
     self.machine = machine
 
   def get_object(self, symbol):
-    from cpu.assemble import Label
-
     debug('AddressCache.get_object: symbol=%s', symbol)
 
     for csr, dsr, sp, ip, symbols in self.machine.binaries:
@@ -100,7 +96,7 @@ class Binary(object):
 
 class Machine(object):
   def core(self, core_address):
-    if type(core_address) == types.TupleType:
+    if isinstance(core_address, types.TupleType):
       cpuid, coreid = core_address
 
     else:
@@ -188,7 +184,7 @@ class Machine(object):
 
     self.memory = mm.MemoryController()
 
-    self.message_bus = bus.MessageBus()
+    self.message_bus = machine.bus.MessageBus()
 
     for cpuid in range(0, self.nr_cpus):
       self.cpus.append(cpu.CPU(self, cpuid, cores = self.nr_cores, memory_controller = self.memory))
@@ -200,7 +196,6 @@ class Machine(object):
     self.register_port(0x101, self.conio)
 
     self.register_irq_source(irq.IRQList.CONIO, irq.conio.Console(self, self.conio))
-    #self.register_irq_source(irq.IRQList.TIMER, irq.timer.Timer(10))
 
     self.memory.boot()
 
@@ -292,7 +287,7 @@ class Machine(object):
         error('Unknown breakpoint address: %s on %s', _get('address', '0x000000'), _get('core', '#0:#0'))
         continue
 
-      p = add_breakpoint(core, address, ephemeral = _getbool('ephemeral', False), countdown = _getint('countdown', 0))
+      add_breakpoint(core, address, ephemeral = _getbool('ephemeral', False), countdown = _getint('countdown', 0))
 
     # Storage
     from blockio import STORAGES, StorageIOHandler
@@ -399,7 +394,7 @@ class Machine(object):
     self.thread.start()
 
   def suspend(self):
-    suspend_msg = bus.SuspendCore(bus.ADDRESS_LIST, audience = self.running_cores())
+    suspend_msg = machine.bus.SuspendCore(machine.bus.ADDRESS_LIST, audience = self.running_cores())
 
     self.message_bus.publish(suspend_msg)
     suspend_msg.wait()
@@ -413,15 +408,13 @@ class Machine(object):
     self.wake_up_all_event = None
 
   def halt(self):
-    halt_msg = bus.HaltCore(bus.ADDRESS_ALL, audience = self.living_cores())
+    halt_msg = machine.bus.HaltCore(machine.bus.ADDRESS_ALL, audience = self.living_cores())
 
     self.message_bus.publish(halt_msg)
 
     self.for_each_core(lambda __core: __core.wake_up())
 
     halt_msg.wait()
-
-    #self.on_halt()
 
   def on_halt(self):
     self.for_each_irq(lambda src: src.halt())
@@ -442,8 +435,6 @@ class Machine(object):
   def wait(self):
     while not self.thread or self.thread.is_alive():
       time.sleep(cpu.CPU_SLEEP_QUANTUM * 10)
-
-import console
 
 def cmd_boot(console, cmd):
   """
@@ -483,7 +474,7 @@ def cmd_snapshot(console, cmd):
 
   console.info('Snapshot saved as %s', filename)
 
-console.Console.register_command('halt', cmd_halt)
-console.Console.register_command('boot', cmd_boot)
-console.Console.register_command('run', cmd_run)
-console.Console.register_command('snap', cmd_snapshot)
+Console.register_command('halt', cmd_halt)
+Console.register_command('boot', cmd_boot)
+Console.register_command('run', cmd_run)
+Console.register_command('snap', cmd_snapshot)

@@ -4,23 +4,18 @@ import patch
 
 import optparse
 import os.path
-import struct
 import sys
-import types
 
 import console
 import cpu
-import irq
-import io
 import mm
 import mm.binary
 import cpu.assemble
 import util
 
-from mm import UInt8, UInt16, ADDR_FMT
+from mm import UInt16
 from cpu.errors import CompilationError
-
-from util import *
+from util import info, error, exception, debug
 
 def main():
   parser = optparse.OptionParser()
@@ -54,7 +49,7 @@ def main():
     sys.exit(0)
 
   try:
-    sections = cpu.assemble.translate_buffer( buffer, base_address = UInt16(int(options.base)), mmapable_sections = options.mmap, filename = options.file_in)
+    sections = cpu.assemble.translate_buffer(buffer, base_address = UInt16(int(options.base)), mmapable_sections = options.mmap, filename = options.file_in)
 
   except cpu.assemble.AssemblerError, exc:
     exception(exc)
@@ -158,4 +153,3 @@ def main():
 
 if __name__ == '__main__':
   main()
-

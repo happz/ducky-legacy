@@ -6,25 +6,15 @@ import optparse
 import os
 import signal
 import sys
-import time
 
 import config
-import cpu
-import cpu.assemble
 import console
 import core
-import irq
-import irq.timer
-import irq.conio
-import io_handlers
-import io_handlers.conio
-import mm
 import util
 import machine
 import profiler
 
-from util import *
-from util import print_table
+from util import print_table, info
 
 def main():
   parser = optparse.OptionParser()
@@ -109,10 +99,10 @@ def main():
 
   options, args = parser.parse_args()
 
-  if options.profile == True:
+  if options.profile is True:
     profiler.STORE.enable_machine()
 
-  if options.machine_profile == True:
+  if options.machine_profile is True:
     profiler.STORE.enable_cpu()
 
   main_profiler = profiler.STORE.get_machine_profiler()
@@ -178,8 +168,6 @@ def main():
   state.save('ducky-snapshot.bin')
   info('VM snapshot save in ducky-snapshot.bin')
 
-  import tabulate
-
   table_exits = [
     ['Core', 'Exit code']
   ]
@@ -232,4 +220,3 @@ def main():
 
 if __name__ == '__main__':
   main()
-

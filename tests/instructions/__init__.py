@@ -1,15 +1,11 @@
-import functools
 import types
 import unittest
-
-from util import str2int
-from mm import addr_to_page, addr_to_offset, ADDR_FMT, UINT8_FMT, UINT16_FMT
 
 from tests import common_run_machine, assert_registers, assert_flags, assert_mm
 
 class Tests(unittest.TestCase):
   def common_case(self, code, **kwargs):
-    if type(code) == types.ListType:
+    if isinstance(code, types.ListType):
       code = '\n'.join(code)
 
     state = common_run_machine(code)
@@ -65,8 +61,6 @@ class Tests(unittest.TestCase):
     # TODO: division by zeor
 
   def test_mod(self):
-    #self.common_case('main:\nli r0, 10\nli r1, 0\nmod r0, r1\nint 0', r0 = 10)
-    #self.common_case('main:\nli r0, 10\nmod r0, 0\nint 0', r0 = 10)
     self.common_case('main:\nli r0, 10\nli r1, 1\nmod r0, r1\nint 0', r1 = 1, z = 1)
     self.common_case('main:\nli r0, 10\nmod r0, 1\nint 0', z = 1)
     self.common_case('main:\nli r0, 10\nli r1, 2\nmod r0, r1\nint 0', r1 = 2, z = 1)
@@ -147,8 +141,7 @@ class Tests(unittest.TestCase):
       be &label
       li r0, 0xEE
     label:
-      int 0""",
-    r0 = 0xFF, e = 1)
+      int 0""", r0 = 0xFF, e = 1)
 
   def test_bne(self):
     self.common_case(['main:', 'li r0, 0xFF', 'cmp r0, 0xDD', 'bne &label', 'li r0, 0xEE', 'label:', 'int 0'], r0 = 0xFF)
@@ -256,4 +249,3 @@ class Tests(unittest.TestCase):
     ]
 
     self.common_case(code, r2 = 0xDEAD, s = 1, mm = {'0x020000': 0xAD, '0x020002': 0})
-

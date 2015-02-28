@@ -1,12 +1,10 @@
 import enum
-import fcntl
 import os
 import pty
 import pytty
 import Queue
 import select
 import sys
-import termios
 import types
 
 import io_handlers
@@ -14,10 +12,10 @@ import io_handlers
 import util
 
 from cpu.registers import Registers
-from util import debug, warn
-from mm import UINT8_FMT
-from util import info, warn, error
+from util import debug, info, warn, error
 from console import WHITE
+from irq import InterruptList
+from irq.virtual import VirtualInterrupt, VIRTUAL_INTERRUPTS
 
 CR = ord('\r')
 LF = ord('\n')
@@ -96,7 +94,7 @@ class ConsoleIOHandler(io_handlers.IOHandler):
       self.queue.put(ControlMessages.ECHO_ON)
       self.queue.put(ControlMessages.FLUSH_ON)
 
-    elif type(stream) == types.StringType:
+    elif isinstance(stream, types.StringType):
       debug('conio.__open_input_stream: input file attached')
 
       self.input = open(stream, 'rb')
@@ -113,7 +111,7 @@ class ConsoleIOHandler(io_handlers.IOHandler):
     debug('conio.__open_input_stream: stream=%s, input_fd=%s', self.input, self.input_fd)
 
   def do_flush_output(self):
-    if not self.output or not hasattr(self.output, 'flush') or (hasattr(self.output, 'closed') and self.output.closed != False):
+    if not self.output or not hasattr(self.output, 'flush') or (hasattr(self.output, 'closed') and self.output.closed is not False):
       return
 
     self.output.flush()
@@ -195,12 +193,9 @@ class ConsoleIOHandler(io_handlers.IOHandler):
     if not self.input_fd:
       return False
 
-    #debug('conio.check_available_input: input_fd=%s' % self.input_fd)
-
     try:
       r_read, r_write, r_exc = select.select([self.input_fd], [], [])
 
-      #debug('conio.check_available_input: r_read=%s, r_write=%s, r_exc=%s' % (r_read, r_write, r_exc))
       return self.input_fd in r_read
 
     except Exception, e:
@@ -221,7 +216,7 @@ class ConsoleIOHandler(io_handlers.IOHandler):
 
         s = self.input.read()
 
-        if type(s) == types.StringType and len(s) == 0:
+        if isinstance(s, types.StringType) and len(s) == 0:
           # EOF
           self.__open_input_stream()
           continue
@@ -312,7 +307,7 @@ class ConsoleIOHandler(io_handlers.IOHandler):
     if self.echo:
       self.__write_char(c, vm_output = False)
 
-    if self.crlf == True and c == CR:
+    if self.crlf is True and c == CR:
       self.__write_char(LF, vm_output = False)
 
     return c
@@ -335,9 +330,6 @@ class ConsoleIOHandler(io_handlers.IOHandler):
 
     self.__write_char(CR)
     self.__write_char(LF)
-
-from irq import InterruptList
-from irq.virtual import VirtualInterrupt, VIRTUAL_INTERRUPTS
 
 class ConioOperationList(enum.IntEnum):
   ECHO = 0

@@ -1,4 +1,3 @@
-import machine.bus
 import irq
 import profiler
 
@@ -29,4 +28,3 @@ class Console(irq.IRQSource):
       self.trigger()
 
     self.profiler.disable()
-

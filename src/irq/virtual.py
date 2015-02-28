@@ -1,13 +1,10 @@
 import enum
-import sys
 
-import console
 import irq
 import mm
 import util
 
 from cpu.registers import Registers
-from util import info, debug, warn
 
 class VirtualInterrupt(object):
   def __init__(self, machine):
@@ -18,10 +15,17 @@ class VirtualInterrupt(object):
   def run(self, core):
     pass
 
-OPREG = lambda core: core.REG(Registers.R00)
-REREG = lambda core: core.REG(Registers.R00)
-P1REG = lambda core: core.REG(Registers.R01)
-P2REG = lambda core: core.REG(Registers.R02)
+def OPREG(core):
+  return core.REG(Registers.R00)
+
+def REREG(core):
+  return core.REG(Registers.R00)
+
+def P1REG(core):
+  return core.REG(Registers.R01)
+
+def P2REG(core):
+  return core.REG(Registers.R02)
 
 class VMDebugOperationList(enum.Enum):
   QUIET_MODE = 0
@@ -58,7 +62,7 @@ class MMInterrupt(VirtualInterrupt):
 
       pages = core.memory.alloc_pages(segment = segment, count = count)
 
-      if pages == None:
+      if pages is None:
         REREG(core).value = 0xFFFF
 
       else:

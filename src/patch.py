@@ -1,7 +1,7 @@
 import ast
 import imp
+import inspect
 import os
-import re
 import sys
 
 def exec_f(object_, globals_ = None, locals_ = None):
@@ -45,13 +45,13 @@ class RemoveLoggingVisitor(ast.NodeTransformer):
 class ModuleLoader(object):
   def __init__(self, fullpath):
     self.fullpath = fullpath
-    
+
   def get_source(self, path):
     with open(path, 'r') as f:
       source = f.read()
 
     return source
-    
+
   def get_code(self, fullname):
     pkg = self.fullpath.endswith('__init__.py')
 
@@ -64,7 +64,7 @@ class ModuleLoader(object):
     code = compile(new_code_tree, self.fullpath, 'exec')
 
     return (pkg, code)
-    
+
   def load_module(self, fullname):
     pkg, code = self.get_code(fullname)
 
@@ -83,18 +83,18 @@ class Importer(object):
   def find_module(self, fullname, path = []):
     if not path:
       path = sys.path
-        
+
     for directory in path:
       loader = self.loader_for_path(directory, fullname)
       if loader:
         return loader
-    
+
   def loader_for_path(self, directory, fullname):
     module_path = os.path.join(directory, fullname.split('.')[-1]) + ".py"
     if os.path.exists(module_path):
       loader = ModuleLoader(module_path)
       return loader
-        
+
     package_path = os.path.join(directory, fullname.split('.')[-1], '__init__.py')
     if os.path.exists(package_path):
       loader = ModuleLoader(package_path)
@@ -102,4 +102,3 @@ class Importer(object):
 
 if '-d' not in sys.argv:
   sys.meta_path.append(Importer())
-

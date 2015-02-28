@@ -79,4 +79,4 @@ class IRQSourceSet(object):
 
   def __contains__(self, irq):
     self.__check_irq_limits(irq)
-    return self.__sources != None
+    return self.__sources is not None

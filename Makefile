@@ -12,7 +12,7 @@ FORTH_KERNEL := forth/ducky-forth.bin
 
 forth/ducky-forth.bin: forth/ducky-forth.asm forth/ducky-forth-words.asm
 
-.PHONY: tests-pre tests-engine tests-post test-submit-results tests docs cloc
+.PHONY: tests-pre tests-engine tests-post test-submit-results tests docs cloc flake
 
 
 #
@@ -142,6 +142,9 @@ tests-forth-only: tests-pre tests-forth-units tests-post tests-submit-results
 #
 cloc:
 	cloc --skip-uniqueness src/ forth/ examples/
+
+flake:
+	$(Q) flake8 --config=$(CURDIR)/flake8.cfg $(shell find $(CURDIR)/src $(CURDIR)/tests -name '*.py') tools/* | sort | grep -v -e "'patch' imported but unused" -e tools/cc
 
 docs:
 	sphinx-apidoc -o docs/ src/

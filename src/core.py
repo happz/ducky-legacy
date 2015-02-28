@@ -1,10 +1,8 @@
-import ctypes
 import os
 
-from cpu.registers import FlagsRegister
-from mm import PAGE_SIZE, UINT8_FMT, UINT16_FMT, UINT24_FMT, SIZE_FMT, ADDR_FMT
+from mm import PAGE_SIZE, UINT8_FMT, SIZE_FMT, ADDR_FMT
 from mm.binary import SectionFlags
-from util import BinaryFile, debug, info, StringTable
+from util import BinaryFile, debug, StringTable
 from ctypes import c_ubyte, c_ushort, c_uint, LittleEndianStructure
 
 PATH_MAX = os.pathconf('/tmp', 'PC_PATH_MAX')

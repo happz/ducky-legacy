@@ -3,7 +3,7 @@ import enum
 import cpu
 
 from util import debug
-from mm import UINT8_FMT, UINT16_FMT
+from mm import UINT16_FMT
 
 class IOPorts(enum.IntEnum):
   PORT_COUNT = 65536

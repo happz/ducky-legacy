@@ -1,7 +1,3 @@
-import enum
-import Queue
-import re
-
 from util import debug
 
 from threading2 import current_thread, RLock, Condition, Event
@@ -76,7 +72,7 @@ class MessageBus(object):
 
     self.messages = {
       -1: {
-        0: [] # ANY slot
+        0: []  # ANY slot
       }
     }
 
@@ -152,4 +148,3 @@ class MessageBus(object):
 
         debug('bus.receive: empty queue, sleep')
         self.condition.wait()
-

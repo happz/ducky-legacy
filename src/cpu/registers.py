@@ -26,12 +26,12 @@ class Registers(enum.IntEnum):
   R12   = 12
 
   # Some registers have special meaning and/or usage
-  FP    = 13 # Frame Pointer
-  SP    = 14 # Stack Pointer
-  DS    = 15 # Data Segment Register
-  CS    = 16 # Code Segment register
-  IP    = 17 # Instruction pointer
-  FLAGS = 18 # Flags
+  FP    = 13  # Frame Pointer
+  SP    = 14  # Stack Pointer
+  DS    = 15  # Data Segment Register
+  CS    = 16  # Code Segment register
+  IP    = 17  # Instruction pointer
+  FLAGS = 18  # Flags
 
   # First special register
   REGISTER_SPECIAL = 13

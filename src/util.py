@@ -1,14 +1,11 @@
 import collections
-import colorama
-import enum
 import functools
-import sys
 import tabulate
 import traceback
 import types
 
 from ctypes import sizeof
-from console import VerbosityLevels
+from console import VerbosityLevels, CONSOLE
 
 __all__ = ['debug', 'warn', 'error', 'info', 'quiet', 'exception']
 
@@ -16,7 +13,7 @@ def align(boundary, n):
   return (n + boundary - 1) & ~(boundary - 1)
 
 def str2int(s):
-  if type(s) == types.IntType:
+  if isinstance(s, types.IntType):
     return s
 
   if s.startswith('0x'):
@@ -28,7 +25,6 @@ def str2int(s):
   return int(s)
 
 def __log(level, *args):
-  global CONSOLE
   CONSOLE.writeln(level, *args)
 
 debug = functools.partial(__log, VerbosityLevels.DEBUG)
@@ -139,15 +135,11 @@ class StringTable(object):
   def put_string(self, s):
     offset = len(self.buff)
 
-    #debug('put_string: s=%s, offset=%s', s, offset)
-
     self.buff += s + '\x00'
 
     return offset
 
   def get_string(self, offset):
-    #debug('get_string: offset=%s', offset)
-
     s = ''
 
     for i in range(offset, len(self.buff)):
@@ -157,7 +149,5 @@ class StringTable(object):
         break
 
       s += c
-
-    #debug('  string="%s"', s)
 
     return s

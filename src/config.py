@@ -28,7 +28,7 @@ class MachineConfig(ConfigParser):
 
   def getint(self, section, option, default = None):
     try:
-      return self._get(section, str2int, option)  
+      return self._get(section, str2int, option)
 
     except NoOptionError:
       return default
@@ -110,16 +110,16 @@ class MachineConfig(ConfigParser):
     self.set(bp_section, 'core', core)
     self.set(bp_section, 'address', address)
 
-    if active != None:
+    if active is not None:
       self.set(bp_section, 'active', bool2option(active))
 
-    if flip != None:
+    if flip is not None:
       self.set(bp_section, 'flip', bool2option(flip))
 
-    if ephemeral != None:
+    if ephemeral is not None:
       self.set(bp_section, 'ephemeral', bool2option(ephemeral))
 
-    if countdown != None:
+    if countdown is not None:
       self.set(bp_section, 'countdown', str(countdown))
 
   def add_mmap(self, filepath, address, size, offset = None, access = None, shared = None):
@@ -131,22 +131,22 @@ class MachineConfig(ConfigParser):
     self.set(mmap_section, 'address', address)
     self.set(mmap_section, 'size', size)
 
-    if offset != None:
+    if offset is not None:
       self.set(mmap_section, 'offset', offset)
 
-    if access != None:
+    if access is not None:
       self.set(mmap_section, 'access', access)
 
-    if shared != None:
+    if shared is not None:
       self.set(mmap_section, 'shared', shared)
 
   def add_storage(self, driver, id, filepath = None):
-    st_section  ='storage-%i' % self.storages_cnt
+    st_section = 'storage-%i' % self.storages_cnt
     self.storages_cnt += 1
 
     self.add_section(st_section)
     self.set(st_section, 'driver', driver)
     self.set(st_section, 'id', id)
 
-    if filepath != None:
+    if filepath is not None:
       self.set(st_section, 'file', filepath)

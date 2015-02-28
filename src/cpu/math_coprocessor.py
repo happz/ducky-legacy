@@ -2,8 +2,9 @@ import ctypes
 import enum
 
 from cpu.registers import Registers
-from cpu.errors import CPUException
 from mm import i16, u16, u32, i32, UINT32_FMT, UINT16_FMT
+from irq import InterruptList
+from irq.virtual import VIRTUAL_INTERRUPTS, VirtualInterrupt
 
 class MathOperationList(enum.IntEnum):
   INCL  =  0
@@ -22,11 +23,11 @@ class MathOperationList(enum.IntEnum):
   SYMDIVL = 13
   SYMMODL = 14
 
-class EmptyMathStackError(CPUException):
+class EmptyMathStackError(Exception):
   def __init__(self):
     super(EmptyMathStackError, self).__init__('Math stack is empty')
 
-class FullMathStackError(CPUException):
+class FullMathStackError(Exception):
   def __init__(self):
     super(FullMathStackError, self).__init__('Math stack is full')
 
@@ -61,8 +62,6 @@ class MathCoprocessor(object):
     super(MathCoprocessor, self).__init__()
 
     core.math_registers = RegisterSet()
-
-from irq.virtual import VirtualInterrupt
 
 class MathInterrupt(VirtualInterrupt):
   def run(self, core):
@@ -277,8 +276,5 @@ class MathInterrupt(VirtualInterrupt):
 
     core.DEBUG('modl: %s %s', UINT32_FMT(old_tos), UINT32_FMT(lr))
     self.dump_stack(core)
-
-from irq import InterruptList
-from irq.virtual import VIRTUAL_INTERRUPTS
 
 VIRTUAL_INTERRUPTS[InterruptList.MATH] = MathInterrupt

@@ -6,9 +6,8 @@ import types
 from ctypes import LittleEndianStructure, c_uint, c_int
 
 from util import debug
-from mm import UInt32, UINT16_FMT, OFFSET_FMT
 from cpu.registers import Registers, REGISTER_NAMES
-from cpu.errors import InvalidOpcode
+from mm import OFFSET_FMT, UINT16_FMT
 
 class Opcodes(enum.IntEnum):
   NOP    =  0
@@ -96,7 +95,8 @@ def decode_instruction(inst):
 
   if type(inst) == InstBinaryFormat_Master:
     if inst.opcode.opcode not in OPCODE_TO_DESC_MAP:
-      raise InvalidOpcode(inst.opcode.opcode)
+      from cpu import InvalidOpcodeError
+      raise InvalidOpcodeError(inst.opcode.opcode)
 
     return getattr(inst, OPCODE_TO_DESC_MAP[inst.opcode.opcode].binary_format_name)
 
@@ -315,10 +315,10 @@ class InstDescriptor_Generic_Unary_I(InstDescriptor):
 
     v = operands[0]
 
-    if type(v) == types.IntType:
+    if isinstance(v, types.IntType):
       inst.immediate = v
 
-    elif type(v) == types.StringType:
+    elif isinstance(v, types.StringType):
       inst.refers_to = v
 
   def fix_refers_to(self, inst, refers_to):

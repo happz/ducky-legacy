@@ -4,7 +4,8 @@ import profiler
 
 from cpu.registers import Registers
 from io_handlers import IOHandler
-from irq.virtual import VirtualInterrupt
+from irq import InterruptList
+from irq.virtual import VirtualInterrupt, VIRTUAL_INTERRUPTS
 from mm import UInt8, UInt16, UInt24, UInt32, segment_addr_to_addr
 from util import debug, warn
 
@@ -106,7 +107,7 @@ class Storage(object):
     self.profiler.enable()
 
     debug('read_block: id=%s, src=%s, dst=%s, cnt=%s', self.id, src, dst, cnt)
-    
+
     if (src + cnt) * BLOCK_SIZE >= self.size:
       self.profiler.disable()
       raise StorageAccessError('Out of bounds access: storage size %s is too small' % self.size)
@@ -229,8 +230,5 @@ class BlockIOInterrupt(VirtualInterrupt):
       core.EXCEPTION(e)
 
       r0.value = 0xFFFF
-
-from irq import InterruptList
-from irq.virtual import VIRTUAL_INTERRUPTS
 
 VIRTUAL_INTERRUPTS[InterruptList.BLOCKIO.value] = BlockIOInterrupt

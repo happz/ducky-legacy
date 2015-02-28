@@ -1,19 +1,17 @@
 import unittest
 import random
 import string
-import tempfile
 import types
 
 import config
-import mm
 import blockio
 
 from mm import ADDR_FMT, segment_addr_to_addr
-from tests import run_machine, common_run_machine, assert_registers, assert_flags, assert_mm, assert_file_content, prepare_file
+from tests import common_run_machine, assert_registers, assert_flags, assert_mm, assert_file_content, prepare_file
 
 class Tests(unittest.TestCase):
   def common_case(self, code, storages, mm, files, **kwargs):
-    if type(code) == types.ListType:
+    if isinstance(code, types.ListType):
       code = '\n'.join(code)
 
     machine_config = config.MachineConfig()
@@ -128,10 +126,7 @@ class Tests(unittest.TestCase):
         li r4, 1
         int $INT_BLOCKIO
         int 0
-    """.format(**{'msg_block': msg_block,
-                  'msg_length': msg_length,
-                  'block_size': blockio.BLOCK_SIZE
-                 })
+    """.format(**{'msg_block': msg_block, 'msg_length': msg_length, 'block_size': blockio.BLOCK_SIZE})
 
     self.common_case(code, [storage_desc], mm_assert, file_assert,
                      r0 = 0, r1 = 0, r2 = msg_block, r3 = 0x0002, r4 = 1)
@@ -187,11 +182,7 @@ class Tests(unittest.TestCase):
         li r4, 1
         int $INT_BLOCKIO
         int 0
-    """.format(**{'msg_block': msg_block,
-                  'msg_length': msg_length,
-                  'block_size': blockio.BLOCK_SIZE,
-                  'msg': msg
-                 })
+    """.format(**{'msg_block': msg_block, 'msg_length': msg_length, 'block_size': blockio.BLOCK_SIZE, 'msg': msg})
 
     self.common_case(code, [storage_desc], mm_assert, file_assert,
                      r0 = 0, r1 = 1, r3 = msg_block, r4 = 1)

@@ -6,4 +6,3 @@ int_routine_10:
   li r0, 0xEE
   cmp r0, 0xFF
   retint
-

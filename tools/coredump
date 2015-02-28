@@ -2,29 +2,19 @@
 
 import patch
 
-import ctypes
 import optparse
 import string
-import struct
 import sys
-import types
-
-import tabulate
 
 import console
 import core
-import cpu
-import irq
-import io
 import mm
-import cpu.instructions
 import mm.binary
 import util
 
-from mm import UInt8, UInt16, ADDR_FMT, UINT16_FMT, UINT8_FMT, SIZE_FMT, PAGE_SIZE
-from cpu.errors import CPUException
+from mm import ADDR_FMT, UINT16_FMT, UINT8_FMT, PAGE_SIZE
 from cpu.registers import Flags, Registers, REGISTER_NAMES
-from util import str2int, info, print_table
+from util import info, print_table
 
 def show_header(state):
   info('=== Coredump header ===')
@@ -61,8 +51,11 @@ def show_binaries(state):
 def show_cores(state):
   info('=== Cores ===')
 
-  __reg = lambda name: UINT16_FMT(getattr(cs, name))
-  __flag = lambda mask: (cs.flags & mask) != 0
+  def __reg(name):
+    return UINT16_FMT(getattr(cs, name))
+
+  def __flag(mask):
+    return (cs.flags & mask) != 0
 
   for cs in state.core_states:
     info('Core #%i:#%i', cs.cpuid, cs.coreid)
@@ -113,7 +106,7 @@ def show_stack(state):
         v = pg.content[offset] | (pg.content[offset + 1] << 8)
         row.append((sps.get(segment_offset, None), v))
 
-      info('  ' + '  '.join(['%s %s' % (' ' if sp == None else '*', console.WHITE(UINT16_FMT(v)) if v != 0 else console.GREEN(UINT16_FMT(v))) for sp, v in row]))
+      info('  ' + '  '.join(['%s %s' % (' ' if sp is None else '*', console.WHITE(UINT16_FMT(value)) if value != 0 else console.GREEN(UINT16_FMT(value))) for sp, value in row]))
 
     info('')
 
@@ -143,9 +136,6 @@ def show_pages(state):
         break
       if pg_segment == bs.ds:
         break
-
-    else:
-      cs = ds = symbols = binary = None
 
     info('  Page #%i (segment %s)', pg.index, UINT8_FMT(pg_segment))
     info('    Flags: %s%s%s%s', 'r' if pg.read == 1 else '-', 'w' if pg.write == 1 else '-', 'x' if pg.execute == 1 else '-', 'd' if pg.dirty == 1 else '-')
@@ -272,4 +262,3 @@ def main():
 
 if __name__ == '__main__':
   main()
-

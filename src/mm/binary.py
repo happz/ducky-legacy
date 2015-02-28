@@ -1,15 +1,11 @@
-import ctypes
 import enum
 import mmap
-import struct
 
 import cpu.instructions
-import cpu.errors
 
-from mm import UInt8, UInt16, UInt32
+from mm import UInt8
 from util import debug, error, BinaryFile, StringTable, align
 from ctypes import LittleEndianStructure, c_uint, c_ushort, c_ubyte, sizeof
-from cpu.errors import CPUException
 
 class SectionTypes(enum.IntEnum):
   UNKNOWN = 0
@@ -152,7 +148,8 @@ class File(BinaryFile):
 
     if self.__header.magic != self.MAGIC:
       error('load: magic cookie not recognized!')
-      raise cpu.errors.MalformedBinaryError('Magic cookie not recognized!')
+      from mm import MalformedBinaryError
+      raise MalformedBinaryError('Magic cookie not recognized!')
 
     for i in range(0, self.__header.sections):
       self.__sections.append((self.read_struct(SectionHeader), []))
@@ -181,7 +178,8 @@ class File(BinaryFile):
           st_class = cpu.instructions.InstBinaryFormat_Master
 
         else:
-          raise cpu.error.MalformedBinaryError('Unknown section header type %s' % header.type)
+          from mm import MalformedBinaryError
+          raise MalformedBinaryError('Unknown section header type %s' % header.type)
 
         for _ in range(0, count):
           content.append(self.read_struct(st_class))
