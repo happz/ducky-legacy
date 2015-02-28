@@ -6,7 +6,7 @@ import types
 
 import config
 import mm
-import storage
+import blockio
 
 from mm import ADDR_FMT, segment_addr_to_addr
 from tests import run_machine, common_run_machine, assert_registers, assert_flags, assert_mm, assert_file_content, prepare_file
@@ -32,23 +32,23 @@ class Tests(unittest.TestCase):
 
   def test_block_read(self):
     # size of storage file
-    file_size   = storage.BLOCK_SIZE * 10
+    file_size   = blockio.BLOCK_SIZE * 10
     # message length
     msg_length  = 64
     # msg resides in this block
-    msg_block  = random.randint(0, (file_size / storage.BLOCK_SIZE) - 1)
+    msg_block  = random.randint(0, (file_size / blockio.BLOCK_SIZE) - 1)
 
     # create random message
     msg = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(msg_length))
 
-    f_tmp = prepare_file(file_size, messages = [(msg_block * storage.BLOCK_SIZE, msg)])
+    f_tmp = prepare_file(file_size, messages = [(msg_block * blockio.BLOCK_SIZE, msg)])
 
     storage_desc = ('block', 1, f_tmp.name)
 
     # prepare mm assert dict, and insert message and redzones in front and after the buffer
     mm_assert = {
       ADDR_FMT(segment_addr_to_addr(2, 0)): 0xFEFE,
-      ADDR_FMT(segment_addr_to_addr(2, 2 + storage.BLOCK_SIZE)): 0xBFBF
+      ADDR_FMT(segment_addr_to_addr(2, 2 + blockio.BLOCK_SIZE)): 0xBFBF
     }
 
     file_assert = [
@@ -57,8 +57,8 @@ class Tests(unittest.TestCase):
 
     for i in range(0, msg_length, 2):
       mm_assert[ADDR_FMT(segment_addr_to_addr(2, 2 + i))] = ord(msg[i]) | (ord(msg[i + 1]) << 8)
-      file_assert[0][1][msg_block * storage.BLOCK_SIZE + i] = ord(msg[i])
-      file_assert[0][1][msg_block * storage.BLOCK_SIZE + i + 1] = ord(msg[i + 1])
+      file_assert[0][1][msg_block * blockio.BLOCK_SIZE + i] = ord(msg[i])
+      file_assert[0][1][msg_block * blockio.BLOCK_SIZE + i + 1] = ord(msg[i + 1])
 
     code = """
       .def INT_BLOCKIO: 1
@@ -90,7 +90,7 @@ class Tests(unittest.TestCase):
         int 0
     """.format(**{'msg_block': msg_block,
                   'msg_length': msg_length,
-                  'block_size': storage.BLOCK_SIZE
+                  'block_size': blockio.BLOCK_SIZE
                  })
 
     self.common_case(code, [storage_desc], mm_assert, file_assert,
@@ -98,15 +98,15 @@ class Tests(unittest.TestCase):
 
   def test_block_write(self):
     # size of file
-    file_size   = storage.BLOCK_SIZE * 10
+    file_size   = blockio.BLOCK_SIZE * 10
     # message length
     msg_length  = 64
     # msg resides in this offset
-    msg_block  = random.randint(0, (file_size / storage.BLOCK_SIZE) - 1)
+    msg_block  = random.randint(0, (file_size / blockio.BLOCK_SIZE) - 1)
 
     # create random message
     msg = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(msg_length))
-    msg += (chr(0xBF) * (storage.BLOCK_SIZE - msg_length))
+    msg += (chr(0xBF) * (blockio.BLOCK_SIZE - msg_length))
 
     # create file that we later mmap, filled with pseudodata
     f_tmp = prepare_file(file_size)
@@ -120,10 +120,10 @@ class Tests(unittest.TestCase):
       (f_tmp.name, {})
     ]
 
-    for i in range(0, storage.BLOCK_SIZE, 2):
+    for i in range(0, blockio.BLOCK_SIZE, 2):
       mm_assert[ADDR_FMT(segment_addr_to_addr(2, i))] = ord(msg[i]) | (ord(msg[i + 1]) << 8)
-      file_assert[0][1][msg_block * storage.BLOCK_SIZE + i] = ord(msg[i])
-      file_assert[0][1][msg_block * storage.BLOCK_SIZE + i + 1] = ord(msg[i + 1])
+      file_assert[0][1][msg_block * blockio.BLOCK_SIZE + i] = ord(msg[i])
+      file_assert[0][1][msg_block * blockio.BLOCK_SIZE + i + 1] = ord(msg[i + 1])
 
     code = """
       .def INT_BLOCKIO: 1
@@ -149,7 +149,7 @@ class Tests(unittest.TestCase):
         int 0
     """.format(**{'msg_block': msg_block,
                   'msg_length': msg_length,
-                  'block_size': storage.BLOCK_SIZE,
+                  'block_size': blockio.BLOCK_SIZE,
                   'msg': msg
                  })
 
