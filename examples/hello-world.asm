@@ -8,17 +8,17 @@ main:
   int 0
 
 outb:
-  # > r0: port
-  # > r1: byte
+  ; > r0: port
+  ; > r1: byte
   outb r0, r1
   ret
 
 writesn:
-  # > r0: string address
-  # ...
-  #   r0: port
-  #   r1: current byte
-  #   r2: string ptr
+  ; > r0: string address
+  ; ...
+  ;   r0: port
+  ;   r1: current byte
+  ;   r2: string ptr
   push r1
   push r2
   push r0
@@ -34,7 +34,7 @@ writesn:
   ; \n
   li r1, 0xA
   call &outb
-  # \r
+  ; \r
   li r1, 0xD
   call &outb
   li r0, 0

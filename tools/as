@@ -14,7 +14,6 @@ import cpu.assemble
 import util
 
 from mm import UInt16
-from cpu.errors import CompilationError
 from util import info, error, exception, debug
 
 def main():
@@ -53,10 +52,6 @@ def main():
 
   except cpu.assemble.AssemblerError, exc:
     exception(exc)
-    sys.exit(1)
-
-  except CompilationError, exc:
-    error(str(exc))
     sys.exit(1)
 
   if os.path.exists(options.file_out) and not options.force:

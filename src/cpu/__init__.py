@@ -32,6 +32,9 @@ class InterruptVector(LittleEndianStructure):
     ('ip', c_ushort)
   ]
 
+class CPUException(Exception):
+  pass
+
 class InvalidOpcodeError(Exception):
   def __init__(self, opcode, ip = None):
     msg = 'Invalid opcode: opcode=%i, ip=%s' % (opcode, ip) if ip else 'Invalid opcode: opcode=%i' % opcode

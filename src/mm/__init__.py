@@ -3,6 +3,7 @@ import mmap
 
 from ctypes import LittleEndianStructure, c_ubyte, c_ushort, c_uint, sizeof
 
+from errors import AccessViolationError, InvalidResourceError
 from util import debug, align
 
 from threading2 import RLock
