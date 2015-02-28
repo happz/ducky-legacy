@@ -15,4 +15,4 @@ dependencies:
 
 test:
   override:
-    - CONIO_STDOUT_ECHO=no make tests
+    - Q=@ CONIO_STDOUT_ECHO=no make tests
