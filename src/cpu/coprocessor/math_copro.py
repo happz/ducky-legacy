@@ -1,6 +1,7 @@
 import ctypes
 import enum
 
+from cpu.coprocessor import Coprocessor
 from cpu.registers import Registers
 from mm import i16, u16, u32, i32, UINT32_FMT, UINT16_FMT
 from irq import InterruptList
@@ -57,9 +58,9 @@ class RegisterSet(object):
 
     return self.stack[-1]
 
-class MathCoprocessor(object):
-  def __init__(self, core):
-    super(MathCoprocessor, self).__init__()
+class MathCoprocessor(Coprocessor):
+  def __init__(self, core, *args, **kwargs):
+    super(MathCoprocessor, self).__init__(core, *args, **kwargs)
 
     core.math_registers = RegisterSet()
 

@@ -67,84 +67,68 @@ class SuspendCore(BaseMessage):
     self.wake_up.clear()
 
 class MessageBus(object):
-  def __init__(self):
+  def __init__(self, machine):
     super(MessageBus, self).__init__()
 
-    self.messages = {
-      -1: {
-        0: []  # ANY slot
-      }
-    }
+    self.machine = machine
+
+    self.queue_any = []
 
     self.lock = RLock()
     self.condition = Condition(self.lock)
 
-  def register(self):
-    cpuid, coreid = thread_to_cid()
+  def register(self, __core):
+    debug('bus.register: core=#%i:#%i', __core.cpu.id, __core.id)
 
-    debug('bus.register: core=#%i:#%i', cpuid, coreid)
-
-    with self.lock:
-      if cpuid not in self.messages:
-        self.messages[cpuid] = {}
-
-      if coreid not in self.messages[cpuid]:
-        self.messages[cpuid][coreid] = []
-
-  def get_msg_slot(self, msg):
-    return self.messages[msg.address[0]][msg.address[1]]
-
-  def get_core_slot(self, core):
-    cpuid, coreid = core_to_cid(core)
-    return self.messages[cpuid][coreid]
-
-  def get_any_slot(self):
-    return self.messages[-1][0]
+    __core.machine_bus_queue = []
 
   def publish(self, msg, high_priority = False):
     debug('bus.publish: msg=%s, addr=%s', msg.__class__.__name__, msg.address)
 
-    def __enqueue(slot):
+    def __enqueue_for_core(__core):
       if high_priority:
-        slot.insert(0, msg)
+        __core.machine_bus_queue.insert(0, msg)
       else:
-        slot.append(msg)
+        __core.machine_bus_queue.append(msg)
+
+      debug('bus.publish: %s queued for #%i:#%i', msg.__class__.__name__, __core.cpu.id, __core.id)
+
+    if msg.address == ADDRESS_ALL:
+      self.machine.for_each_core(__enqueue_for_core)
+
+    elif msg.address == ADDRESS_LIST:
+      for __core in msg.audience:
+        __enqueue_for_core(__core)
+
+    elif msg.address == ADDRESS_ANY:
+      if high_priority:
+        self.queue_any.insert(0, msg)
+      else:
+        self.queue_any.append(msg)
 
     with self.lock:
-      if msg.address == ADDRESS_ALL:
-        for cpuid, core_slots in self.messages.items():
-          if cpuid == -1:
-            continue
-
-          for coreid, core_slot in core_slots.items():
-            debug('bus.publish: %s queued for #%i:#%i', msg.__class__.__name__, cpuid, coreid)
-            __enqueue(core_slot)
-
-      elif msg.address == ADDRESS_LIST:
-        for __core in msg.audience:
-          __enqueue(self.get_core_slot(__core))
-
-      else:
-        __enqueue(self.get_msg_slot(msg))
-
       self.condition.notifyAll()
 
   def receive(self, core, sleep = True):
     debug('bus.receive: core=#%i:#%i' % core_to_cid(core))
 
     while True:
+      try:
+        return self.queue_any.pop(0)
+
+      except IndexError:
+        pass
+
+      try:
+        return core.machine_bus_queue.pop(0)
+
+      except IndexError:
+        pass
+
+      if not sleep:
+        debug('bus.receive: empty queue, return')
+        return None
+
+      debug('bus.receive: empty queue, sleep')
       with self.lock:
-        slot = self.get_any_slot()
-        if len(slot) > 0:
-          return slot.pop(0)
-
-        slot = self.get_core_slot(core)
-        if len(slot) > 0:
-          return slot.pop(0)
-
-        if not sleep:
-          debug('bus.receive: empty queue, return')
-          return None
-
-        debug('bus.receive: empty queue, sleep')
         self.condition.wait()

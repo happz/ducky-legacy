@@ -14,14 +14,16 @@ import mm
 from mm import UInt8, UInt16, ADDR_FMT, PAGE_SIZE
 from mm.binary import SectionTypes
 
-from util import debug, info, align
+from util import debug, align
 
 align_to_next_page = functools.partial(align, PAGE_SIZE)
 align_to_next_mmap = functools.partial(align, mmap.PAGESIZE)
 
 RE_COMMENT = re.compile(r'^\s*[/;].*?$', re.MULTILINE)
 RE_INCLUDE = re.compile(r'^\s*\.include\s+"(?P<file>[a-zA-Z0-9_\-/\.]+)\s*"$', re.MULTILINE)
-RE_IFDEF = re.compile(r'^\s*\.include\s+(?P<var>[a-zA-Z0-9_]+)\s*$', re.MULTILINE)
+RE_IFDEF = re.compile(r'^\s*\.ifdef\s+(?P<var>[a-zA-Z0-9_]+)\s*$', re.MULTILINE)
+RE_IFNDEF = re.compile(r'^\s*\.ifndef\s+(?P<var>[a-zA-Z0-9_]+)\s*$', re.MULTILINE)
+RE_ELSE = re.compile(r'^\s*\.else\s*$', re.MULTILINE)
 RE_ENDIF = re.compile(r'^\s*\.endif\s*$', re.MULTILINE)
 RE_VAR_DEF = re.compile(r'^\s*\.def\s+(?P<var_name>[a-zA-Z][a-zA-Z0-9_]*):\s*(?P<var_body>.*?)$', re.MULTILINE)
 RE_MACRO_DEF = re.compile(r'^\s*\.macro\s+(?P<macro_name>[a-zA-Z][a-zA-Z0-9_]*)(?:\s+(?P<macro_params>.*?))?:$', re.MULTILINE | re.DOTALL)
@@ -269,8 +271,9 @@ def sizeof(o):
 
   return None
 
-def translate_buffer(buff, base_address = None, mmapable_sections = False, filename = None):
+def translate_buffer(buff, base_address = None, mmapable_sections = False, filename = None, defines = None):
   filename = filename or '<unknown>'
+  defines = defines or []
 
   buff = Buffer(filename, buff.split('\n'))
 
@@ -572,6 +575,22 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, filen
       continue
 
     msg_prefix = 'pass #1: %s:%s: ' % (os.path.split(buff.filename)[1], buff.lineno)
+
+    matches = RE_IFDEF.match(line)
+    if matches:
+      pass
+
+    matches = RE_IFNDEF.match(line)
+    if matches:
+      pass
+
+    matches = RE_ENDIF.match(line)
+    if matches:
+      pass
+
+    matches = RE_ELSE.match(line)
+    if matches:
+      pass
 
     matches = RE_INCLUDE.match(line)
     if matches:
@@ -1067,6 +1086,6 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, filen
   for s_name, section in sections_pass3.items():
     debug(str(section))
 
-  info('Bytecode translation completed')
+  debug('Bytecode translation completed')
 
   return sections_pass3

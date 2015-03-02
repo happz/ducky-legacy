@@ -184,7 +184,7 @@ class Machine(object):
 
     self.memory = mm.MemoryController()
 
-    self.message_bus = machine.bus.MessageBus()
+    self.message_bus = machine.bus.MessageBus(self)
 
     for cpuid in range(0, self.nr_cpus):
       self.cpus.append(cpu.CPU(self, cpuid, cores = self.nr_cores, memory_controller = self.memory))
@@ -348,8 +348,10 @@ class Machine(object):
   def loop(self):
     self.profiler.enable()
 
+    quantum = self.config.getfloat('cpu', 'cpu-quantum', default = cpu.DEFAULT_CPU_SLEEP_QUANTUM)
+
     while self.keep_running:
-      time.sleep(10 * cpu.CPU_SLEEP_QUANTUM)
+      time.sleep(quantum)
 
       if len([_cpu for _cpu in self.cpus if _cpu.thread.is_alive()]) == 0:
         info('Machine halted')
@@ -433,8 +435,10 @@ class Machine(object):
     thread.start()
 
   def wait(self):
+    quantum = self.config.getfloat('cpu', 'cpu-quantum', default = cpu.DEFAULT_CPU_SLEEP_QUANTUM)
+
     while not self.thread or self.thread.is_alive():
-      time.sleep(cpu.CPU_SLEEP_QUANTUM * 10)
+      time.sleep(quantum)
 
 def cmd_boot(console, cmd):
   """

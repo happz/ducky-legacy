@@ -15,4 +15,5 @@ dependencies:
 
 test:
   override:
-    - Q=@ CONIO_STDOUT_ECHO=no make tests
+    - time TESTSET=python Q=@ CONIO_STDOUT_ECHO=no                        make tests
+    - time TESTSET=pypy   Q=@ CONIO_STDOUT_ECHO=no PYPY=yes VMCOVERAGE=no make tests

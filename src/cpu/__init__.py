@@ -21,8 +21,9 @@ from util import debug, info, warn, error, print_table, LRUCache, exception
 from ctypes import LittleEndianStructure, c_ubyte, c_ushort
 from threading2 import Thread
 
-CPU_SLEEP_QUANTUM = 0.1
-CPU_INST_CACHE_SIZE = 256
+DEFAULT_CPU_SLEEP_QUANTUM = 1.0
+DEFAULT_CPU_INST_CACHE_SIZE = 256
+DEFAULT_CPU_DATA_CACHE_SIZE = 1024
 
 class InterruptVector(LittleEndianStructure):
   _pack_ = 0
@@ -91,12 +92,25 @@ class StackFrame(object):
     return '<StackFrame: CS=%s DS=%s FP=%s (%s)' % (UINT8_FMT(self.CS), UINT8_FMT(self.DS), UINT16_FMT(self.FP), ADDR_FMT(self.address))
 
 class InstructionCache(LRUCache):
+  """
+  Simple instruction cache class, based on LRU dictionary, with a limited size.
+  """
+
   def __init__(self, core, size, *args, **kwargs):
     super(InstructionCache, self).__init__(size, *args, **kwargs)
 
     self.core = core
 
   def get_object(self, addr):
+    """
+    Read instruction from memory. This method is responsible for the real job of
+    fetching instructions and filling the cache.
+
+    :param uint24 addr: absolute address to read from
+    :return: instruction
+    :rtype: ``InstBinaryFormat_Master``
+    """
+
     return instructions.decode_instruction(self.core.memory.read_u32(addr))
 
 class DataCache(LRUCache):
@@ -195,6 +209,7 @@ class CPUCore(object):
     self.exit_code = 0
 
     self.frames = []
+    self.check_frames = cpu.machine.config.getbool('cpu', 'check-frames', default = False)
 
     self.debug = debugging.DebuggingSet(self)
 
@@ -202,13 +217,13 @@ class CPUCore(object):
     for opcode in Opcodes:
       self.opcode_map[opcode.value] = getattr(self, 'inst_%s' % opcode.name)
 
-    self.instruction_cache = InstructionCache(self, CPU_INST_CACHE_SIZE)
-    self.data_cache = DataCache(self, CPU_INST_CACHE_SIZE * 4)
+    self.instruction_cache = InstructionCache(self, self.cpu.machine.config.getint('cpu', 'inst-cache', default = DEFAULT_CPU_INST_CACHE_SIZE))
+    self.data_cache = DataCache(self, self.cpu.machine.config.getint('cpu', 'data-cache', default = DEFAULT_CPU_INST_CACHE_SIZE))
 
     if self.cpu.machine.config.getbool('cpu', 'math-coprocessor', False):
-      import cpu.math_coprocessor
+      import cpu.coprocessor.math_copro
 
-      self.math_coprocessor = cpu.math_coprocessor.MathCoprocessor(self)
+      self.math_coprocessor = cpu.coprocessor.math_copro.MathCoprocessor(self)
 
   def LOG(self, logger, *args):
     args = ('%s ' + args[0],) + (self.cpuid_prefix,) + args[1:]
@@ -336,6 +351,14 @@ class CPUCore(object):
     return inst
 
   def reset(self, new_ip = 0):
+    """
+    Reset core's state. All registers are set to zero, all flags are set to zero,
+    except ``HWINT`` flag which is set to one, and ``IP`` is set to requested value.
+    Both instruction and data cached are flushed.
+
+    :param uint16 new_ip: new ``IP`` value, defaults to zero
+    """
+
     for reg in registers.RESETABLE_REGISTERS:
       self.REG(reg).value = 0
 
@@ -349,6 +372,7 @@ class CPUCore(object):
     self.registers.ip.value = new_ip
 
     self.instruction_cache.clear()
+    self.data_cache.clear()
 
   def __symbol_for_ip(self):
     ip = self.registers.ip
@@ -377,10 +401,23 @@ class CPUCore(object):
     return bt
 
   def __raw_push(self, val):
+    """
+    Push value on stack. ``SP`` is decrementet by two, and value is written at this new address.
+
+    :param uint16 val: value to be pushed
+    """
+
     self.registers.sp.value -= 2
     self.data_cache.write_u16(self.DS_ADDR(self.registers.sp.value), val)
 
   def __raw_pop(self):
+    """
+    Pop value from stack. 2 byte number is read from address in ``SP``, then ``SP`` is incrementet by two.
+
+    :return: popped value
+    :rtype: uint16
+    """
+
     ret = self.data_cache.read_u16(self.DS_ADDR(self.registers.sp.value))
     self.registers.sp.value += 2
     return ret
@@ -403,27 +440,49 @@ class CPUCore(object):
       self.DEBUG('__pop: %s (%s) from %s', reg_id, self.registers.map[reg_id], UINT16_FMT(self.registers.sp.value - 2))
 
   def __create_frame(self):
+    """
+    Create new call stack frame. Push ``IP`` and ``FP`` registers and set ``FP`` value to ``SP``.
+    """
+
     self.DEBUG('__create_frame')
 
     self.__push(Registers.IP, Registers.FP)
 
     self.registers.fp.value = self.registers.sp.value
 
-    self.frames.append(StackFrame(self.registers.cs.value, self.registers.ds.value, self.registers.fp.value))
+    if self.check_frames:
+      self.frames.append(StackFrame(self.registers.cs.value, self.registers.ds.value, self.registers.fp.value))
 
   def __destroy_frame(self):
+    """
+    Destroy current call frame. Pop ``FP`` and ``IP`` from stack, by popping ``FP`` restores previous frame.
+
+    :raises CPUException: if current frame does not match last created frame.
+    """
+
     self.DEBUG('__destroy_frame')
 
-    if self.frames[-1].FP != self.registers.sp.value:
-      raise CPUException('Leaving frame with wrong SP: IP=%s, saved SP=%s, current SP=%s' % (ADDR_FMT(self.registers.ip.value), ADDR_FMT(self.frames[-1].FP), ADDR_FMT(self.registers.sp.value)))
+    if self.check_frames:
+      if self.frames[-1].FP != self.registers.sp.value:
+        raise CPUException('Leaving frame with wrong SP: IP=%s, saved SP=%s, current SP=%s' % (ADDR_FMT(self.registers.ip.value), ADDR_FMT(self.frames[-1].FP), ADDR_FMT(self.registers.sp.value)))
+
+      self.frames.pop()
 
     self.__pop(Registers.FP, Registers.IP)
-
-    self.frames.pop()
 
     self.__symbol_for_ip()
 
   def __enter_interrupt(self, table_address, index):
+    """
+    Prepare CPU for handling interrupt routine. New stack is allocated, content fo registers
+    is saved onto this new stack, and new call frame is created on this stack. CPU is switched
+    into privileged mode. ``CS`` and ``IP`` are set to values, stored in interrupt descriptor
+    table at specified offset.
+
+    :param uint24 table_address: address of interrupt descriptor table
+    :param int index: interrupt number, its index into IDS
+    """
+
     self.DEBUG('__enter_interrupt: table=%s, index=%i', table_address, index)
 
     iv = self.memory.load_interrupt_vector(table_address, index)
@@ -448,6 +507,11 @@ class CPUCore(object):
     self.registers.ip.value = iv.ip
 
   def __exit_interrupt(self):
+    """
+    Restore CPU state after running a interrupt routine. Call frame is destroyed, registers
+    are restored, stack is returned back to memory pool.
+    """
+
     self.DEBUG('__exit_interrupt')
 
     self.__destroy_frame()
@@ -466,6 +530,14 @@ class CPUCore(object):
     self.memory.free_page(stack_page)
 
   def __do_int(self, index):
+    """
+    Handle software interrupt. Real software interrupts cause CPU state to be saved
+    and new stack and register values are prepared by ``__enter_interrupt`` method,
+    virtual interrupts are simply triggered without any prior changes of CPU state.
+
+    :param int index: interrupt number
+    """
+
     self.DEBUG('__do_int: %s', index)
 
     if index in self.cpu.machine.virtual_interrupts:
@@ -481,6 +553,12 @@ class CPUCore(object):
       self.DEBUG('__do_int: CPU state prepared to handle interrupt')
 
   def __do_irq(self, index):
+    """
+    Handle hardware interrupt. CPU state is saved and prepared for interrupt routine
+    by calling ``__enter_interrupt`` method. Receiving of next another interrupts
+    is prevented by clearing ``HWINT`` flag, and ``idle`` flag is set to ``False``.
+    """
+
     self.DEBUG('__do_irq: %s', index)
 
     self.__enter_interrupt(self.memory.irq_table_address, index)
@@ -500,6 +578,14 @@ class CPUCore(object):
   privileged = property(__get_privileged, __set_privileged)
 
   def __check_protected_ins(self):
+    """
+    Raise ``AccessViolationError`` if core is not running in privileged mode.
+
+    This method should be used by instruction handlers that require privileged mode, e.g. protected instructions.
+
+    :raises AccessViolationError: if the core is not in privileged mode
+    """
+
     if not self.privileged:
       raise AccessViolationError('Instruction not allowed in unprivileged mode: opcode=%i' % self.current_instruction.opcode)
 
@@ -516,6 +602,15 @@ class CPUCore(object):
       raise AccessViolationError('Access to port not allowed in unprivileged mode: opcode=%i, port=%u' % (self.current_instruction.opcode, port))
 
   def __update_arith_flags(self, *regs):
+    """
+    Set relevant arithmetic flags according to content of registers. Flags are set to zero at the beginning,
+    then content of each register is examined, and ``S`` and ``Z`` flags are set.
+
+    ``E`` flag is not touched, ``O`` flag is set to zero.
+
+    :param list regs: list of ``uint16`` registers
+    """
+
     F = self.registers.flags
 
     F.z = 0
@@ -534,6 +629,12 @@ class CPUCore(object):
     return self.registers.map[inst.ireg].value if inst.is_reg == 1 else inst.immediate
 
   def JUMP(self, inst):
+    """
+    Change execution flow by modifying IP. Signals profiler that jump was executed.
+
+    :param inst: instruction that caused jump
+    """
+
     src_addr = self.registers.ip.value - 4
 
     if inst.is_reg == 1:
@@ -547,6 +648,18 @@ class CPUCore(object):
     self.__symbol_for_ip()
 
   def CMP(self, x, y, signed = True):
+    """
+    Compare two numbers, and update relevant flags. Signed comparison is used unless ``signed`` is ``False``.
+    All arithmetic flags are set to zero before the relevant ones are set.
+
+    ``O`` flag is reset like the others, therefore caller has to take care of it's setting if it's required
+    to set it.
+
+    :param uint16 x: left hand number
+    :param uint16 y: right hand number
+    :param bool signed: use signed, defaults to ``True``
+    """
+
     F = self.registers.flags
 
     F.e = 0
@@ -836,6 +949,10 @@ class CPUCore(object):
     self.__update_arith_flags(self.registers.map[inst.reg])
 
   def step(self):
+    """
+    Perform one "step" - fetch next instruction, increment IP, and execute instruction's code (see inst_* methods)
+    """
+
     # pylint: disable-msg=R0912,R0914,R0915
     # "Too many branches"
     # "Too many local variables"
@@ -965,7 +1082,7 @@ class CPUCore(object):
   def loop(self):
     self.machine_profiler.enable()
 
-    self.message_bus.register()
+    self.message_bus.register(self)
 
     self.INFO('booted')
     log_cpu_core_state(self)
@@ -1051,8 +1168,10 @@ class CPU(object):
 
     self.INFO('booted')
 
+    quantum = self.machine.config.getfloat('machine', 'cpu-quantum', default = DEFAULT_CPU_SLEEP_QUANTUM)
+
     while True:
-      time.sleep(CPU_SLEEP_QUANTUM * 10)
+      time.sleep(quantum)
 
       if len(self.living_cores()) == 0:
         break

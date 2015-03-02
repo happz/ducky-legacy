@@ -81,6 +81,11 @@ class BinaryFile(file):
     self.write(st)
 
 class LRUCache(collections.OrderedDict):
+  """
+  Simple LRU cache, based on ``OrderedDict``, with limited size. When limit
+  is reached, the least recently inserted item is removed.
+  """
+
   def __init__(self, size, *args, **kwargs):
     super(LRUCache, self).__init__(*args, **kwargs)
 
@@ -93,10 +98,19 @@ class LRUCache(collections.OrderedDict):
     self.prunes  = 0
 
   def make_space(self):
+    """
+    This method is called when there is no free space in cache. It's responsible
+    for freeing at least one slot, upper limit of removed entries is not enforced.
+    """
+
     self.popitem(last = False)
     self.prunes += 1
 
   def __getitem__(self, key):
+    """
+    Return entry with specified key.
+    """
+
     debug('LRUCache: get: key=%s', key)
 
     self.reads += 1
@@ -109,6 +123,11 @@ class LRUCache(collections.OrderedDict):
     return super(LRUCache, self).__getitem__(key)
 
   def __setitem__(self, key, value):
+    """
+    Called when item is inserted into cache. Size limit is checked and if there's no free
+    space in cache, ``make_space`` method is called.
+    """
+
     debug('LRUCache: set: key=%s, value=%s', key, value)
 
     if len(self) == self.size:
@@ -118,9 +137,20 @@ class LRUCache(collections.OrderedDict):
     self.inserts += 1
 
   def get_object(self, key):
+    """
+    The real workhorse - responsible for getting requested item from outside when it's
+    not present in cache. Called by ``__missing__`` method. This method itself makes no
+    changes to cache at all.
+    """
+
     return None
 
   def __missing__(self, key):
+    """
+    Called when requested entry is not in cache. It's responsible for getting missing item
+    and inserting it into cache. Returns new item.
+    """
+
     debug('LRUCache: missing: key=%s', key)
 
     self[key] = value = self.get_object(key)

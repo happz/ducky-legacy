@@ -93,13 +93,13 @@ def main():
                        help = 'Don\'t wait for user to start binaries with pressing Enter')
   opt_group.add_option('-p', '--profile',
                        dest = 'profile',
-                       action = 'store_true',
-                       default = False,
+                       action = 'store',
+                       default = None,
                        help = 'Enable profiling of the whole virtual machine')
 
   options, args = parser.parse_args()
 
-  if options.profile is True:
+  if options.profile is not None:
     profiler.STORE.enable_machine()
 
   if options.machine_profile is True:
@@ -214,7 +214,8 @@ def main():
 
   main_profiler.disable()
 
-  profiler.STORE.save('profile')
+  if options.profile is not None:
+    profiler.STORE.save(options.profile)
 
   sys.exit(M.exit_code)
 

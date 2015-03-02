@@ -28,14 +28,24 @@ class MachineConfig(ConfigParser):
 
   def getint(self, section, option, default = None):
     try:
-      return self._get(section, str2int, option)
+      v = ConfigParser.get(self, section, option)
+      return str2int(v) if v is not None else default
 
     except NoOptionError:
       return default
 
   def getbool(self, section, option, default = None):
     try:
-      return self._get(section, bool, option)
+      v = ConfigParser.get(self, section, option)
+      return bool(v) if v is not None else default
+
+    except NoOptionError:
+      return default
+
+  def getfloat(self, section, option, default = None):
+    try:
+      v = ConfigParser.get(self, section, option)
+      return float(v) if v is not None else default
 
     except NoOptionError:
       return default
