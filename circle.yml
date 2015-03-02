@@ -12,9 +12,9 @@ dependencies:
     - pip install coverage
     - pip install lxml
     - pip install beautifulsoup4
-    - pyenv install pypy-2.4.0
 
 test:
   override:
     - time TESTSET=python Q=@ CONIO_STDOUT_ECHO=no                        make tests
+    - pyenv global pypy-2.4.0
     - time TESTSET=pypy   Q=@ CONIO_STDOUT_ECHO=no PYPY=yes VMCOVERAGE=no make tests

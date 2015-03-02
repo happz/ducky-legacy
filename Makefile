@@ -62,7 +62,12 @@ ifndef CONIO_STDOUT_ECHO
 endif
 
 ifdef PYPY
-	PYTHON := PYTHONPATH=$(VIRTUAL_ENV)/lib/python2.7/site-packages:$(CURDIR)/src:$(PYTHONPATH) /usr/bin/pypy
+ifdef CIRCLECI
+  PYPY_BINARY=$(shell pyenv which pypy-2.4.0)
+else
+  PYPY_BINARY=$(shell which pypy)
+endif
+	PYTHON := PYTHONPATH=$(VIRTUAL_ENV)/lib/python2.7/site-packages:$(CURDIR)/src:$(PYTHONPATH) $(PYPY_BINARY)
 else
 	PYTHON := PYTHONPATH=$(CURDIR)/src:$(PYTHONPATH)
 endif
