@@ -12,6 +12,7 @@ dependencies:
     - pip install coverage
     - pip install lxml
     - pip install beautifulsoup4
+    - pyenv install pypy-2.4.0
 
 test:
   override:
