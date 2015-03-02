@@ -1,6 +1,8 @@
 machine:
   python:
-    version: 2.7.9
+    version:
+      - 2.7.9
+      - pypy-2.4.0
 
 dependencies:
   pre:
