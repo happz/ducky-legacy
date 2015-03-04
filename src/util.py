@@ -50,10 +50,15 @@ def exception(exc, logger = None):
     logger('')
 
 def print_table(table, fn = info, **kwargs):
-  for line in tabulate.tabulate(table, headers = 'firstrow', tablefmt = 'simple', numalign = 'right').split('\n'):
+  for line in tabulate.tabulate(table, headers = 'firstrow', tablefmt = 'simple', numalign = 'right', **kwargs).split('\n'):
     fn(line)
 
 class BinaryFile(file):
+  """
+  Base class of all classes that represent "binary" files - binaries, core dumps.
+  It provides basic methods for reading and writing structures.
+  """
+
   def __init__(self, *args, **kwargs):
     if args[1] == 'w':
       args = (args[0], 'wb')
@@ -64,6 +69,13 @@ class BinaryFile(file):
     super(BinaryFile, self).__init__(*args, **kwargs)
 
   def read_struct(self, st_class):
+    """
+    Read structure from current position in file.
+
+    :returns: instance of class ``st_class` with content read from file
+    :rtype: ``st_class``
+    """
+
     pos = self.tell()
 
     st = st_class()
@@ -74,6 +86,12 @@ class BinaryFile(file):
     return st
 
   def write_struct(self, st):
+    """
+    Write structure into file at the current position.
+
+    :param class st: ``ctype``-based structure
+    """
+
     pos = self.tell()
 
     debug('write_struct: %s: %s bytes: %s', pos, sizeof(st), st)
@@ -157,12 +175,29 @@ class LRUCache(collections.OrderedDict):
     return value
 
 class StringTable(object):
+  """
+  Simple string table, used by many classes operating with files (core, binaries, ...).
+  String can be inserted into table and read, each has its starting offset and its end is
+  marked with null byte (\0).
+
+  Thsi is a helper class - it makes working with string, e.g. section and symbol names,
+  much easier.
+  """
+
   def __init__(self):
     super(StringTable, self).__init__()
 
     self.buff = ''
 
   def put_string(self, s):
+    """
+    Insert new string into table. String is appended at the end of internal buffer,
+    and terminating zero byte (\0) is appended to mark end of string.
+
+    :returns: offset of inserted string
+    :rtype: ``int``
+    """
+
     offset = len(self.buff)
 
     self.buff += s + '\x00'
@@ -170,6 +205,14 @@ class StringTable(object):
     return offset
 
   def get_string(self, offset):
+    """
+    Read string from table.
+
+    :param int offset: offset of the first character from the beginning of the table
+    :returns: string
+    :rtype: ``string``
+    """
+
     s = ''
 
     for i in range(offset, len(self.buff)):

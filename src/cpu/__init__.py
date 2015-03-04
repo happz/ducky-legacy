@@ -402,7 +402,7 @@ class CPUCore(object):
 
   def __raw_push(self, val):
     """
-    Push value on stack. ``SP`` is decrementet by two, and value is written at this new address.
+    Push value on stack. ``SP`` is decremented by two, and value is written at this new address.
 
     :param uint16 val: value to be pushed
     """
@@ -412,10 +412,10 @@ class CPUCore(object):
 
   def __raw_pop(self):
     """
-    Pop value from stack. 2 byte number is read from address in ``SP``, then ``SP`` is incrementet by two.
+    Pop value from stack. 2 byte number is read from address in ``SP``, then ``SP`` is incremented by two.
 
     :return: popped value
-    :rtype: uint16
+    :rtype: ``uint16``
     """
 
     ret = self.data_cache.read_u16(self.DS_ADDR(self.registers.sp.value))
@@ -621,8 +621,7 @@ class CPUCore(object):
       if reg.value == 0:
         F.z = 1
 
-      x = ctypes.cast((u16 * 1)(reg), ctypes.POINTER(i16)).contents.value
-      if x < 0:
+      if reg.value & 0x8000 != 0:
         F.s = 1
 
   def RI_VAL(self, inst):
@@ -667,17 +666,19 @@ class CPUCore(object):
     F.o = 0
     F.s = 0
 
-    if signed:
-      x = ctypes.cast((u16 * 1)(x), ctypes.POINTER(i16)).contents.value
-      y = ctypes.cast((u16 * 1)(y), ctypes.POINTER(i16)).contents.value
-
     if x == y:
       F.e = 1
 
       if x == 0:
         F.z = 1
 
-    elif x < y:
+      return
+
+    if signed:
+      x = i16(x).value
+      y = i16(y).value
+
+    if x < y:
       F.s = 1
 
     elif x > y:
@@ -927,24 +928,24 @@ class CPUCore(object):
   def inst_MUL(self, inst):
     self.check_protected_reg(inst.reg)
     r = self.registers.map[inst.reg]
-    x = ctypes.cast((u16 * 1)(r), ctypes.POINTER(i16)).contents.value
-    y = ctypes.cast((u16 * 1)(self.RI_VAL(inst)), ctypes.POINTER(i16)).contents.value
+    x = i16(r.value).value
+    y = i16(self.RI_VAL(inst)).value
     r.value = x * y
     self.__update_arith_flags(self.registers.map[inst.reg])
 
   def inst_DIV(self, inst):
     self.check_protected_reg(inst.reg)
     r = self.registers.map[inst.reg]
-    x = ctypes.cast((u16 * 1)(r), ctypes.POINTER(i16)).contents.value
-    y = ctypes.cast((u16 * 1)(self.RI_VAL(inst)), ctypes.POINTER(i16)).contents.value
+    x = i16(r.value).value
+    y = i16(self.RI_VAL(inst)).value
     r.value = x / y
     self.__update_arith_flags(self.registers.map[inst.reg])
 
   def inst_MOD(self, inst):
     self.check_protected_reg(inst.reg)
     r = self.registers.map[inst.reg]
-    x = ctypes.cast((u16 * 1)(r), ctypes.POINTER(i16)).contents.value
-    y = ctypes.cast((u16 * 1)(self.RI_VAL(inst)), ctypes.POINTER(i16)).contents.value
+    x = i16(r.value).value
+    y = i16(self.RI_VAL(inst)).value
     r.value = x % y
     self.__update_arith_flags(self.registers.map[inst.reg])
 

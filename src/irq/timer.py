@@ -1,17 +1,24 @@
 import irq
+import time
 
 class Timer(irq.IRQSource):
-  def __init__(self, batch, *args, **kwargs):
+  def __init__(self, *args, **kwargs):
     super(Timer, self).__init__(*args, **kwargs)
 
-    self.steps = 0
-    self.batch = batch
+    self.thread = None
+    self.profiler = profiler.STORE.get_machine_profiler()
 
-  def on_tick(self):
-    self.steps += 1
+  def boot(self):
+    super(Timer, self).boot()
 
-    if self.steps < self.batch:
-      return False
+    self.thread = Thread(name = 'timer-irq', target = self.loop, daemon = True, priority = 0.0)
+    self.thread.start()
 
-    self.steps = 0
-    return True
+  def loop(self):
+    self.profiler.enable()
+
+    while True:
+      time.sleep(1)
+      self.trigger()
+
+    self.profiler.disable()

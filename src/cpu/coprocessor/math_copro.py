@@ -130,8 +130,7 @@ class MathInterrupt(VirtualInterrupt):
     r = core.REG(Registers.R01)
     lr = u32(r.value)
 
-    signed = ctypes.cast((u16 * 1)(r), ctypes.POINTER(i16)).contents.value
-    if signed < 0:
+    if r.value & 0x8000 != 0:
       lr.value |= 0xFFFF0000
 
     core.math_registers.push(lr)
@@ -215,8 +214,8 @@ class MathInterrupt(VirtualInterrupt):
     old_tos = core.math_registers.tos().value
     tos = core.math_registers.tos()
 
-    i = ctypes.cast((u32 * 1)(tos), ctypes.POINTER(i32)).contents.value
-    j = ctypes.cast((u32 * 1)(lr),  ctypes.POINTER(i32)).contents.value
+    i = i32(tos.value).value
+    j = i32(lr.value).value
     core.DEBUG('  i=%i, j=%i (%s, %s)', i, j, type(i), type(j))
     i /= j
     core.DEBUG('  i=%i (%s)', i, type(i))
@@ -232,8 +231,8 @@ class MathInterrupt(VirtualInterrupt):
     old_tos = core.math_registers.tos().value
     tos = core.math_registers.tos()
 
-    i = ctypes.cast((u32 * 1)(tos), ctypes.POINTER(i32)).contents.value
-    j = ctypes.cast((u32 * 1)(lr),  ctypes.POINTER(i32)).contents.value
+    i = i32(tos.value).value
+    j = i32(lr.value).value
     core.DEBUG('  i=%i, j=%i (%s, %s)', i, j, type(i), type(j))
     i = int(float(i) / float(j))
     core.DEBUG('  i=%i (%s)', i, type(i))
@@ -249,8 +248,8 @@ class MathInterrupt(VirtualInterrupt):
     old_tos = core.math_registers.tos().value
     tos = core.math_registers.tos()
 
-    i = ctypes.cast((u32 * 1)(tos), ctypes.POINTER(i32)).contents.value
-    j = ctypes.cast((u32 * 1)(lr),  ctypes.POINTER(i32)).contents.value
+    i = i32(tos.value).value
+    j = i32(lr.value).value
     core.DEBUG('  i=%i, j=%i (%s, %s)', i, j, type(i), type(j))
     i %= j
     core.DEBUG('  i=%i (%s)', i, type(i))
@@ -268,8 +267,8 @@ class MathInterrupt(VirtualInterrupt):
     old_tos = core.math_registers.tos().value
     tos = core.math_registers.tos()
 
-    i = ctypes.cast((u32 * 1)(tos), ctypes.POINTER(i32)).contents.value
-    j = ctypes.cast((u32 * 1)(lr),  ctypes.POINTER(i32)).contents.value
+    i = i32(tos.value).value
+    j = i32(lr.value).value
     core.DEBUG('  i=%i, j=%i (%s, %s)', i, j, type(i), type(j))
     i = int(math.fmod(i, j))
     core.DEBUG('  i=%i (%s)', i, type(i))

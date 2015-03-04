@@ -415,7 +415,7 @@ class MemoryRegion(object):
     debug('MemoryRegion: name=%s, address=%s, size=%s, flags=%s, pages_start=%s, pages_cnt=%s', name, address, size, flags, self.pages_start, self.pages_cnt)
 
 class MemoryController(object):
-  def __init__(self, size = 0x1000000):
+  def __init__(self, machine, size = 0x1000000):
     super(MemoryController, self).__init__()
 
     if size % PAGE_SIZE != 0:
@@ -423,6 +423,10 @@ class MemoryController(object):
 
     if size % (SEGMENT_SIZE * PAGE_SIZE) != 0:
       raise InvalidResourceError('Memory size must be multiple of SEGMENT_SIZE')
+
+    self.machine = machine
+
+    self.force_aligned_access = self.machine.config.getbool('memory', 'force-aligned-access', default = False)
 
     self.__size = size
     self.__pages_cnt = size / PAGE_SIZE
@@ -886,7 +890,7 @@ class MemoryController(object):
   def read_u16(self, addr, privileged = False):
     debug('mc.read_u16: addr=%s, priv=%i', addr, privileged)
 
-    if addr % 2:
+    if self.force_aligned_access and addr % 2:
       raise AccessViolationError('Unable to access unaligned address: addr=%s' % ADDR_FMT(addr))
 
     return self.get_page((addr & PAGE_MASK) >> PAGE_SHIFT).read_u16(addr & (PAGE_SIZE - 1), privileged = privileged)
@@ -894,7 +898,7 @@ class MemoryController(object):
   def read_u32(self, addr, privileged = False):
     debug('mc.read_u32: addr=%s, priv=%i', addr, privileged)
 
-    if addr % 4:
+    if self.force_aligned_access and addr % 4:
       raise AccessViolationError('Unable to access unaligned address: addr=%s' % ADDR_FMT(addr))
 
     return self.get_page((addr & PAGE_MASK) >> PAGE_SHIFT).read_u32(addr & (PAGE_SIZE - 1), privileged = privileged)
@@ -906,7 +910,7 @@ class MemoryController(object):
   def write_u16(self, addr, value, privileged = False, dirty = True):
     debug('mc.write_u16: addr=%s, value=%s, priv=%i, dirty=%i', addr, value, privileged, dirty)
 
-    if addr % 2:
+    if self.force_aligned_access and addr % 2:
       raise AccessViolationError('Unable to access unaligned address: addr=%s' % ADDR_FMT(addr))
 
     self.get_page((addr & PAGE_MASK) >> PAGE_SHIFT).write_u16(addr & (PAGE_SIZE - 1), value, privileged = privileged, dirty = dirty)
@@ -914,7 +918,7 @@ class MemoryController(object):
   def write_u32(self, addr, value, privileged = False, dirty = True):
     debug('mc.write_u32: addr=%s, value=%s, priv=%i, dirty=%i', addr, value, privileged, dirty)
 
-    if addr % 4:
+    if self.force_aligned_access and addr % 4:
       raise AccessViolationError('Unable to access unaligned address: addr=%s' % ADDR_FMT(addr))
 
     self.get_page((addr & PAGE_MASK) >> PAGE_SHIFT).write_u32(addr & (PAGE_SIZE - 1), value, privileged = privileged, dirty = dirty)

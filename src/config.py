@@ -34,10 +34,19 @@ class MachineConfig(ConfigParser):
     except NoOptionError:
       return default
 
+  _boolean_states = {'1': True, 'yes': True, 'true': True, 'on': True, '0': False, 'no': False, 'false': False, 'off': False}
+
   def getbool(self, section, option, default = None):
     try:
-      v = ConfigParser.get(self, section, option)
-      return bool(v) if v is not None else default
+      v = ConfigParser.get(self, section, option).lower()
+
+      if v is None:
+        return default
+
+      if v not in self._boolean_states:
+        raise ValueError, 'Not a boolean: %s' % v
+
+      return self._boolean_states[v]
 
     except NoOptionError:
       return default

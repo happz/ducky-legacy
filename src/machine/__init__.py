@@ -173,7 +173,7 @@ class Machine(object):
     self.binaries = []
 
     self.cpus = []
-    self.memory = mm.MemoryController()
+    self.memory = mm.MemoryController(self)
     self.ports = io_handlers.IOPortSet()
     self.irq_sources = irq.IRQSourceSet()
 
@@ -181,8 +181,6 @@ class Machine(object):
 
     self.keep_running = True
     self.thread = None
-
-    self.memory = mm.MemoryController()
 
     self.message_bus = machine.bus.MessageBus(self)
 

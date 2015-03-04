@@ -108,7 +108,7 @@ class Storage(object):
 
     debug('read_block: id=%s, src=%s, dst=%s, cnt=%s', self.id, src, dst, cnt)
 
-    if (src + cnt) * BLOCK_SIZE >= self.size:
+    if (src + cnt) * BLOCK_SIZE > self.size:
       self.profiler.disable()
       raise StorageAccessError('Out of bounds access: storage size %s is too small' % self.size)
 
@@ -124,7 +124,7 @@ class Storage(object):
 
     debug('write_block: id=%s, src=%s, dst=%s, cnt=%s', self.id, src, dst, cnt)
 
-    if (dst + cnt) * BLOCK_SIZE >= self.size:
+    if (dst + cnt) * BLOCK_SIZE > self.size:
       self.profiler.disable()
       raise StorageAccessError('Out of bounds access: storage size %s is too small' % self.size)
 
