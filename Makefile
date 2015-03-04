@@ -150,7 +150,7 @@ tests: tests-pre tests-engine tests-forth-units tests-forth-ans tests-post tests
 
 tests-engine-only: tests-pre tests-engine tests-post tests-submit-results
 
-tests-forth-only: tests-pre tests-forth-units tests-post tests-submit-results
+tests-forth-only: tests-pre tests-forth-units tests-forth-ans tests-post tests-submit-results
 
 
 #
