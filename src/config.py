@@ -1,6 +1,6 @@
 import StringIO
 
-from ConfigParser import ConfigParser, NoOptionError
+from ConfigParser import ConfigParser, NoSectionError, NoOptionError
 
 from util import str2int
 
@@ -20,7 +20,7 @@ class MachineConfig(ConfigParser):
     try:
       return ConfigParser.get(self, section, option)
 
-    except NoOptionError:
+    except (NoSectionError, NoOptionError):
       return default
 
   def set(self, section, option, value, *args, **kwargs):
@@ -31,7 +31,7 @@ class MachineConfig(ConfigParser):
       v = ConfigParser.get(self, section, option)
       return str2int(v) if v is not None else default
 
-    except NoOptionError:
+    except (NoSectionError, NoOptionError):
       return default
 
   _boolean_states = {'1': True, 'yes': True, 'true': True, 'on': True, '0': False, 'no': False, 'false': False, 'off': False}
@@ -48,7 +48,7 @@ class MachineConfig(ConfigParser):
 
       return self._boolean_states[v]
 
-    except NoOptionError:
+    except (NoSectionError, NoOptionError):
       return default
 
   def getfloat(self, section, option, default = None):
@@ -56,7 +56,7 @@ class MachineConfig(ConfigParser):
       v = ConfigParser.get(self, section, option)
       return float(v) if v is not None else default
 
-    except NoOptionError:
+    except (NoSectionError, NoOptionError):
       return default
 
   def read(self, *args, **kwargs):
