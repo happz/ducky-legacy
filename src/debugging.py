@@ -1,8 +1,6 @@
 from console import Console
 from mm import ADDR_FMT
 
-from threading2 import Event
-
 class Point(object):
   point_index = 0
   points = {}
@@ -90,9 +88,7 @@ class DebuggingSet(object):
         bp.flip = False
         del Point.points[bp.id]
 
-      event = Event()
-      event.clear()
-      self.owner.plan_suspend(event)
+      self.owner.suspend()
 
 def add_breakpoint(core, address, ephemeral = False, countdown = None):
   core.DEBUG('add_breakpoint: address=%s, ephemeral=%s', ADDR_FMT(address), ephemeral)

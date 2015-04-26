@@ -21,6 +21,9 @@
 ; 32 cells
 .def RSTACK_SIZE:        64
 
+; Allow for 8 nested EVALUATE calls
+.def INPUT_STACK_SIZE:   64
+
 ; Let's say the longest line can be 512 chars...
 .def INPUT_BUFFER_SIZE: 512
 
@@ -286,7 +289,8 @@ readline:
   ; now init variables
   li r0, &input_buffer_length
   li r1, 0 ; clear input buffer
-  li r2, &input_buffer
+  li r2, &input_buffer_address
+  lw r2, r2
 .__readline_loop:
   inb r3, $PORT_CONIO_STDIN
   cmp r3, 0xFF
@@ -317,6 +321,83 @@ readline:
   ; by programmer while watching machine "doing nothing"
   idle
   j &.__readline_loop
+
+
+input_stack_push:
+  push r0 ; input_stack_ptr
+  push r1 ; address
+  push r2 ; value
+
+  li r0, &input_stack_ptr
+  lw r1, r0
+
+  ; input buffer address
+  li r2, &input_buffer_address
+  lw r2, r2
+  stw r1, r2
+  add r1, $CELL
+  ; input buffer index
+  li r2, &input_buffer_index
+  lw r2, r2
+  stw r1, r2
+  add r1, $CELL
+  ; input buffer length
+  li r2, &input_buffer_length
+  lw r2, r2
+  stw r1, r2
+  add r1, $CELL
+  ; state
+  li r2, &var_STATE
+  lw r2, r2
+  stw r1, r2
+  add r1, $CELL
+
+  stw r0, r1
+
+  pop r2
+  pop r1
+  pop r0
+
+  ret
+
+input_stack_pop:
+  push r0
+  push r1
+  push r2
+  push r3
+
+  li r0, &input_stack_ptr
+  lw r1, r0
+
+  ; state
+  sub r1, $CELL
+  li r2, &var_STATE
+  lw r3, r1
+  stw r2, r3
+  ; input buffer length
+  sub r1, $CELL
+  li r2, &input_buffer_length
+  lw r3, r1
+  stw r2, r3
+  ; input buffer index
+  sub r1, $CELL
+  li r2, &input_buffer_index
+  lw r3, r1
+  stw r2, r3
+  ; input buffer address
+  sub r1, $CELL
+  li r2, &input_buffer_address
+  lw r3, r1
+  stw r2, r3
+
+  stw r0, r1
+
+  pop r3
+  pop r2
+  pop r1
+  pop r0
+
+  ret
 
 
 DOCOL:
@@ -373,6 +454,22 @@ cold_start:
   .int 0
 
   .type input_buffer_index, int
+  .int 0
+
+  .type input_buffer_address, int
+  .int &input_buffer
+
+  ; when EVALUATE is called, current input source specification
+  ; is saved on top of this stack
+  .type input_stack, space
+  .space $INPUT_STACK_SIZE
+
+  ; the first free position in input_stack
+  .type input_stack_ptr, int
+  .int &input_stack
+
+  ; if not zero, restore input source specification from stack
+  .type input_stack_restorable, int
   .int 0
 
   .type rstack, space
@@ -510,9 +607,10 @@ $DEFCODE "INTERPRET", 9, 0, INTERPRET
   li r0, &buffer_print_prefix
   call &writes
   ; input buffer
-  li r0, &input_buffer
+  li r0, &input_buffer_address
+  lw r0, r0
   li r1, &input_buffer_length
-  lb r1, r1
+  lw r1, r1
   call &write
   ; new line
   li r0, 0
@@ -546,6 +644,34 @@ $DEFCODE "INTERPRET", 9, 0, INTERPRET
   .type buffer_print_postfix, string
   .string "<<<"
 
+
+$DEFCODE "EVALUATE", 8, 0, EVALUATE
+  pop r1 ; length
+  pop r0 ; address
+  call &.__EVALUATE
+  $NEXT
+
+.__EVALUATE:
+  ; save current input state
+  call &input_stack_push
+  push r2
+  ; load new input buffer address
+  li r2, &input_buffer_address
+  stw r2, r0
+  ; load new input buffer length
+  li r2, &input_buffer_length
+  stw r2, r1
+  li r0, 0
+  ; reset input buffer index
+  li r2, &input_buffer_index
+  stw r2, r0
+  ; set STATE to "interpret"
+  ;li r2, &var_STATE
+  ;stw r2, r0
+  pop r2
+  ret
+
+
 $DEFCODE ">IN", 3, 0, TOIN
   push &input_buffer_index
   $NEXT
@@ -565,20 +691,23 @@ $DEFCODE "KEY", 3, 0, KEY
   push r4 ; input_buffer_index
   push r5 ; index_buffer ptr
   li r1, &input_buffer_length
-  lw r2, r1
   li r3, &input_buffer_index
+.__KEY_start_again:
+  lw r2, r1
   lw r4, r3
   cmp r2, r4
   be &.__KEY_read_line
 .__KEY_read_char:
   ; get char ptr
-  li r5, &input_buffer
+  li r5, &input_buffer_address
+  lw r5, r5
   add r5, r4
   ; read char
   lb r0, r5
   ; and update vars
   inc r4
   stw r3, r4
+.__KEY_ret:
   pop r5
   pop r4
   pop r3
@@ -586,11 +715,17 @@ $DEFCODE "KEY", 3, 0, KEY
   pop r1
   ret
 .__KEY_read_line:
+  li r2, &input_stack_ptr
+  lw r2, r2
+  li r4, &input_stack
+  cmp r2, r4
+  be &.__KEY_do_read_line
+  call &input_stack_pop
+  li r0, 0x0A
+  j &.__KEY_ret
+.__KEY_do_read_line:
   call &readline
-  ; reload our vars
-  lw r2, r1
-  lw r4, r3
-  j &.__KEY_read_char
+  j &.__KEY_start_again
 
 
 $DEFCODE "EMIT", 4, 0, EMIT
@@ -649,7 +784,8 @@ $DEFCODE "WORD", 4, 0, WORD
 
 $DEFCODE "SOURCE", 6, 0, SOURCE
   ; ( address length )
-  li $W, &input_buffer
+  li $W, &input_buffer_address
+  lw $W, $W
   push $W
   li $W, &input_buffer_length
   lw $W, $W

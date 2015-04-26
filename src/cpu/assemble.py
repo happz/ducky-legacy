@@ -31,14 +31,14 @@ RE_MACRO_END = re.compile(r'^\s*\.end\s*$', re.MULTILINE)
 RE_ASCII = re.compile(r'^\s*\.ascii\s+"(?P<value>.*?)"\s*$', re.MULTILINE)
 RE_BYTE = re.compile(r'^\s*\.byte\s+(?:(?P<value_hex>-?0x[a-fA-F0-9]+)|(?P<value_dec>(?:0)|(?:-?[1-9][0-9]*))|(?P<value_var>[a-zA-Z][a-zA-Z0-9_]*))\s*$', re.MULTILINE)
 RE_DATA = re.compile(r'^\s*\.data(?:\s+(?P<name>\.[a-z][a-z0-9_]*))?\s*$', re.MULTILINE)
-RE_INT = re.compile(r'^\s*\.int\s+(?:(?P<value_hex>-?0x[a-fA-F0-9]+)|(?P<value_dec>0|(?:-?[1-9][0-9]*))|(?P<value_var>[a-zA-Z][a-zA-Z0-9_]*)|(?P<value_label>&[a-zA-Z_][a-zA-Z0-9_]*))\s*$', re.MULTILINE)
+RE_INT = re.compile(r'^\s*\.int\s+(?:(?P<value_hex>-?0x[a-fA-F0-9]+)|(?P<value_dec>0|(?:-?[1-9][0-9]*))|(?P<value_var>[a-zA-Z][a-zA-Z0-9_]*)|(?P<value_label>&[a-zA-Z_\.][a-zA-Z0-9_]*))\s*$', re.MULTILINE)
 RE_SECTION = re.compile(r'^\s*\.section\s+(?P<name>\.[a-zA-z0-9_]+)(?:,\s*(?P<flags>[rwxb]*))?\s*$', re.MULTILINE)
 RE_SET = re.compile(r'^\s*\.set\s+(?P<name>[a-zA-Z_][a-zA-Z0-9_]*),\s*(?:(?P<current>\.)|(?P<value_hex>-?0x[a-fA-F0-9]+)|(?P<value_dec>0|(?:-?[1-9][0-9]*))|(?P<value_label>&[a-zA-Z][a-zA-Z0-9_]*))\s*$', re.MULTILINE)
 RE_SIZE = re.compile(r'^\s*\.size\s+(?P<size>[1-9][0-9]*)\s*$', re.MULTILINE)
 RE_SPACE = re.compile(r'^\s*\.space\s+(?P<size>[1-9][0-9]*)\s*$', re.MULTILINE)
 RE_STRING = re.compile(r'^\s*\.string\s+"(?P<value>.*?)"\s*$', re.MULTILINE)
 RE_TEXT = re.compile(r'^\s*\.text(?:\s+(?P<name>\.[a-z][a-z0-9_]*))?\s*$', re.MULTILINE)
-RE_TYPE = re.compile(r'^\s*\.type\s+(?P<name>[a-zA-Z_][a-zA-Z0-9_]*),\s*(?P<type>(?:char|byte|int|ascii|string|space))\s*$', re.MULTILINE)
+RE_TYPE = re.compile(r'^\s*\.type\s+(?P<name>[a-zA-Z_\.][a-zA-Z0-9_]*),\s*(?P<type>(?:char|byte|int|ascii|string|space))\s*$', re.MULTILINE)
 
 class AssemblerError(Exception):
   def __init__(self, filename, lineno, msg, line):

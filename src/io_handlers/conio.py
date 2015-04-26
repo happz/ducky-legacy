@@ -225,7 +225,8 @@ class ConsoleIOHandler(io_handlers.IOHandler):
           self.queue.put(c)
 
       except IOError, e:
-        error('conio.__read_char: %s', e)
+        error('conio.__read_char: error=%s', e)
+        return False
 
       return True
 
@@ -261,8 +262,7 @@ class ConsoleIOHandler(io_handlers.IOHandler):
           debug('conio: planned halt, execute')
 
           if not self.halt_signaled:
-            self.machine.defer_halt()
-            self.halt_signaled = True
+            self.machine.halt()
 
           return None
 

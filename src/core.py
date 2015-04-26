@@ -46,7 +46,6 @@ class CPUCoreState(LittleEndianStructure):
     ('flags', c_ushort),
     ('exit_code', c_ushort),
     ('idle',         c_ubyte, 1),
-    ('keep_running', c_ubyte, 1),
     ('__padding__', c_ubyte)
   ]
 

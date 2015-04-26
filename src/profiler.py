@@ -7,16 +7,13 @@ except ImportError:
 import marshal
 import os
 import os.path
-import threading2
 
 class DummyCPUCoreProfiler(object):
-  def __init__(self, core):
+  def __init__(self, core, frequency = 50):
     super(DummyCPUCoreProfiler, self).__init__()
 
     self.core = core
-
-  def trigger_jump(self, a, b):
-    pass
+    self.frequency = frequency
 
   def enable(self):
     pass
@@ -24,7 +21,7 @@ class DummyCPUCoreProfiler(object):
   def disable(self):
     pass
 
-  def trigger_ret(self, a, b):
+  def take_sample(self):
     pass
 
   def create_stats(self):
@@ -39,11 +36,11 @@ class RealCPUCoreProfiler(DummyCPUCoreProfiler):
 
     self.data = []
 
-  def trigger_jump(self, src_addr, dst_addr):
-    self.data.append(('jump', src_addr, dst_addr))
+  def take_sample(self):
+    if self.core.registers.cnt.value % self.frequency != 0:
+      return
 
-  def trigger_ret(self, src_addr, dst_addr):
-    self.data.append(('ret', src_addr, dst_addr))
+    self.data.append(self.core.current_ip)
 
   def dump_stats(self, filename):
     with open(filename, 'wb') as f:
@@ -72,7 +69,6 @@ class ProfilerStore(object):
     self.machine_profiler_class = DummyMachineProfiler
     self.core_profiler_class    = DummyCPUCoreProfiler
 
-    self.lock = threading2.Lock()
     self.profilers = []
 
   def enable_machine(self):
@@ -90,16 +86,14 @@ class ProfilerStore(object):
   def get_machine_profiler(self):
     p = self.machine_profiler_class(builtins = False)
 
-    with self.lock:
-      self.profilers.append(p)
+    self.profilers.append(p)
 
     return p
 
-  def get_cpu_profiler(self, core):
+  def get_core_profiler(self, core):
     p = self.core_profiler_class(core)
 
-    with self.lock:
-      self.profilers.append(p)
+    self.profilers.append(p)
 
     return p
 
@@ -108,11 +102,11 @@ class ProfilerStore(object):
       return
 
   def save(self, directory):
-    filename_pattern = os.path.join(directory, 'profiler-' + str(os.getpid()) + '-%i.dat')
+    filename_pattern = os.path.join(directory, 'profiler-%s-%s-%i.dat')
 
     for index, profiler in enumerate(self.profilers):
       profiler.disable()
       profiler.create_stats()
-      profiler.dump_stats(filename_pattern % index)
+      profiler.dump_stats(filename_pattern % (os.getpid(), profiler.__class__.__name__, index))
 
 STORE = ProfilerStore()

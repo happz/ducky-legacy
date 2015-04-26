@@ -1,28 +1,30 @@
 import functools
 import os
-import threading2
-import time
-import types
 
-import core
-import cpu
 import mm
-import machine.bus
-import profiler
+import reactor
+import util
 
 from console import Console
 from errors import InvalidResourceError
-from util import debug, info, error, str2int, LRUCache, warn, print_table
+from util import debug, info, error, str2int, LRUCache, warn, print_table, exception
 from mm import addr_to_segment, ADDR_FMT, segment_addr_to_addr
 
-import irq
-import irq.conio
-import irq.virtual
+class MachineWorker(object):
+  def run(self):
+    pass
 
-import io_handlers
-import io_handlers.conio
+  def suspend(self):
+    pass
 
-from threading2 import Thread
+  def wake_up(self):
+    pass
+
+  def die(self, exc):
+    pass
+
+  def halt(self):
+    pass
 
 class SymbolCache(LRUCache):
   def __init__(self, _machine, size, *args, **kwargs):
@@ -40,23 +42,7 @@ class SymbolCache(LRUCache):
       if binary.cs != cs:
         continue
 
-      last_symbol = None
-      last_symbol_offset = 0xFFFE
-
-      for symbol_name, symbol_address in binary.symbols.items():
-        symbol_address = symbol_address.u16
-        if symbol_address > address:
-          continue
-
-        if symbol_address == address:
-          return (symbol_name, 0)
-
-        offset = abs(address - symbol_address)
-        if offset < last_symbol_offset:
-          last_symbol = symbol_name
-          last_symbol_offset = offset
-
-      return (last_symbol, last_symbol_offset)
+      return binary.symbol_table[address]
 
     return (None, None)
 
@@ -91,51 +77,70 @@ class Binary(object):
     self.symbols = None
     self.regions = None
 
+    self.symbol_table = util.SymbolTable(self)
+
   def get_init_state(self):
     return (self.cs, self.ds, self.sp, self.ip, False)
 
-class Machine(object):
-  def core(self, core_address):
-    if isinstance(core_address, types.TupleType):
-      cpuid, coreid = core_address
+class IRQRouterTask(reactor.ReactorTask):
+  def __init__(self, machine):
+    self.machine = machine
 
-    else:
-      core_address = core_address.split(':')
-      cpuid, coreid = (int(core_address[0][1:]), int(core_address[1][1:]))
+    self.queue = []
 
-    return self.cpus[cpuid].cores[coreid]
+  def runnable(self):
+    return True
 
-  def for_each_cpu(self, callback, *args, **kwargs):
-    for __cpu in self.cpus:
-      callback(__cpu, *args, **kwargs)
+  def run(self):
+    while self.queue:
+      self.machine.cpus[0].cores[0].irq(self.queue.pop(0).irq)
 
-  def for_each_core(self, callback, *args, **kwargs):
-    for __cpu in self.cpus:
-      for __core in __cpu.cores:
-        callback(__core, *args, **kwargs)
+class CheckLivingCoresTask(reactor.ReactorTask):
+  def __init__(self, machine):
+    self.machine = machine
 
-  def for_core(self, core_address, callback, *args, **kwargs):
-    callback(self.core(core_address), *args, **kwargs)
+  def runnable(self):
+    return len(self.machine.living_cores()) == 0
 
-  def for_each_irq(self, callback, *args, **kwargs):
-    for src in self.irq_sources:
-      if not src:
-        continue
+  def run(self):
+    self.machine.halt()
 
-      callback(src, *args, **kwargs)
+class Machine(MachineWorker):
+  def __init__(self):
+    self.reactor = reactor.reactor
+
+    self.irq_router_task = IRQRouterTask(self)
+    self.reactor.add_task(self.irq_router_task)
+
+    self.check_living_cores_task = CheckLivingCoresTask(self)
+    self.reactor.add_task(self.check_living_cores_task)
+
+    self.symbol_cache = SymbolCache(self, 256)
+    self.address_cache = AddressCache(self, 256)
+
+    self.binaries = []
+
+    self.cpus = []
+    self.memory = None
+
+    import io_handlers
+    self.ports = io_handlers.IOPortSet()
+
+    import irq
+    self.irq_sources = irq.IRQSourceSet()
+
+    self.virtual_interrupts = {}
+    self.storages = {}
 
   def cores(self):
-    l = []
-
-    self.for_each_core(lambda __core, __cores: __cores.append(__core), l)
-
-    return l
+    __cores = []
+    map(lambda __cpu: __cores.extend(__cpu.cores), self.cpus)
+    return __cores
 
   def living_cores(self):
-    return [c for c in self.cores() if c.is_alive()]
-
-  def running_cores(self):
-    return [c for c in self.cores() if not c.is_suspended()]
+    __cores = []
+    map(lambda __cpu: __cores.extend(__cpu.living_cores()), self.cpus)
+    return __cores
 
   def get_storage_by_id(self, id):
     debug('get_storage_by_id: id=%s', id)
@@ -150,6 +155,13 @@ class Machine(object):
     return self.symbol_cache[segment_addr_to_addr(cs, address)]
 
   def hw_setup(self, machine_config, machine_in = None, machine_out = None):
+    import irq
+    import irq.conio
+    import irq.virtual
+
+    import io_handlers
+    import io_handlers.conio
+
     def __print_regions(regions):
       table = [
         ['Section', 'Address', 'Size', 'Flags', 'First page', 'Last page']
@@ -162,27 +174,12 @@ class Machine(object):
 
     self.config = machine_config
 
-    self.profiler = profiler.STORE.get_machine_profiler()
-
     self.nr_cpus = self.config.getint('machine', 'cpus')
     self.nr_cores = self.config.getint('machine', 'cores')
 
-    self.symbol_cache = SymbolCache(self, 256)
-    self.address_cache = AddressCache(self, 256)
-
-    self.binaries = []
-
-    self.cpus = []
     self.memory = mm.MemoryController(self)
-    self.ports = io_handlers.IOPortSet()
-    self.irq_sources = irq.IRQSourceSet()
 
-    self.wake_up_all_event = None
-
-    self.keep_running = True
-    self.thread = None
-
-    self.message_bus = machine.bus.MessageBus(self)
+    import cpu
 
     for cpuid in range(0, self.nr_cpus):
       self.cpus.append(cpu.CPU(self, cpuid, cores = self.nr_cores, memory_controller = self.memory))
@@ -197,7 +194,6 @@ class Machine(object):
 
     self.memory.boot()
 
-    self.virtual_interrupts = {}
     for index, cls in irq.virtual.VIRTUAL_INTERRUPTS.iteritems():
       self.virtual_interrupts[index] = cls(self)
 
@@ -288,11 +284,7 @@ class Machine(object):
       add_breakpoint(core, address, ephemeral = _getbool('ephemeral', False), countdown = _getint('countdown', 0))
 
     # Storage
-    from blockio import STORAGES, StorageIOHandler
-
-    self.storageio = StorageIOHandler(self)
-
-    self.storages = {}
+    from blockio import STORAGES
 
     for st_section in self.config.iter_storages():
       _get     = functools.partial(self.config.get, st_section)
@@ -300,9 +292,6 @@ class Machine(object):
       _getint  = functools.partial(self.config.getint, st_section)
 
       self.storages[_getint('id')] = STORAGES[_get('driver')](self, _getint('id'), _get('file'))
-
-    self.register_port(0x200, self.storageio)
-    self.register_port(0x202, self.storageio)
 
   @property
   def exit_code(self):
@@ -343,100 +332,59 @@ class Machine(object):
   def unregister_port(self, port):
     del self.ports[port]
 
-  def loop(self):
-    self.profiler.enable()
-
-    quantum = self.config.getfloat('cpu', 'cpu-quantum', default = cpu.DEFAULT_CPU_SLEEP_QUANTUM)
-
-    while self.keep_running:
-      time.sleep(quantum)
-
-      if len([_cpu for _cpu in self.cpus if _cpu.thread.is_alive()]) == 0:
-        info('Machine halted')
-        break
-
-    self.on_halt()
-
-    self.profiler.disable()
+  def trigger_irq(self, handler):
+    self.irq_router_task.queue.append(handler)
 
   def boot(self):
-    for handler in self.ports:
-      handler.boot()
+    debug('Machine.boot')
 
-    self.for_each_irq(lambda src: src.boot())
-
-    for storage in self.storages.values():
-      storage.boot()
+    map(lambda __port: __port.boot(), self.ports)
+    map(lambda __irq: __irq.boot(), [irq_source for irq_source in self.irq_sources if irq_source is not None])
+    map(lambda __storage: __storage.boot(), self.storages.itervalues())
 
     init_states = [binary.get_init_state() for binary in self.binaries if binary.run]
-    self.for_each_cpu(lambda __cpu, machine: __cpu.boot(init_states), self)
-
-    table = [
-      ['Thread']
-    ]
-
-    for thread in threading2.enumerate():
-      table.append([thread.name])
-
-    print_table(table)
-
-    info('')
+    map(lambda __cpu: __cpu.boot(init_states), self.cpus)
 
     info('Guest terminal available at %s', self.conio.get_terminal_dev())
 
   def run(self):
-    for handler in self.ports:
-      handler.run()
+    debug('Machine.run')
 
-    self.for_each_cpu(lambda __cpu: __cpu.run())
+    map(lambda __port: __port.run(), self.ports)
+    map(lambda __irq: __irq.run(), [irq_source for irq_source in self.irq_sources if irq_source is not None])
+    map(lambda __storage: __storage.run(), self.storages.itervalues())
 
-    self.thread = Thread(target = self.loop, name = 'Machine', priority = 0.0)
-    self.thread.start()
+    map(lambda __cpu: __cpu.run(), self.cpus)
+
+    self.reactor.run()
 
   def suspend(self):
-    suspend_msg = machine.bus.SuspendCore(machine.bus.ADDRESS_LIST, audience = self.running_cores())
+    debug('Machine.suspend')
 
-    self.message_bus.publish(suspend_msg)
-    suspend_msg.wait()
-    self.wake_up_all_event = suspend_msg.wake_up
+    map(lambda __cpu: __cpu.suspend(), self.cpus)
 
   def wake_up(self):
-    if not self.wake_up_all_event:
-      return
+    debug('Machine.wake_up')
 
-    self.wake_up_all_event.set()
-    self.wake_up_all_event = None
+    map(lambda __cpu: __cpu.wake_up(), self.cpus)
+
+  def die(self, exc):
+    debug('Machine.die: exc=%s', exc)
+
+    exception(exc)
+
+    self.halt()
 
   def halt(self):
-    halt_msg = machine.bus.HaltCore(machine.bus.ADDRESS_ALL, audience = self.living_cores())
+    debug('Machine.halt')
 
-    self.message_bus.publish(halt_msg)
+    map(lambda __irq: __irq.halt(),         [irq_source for irq_source in self.irq_sources if irq_source is not None])
+    map(lambda __port: __port.halt(),       self.ports)
+    map(lambda __storage: __storage.halt(), self.storages.itervalues())
+    map(lambda __cpu: __cpu.halt(),         self.cpus)
 
-    self.for_each_core(lambda __core: __core.wake_up())
-
-    halt_msg.wait()
-
-  def on_halt(self):
-    self.for_each_irq(lambda src: src.halt())
-
-    for handler in self.ports:
-      handler.halt()
-
-    for storage in self.storages.values():
-      storage.halt()
-
-    if not self.thread:
-      self.thread = Thread(target = self.loop, name = 'Machine', priority = 0.0)
-
-  def defer_halt(self):
-    thread = Thread(target = self.halt, name = 'Halting thread', priority = 0.0)
-    thread.start()
-
-  def wait(self):
-    quantum = self.config.getfloat('cpu', 'cpu-quantum', default = cpu.DEFAULT_CPU_SLEEP_QUANTUM)
-
-    while not self.thread or self.thread.is_alive():
-      time.sleep(quantum)
+    self.reactor.remove_task(self.irq_router_task)
+    self.reactor.remove_task(self.check_living_cores_task)
 
 def cmd_boot(console, cmd):
   """
@@ -468,6 +416,8 @@ def cmd_snapshot(console, cmd):
   """
   Create snapshot
   """
+
+  import core
 
   state = core.VMState.capture_vm_state(console.machine)
 

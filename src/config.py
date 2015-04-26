@@ -44,7 +44,7 @@ class MachineConfig(ConfigParser):
         return default
 
       if v not in self._boolean_states:
-        raise ValueError, 'Not a boolean: %s' % v
+        raise ValueError('Not a boolean: %s' % v)
 
       return self._boolean_states[v]
 

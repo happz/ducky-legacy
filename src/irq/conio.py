@@ -25,6 +25,6 @@ class Console(irq.IRQSource):
       if self.conio.read_raw_input() == False:
         break
 
-      self.trigger()
+      self.machine.trigger_irq(self)
 
     self.profiler.disable()

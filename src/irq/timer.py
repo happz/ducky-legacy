@@ -1,5 +1,8 @@
-import irq
+import threading2
 import time
+
+import irq
+import profiler
 
 class Timer(irq.IRQSource):
   def __init__(self, *args, **kwargs):
@@ -11,7 +14,7 @@ class Timer(irq.IRQSource):
   def boot(self):
     super(Timer, self).boot()
 
-    self.thread = Thread(name = 'timer-irq', target = self.loop, daemon = True, priority = 0.0)
+    self.thread = threading2.Thread(name = 'timer-irq', target = self.loop, daemon = True, priority = 0.0)
     self.thread.start()
 
   def loop(self):
@@ -19,6 +22,6 @@ class Timer(irq.IRQSource):
 
     while True:
       time.sleep(1)
-      self.trigger()
+      self.machine.self.machine.trigger_irq(self)
 
     self.profiler.disable()

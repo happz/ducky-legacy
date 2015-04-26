@@ -34,7 +34,7 @@ else
 endif
 
 ifdef VMPROFILE
-  VMPROFILE := -p $(TESTSETDIR)/profile
+  VMPROFILE := -p --profile-dir=$(TESTSETDIR)/profile
 else
   VMPROFILE :=
 endif
@@ -44,7 +44,7 @@ ifndef VMCOVERAGE
 endif
 
 ifdef BINPROFILE
-  BINPROFILE := --machine-profile
+  BINPROFILE := --machine-profile --profile-dir=$(TESTSETDIR)/profile
 else
   BINPROFILE :=
 endif
@@ -81,7 +81,27 @@ else
 	$(eval VMCOVERAGE_FILE := )
 	$(eval VMCOVERAGE_BIN  := )
 endif
-	$(Q) $(VMCOVERAGE_FILE) PYTHONUNBUFFERED=yes $(PYTHON) $(VMCOVERAGE_BIN) tools/vm $(VMPROFILE) $(BINPROFILE) --conio-echo=no --conio-highlight=no --machine-config=tests/forth/test-machine.conf --machine-in=forth/ducky-forth.f
+	$(Q) $(VMCOVERAGE_FILE) PYTHONUNBUFFERED=yes $(PYTHON) $(VMCOVERAGE_BIN) tools/vm $(VMPROFILE) $(VMDEBUG) $(BINPROFILE) --conio-echo=no --conio-highlight=no --machine-config=tests/forth/test-machine.conf --machine-in=forth/ducky-forth.f
+
+run-binary: interrupts.bin
+ifeq ($(VMCOVERAGE),yes)
+	$(eval VMCOVERAGE_FILE := COVERAGE_FILE="$(CURDIR)/.coverage.run")
+	$(eval VMCOVERAGE_BIN  := $(VIRTUAL_ENV)/bin/coverage run)
+else
+	$(eval VMCOVERAGE_FILE := )
+	$(eval VMCOVERAGE_BIN  := )
+endif
+	$(Q) $(VMCOVERAGE_FILE) PYTHONUNBUFFERED=yes $(PYTHON) $(VMCOVERAGE_BIN) tools/vm $(VMPROFILE) $(VMDEBUG) $(BINPROFILE) --conio-echo=$(CONIO_ECHO) --conio-stdout-echo=$(CONIO_STDOUT_ECHO) --conio-highlight=no --machine-config=$(MACHINE_CONFIG) -g
+
+run-forth-script: interrupts.bin $(FORTH_KERNEL)
+ifeq ($(VMCOVERAGE),yes)
+	$(eval VMCOVERAGE_FILE := COVERAGE_FILE="$(CURDIR)/.coverage.run")
+	$(eval VMCOVERAGE_BIN  := $(VIRTUAL_ENV)/bin/coverage run)
+else
+	$(eval VMCOVERAGE_FILE := )
+	$(eval VMCOVERAGE_BIN  := )
+endif
+	$(Q) $(VMCOVERAGE_FILE) PYTHONUNBUFFERED=yes $(PYTHON) $(VMCOVERAGE_BIN) tools/vm $(VMPROFILE) $(VMDEBUG) $(BINPROFILE) --conio-echo=$(CONIO_ECHO) --conio-stdout-echo=$(CONIO_STDOUT_ECHO) --conio-highlight=no --machine-config=tests/forth/test-machine.conf --machine-in=forth/ducky-forth.f --machine-in=$(FORTH_SCRIPT) -g
 
 tests-pre:
 	$(Q) echo -n "[TEST] Create test set $(TESTSET) ... "
@@ -158,7 +178,7 @@ tests-forth-only: tests-pre tests-forth-units tests-forth-ans tests-post tests-s
 #
 
 profile-eval:
-	$(Q) python -i -c "import os; import pstats; ps = pstats.Stats(*['$(TESTSETDIR)/profile/%s' % f for f in os.listdir('$(TESTSETDIR)/profile/')])"
+	$(Q) python -i -c "import os; import pstats; ps = pstats.Stats(*['$(TESTSETDIR)/profile/%s' % f for f in os.listdir('$(TESTSETDIR)/profile/') if f.find('-Profile-') != -1])"
 
 cloc:
 	cloc --skip-uniqueness src/ forth/ examples/

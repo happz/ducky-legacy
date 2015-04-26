@@ -7,7 +7,7 @@ import types
 from ctypes import sizeof
 from console import VerbosityLevels, CONSOLE
 
-__all__ = ['debug', 'warn', 'error', 'info', 'quiet', 'exception']
+__all__ = ['debug', 'warn', 'error', 'info', 'quiet', 'exception', 'align']
 
 def align(boundary, n):
   return (n + boundary - 1) & ~(boundary - 1)
@@ -224,3 +224,26 @@ class StringTable(object):
       s += c
 
     return s
+
+class SymbolTable(dict):
+  def __init__(self, binary):
+    self.binary = binary
+
+  def __getitem__(self, address):
+    last_symbol = None
+    last_symbol_offset = 0xFFFE
+
+    for symbol_name, symbol_address in self.binary.symbols.iteritems():
+      symbol_address = symbol_address.u16
+      if symbol_address > address:
+        continue
+
+      if symbol_address == address:
+        return (symbol_name, 0)
+
+      offset = abs(address - symbol_address)
+      if offset < last_symbol_offset:
+        last_symbol = symbol_name
+        last_symbol_offset = offset
+
+    return (last_symbol, last_symbol_offset)

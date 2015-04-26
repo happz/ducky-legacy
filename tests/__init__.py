@@ -34,7 +34,7 @@ def prepare_file(size, messages = None, pattern = 0xDE):
 
 def assert_registers(state, **regs):
   for reg in cpu.registers.REGISTER_NAMES:
-    if reg in ('flags', 'ip'):
+    if reg in ('flags', 'ip', 'cnt'):
       continue
 
     default = 0
@@ -105,7 +105,6 @@ def run_machine(code, machine_config, coredump_file = None):
 
   M.boot()
   M.run()
-  M.wait()
 
   state = core.VMState.capture_vm_state(M, suspend = False)
 

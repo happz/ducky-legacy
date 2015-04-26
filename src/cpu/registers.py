@@ -32,18 +32,19 @@ class Registers(enum.IntEnum):
   CS    = 16  # Code Segment register
   IP    = 17  # Instruction pointer
   FLAGS = 18  # Flags
+  CNT   = 19  # Instruction counter
 
   # First special register
   REGISTER_SPECIAL = 13
 
   # How many registers do we have? This many...
-  REGISTER_COUNT = 19
+  REGISTER_COUNT = 20
 
-PROTECTED_REGISTERS = range(Registers.REGISTER_SPECIAL, Registers.REGISTER_COUNT)
+PROTECTED_REGISTERS = [13, 15, 16, 17, 18, 19]
 
 RESETABLE_REGISTERS = [i for i in range(0, Registers.REGISTER_COUNT) if i != Registers.FLAGS]
 
-REGISTER_NAMES = ['r%i' % i for i in range(0, Registers.REGISTER_SPECIAL)] + ['fp', 'sp', 'ds', 'cs', 'ip', 'flags']
+REGISTER_NAMES = ['r%i' % i for i in range(0, Registers.REGISTER_SPECIAL)] + ['fp', 'sp', 'ds', 'cs', 'ip', 'flags', 'cnt']
 
 class FlagsRegister(object):
   def __init__(self):

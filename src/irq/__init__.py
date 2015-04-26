@@ -1,8 +1,7 @@
 import enum
 
-import machine.bus
-
-from threading2 import Lock
+import machine
+import reactor
 
 class IRQList(enum.IntEnum):
   TIMER = 0
@@ -20,33 +19,27 @@ class InterruptList(enum.IntEnum):
 
   INT_COUNT = 64
 
-class IRQSource(object):
+class TimerIRQEvent(reactor.ReactorTask):
+  def __init__(self, machine, handler):
+    self.machine = machine
+    self.handler = handler
+
+  def runnable(self):
+    return True
+
+  def run(self):
+    machine.route_irq(self.handler)
+
+class IRQSource(machine.MachineWorker):
   def __init__(self, machine):
     super(IRQSource, self).__init__()
 
     self.machine = machine
 
-    self.lock = Lock()
-    self.triggered = 0
-
     self.irq = None
     self.is_maskable = True
 
-  def trigger(self):
-    with self.lock:
-      self.triggered += 1
-
-      if self.triggered == 1:
-        self.machine.message_bus.publish(machine.bus.HandleIRQ(machine.bus.ADDRESS_ANY, self))
-
-  def clear(self):
-    with self.lock:
-      self.triggered = 0
-
   def boot(self):
-    pass
-
-  def halt(self):
     pass
 
 class IRQSourceSet(object):
@@ -73,6 +66,9 @@ class IRQSourceSet(object):
 
   def __iter__(self):
     return iter(self.__sources)
+
+  def ihandlers(self):
+    return self.__sources.itervalues()
 
   def __len__(self):
     return len(self.__sources)

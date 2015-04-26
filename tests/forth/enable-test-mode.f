@@ -1,2 +1,2 @@
 : TEST-MODE ;
-
+: TEST ;

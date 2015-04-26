@@ -6,8 +6,6 @@ from ctypes import LittleEndianStructure, c_ubyte, c_ushort, c_uint, sizeof
 from errors import AccessViolationError, InvalidResourceError
 from util import debug, align
 
-from threading2 import RLock
-
 # Types
 from ctypes import c_byte as i8
 from ctypes import c_short as i16
@@ -139,8 +137,6 @@ class MemoryPage(object):
     self.base_address = self.index * PAGE_SIZE
     self.segment_address = self.base_address % (SEGMENT_SIZE * PAGE_SIZE)
 
-    self.lock = RLock()
-
     self.read    = False
     self.write   = False
     self.execute = False
@@ -240,54 +236,48 @@ class MemoryPage(object):
 
     privileged or self.check_access(offset, 'read')
 
-    with self.lock:
-      return self.do_read_u8(offset)
+    return self.do_read_u8(offset)
 
   def read_u16(self, offset, privileged = False):
     debug('mp.read_u16: page=%s, offset=%s, priv=%s', self.index, offset, privileged)
 
     privileged or self.check_access(offset, 'read')
 
-    with self.lock:
-      return self.do_read_u16(offset)
+    return self.do_read_u16(offset)
 
   def read_u32(self, offset, privileged = False):
     debug('mp.read_u32: page=%s, offset=%s, priv=%s', self.index, offset, privileged)
 
     privileged or self.check_access(offset, 'read')
 
-    with self.lock:
-      return self.do_read_u32(offset)
+    return self.do_read_u32(offset)
 
   def write_u8(self, offset, value, privileged = False, dirty = True):
     debug('mp.write_u8: page=%s, offset=%s, value=%s, priv=%s, dirty=%s', self.index, offset, value, privileged, dirty)
 
     privileged or self.check_access(offset, 'write')
 
-    with self.lock:
-      self.do_write_u8(offset, value)
-      if dirty:
-        self.dirty = True
+    self.do_write_u8(offset, value)
+    if dirty:
+      self.dirty = True
 
   def write_u16(self, offset, value, privileged = False, dirty = True):
     debug('mp.write_u16: page=%s, offset=%s, value=%s, priv=%s, dirty=%s', self.index, offset, value, privileged, dirty)
 
     privileged or self.check_access(offset, 'write')
 
-    with self.lock:
-      self.do_write_u16(offset, value)
-      if dirty:
-        self.dirty = True
+    self.do_write_u16(offset, value)
+    if dirty:
+      self.dirty = True
 
   def write_u32(self, offset, value, privileged = False, dirty = True):
     debug('mp.write_u32: page=%s, offset=%s, value=%s, priv=%s, dirty=%s', self.index, offset, value, privileged, dirty)
 
     privileged or self.check_access(offset, 'write')
 
-    with self.lock:
-      self.do_write_u32(offset, value)
-      if dirty:
-        self.dirty = True
+    self.do_write_u32(offset, value)
+    if dirty:
+      self.dirty = True
 
 class AnonymousMemoryPage(MemoryPage):
   def __init__(self, controller, index):
@@ -439,9 +429,6 @@ class MemoryController(object):
     self.opened_mmap_files = {}  # path: (cnt, file)
     self.mmap_areas = {}
 
-    # pages allocation
-    self.lock = RLock()
-
     self.irq_table_address = MEM_IRQ_TABLE_ADDRESS
     self.int_table_address = MEM_INT_TABLE_ADDRESS
 
@@ -504,11 +491,10 @@ class MemoryController(object):
   def alloc_specific_page(self, index):
     debug('mc.alloc_specific_page: index=%s', index)
 
-    with self.lock:
-      if index in self.__pages:
-        return None
+    if index in self.__pages:
+      return None
 
-      return self.__alloc_page(index)
+    return self.__alloc_page(index)
 
   def alloc_pages(self, segment = None, count = 1):
     debug('mc.alloc_pages: segment=%s, count=%s', segment if segment else '', count)
@@ -522,37 +508,35 @@ class MemoryController(object):
 
     debug('mc.alloc_pages: page=%s, cnt=%s', pages_start, pages_cnt)
 
-    with self.lock:
-      for i in xrange(pages_start, pages_start + pages_cnt):
-        for j in xrange(i, i + count):
-          if j in self.__pages:
-            break
-
-        else:
-          return [self.__alloc_page(j, None) for j in xrange(i, i + count)]
+    for i in xrange(pages_start, pages_start + pages_cnt):
+      for j in xrange(i, i + count):
+        if j in self.__pages:
+          break
 
       else:
-        return None
+        return [self.__alloc_page(j, None) for j in xrange(i, i + count)]
+
+    else:
+      return None
 
   def alloc_page(self, segment = None):
     debug('mc.alloc_page: segment=%s', segment if segment else '')
 
-    with self.lock:
-      if segment:
-        pages_start = segment * SEGMENT_SIZE
-        pages_cnt = SEGMENT_SIZE
-      else:
-        pages_start = 0
-        pages_cnt = self.__pages_cnt
+    if segment:
+      pages_start = segment * SEGMENT_SIZE
+      pages_cnt = SEGMENT_SIZE
+    else:
+      pages_start = 0
+      pages_cnt = self.__pages_cnt
 
-      debug('mc.alloc_page: page=%s, cnt=%s', pages_start, pages_cnt)
+    debug('mc.alloc_page: page=%s, cnt=%s', pages_start, pages_cnt)
 
-      for i in range(pages_start, pages_start + pages_cnt):
-        if i not in self.__pages:
-          debug('mc.alloc_page: page=%s', i)
-          return self.__alloc_page(i, None)
+    for i in range(pages_start, pages_start + pages_cnt):
+      if i not in self.__pages:
+        debug('mc.alloc_page: page=%s', i)
+        return self.__alloc_page(i, None)
 
-      raise InvalidResourceError('No free page available')
+    raise InvalidResourceError('No free page available')
 
   def alloc_stack(self, segment = None):
     pg = self.alloc_page(segment)
@@ -565,8 +549,7 @@ class MemoryController(object):
   def free_page(self, page):
     debug('mc.free_page: page=%i, base=%s, segment=%s', page.index, page.base_address, page.segment_address)
 
-    with self.lock:
-      del self.__pages[page.index]
+    del self.__pages[page.index]
 
   def free_pages(self, page, count = 1):
     debug('mc.free_pages: page=%i, base=%s, segment=%s, count=%s', page.index, page.base_address, page.segment_address, count)
@@ -875,12 +858,11 @@ class MemoryController(object):
   def cas_u16(self, addr, test, rep):
     page = self.get_page((addr & PAGE_MASK) >> PAGE_SHIFT)
 
-    with page.lock:
-      v = page.read_u16(addr & (PAGE_SIZE - 1))
-      if v == test.u16:
-        v = rep.u16
-        return True
-      return v
+    v = page.read_u16(addr & (PAGE_SIZE - 1))
+    if v == test.u16:
+      v = rep.u16
+      return True
+    return v
 
   def read_u8(self, addr, privileged = False):
     debug('mc.read_u8: addr=%s, priv=%i', addr, privileged)

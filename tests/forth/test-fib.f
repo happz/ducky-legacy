@@ -11,5 +11,5 @@ DECIMAL
 ;
 
 : TEST
-  10 FIB .
+  22 FIB . CR
 ;

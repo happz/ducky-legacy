@@ -1,9 +1,8 @@
-import ctypes
 import enum
 
 from cpu.coprocessor import Coprocessor
 from cpu.registers import Registers
-from mm import i16, u16, u32, i32, UINT32_FMT, UINT16_FMT
+from mm import u32, i32, UINT32_FMT, UINT16_FMT
 from irq import InterruptList
 from irq.virtual import VIRTUAL_INTERRUPTS, VirtualInterrupt
 
@@ -123,7 +122,7 @@ class MathInterrupt(VirtualInterrupt):
   def dump_stack(self, core):
     core.DEBUG('Math stack:')
     for index, lr in enumerate(core.math_registers.stack):
-      core.DEBUG('#%02i: %s', index, UINT32_FMT(lr))
+      core.DEBUG('#%02i: %s', index, UINT32_FMT(lr.value))
     core.DEBUG('---')
 
   def op_itol(self, core):
@@ -204,7 +203,7 @@ class MathInterrupt(VirtualInterrupt):
 
     core.math_registers.tos().value *= lr.value
 
-    core.DEBUG('mull: %s %s', UINT32_FMT(old_tos), UINT32_FMT(lr))
+    core.DEBUG('mull: %s %s', UINT32_FMT(old_tos), UINT32_FMT(lr.value))
     self.dump_stack(core)
 
   def op_divl(self, core):
@@ -221,7 +220,7 @@ class MathInterrupt(VirtualInterrupt):
     core.DEBUG('  i=%i (%s)', i, type(i))
     tos.value = i
 
-    core.DEBUG('divl: %s %s', UINT32_FMT(old_tos), UINT32_FMT(lr))
+    core.DEBUG('divl: %s %s', UINT32_FMT(old_tos), UINT32_FMT(lr.value))
     self.dump_stack(core)
 
   def op_symdivl(self, core):
@@ -238,7 +237,7 @@ class MathInterrupt(VirtualInterrupt):
     core.DEBUG('  i=%i (%s)', i, type(i))
     tos.value = i
 
-    core.DEBUG('divl: %s %s', UINT32_FMT(old_tos), UINT32_FMT(lr))
+    core.DEBUG('divl: %s %s', UINT32_FMT(old_tos), UINT32_FMT(lr.value))
     self.dump_stack(core)
 
   def op_modl(self, core):
@@ -255,7 +254,7 @@ class MathInterrupt(VirtualInterrupt):
     core.DEBUG('  i=%i (%s)', i, type(i))
     tos.value = i
 
-    core.DEBUG('modl: %s %s', UINT32_FMT(old_tos), UINT32_FMT(lr))
+    core.DEBUG('modl: %s %s', UINT32_FMT(old_tos), UINT32_FMT(lr.value))
     self.dump_stack(core)
 
   def op_symmodl(self, core):
@@ -274,7 +273,7 @@ class MathInterrupt(VirtualInterrupt):
     core.DEBUG('  i=%i (%s)', i, type(i))
     tos.value = i
 
-    core.DEBUG('modl: %s %s', UINT32_FMT(old_tos), UINT32_FMT(lr))
+    core.DEBUG('modl: %s %s', UINT32_FMT(old_tos), UINT32_FMT(lr.value))
     self.dump_stack(core)
 
 VIRTUAL_INTERRUPTS[InterruptList.MATH] = MathInterrupt

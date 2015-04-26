@@ -1,17 +1,14 @@
-import ctypes
 import sys
-import threading2
-import time
 
 import console
 import debugging
 import instructions
+import machine
 import registers
 import mm
-import machine.bus
 import profiler
 
-from mm import ADDR_FMT, UINT8_FMT, UINT16_FMT, UINT32_FMT, SEGMENT_SIZE, PAGE_SIZE, u16, i16
+from mm import ADDR_FMT, UINT8_FMT, UINT16_FMT, UINT32_FMT, SEGMENT_SIZE, PAGE_SIZE, i16
 
 from registers import Registers, REGISTER_NAMES
 from instructions import Opcodes
@@ -19,7 +16,6 @@ from errors import AccessViolationError, InvalidResourceError
 from util import debug, info, warn, error, print_table, LRUCache, exception
 
 from ctypes import LittleEndianStructure, c_ubyte, c_ushort
-from threading2 import Thread
 
 DEFAULT_CPU_SLEEP_QUANTUM = 1.0
 DEFAULT_CPU_INST_CACHE_SIZE = 256
@@ -53,14 +49,14 @@ def do_log_cpu_core_state(core, logger = None):
     s = ['reg%02i=%s' % (reg, UINT16_FMT(core.registers.map[reg].value)) for reg in regs]
     logger(' '.join(s))
 
-  logger('cs=%s    ds=%s' % (core.registers.cs, core.registers.ds))
-  logger('fp=%s    sp=%s    ip=%s' % (core.registers.fp, core.registers.sp, core.registers.ip))
+  logger('cs=%s    ds=%s' % (UINT16_FMT(core.registers.cs.value), UINT16_FMT(core.registers.ds.value)))
+  logger('fp=%s    sp=%s    ip=%s' % (UINT16_FMT(core.registers.fp.value), UINT16_FMT(core.registers.sp.value), UINT16_FMT(core.registers.ip.value)))
   logger('priv=%i, hwint=%i, e=%i, z=%i, o=%i, s=%i' % (core.registers.flags.privileged, core.registers.flags.hwint, core.registers.flags.e, core.registers.flags.z, core.registers.flags.o, core.registers.flags.s))
-  logger('thread=%s, keep_running=%s, idle=%s, exit=%i' % (core.thread.name if core.thread else '<unknown>', core.keep_running, core.idle, core.exit_code))
+  logger('cnt=%s, idle=%s, exit=%i' % (core.registers.cnt.value, core.idle, core.exit_code))
 
   if hasattr(core, 'math_registers'):
     for index, v in enumerate(core.math_registers.stack):
-      logger('MS: %02i: %s', index, UINT32_FMT(v))
+      logger('MS: %02i: %s', index, UINT32_FMT(v.value))
 
   if core.current_instruction:
     inst = instructions.disassemble_instruction(core.current_instruction)
@@ -81,6 +77,7 @@ class StackFrame(object):
     self.CS = cs
     self.DS = ds
     self.FP = fp
+    self.IP = None
 
   def __getattribute__(self, name):
     if name == 'address':
@@ -89,7 +86,7 @@ class StackFrame(object):
     return super(StackFrame, self).__getattribute__(name)
 
   def __repr__(self):
-    return '<StackFrame: CS=%s DS=%s FP=%s (%s)' % (UINT8_FMT(self.CS), UINT8_FMT(self.DS), UINT16_FMT(self.FP), ADDR_FMT(self.address))
+    return '<StackFrame: CS=%s DS=%s FP=%s IP=%s, (%s)' % (UINT8_FMT(self.CS), UINT8_FMT(self.DS), UINT16_FMT(self.FP), UINT16_FMT(self.IP if self.IP is not None else 0), ADDR_FMT(self.address))
 
 class InstructionCache(LRUCache):
   """
@@ -179,7 +176,7 @@ class DataCache(LRUCache):
       self[addr][0] = False
       self.core.DEBUG('data_cache.flush: %s written back', ADDR_FMT(addr))
 
-class CPUCore(object):
+class CPUCore(machine.MachineWorker):
   def __init__(self, coreid, cpu, memory_controller):
     super(CPUCore, self).__init__()
 
@@ -189,22 +186,16 @@ class CPUCore(object):
     self.cpu = cpu
     self.memory = memory_controller
 
-    self.message_bus = self.cpu.machine.message_bus
-
-    self.suspend_lock = threading2.Lock()
-    self.suspend_events = []
-    self.current_suspend_event = None
-
     self.registers = registers.RegisterSet()
 
+    self.current_ip = None
     self.current_instruction = None
 
-    self.keep_running = True
-    self.thread = None
+    self.alive = False
+    self.running = False
     self.idle = False
 
-    self.machine_profiler = profiler.STORE.get_machine_profiler()
-    self.core_profiler = profiler.STORE.get_cpu_profiler(self)
+    self.core_profiler = profiler.STORE.get_core_profiler(self)
 
     self.exit_code = 0
 
@@ -241,6 +232,11 @@ class CPUCore(object):
   def ERROR(self, *args):
     self.LOG(error, *args)
 
+  def EXCEPTION(self, exc):
+    exception(exc, logger = self.ERROR)
+
+    do_log_cpu_core_state(self, logger = self.ERROR)
+
   def __repr__(self):
     return '#%i:#%i' % (self.cpu.id, self.id)
 
@@ -263,7 +259,6 @@ class CPUCore(object):
 
     core_state.exit_code = self.exit_code
     core_state.idle = 1 if self.idle else 0
-    core_state.keep_running = 1 if self.keep_running else 0
 
     state.core_states.append(core_state)
 
@@ -277,23 +272,6 @@ class CPUCore(object):
 
     self.exit_code = core_state.exit_code
     self.idle = True if core_state.idle else False
-    self.keep_running = True if core_state.keep_running else False
-
-  def EXCEPTION(self, exc):
-    exception(exc, logger = self.ERROR)
-
-    do_log_cpu_core_state(self, logger = self.ERROR)
-
-  def die(self, exc):
-    self.exit_code = 1
-
-    self.data_cache.flush()
-
-    self.EXCEPTION(exc)
-
-    self.keep_running = False
-
-    self.wake_up()
 
   def FLAGS(self):
     return self.registers.flags
@@ -343,7 +321,9 @@ class CPUCore(object):
   def fetch_instruction(self):
     ip = self.registers.ip
 
-    self.DEBUG('fetch_instruction: cs=%s, ip=%s', self.registers.cs, ip)
+    self.current_ip = ip.value
+
+    self.DEBUG('fetch_instruction: cs=%s, ip=%s', self.registers.cs, ip.value)
 
     inst = self.instruction_cache[self.CS_ADDR(ip.value)]
     ip.value += 4
@@ -386,6 +366,15 @@ class CPUCore(object):
     self.DEBUG('symbol_for_ip: %s%s (%s)', symbol, ' + %s' % offset if offset != 0 else '', ip.value)
 
   def backtrace(self):
+    bt = []
+
+    if self.check_frames:
+      for frame in self.frames:
+        symbol, offset = self.cpu.machine.get_symbol_by_addr(frame.CS, frame.IP)
+        bt.append((frame.IP, symbol, offset))
+
+      return bt
+
     bt = []
 
     for frame_index, frame in enumerate(self.frames):
@@ -506,6 +495,9 @@ class CPUCore(object):
     self.registers.cs.value = iv.cs
     self.registers.ip.value = iv.ip
 
+    if self.check_frames:
+      self.frames[-1].IP = iv.ip
+
   def __exit_interrupt(self):
     """
     Restore CPU state after running a interrupt routine. Call frame is destroyed, registers
@@ -567,6 +559,14 @@ class CPUCore(object):
 
     self.DEBUG('__do_irq: CPU state prepared to handle IRQ')
     log_cpu_core_state(self)
+
+  def irq(self, index):
+    try:
+      self.__do_irq(index)
+
+    except (CPUException, ZeroDivisionError, AccessViolationError) as e:
+      e.exc_stack = sys.exc_info()
+      self.die(e)
 
   # Do it this way to avoid pylint' confusion
   def __get_privileged(self):
@@ -634,15 +634,10 @@ class CPUCore(object):
     :param inst: instruction that caused jump
     """
 
-    src_addr = self.registers.ip.value - 4
-
     if inst.is_reg == 1:
       self.registers.ip.value = self.registers.map[inst.ireg].value
     else:
       self.registers.ip.value += inst.immediate
-
-    dst_addr = self.registers.ip.value
-    self.core_profiler.trigger_jump(src_addr, dst_addr)
 
     self.__symbol_for_ip()
 
@@ -751,6 +746,9 @@ class CPUCore(object):
 
     self.JUMP(inst)
 
+    if self.check_frames:
+      self.frames[-1].IP = self.registers.ip.value
+
   def inst_RET(self, inst):
     self.__destroy_frame()
 
@@ -769,7 +767,7 @@ class CPUCore(object):
 
     self.exit_code = self.RI_VAL(inst)
 
-    self.keep_running = False
+    self.halt()
 
   def inst_RST(self, inst):
     self.__check_protected_ins()
@@ -959,8 +957,6 @@ class CPUCore(object):
     # "Too many local variables"
     # "Too many statements"
 
-    saved_IP = self.registers.ip.value
-
     self.DEBUG('----- * ----- * ----- * ----- * ----- * ----- * ----- * -----')
 
     # Read next instruction
@@ -969,153 +965,68 @@ class CPUCore(object):
     self.current_instruction = self.fetch_instruction()
     opcode = self.current_instruction.opcode
 
-    self.DEBUG('"EXECUTE" phase: %s %s', UINT16_FMT(saved_IP), instructions.disassemble_instruction(self.current_instruction))
+    self.DEBUG('"EXECUTE" phase: %s %s', UINT16_FMT(self.current_ip), instructions.disassemble_instruction(self.current_instruction))
     log_cpu_core_state(self)
 
     if opcode not in self.opcode_map:
-      raise InvalidOpcodeError(opcode, ip = saved_IP)
+      raise InvalidOpcodeError(opcode, ip = self.current_ip)
 
     self.opcode_map[opcode](self.current_instruction)
+
+    cnt = self.registers.cnt
+    cnt.value += 1
 
     self.DEBUG('"SYNC" phase:')
     log_cpu_core_state(self)
 
-  def is_alive(self):
-    return self.thread and self.thread.is_alive()
+    self.core_profiler.take_sample()
 
-  def is_suspended(self):
-    self.DEBUG('is_suspended')
+  def suspend(self):
+    self.DEBUG('CPUCore.suspend')
 
-    with self.suspend_lock:
-      return self.current_suspend_event is not None
+    self.running = False
 
   def wake_up(self):
-    self.DEBUG('wake_up')
+    self.DEBUG('CPUCore.wake_up')
 
-    with self.suspend_lock:
-      if not self.current_suspend_event:
-        return
+    self.running = True
 
-      self.current_suspend_event.set()
-      self.current_suspend_event = None
+  def die(self, exc):
+    self.DEBUG('CPUCore.die')
 
-  def suspend_on(self, event):
-    self.DEBUG('asked to suspend')
-    event.wait()
-    self.DEBUG('unsuspended')
+    self.exit_code = 1
 
-  def plan_suspend(self, event):
-    self.DEBUG('plan suspend')
+    self.EXCEPTION(exc)
 
-    with self.suspend_lock:
-      self.suspend_events.append(event)
+    self.halt()
 
-    self.DEBUG('suspend planned, wait for it')
+  def halt(self):
+    self.DEBUG('CPUCore.halt')
 
-  def honor_suspend(self):
-    with self.suspend_lock:
-      if not self.suspend_events:
-        return False
-
-      if self.current_suspend_event:
-        raise CPUException('existing suspend event: %s' % self.current_suspend_event)
-
-      self.current_suspend_event = self.suspend_events.pop(0)
-
-    self.suspend_on(self.current_suspend_event)
-
-    with self.suspend_lock:
-      self.current_suspend_event = None
-      return True
-
-  def check_for_events(self):
-    self.DEBUG('check_for_events')
-
-    msg = None
-
-    if self.idle:
-      self.DEBUG('idle => wait for new messages')
-      msg = self.message_bus.receive(self)
-
-    elif self.registers.flags.hwint == 1:
-      self.DEBUG('running => check for new message')
-      msg = self.message_bus.receive(self, sleep = False)
-
-    self.DEBUG('msg=%s', msg)
-
-    if msg:
-      if isinstance(msg, machine.bus.HandleIRQ):
-        self.DEBUG('IRQ encountered: %s', msg.irq_source.irq)
-
-        msg.irq_source.clear()
-        msg.delivered()
-
-        try:
-          self.__do_irq(msg.irq_source.irq)
-
-        except (CPUException, ZeroDivisionError) as e:
-          e.exc_stack = sys.exc_info()
-          self.die(e)
-          return False
-
-      elif isinstance(msg, machine.bus.HaltCore):
-        self.keep_running = False
-
-        self.INFO('asked to halt')
-        log_cpu_core_state(self)
-
-        msg.delivered()
-
-        return False
-
-      elif isinstance(msg, machine.bus.SuspendCore):
-        msg.delivered()
-        self.plan_suspend(msg.wake_up)
-
-    self.debug.check()
-
-    if self.honor_suspend():
-      self.DEBUG('woken up from suspend state, let check bus for new messages')
-      return self.check_for_events()
-
-    return True
-
-  def loop(self):
-    self.machine_profiler.enable()
-
-    self.message_bus.register(self)
-
-    self.INFO('booted')
-    log_cpu_core_state(self)
-
-    while self.keep_running:
-      if not self.check_for_events():
-        break
-
-      if not self.keep_running:
-        break
-
-      try:
-        self.step()
-
-      except (CPUException, ZeroDivisionError) as e:
-        e.exc_stack = sys.exc_info()
-        self.die(e)
-        break
+    self.running = False
+    self.alive = False
 
     self.data_cache.flush()
 
-    self.INFO('halted')
     log_cpu_core_state(self)
 
-    self.machine_profiler.disable()
+    self.cpu.machine.reactor.remove_task(self)
+
+    self.INFO('Halted')
+
+  def runnable(self):
+    return self.alive and self.running
 
   def run(self):
-    self.thread = Thread(target = self.loop, name = 'Core #%i:#%i' % (self.cpu.id, self.id), priority = 1.0)
-    self.thread.start()
+    try:
+      self.step()
+
+    except (CPUException, ZeroDivisionError, AccessViolationError) as e:
+      e.exc_stack = sys.exc_info()
+      self.die(e)
 
   def boot(self, init_state):
-    self.DEBUG('boot')
+    self.DEBUG('Booting...')
 
     self.reset()
 
@@ -1125,11 +1036,19 @@ class CPUCore(object):
     self.registers.ds.value = ds
     self.registers.ip.value = ip
     self.registers.sp.value = sp
+    self.registers.fp.value = sp
     self.registers.flags.privileged = 1 if privileged else 0
 
     log_cpu_core_state(self)
 
-class CPU(object):
+    self.alive = True
+    self.running = True
+
+    self.cpu.machine.reactor.add_task(self)
+
+    self.INFO('Booted')
+
+class CPU(machine.MachineWorker):
   def __init__(self, machine, cpuid, cores = 1, memory_controller = None):
     super(CPU, self).__init__()
 
@@ -1139,11 +1058,11 @@ class CPU(object):
     self.id = cpuid
 
     self.memory = memory_controller or mm.MemoryController()
-    self.cores = [CPUCore(i, self, self.memory) for i in range(0, cores)]
 
-    self.thread = None
-
-    self.profiler = profiler.STORE.get_machine_profiler()
+    self.cores = []
+    for i in xrange(0, cores):
+      __core = CPUCore(i, self, self.memory)
+      self.cores.append(__core)
 
   def __LOG(self, logger, *args):
     args = ('%s ' + args[0],) + (self.cpuid_prefix,) + args[1:]
@@ -1156,42 +1075,56 @@ class CPU(object):
     self.__LOG(info, *args)
 
   def WARN(self, *args):
-    self.__WARN(warn, *args)
+    self.__LOG(warn, *args)
+
+  def ERROR(self, *args):
+    self.__LOG(error, *args)
+
+  def EXCEPTION(self, exc):
+    exception(exc, logger = self.ERROR)
 
   def living_cores(self):
-    return filter(lambda x: x.thread and x.thread.is_alive(), self.cores)
+    return (__core for __core in self.cores if __core.alive is True)
+
+  def halted_cores(self):
+    return (__core for __core in self.cores if __core.alive is not True)
 
   def running_cores(self):
-    return filter(lambda x: not x.is_suspended(), self.cores)
+    return (__core for __core in self.cores if __core.running is True)
 
-  def loop(self):
-    self.profiler.enable()
+  def suspended_cores(self):
+    return (__core for __core in self.cores if __core.running is not True)
 
-    self.INFO('booted')
+  def suspend(self):
+    self.DEBUG('CPU.suspend')
 
-    quantum = self.machine.config.getfloat('machine', 'cpu-quantum', default = DEFAULT_CPU_SLEEP_QUANTUM)
+    map(lambda __core: __core.suspend(), self.running_cores())
 
-    while True:
-      time.sleep(quantum)
+  def wake_up(self):
+    self.DEBUG('CPU.wake_up')
 
-      if len(self.living_cores()) == 0:
-        break
+    map(lambda __core: __core.wake_up(), self.suspended_cores())
 
-    self.INFO('halted')
+  def die(self, exc):
+    self.DEBUG('CPU.die')
 
-    self.profiler.disable()
+    self.EXCEPTION(exc)
 
-  def run(self):
-    for core in self.cores:
-      core.run()
+    self.halt()
 
-    self.thread = Thread(target = self.loop, name = 'CPU #%i' % self.id, priority = 0.0)
-    self.thread.start()
+  def halt(self):
+    self.DEBUG('CPU.halt')
+
+    map(lambda __core: __core.halt(), self.living_cores())
 
   def boot(self, init_states):
+    self.INFO('Booting...')
+
     for core in self.cores:
       if init_states:
         core.boot(init_states.pop(0))
+
+    self.INFO('Booted')
 
 def cmd_set_core(console, cmd):
   """

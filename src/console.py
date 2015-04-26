@@ -122,11 +122,13 @@ class Console(object):
     fmt = args[0]
     args = tuple(args[1:]) if len(args) > 1 else ()
 
+    msg = fmt % args if len(args) else fmt
+
     msg = '{color_start}[{level}] {msgs}{color_stop}\n'.format(**{
       'color_start': COLORS[level],
       'color_stop':  colorama.Fore.RESET + colorama.Back.RESET + colorama.Style.RESET_ALL,
       'level':       LEVELS[level],
-      'msgs':        fmt % args
+      'msgs':        msg
     })
 
     self.write(msg)
