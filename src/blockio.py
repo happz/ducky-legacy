@@ -1,7 +1,20 @@
+"""
+Block IO - persistent storage support.
+
+Several different persistent storages can be attached to a virtual machine, each
+with its own id. This module provides methods for manipulating their content. By
+default, storages operate with blocks of constant, standard size, though this is
+not a mandatory requirement - storage with different block size, or even with
+variable block size can be implemented.
+
+Each block has its own id. Block IO operations read or write one or more blocks to
+or from a device. IO is requested by invoking the virtual interrupt, with properly
+set values in registers.
+"""
+
 import os
 
 import machine
-import profiler
 
 from cpu.registers import Registers
 from irq import InterruptList
@@ -15,6 +28,10 @@ class StorageAccessError(Exception):
   pass
 
 class Storage(machine.MachineWorker):
+  """
+  Base class for all block storages.
+  """
+
   def __init__(self, machine, sid, size):
     super(Storage, self).__init__()
 
@@ -22,42 +39,82 @@ class Storage(machine.MachineWorker):
     self.id = sid
     self.size = size
 
-    self.profiler = profiler.STORE.get_machine_profiler()
-
   def do_read_block(self, src, dst, cnt):
+    """
+    Read one or more blocks from device to memory.
+
+    Child classes are supposed to reimplement this particular method.
+
+    :param uint16 src: block id of the first block
+    :param uint24 dst: destination buffer address
+    :param int cnt: number of blocks to read
+    """
+
     pass
 
   def do_write_block(self, src, dst, cnt):
+    """
+    Write one or more blocks from memory to device.
+
+    Child classes are supposed to reimplement this particular method.
+
+    :param uint24 src: source buffer address
+    :param uin16 dst: block id of the first block
+    :param int cnt: number of blocks to write
+    """
+
     pass
 
   def read_block(self, src, dst, cnt):
-    self.profiler.enable()
+    """
+    Read one or more blocks from device to memory.
+
+    Child classes should not reimplement this method, as it provides checks
+    common for (probably) all child classes.
+
+    :param uint16 src: block id of the first block
+    :param uint24 dst: destination buffer address
+    :param int cnt: number of blocks to read
+    """
 
     debug('read_block: id=%s, src=%s, dst=%s, cnt=%s', self.id, src, dst, cnt)
 
     if (src + cnt) * BLOCK_SIZE > self.size:
-      self.profiler.disable()
       raise StorageAccessError('Out of bounds access: storage size %s is too small' % self.size)
 
     self.do_read_block(src, dst, cnt)
 
-    self.profiler.disable()
-
   def write_block(self, src, dst, cnt):
-    self.profiler.enable()
+    """
+    Write one or more blocks from memory to device.
+
+    Child classes should not reimplement this method, as it provides checks
+    common for (probably) all child classes.
+
+    :param uint24 src: source buffer address
+    :param uin16 dst: block id of the first block
+    :param int cnt: number of blocks to write
+    """
 
     debug('write_block: id=%s, src=%s, dst=%s, cnt=%s', self.id, src, dst, cnt)
 
     if (dst + cnt) * BLOCK_SIZE > self.size:
-      self.profiler.disable()
       raise StorageAccessError('Out of bounds access: storage size %s is too small' % self.size)
 
     self.do_write_block(src, dst, cnt)
 
-    self.profiler.disable()
-
 class FileBackedStorage(Storage):
+  """
+  Storage that saves its content into a regular file.
+  """
+
   def __init__(self, machine, sid, path):
+    """
+    :param machine.Machine machine: virtual machine this storage is attached to
+    :param int sid: storage id
+    :param path: path to a underlying file
+    """
+
     st = os.stat(path)
 
     super(FileBackedStorage, self).__init__(machine, sid, st.st_size)
@@ -97,6 +154,7 @@ class FileBackedStorage(Storage):
 
     self.file.seek(dst * BLOCK_SIZE)
     self.file.write(buff)
+    self.file.flush()
 
     debug('BIO: %s bytes written at %s:%s', cnt * BLOCK_SIZE, self.file.name, dst * BLOCK_SIZE)
 
@@ -105,7 +163,25 @@ STORAGES = {
 }
 
 class BlockIOInterrupt(VirtualInterrupt):
+  """
+  Virtual interrupt handler of block IO.
+  """
+
   def run(self, core):
+    """
+    Execute requested IO operation. Arguments are passed in registers:
+
+    - ``r0`` - device id
+    - ``r1`` - ``0`` for read, ``1`` for write
+    - ``r2`` - read: block id, write: src memory address
+    - ``r3`` - read: dst memory address, write: block id
+    - ``r4`` - number of blocks
+
+    Current data segment is used for addressing memory locations.
+
+    Success is indicated by ``0`` in ``r0``, any other value means error.
+    """
+
     core.DEBUG('BIO requested')
 
     r0 = core.REG(Registers.R00)
@@ -140,13 +216,12 @@ class BlockIOInterrupt(VirtualInterrupt):
     cnt = r4.value & 0x00FF
 
     try:
+      r0.value = 0xFFFF
       handler(src, dst, cnt)
       r0.value = 0
 
     except StorageAccessError, e:
       core.ERROR('BIO: operation failed')
       core.EXCEPTION(e)
-
-      r0.value = 0xFFFF
 
 VIRTUAL_INTERRUPTS[InterruptList.BLOCKIO.value] = BlockIOInterrupt

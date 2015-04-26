@@ -1,3 +1,14 @@
+"""
+Stack-based coprocessor, providing several arithmetic operations with "long",
+32 bits wide integers.
+
+Coprocessor's instructions operates above stack of 8 long ints. Operations to
+move values between math stack and regular registers are also available.
+
+Operations usually consume their operands from the stack, and push the result
+back.
+"""
+
 import enum
 
 from cpu.coprocessor import Coprocessor
@@ -7,6 +18,10 @@ from irq import InterruptList
 from irq.virtual import VIRTUAL_INTERRUPTS, VirtualInterrupt
 
 class MathOperationList(enum.IntEnum):
+  """
+  List of available arithmetic operations.
+  """
+
   INCL  =  0
   DECL  =  1
   ADDL  =  2
@@ -32,6 +47,11 @@ class FullMathStackError(Exception):
     super(FullMathStackError, self).__init__('Math stack is full')
 
 class RegisterSet(object):
+  """
+  Math stack wrapping class. Provides basic push/pop access, and direct access
+  to a top of the stack.
+  """
+
   REGISTER_COUNT = 8
 
   def __init__(self):
@@ -40,240 +60,372 @@ class RegisterSet(object):
     self.stack = []
 
   def push(self, v):
+    """
+    Push new value on top of the stack.
+
+    :raises FullMathStackError: if there is no space available on the stack.
+    """
+
     if len(self.stack) == self.REGISTER_COUNT:
       raise FullMathStackError()
 
     self.stack.append(v)
 
   def pop(self):
+    """
+    Pop the top value from stack and return it.
+
+    :raises EmptyMathStackError: if there are no values on the stack.
+    """
+
     if not self.stack:
       raise EmptyMathStackError()
 
     return self.stack.pop()
 
   def tos(self):
+    """
+    Return the top of the stack, without removing it from a stack.
+
+    :raises EmptyMathStackError: if there are no values on the stack.
+    """
+
     if not self.stack:
       raise EmptyMathStackError()
 
     return self.stack[-1]
 
 class MathCoprocessor(Coprocessor):
+  """
+  Coprocessor itself, includes its register set ("math stack").
+  """
+
   def __init__(self, core, *args, **kwargs):
     super(MathCoprocessor, self).__init__(core, *args, **kwargs)
 
-    core.math_registers = RegisterSet()
+    self.registers = RegisterSet()
+
+  def dump_stack(self):
+    """
+    Log content of the stack using parent's ``DEBUG`` method.
+    """
+
+    D = self.core.DEBUG
+
+    D('Math stack:')
+
+    for index, lr in enumerate(self.registers.stack):
+      D('#%02i: %s', index, UINT32_FMT(lr.value))
+
+    D('---')
+
+  def op_itol(self):
+    """
+    Extend 16bit int to 32bit long int. Int is read from `r1`. Signed extension
+    is used.
+    """
+
+    D = self.core.DEBUG
+
+    r = self.core.REG(Registers.R01)
+    lr = u32(r.value)
+
+    if r.value & 0x8000 != 0:
+      lr.value |= 0xFFFF0000
+
+    self.registers.push(lr)
+
+    D('itol: i=%s', UINT16_FMT(r.value))
+    self.dump_stack()
+
+  def op_utol(self):
+    """
+    Extend 16bit int to 32bit long int. Int is read from `r1`.
+    """
+
+    D = self.core.DEBUG
+
+    r = self.core.REG(Registers.R01)
+    lr = u32(r.value)
+
+    self.registers.push(lr)
+
+    D('utol: i=%s', UINT16_FMT(r.value))
+    self.dump_stack()
+
+  def op_iitol(self):
+    """
+    Merge two 16bit ints to 32bit long int. Ints are read from `r1` (lower
+    bytes) and `r2` (higher bytes).
+    """
+
+    D = self.core.DEBUG
+
+    r1 = self.core.REG(Registers.R01)
+    r2 = self.core.REG(Registers.R02)
+    lr = u32(r1.value | (r2.value << 16))
+
+    self.registers.push(lr)
+
+    D('iitol: lb=%s, hb=%s', UINT16_FMT(r1.value), UINT16_FMT(r2.value))
+    self.dump_stack()
+
+  def op_ltoi(self):
+    """
+    Truncate 32bit long int to 16bit int. New int is stored in `r1` register.
+    """
+
+    D = self.core.DEBUG
+
+    lr = self.registers.pop()
+
+    self.core.check_protected_reg(Registers.R01)
+    self.core.REG(Registers.R01).value = lr.value & 0xFFFF
+
+    D('ltoi: i=%s', UINT16_FMT(self.core.REG(Registers.R01).value))
+    self.dump_stack()
+
+  def op_ltoii(self):
+    """
+    Split 32bit long into to two 16bit ints. New ints are stored in `r1` (lower
+    bytes) and `r2` (higher bytes).
+    """
+
+    D = self.core.DEBUG
+
+    r1 = self.core.REG(Registers.R01)
+    r2 = self.core.REG(Registers.R02)
+    lr = self.registers.pop()
+
+    self.core.check_protected_reg(Registers.R01, Registers.R02)
+    r1.value =  lr.value & 0x0000FFFF
+    r2.value = (lr.value & 0xFFFF0000) >> 16
+
+    D('ltoii: lb=%s, hb=%s', UINT16_FMT(r1.value), UINT16_FMT(r2.value))
+    self.dump_stack()
+
+  def op_dupl(self):
+    """
+    Duplicate top of the math stack.
+    """
+
+    D = self.core.DEBUG
+
+    lr = self.registers.tos()
+
+    self.registers.push(u32(lr.value))
+
+    D('dupl:')
+    self.dump_stack()
+
+  def op_incl(self):
+    """
+    Increment top of the stack by one.
+    """
+
+    self.registers.tos().value += 1
+
+  def op_decl(self):
+    """
+    Decrement top of the stack by one.
+    """
+
+    self.registers.tos().value -= 1
+
+  def op_addl(self):
+    """
+    Add the topmost value to the value below.
+    """
+
+    lr = self.registers.pop()
+
+    self.registers.tos().value += lr.value
+
+  def op_subl(self):
+    """
+    Subtract the top value from the value bellow.
+    """
+
+    lr = self.registers.pop()
+
+    self.registers.tos().value -= lr.value
+
+  def op_mull(self):
+    """
+    Multiply two topmost values.
+    """
+
+    D = self.core.DEBUG
+
+    lr = self.registers.pop()
+    old_tos = self.registers.tos().value
+
+    self.registers.tos().value *= lr.value
+
+    D('mull: %s %s', UINT32_FMT(old_tos), UINT32_FMT(lr.value))
+    self.dump_stack()
+
+  def op_divl(self):
+    """
+    Divide the value below the top of the math stack by the topmost value.
+    """
+
+    D = self.core.DEBUG
+
+    D('divl:')
+
+    lr = self.registers.pop()
+    old_tos = self.registers.tos().value
+    tos = self.registers.tos()
+
+    i = i32(tos.value).value
+    j = i32(lr.value).value
+    D('  i=%i, j=%i (%s, %s)', i, j, type(i), type(j))
+    i /= j
+    D('  i=%i (%s)', i, type(i))
+    tos.value = i
+
+    D('divl: %s %s', UINT32_FMT(old_tos), UINT32_FMT(lr.value))
+    self.dump_stack()
+
+  def op_symdivl(self):
+    """
+    The same operation like ``DIVL`` but provides symmetric results.
+    """
+
+    D = self.core.DEBUG
+
+    D('symdivl:')
+
+    lr = self.registers.pop()
+    old_tos = self.registers.tos().value
+    tos = self.registers.tos()
+
+    i = i32(tos.value).value
+    j = i32(lr.value).value
+    D('  i=%i, j=%i (%s, %s)', i, j, type(i), type(j))
+    i = int(float(i) / float(j))
+    D('  i=%i (%s)', i, type(i))
+    tos.value = i
+
+    D('divl: %s %s', UINT32_FMT(old_tos), UINT32_FMT(lr.value))
+    self.dump_stack()
+
+  def op_modl(self):
+    """
+    Computes remainder after division. The value below the top of the math
+    stack is divided by the topmost value, and remainder is pushed back to
+    stack.
+    """
+
+    D = self.core.DEBUG
+
+    D('modl:')
+
+    lr = self.registers.pop()
+    old_tos = self.registers.tos().value
+    tos = self.registers.tos()
+
+    i = i32(tos.value).value
+    j = i32(lr.value).value
+    D('  i=%i, j=%i (%s, %s)', i, j, type(i), type(j))
+    i %= j
+    D('  i=%i (%s)', i, type(i))
+    tos.value = i
+
+    D('modl: %s %s', UINT32_FMT(old_tos), UINT32_FMT(lr.value))
+    self.dump_stack()
+
+  def op_symmodl(self):
+    """
+    The same operations as ``MODL`` but provides symmetric results.
+    """
+
+    import math
+
+    D = self.core.DEBUG
+
+    D('symmodl:')
+
+    lr = self.registers.pop()
+    old_tos = self.registers.tos().value
+    tos = self.registers.tos()
+
+    i = i32(tos.value).value
+    j = i32(lr.value).value
+    D('  i=%i, j=%i (%s, %s)', i, j, type(i), type(j))
+    i = int(math.fmod(i, j))
+    D('  i=%i (%s)', i, type(i))
+    tos.value = i
+
+    D('modl: %s %s', UINT32_FMT(old_tos), UINT32_FMT(lr.value))
+    self.dump_stack()
 
 class MathInterrupt(VirtualInterrupt):
+  """
+  Virtual interrupt handler of math coprocessor.
+  """
+
   def run(self, core):
+    """
+    Called when coprocessor's interrupt is triggered. Dispatches call to a proper
+    method to handle requested operation.
+
+    Id of requested operation is expected in `r0`.
+    """
+
     core.DEBUG('MathInterrupt: triggered')
 
     op = core.REG(Registers.R00).value
     core.REG(Registers.R00).value = 0
 
     if op == MathOperationList.ITOL:
-      self.op_itol(core)
+      core.math_coprocessor.op_itol()
 
     elif op == MathOperationList.UTOL:
-      self.op_utol(core)
+      core.math_coprocessor.op_utol()
 
     elif op == MathOperationList.IITOL:
-      self.op_iitol(core)
+      core.math_coprocessor.op_iitol()
 
     elif op == MathOperationList.LTOI:
-      self.op_ltoi(core)
+      core.math_coprocessor.op_ltoi()
 
     elif op == MathOperationList.LTOII:
-      self.op_ltoii(core)
+      core.math_coprocessor.op_ltoii()
 
     elif op == MathOperationList.DUPL:
-      self.op_dupl(core)
+      core.math_coprocessor.op_dupl()
 
     elif op == MathOperationList.INCL:
-      self.op_incl(core)
+      core.math_coprocessor.op_incl()
 
     elif op == MathOperationList.DECL:
-      self.op_decl(core)
+      core.math_coprocessor.op_decl()
 
     elif op == MathOperationList.ADDL:
-      self.op_addl(core)
+      core.math_coprocessor.op_addl()
 
     elif op == MathOperationList.SUBL:
-      self.op_subl(core)
+      core.math_coprocessor.op_subl()
 
     elif op == MathOperationList.MULL:
-      self.op_mull(core)
+      core.math_coprocessor.op_mull()
 
     elif op == MathOperationList.DIVL:
-      self.op_divl(core)
+      core.math_coprocessor.op_divl()
 
     elif op == MathOperationList.MODL:
-      self.op_modl(core)
+      core.math_coprocessor.op_modl()
 
     elif op == MathOperationList.SYMDIVL:
-      self.op_symdivl(core)
+      core.math_coprocessor.op_symdivl()
 
     elif op == MathOperationList.SYMMODL:
-      self.op_symmodl(core)
+      core.math_coprocessor.op_symmodl()
 
     else:
       core.WARN('Unknown math operation requested: %s', op)
       core.REG(Registers.R00).value = 0xFFFF
-
-  def dump_stack(self, core):
-    core.DEBUG('Math stack:')
-    for index, lr in enumerate(core.math_registers.stack):
-      core.DEBUG('#%02i: %s', index, UINT32_FMT(lr.value))
-    core.DEBUG('---')
-
-  def op_itol(self, core):
-    r = core.REG(Registers.R01)
-    lr = u32(r.value)
-
-    if r.value & 0x8000 != 0:
-      lr.value |= 0xFFFF0000
-
-    core.math_registers.push(lr)
-
-    core.DEBUG('itol: i=%s', UINT16_FMT(core.REG(Registers.R01).value))
-    self.dump_stack(core)
-
-  def op_utol(self, core):
-    r = core.REG(Registers.R01)
-    lr = u32(r.value)
-
-    core.math_registers.push(lr)
-
-    core.DEBUG('utol: i=%s', UINT16_FMT(core.REG(Registers.R01).value))
-    self.dump_stack(core)
-
-  def op_iitol(self, core):
-    lr = u32(core.REG(Registers.R01).value | (core.REG(Registers.R02).value << 16))
-
-    core.math_registers.push(lr)
-
-    core.DEBUG('iitol: lb=%s, hb=%s', UINT16_FMT(core.REG(Registers.R01).value), UINT16_FMT(core.REG(Registers.R02).value))
-    self.dump_stack(core)
-
-  def op_ltoi(self, core):
-    lr = core.math_registers.pop()
-
-    core.check_protected_reg(Registers.R01)
-    core.REG(Registers.R01).value = lr.value & 0xFFFF
-
-    core.DEBUG('ltoi: i=%s', UINT16_FMT(core.REG(Registers.R01).value))
-    self.dump_stack(core)
-
-  def op_ltoii(self, core):
-    lr = core.math_registers.pop()
-
-    core.check_protected_reg(Registers.R01, Registers.R02)
-    core.REG(Registers.R01).value =  lr.value & 0x0000FFFF
-    core.REG(Registers.R02).value = (lr.value & 0xFFFF0000) >> 16
-
-    core.DEBUG('ltoii: lb=%s, hb=%s', UINT16_FMT(core.REG(Registers.R01).value), UINT16_FMT(core.REG(Registers.R02).value))
-    self.dump_stack(core)
-
-  def op_dupl(self, core):
-    lr = core.math_registers.tos()
-
-    core.math_registers.push(u32(lr.value))
-
-    core.DEBUG('dupl:')
-    self.dump_stack(core)
-
-  def op_incl(self, core):
-    core.math_registers.tos().value += 1
-
-  def op_decl(self, core):
-    core.math_registers.tos().value -= 1
-
-  def op_addl(self, core):
-    lr = core.math_registers.pop()
-
-    core.math_registers.tos().value += lr.value
-
-  def op_subl(self, core, lr1, hr1, lr2, hr2):
-    lr = core.math_registers.pop()
-
-    core.math_registers.tos().value -= lr.value
-
-  def op_mull(self, core):
-    lr = core.math_registers.pop()
-    old_tos = core.math_registers.tos().value
-
-    core.math_registers.tos().value *= lr.value
-
-    core.DEBUG('mull: %s %s', UINT32_FMT(old_tos), UINT32_FMT(lr.value))
-    self.dump_stack(core)
-
-  def op_divl(self, core):
-    core.DEBUG('divl:')
-
-    lr = core.math_registers.pop()
-    old_tos = core.math_registers.tos().value
-    tos = core.math_registers.tos()
-
-    i = i32(tos.value).value
-    j = i32(lr.value).value
-    core.DEBUG('  i=%i, j=%i (%s, %s)', i, j, type(i), type(j))
-    i /= j
-    core.DEBUG('  i=%i (%s)', i, type(i))
-    tos.value = i
-
-    core.DEBUG('divl: %s %s', UINT32_FMT(old_tos), UINT32_FMT(lr.value))
-    self.dump_stack(core)
-
-  def op_symdivl(self, core):
-    core.DEBUG('symdivl:')
-
-    lr = core.math_registers.pop()
-    old_tos = core.math_registers.tos().value
-    tos = core.math_registers.tos()
-
-    i = i32(tos.value).value
-    j = i32(lr.value).value
-    core.DEBUG('  i=%i, j=%i (%s, %s)', i, j, type(i), type(j))
-    i = int(float(i) / float(j))
-    core.DEBUG('  i=%i (%s)', i, type(i))
-    tos.value = i
-
-    core.DEBUG('divl: %s %s', UINT32_FMT(old_tos), UINT32_FMT(lr.value))
-    self.dump_stack(core)
-
-  def op_modl(self, core):
-    core.DEBUG('modl:')
-
-    lr = core.math_registers.pop()
-    old_tos = core.math_registers.tos().value
-    tos = core.math_registers.tos()
-
-    i = i32(tos.value).value
-    j = i32(lr.value).value
-    core.DEBUG('  i=%i, j=%i (%s, %s)', i, j, type(i), type(j))
-    i %= j
-    core.DEBUG('  i=%i (%s)', i, type(i))
-    tos.value = i
-
-    core.DEBUG('modl: %s %s', UINT32_FMT(old_tos), UINT32_FMT(lr.value))
-    self.dump_stack(core)
-
-  def op_symmodl(self, core):
-    import math
-
-    core.DEBUG('symmodl:')
-
-    lr = core.math_registers.pop()
-    old_tos = core.math_registers.tos().value
-    tos = core.math_registers.tos()
-
-    i = i32(tos.value).value
-    j = i32(lr.value).value
-    core.DEBUG('  i=%i, j=%i (%s, %s)', i, j, type(i), type(j))
-    i = int(math.fmod(i, j))
-    core.DEBUG('  i=%i (%s)', i, type(i))
-    tos.value = i
-
-    core.DEBUG('modl: %s %s', UINT32_FMT(old_tos), UINT32_FMT(lr.value))
-    self.dump_stack(core)
 
 VIRTUAL_INTERRUPTS[InterruptList.MATH] = MathInterrupt

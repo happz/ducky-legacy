@@ -54,8 +54,8 @@ def do_log_cpu_core_state(core, logger = None):
   logger('priv=%i, hwint=%i, e=%i, z=%i, o=%i, s=%i' % (core.registers.flags.privileged, core.registers.flags.hwint, core.registers.flags.e, core.registers.flags.z, core.registers.flags.o, core.registers.flags.s))
   logger('cnt=%s, idle=%s, exit=%i' % (core.registers.cnt.value, core.idle, core.exit_code))
 
-  if hasattr(core, 'math_registers'):
-    for index, v in enumerate(core.math_registers.stack):
+  if hasattr(core, 'math_coprocessor'):
+    for index, v in enumerate(core.math_coprocessor.registers.stack):
       logger('MS: %02i: %s', index, UINT32_FMT(v.value))
 
   if core.current_instruction:
