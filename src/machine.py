@@ -3,12 +3,14 @@ import os
 
 import mm
 import reactor
+import snapshot
 import util
 
 from console import Console
 from errors import InvalidResourceError
 from util import debug, info, error, str2int, LRUCache, warn, print_table, exception
 from mm import addr_to_segment, ADDR_FMT, segment_addr_to_addr
+from snapshot import ISnapshotable, SnapshotNode
 
 class MachineWorker(object):
   """
@@ -63,6 +65,16 @@ class MachineWorker(object):
 
     pass
 
+class MachineState(SnapshotNode):
+  def __init__(self):
+    super(MachineState, self).__init__('nr_cpus', 'nr_cores')
+
+  def get_binary_states(self):
+    return [__state for __name, __state in self.get_children().iteritems() if __name.startswith('binary_')]
+
+  def get_core_states(self):
+    return [__state for __name, __state in self.get_children().iteritems() if __name.startswith('core')]
+
 class SymbolCache(LRUCache):
   def __init__(self, _machine, size, *args, **kwargs):
     super(SymbolCache, self).__init__(size, *args, **kwargs)
@@ -101,9 +113,18 @@ class AddressCache(LRUCache):
     else:
       return None
 
-class Binary(object):
+class BinaryState(SnapshotNode):
+  def __init__(self):
+    super(BinaryState, self).__init__('path', 'cs', 'ds')
+
+class Binary(ISnapshotable, object):
+  binary_id = 0
+
   def __init__(self, path, run = True):
     super(Binary, self).__init__()
+
+    self.id = Binary.binary_id
+    Binary.binary_id += 1
 
     self.run = run
 
@@ -114,7 +135,23 @@ class Binary(object):
     self.symbols = None
     self.regions = None
 
-    self.symbol_table = util.SymbolTable(self)
+    self.raw_binary = None
+
+  def load_symbols(self):
+    self.raw_binary.load_symbols()
+    self.symbol_table = util.SymbolTable(self.raw_binary)
+
+  def save_state(self, parent):
+    state = parent.add_child('binary_%i' % self.id, BinaryState())
+
+    state.path = self.path
+    state.cs = self.cs
+    state.ds = self.ds
+
+    map(lambda region: region.save_state(state), self.regions)
+
+  def load_state(self, state):
+    pass
 
   def get_init_state(self):
     return (self.cs, self.ds, self.sp, self.ip, False)
@@ -142,7 +179,7 @@ class CheckLivingCoresTask(reactor.ReactorTask):
   def run(self):
     self.machine.halt()
 
-class Machine(MachineWorker):
+class Machine(ISnapshotable, MachineWorker):
   def __init__(self):
     self.reactor = reactor.reactor
 
@@ -190,6 +227,32 @@ class Machine(MachineWorker):
 
   def get_symbol_by_addr(self, cs, address):
     return self.symbol_cache[segment_addr_to_addr(cs, address)]
+
+  def save_state(self, parent):
+    state = parent.add_child('machine', MachineState())
+
+    state.nr_cpus = self.nr_cpus
+    state.nr_cores = self.nr_cores
+
+    map(lambda binary: binary.save_state(state), self.binaries)
+    map(lambda __core: __core.save_state(state), self.cores())
+    self.memory.save_state(state)
+
+  def load_state(self, state):
+    self.nr_cpus = state.nr_cpus
+    self.nr_cores = state.nr_cores
+
+    # ignore binary states
+
+    for __cpu in self.cpus:
+      cpu_state = state.get_children().get('cpu%i' % __cpu.id, None)
+      if cpu_state is None:
+        warn('State of CPU #%i not found!', __cpu.id)
+        continue
+
+      __cpu.load_state(cpu_state)
+
+    self.memory.load_state(state.get_children()['memory'])
 
   def hw_setup(self, machine_config, machine_in = None, machine_out = None):
     import irq
@@ -240,7 +303,8 @@ class Machine(MachineWorker):
 
       info('Loading IRQ routines from file %s', binary.path)
 
-      binary.cs, binary.ds, binary.sp, binary.ip, binary.symbols, binary.regions = self.memory.load_file(binary.path)
+      binary.cs, binary.ds, binary.sp, binary.ip, binary.symbols, binary.regions, binary.raw_binary = self.memory.load_file(binary.path)
+      binary.load_symbols()
 
       desc = cpu.InterruptVector()
       desc.cs = binary.cs
@@ -270,7 +334,8 @@ class Machine(MachineWorker):
 
       info('Loading binary from file %s', binary.path)
 
-      binary.cs, binary.ds, binary.sp, binary.ip, binary.symbols, binary.regions = self.memory.load_file(binary.path)
+      binary.cs, binary.ds, binary.sp, binary.ip, binary.symbols, binary.regions, binary.raw_binary = self.memory.load_file(binary.path)
+      binary.load_symbols()
 
       entry_label = self.config.get(binary_section, 'entry', 'main')
       binary.ip = binary.symbols.get(entry_label).u16
@@ -423,6 +488,11 @@ class Machine(MachineWorker):
     self.reactor.remove_task(self.irq_router_task)
     self.reactor.remove_task(self.check_living_cores_task)
 
+  def snapshot(self, path):
+    state = snapshot.VMState.capture_vm_state(self, suspend = False)
+    state.save(path)
+    info('VM snapshot save in %s', path)
+
 def cmd_boot(console, cmd):
   """
   Setup HW, load binaries, init everything
@@ -454,9 +524,7 @@ def cmd_snapshot(console, cmd):
   Create snapshot
   """
 
-  import core
-
-  state = core.VMState.capture_vm_state(console.machine)
+  state = snapshot.VMState.capture_vm_state(console.machine)
 
   filename = 'ducky-core.%s' % os.getpid()
   state.save(filename)

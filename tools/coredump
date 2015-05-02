@@ -7,43 +7,38 @@ import string
 import sys
 
 import console
-import core
 import mm
 import mm.binary
+import snapshot
 import util
 
 from mm import ADDR_FMT, UINT16_FMT, UINT8_FMT, PAGE_SIZE
-from cpu.registers import Flags, Registers, REGISTER_NAMES
+from cpu.registers import Flags, Registers
 from util import info, print_table
 
 def show_header(state):
+  state = state.get_child('machine')
+
   info('=== Coredump header ===')
-  info('  Magic:        %s', UINT16_FMT(state.magic))
-  info('  Version:      %s', state.version)
-  info('')
   info('  # of CPUs:      %i', state.nr_cpus)
   info('  # of CPU cores: %i', state.nr_cores)
-  info('  # of binaries:  %i', state.binaries)
+  info('  # of binaries:  %i', len(state.get_binary_states()))
   info('')
 
 def show_binaries(state):
   info('=== Binaries ===')
 
-  mc_index = 0
-
-  for bs in state.binary_states:
-    info('  Path: %s', state.string_table.get_string(bs.path))
-    info('  CS: %s DS: %s', UINT8_FMT(bs.cs), UINT8_FMT(bs.ds))
+  for bs in state.get_child('machine').get_binary_states():
+    info('Path: %s', bs.path)
+    info('CS: %s DS: %s', UINT8_FMT(bs.cs), UINT8_FMT(bs.ds))
     info('')
 
     table = [
       ['Section', 'Address', 'Size', 'Flags', 'First page', 'Last page']
     ]
 
-    for rs in state.memory_region_states[mc_index:mc_index + bs.memory_regions]:
-      table.append([state.string_table.get_string(rs.name), ADDR_FMT(rs.address), rs.size, rs.flags, rs.pages_start, rs.pages_start + rs.pages_cnt - 1])
-
-    mc_index += bs.memory_regions
+    for rs in bs.get_children().itervalues():
+      table.append([rs.name, ADDR_FMT(rs.address), rs.size, rs.flags, rs.pages_start, rs.pages_start + rs.pages_cnt - 1])
 
     print_table(table)
     info('')
@@ -51,45 +46,47 @@ def show_binaries(state):
 def show_cores(state):
   info('=== Cores ===')
 
-  def __reg(name):
-    return UINT16_FMT(getattr(cs, name))
+  def __reg(index):
+    return UINT16_FMT(cs.registers[index])
 
   def __flag(mask):
-    return (cs.flags & mask) != 0
+    return (cs.registers[Registers.FLAGS] & mask) != 0
 
-  for cs in state.core_states:
+  for cs in state.get_child('machine').get_core_states():
     info('Core #%i:#%i', cs.cpuid, cs.coreid)
 
     for i in range(0, Registers.REGISTER_SPECIAL, 4):
       regs = [(i + j) for j in range(0, 4) if (i + j) < Registers.REGISTER_SPECIAL]
-      s = ['reg%02i=%s' % (reg, __reg(REGISTER_NAMES[reg])) for reg in regs]
+      s = ['reg%02i=%s' % (reg, __reg(reg)) for reg in regs]
       info('  %s', ' '.join(s))
 
-    info('  cs=%s    ds=%s', __reg('cs'), __reg('ds'))
-    info('  fp=%s    sp=%s    ip=%s', __reg('fp'), __reg('sp'), __reg('ip'))
+    info('  cs=%s    ds=%s', __reg(Registers.CS), __reg(Registers.DS))
+    info('  fp=%s    sp=%s    ip=%s', __reg(Registers.FP), __reg(Registers.SP), __reg(Registers.IP))
     info('  priv=%i, hwint=%i, e=%i, z=%i, o=%i, s=%i', __flag(Flags.PRIVILEGED), __flag(Flags.HWINT), __flag(Flags.EQUAL), __flag(Flags.ZERO), __flag(Flags.OVERFLOW), __flag(Flags.SIGNED))
-    info('  keep_running=%s, idle=%s, exit=%i', cs.keep_running, cs.idle, cs.exit_code)
+    info('  alive=%s, running=%s, idle=%s, exit=%i', cs.alive, cs.running, cs.idle, cs.exit_code)
 
     info('')
 
 def show_memory(state):
   info('=== Memory ===')
 
-  info('  Size:          %s', state.mm_state.size)
-  info('  IRQ table:     %s', ADDR_FMT(state.mm_state.irq_table_address))
-  info('  Int table:     %s', ADDR_FMT(state.mm_state.int_table_address))
-  info('  # of segments: %s', state.mm_state.segments)
-  info('  # of pages:    %s', state.mm_state.pages)
+  state = state.get_child('machine').get_child('memory')
+
+  info('  Size:          %s', state.size)
+  info('  IRQ table:     %s', ADDR_FMT(state.irq_table_address))
+  info('  Int table:     %s', ADDR_FMT(state.int_table_address))
+  info('  # of segments: %s', len(state.segments))
+  info('  # of pages:    %s', len(state.get_page_states()))
   info('')
 
 def show_stack(state):
   info('=== Stack ===')
 
-  stacks = [pg for pg in state.mm_page_states if pg.stack == 1]
+  stacks = [pg for pg in state.get_child('machine').get_child('memory').get_page_states() if pg.stack == 1]
 
   sps = {}
-  for cs in state.core_states:
-    sps[mm.segment_addr_to_addr(cs.ds, cs.sp)] = '#%i:#%i' % (cs.cpuid, cs.coreid)
+  for cs in state.get_child('machine').get_core_states():
+    sps[mm.segment_addr_to_addr(cs.registers[Registers.DS], cs.registers[Registers.SP])] = '#%i:#%i' % (cs.cpuid, cs.coreid)
 
   for pg in stacks:
     pg_address = pg.index * PAGE_SIZE
@@ -113,25 +110,25 @@ def show_stack(state):
 def show_segments(state):
   info('=== Memory segments ===')
 
-  for s in state.mm_segment_states:
-    info('  Segment: %s', UINT8_FMT(s.index))
+  for s in state.get_child('machine').get_child('memory').segments:
+    info('  Segment: %s', UINT8_FMT(s))
 
-    for bs in state.binary_states:
-      if s.index == bs.cs:
-        info('    CS of %s', state.string_table.get_string(bs.path))
-      if s.index == bs.ds:
-        info('    DS of %s', state.string_table.get_string(bs.path))
+    for bs in state.get_child('machine').get_binary_states():
+      if s == bs.cs:
+        info('    CS of %s', bs.path)
+      if s == bs.ds:
+        info('    DS of %s', bs.path)
 
   info('')
 
 def show_pages(state):
   info('=== Memory pages ===')
 
-  for pg in sorted(state.mm_page_states, key = lambda x: x.index):
+  for pg in sorted(state.get_child('machine').get_child('memory').get_page_states(), key = lambda x: x.index):
     pg_addr = pg.index * PAGE_SIZE
     pg_segment = mm.addr_to_segment(pg_addr)
 
-    for bs in state.binary_states:
+    for bs in state.get_child('machine').get_binary_states():
       if pg_segment == bs.cs:
         break
       if pg_segment == bs.ds:
@@ -179,8 +176,8 @@ def show_pages(state):
 
     info('')
 
-def load_binary_symbols(state, bs):
-  bs.raw_binary = mm.binary.File(state.string_table.get_string(bs.path), 'r')
+def load_binary_symbols(vs, bs):
+  bs.raw_binary = mm.binary.File(bs.path, 'r')
   bs.raw_binary.load()
 
   bs.symbols = {}
@@ -231,10 +228,10 @@ def main():
 
   info('Input file: %s', options.file_in)
 
-  with core.CoreDumpFile(options.file_in, 'r') as f_in:
+  with snapshot.CoreDumpFile(options.file_in, 'r') as f_in:
     state = f_in.load()
 
-    for bs in state.binary_states:
+    for bs in state.get_child('machine').get_binary_states():
       load_binary_symbols(state, bs)
 
     info('')

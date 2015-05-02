@@ -20,9 +20,9 @@ class Tests(unittest.TestCase):
 
     state = common_run_machine(code, machine_config = machine_config)
 
-    assert_registers(state.core_states[0], **kwargs)
-    assert_flags(state.core_states[0], **kwargs)
-    assert_mm(state, **mm)
+    assert_registers(state.get_child('machine').get_child('core0'), **kwargs)
+    assert_flags(state.get_child('machine').get_child('core0'), **kwargs)
+    assert_mm(state.get_child('machine').get_child('memory'), **mm)
 
     for filename, cells in files:
       assert_file_content(filename, cells)

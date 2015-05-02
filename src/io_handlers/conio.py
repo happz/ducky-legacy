@@ -117,8 +117,8 @@ class ConsoleIOHandler(io_handlers.IOHandler):
     self.output.flush()
 
   def flush_output(self):
-    #if not self.immediate_flush:
-    #  return
+    # if not self.immediate_flush:
+    #   return
 
     self.do_flush_output()
 

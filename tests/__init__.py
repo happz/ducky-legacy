@@ -1,6 +1,8 @@
 import patch
 
 import os
+import os.path
+import subprocess
 import sys
 import tempfile
 
@@ -8,13 +10,16 @@ import config
 import cpu.assemble
 import cpu.registers
 import console
-import core
 import machine
 import mm
+import snapshot
 import util
 
+def get_tempfile():
+  return tempfile.NamedTemporaryFile('w+b', delete = False, dir = os.path.join(os.getenv('PWD'), 'tests-%s' % os.getenv('TESTSET'), 'tmp'))
+
 def prepare_file(size, messages = None, pattern = 0xDE):
-  f_tmp = tempfile.NamedTemporaryFile('w+b', delete = False)
+  f_tmp = get_tempfile()
 
   # fill file with pattern
   f_tmp.seek(0)
@@ -46,11 +51,14 @@ def assert_registers(state, **regs):
 
     val = regs.get(reg, default)
 
-    assert getattr(state, reg) == val, 'Register %s expected to have value %s (%s), %s (%s) found instead' % (reg, mm.UINT16_FMT(val), val, mm.UINT16_FMT(getattr(state, reg)), getattr(state, reg))
+    reg_index = cpu.registers.REGISTER_NAMES.index(reg)
+    reg_value = state.registers[reg_index]
+
+    assert reg_value == val, 'Register %s expected to have value %s (%s), %s (%s) found instead' % (reg, mm.UINT16_FMT(val), val, mm.UINT16_FMT(reg_value), reg_value)
 
 def assert_flags(state, **flags):
   real_flags = cpu.registers.FlagsRegister()
-  real_flags.from_uint16(state.flags)
+  real_flags.from_uint16(state.registers[cpu.registers.Registers.FLAGS])
 
   assert real_flags.privileged == flags.get('privileged', 1), 'PRIV flag expected to be %s' % flags.get('privileged', 1)
   assert real_flags.hwint == flags.get('hwint', 1), 'HWINT flag expected to be %s' % flags.get('hwint', 1)
@@ -66,7 +74,7 @@ def assert_mm(state, **cells):
     page_index = mm.addr_to_page(addr)
     page_offset = mm.addr_to_offset(addr)
 
-    for page in state.mm_page_states:
+    for page in state.get_page_states():
       if page.index != page_index:
         continue
 
@@ -84,6 +92,19 @@ def assert_file_content(filename, cells):
       real_value = ord(f.read(1))
       assert real_value == cell_value, 'Value at %s (file %s) should be %s, %s found instead' % (cell_offset, filename, mm.UINT8_FMT(cell_value), mm.UINT8_FMT(real_value))
 
+def compile_code(code):
+  with get_tempfile() as f_asm:
+    f_asm.write(code)
+
+  with open(os.path.splitext(f_asm.name)[0] + '.bin', 'w+b') as f_bin:
+    pass
+
+  subprocess.check_call('PYTHONPATH=%s %s -f -i %s -o %s' % (os.getenv('PYTHONPATH'), os.path.join(os.getenv('PWD'), 'tools', 'as'), f_asm.name, f_bin.name), shell = True)
+
+  os.unlink(f_asm.name)
+
+  return f_bin.name
+
 def run_machine(code, machine_config, coredump_file = None):
   M = machine.Machine()
 
@@ -93,23 +114,21 @@ def run_machine(code, machine_config, coredump_file = None):
 
     util.CONSOLE.set_quiet_mode('VERBOSE' not in os.environ)
 
+  binary_path = compile_code(code)
+  machine_config.add_section('binary-0')
+  machine_config.set('binary-0', 'file', binary_path)
+
   M.hw_setup(machine_config)
-
-  sections = cpu.assemble.translate_buffer(code)
-
-  binary = machine.Binary('<dummy>')
-  binary.cs, binary.ds, binary.sp, binary.ip, binary.symbols, binary.regions = M.memory.load_raw_sections(sections)
-  binary.ip = binary.symbols.get('main', mm.UInt16(0)).u16
-
-  M.binaries.append(binary)
 
   M.boot()
   M.run()
 
-  state = core.VMState.capture_vm_state(M, suspend = False)
+  state = snapshot.VMState.capture_vm_state(M, suspend = False)
 
   if coredump_file:
     state.save(coredump_file)
+
+  os.unlink(binary_path)
 
   return state
 

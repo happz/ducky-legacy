@@ -5,15 +5,16 @@ from ctypes import LittleEndianStructure, c_ubyte, c_ushort, c_uint, sizeof
 
 from errors import AccessViolationError, InvalidResourceError
 from util import debug, align
+from snapshot import SnapshotNode, ISnapshotable
 
 # Types
-from ctypes import c_byte as i8
-from ctypes import c_short as i16
-from ctypes import c_int as i32
+from ctypes import c_byte as i8  # NOQA
+from ctypes import c_short as i16  # NOQA
+from ctypes import c_int as i32  # NOQA
 
-from ctypes import c_ubyte as u8
-from ctypes import c_ushort as u16
-from ctypes import c_uint as u32
+from ctypes import c_ubyte as u8  # NOQA
+from ctypes import c_ushort as u16  # NOQA
+from ctypes import c_uint as u32  # NOQA
 
 MEM_IRQ_TABLE_ADDRESS   = 0x000000
 MEM_INT_TABLE_ADDRESS   = 0x000100
@@ -127,6 +128,10 @@ def addr_to_offset(addr):
 def area_to_pages(addr, size):
   return ((addr & PAGE_MASK) >> PAGE_SHIFT, align(PAGE_SIZE, size) / PAGE_SIZE)
 
+class MemoryPageState(SnapshotNode):
+  def __init__(self, *args, **kwargs):
+    super(MemoryPageState, self).__init__('index', 'read', 'write', 'execute', 'dirty', 'stack', 'content')
+
 class MemoryPage(object):
   def __init__(self, controller, index):
     super(MemoryPage, self).__init__()
@@ -143,34 +148,27 @@ class MemoryPage(object):
     self.dirty   = False
     self.stack   = False
 
-  def save_state(self, state):
-    debug('mp.save_state')
+  def save_state(self, parent):
+    state = parent.add_child('page_%i' % self.index, MemoryPageState())
 
-    from core import MemoryPageState
-    page_state = MemoryPageState()
+    state.index = self.index
 
-    page_state.index = self.index
-
-    for i in range(0, PAGE_SIZE):
-      page_state.content[i] = self.data[i]
-
-    page_state.read = 1 if self.read else 0
-    page_state.write = 1 if self.write else 0
-    page_state.execute = 1 if self.execute else 0
-    page_state.dirty = 1 if self.dirty else 0
-    page_state.stack = 1 if self.stack else 0
-
-    state.mm_page_states.append(page_state)
+    state.content = [int(i) for i in self.data]
+    state.read = self.read
+    state.write = self.write
+    state.execute = self.execute
+    state.dirty = self.dirty
+    state.stack = self.stack
 
   def load_state(self, state):
     for i in range(0, PAGE_SIZE):
       self.data[i] = state.content[i]
 
-    self.read = True if state.read == 1 else 0
-    self.write = True if state.write == 1 else 0
-    self.execute = True if state.execute == 1 else 0
-    self.dirty = True if state.dirty == 1 else 0
-    self.stack = True if state.stack == 1 else 0
+    self.read = state.read
+    self.write = state.write
+    self.execute = state.execute
+    self.dirty = state.dirty
+    self.stack = state.stack
 
   def flags_reset(self):
     self.read = False
@@ -380,20 +378,39 @@ class MMapMemoryPage(MemoryPage):
     self.__put_char(offset + 2, (value & 0xFF0000) >> 16)
     self.__put_char(offset + 3, (value & 0xFF000000) >> 24)
 
+class MMapAreaState(SnapshotNode):
+  def __init__(self):
+    super(MMapAreaState, self).__init__('address', 'size', 'path', 'offset')
+
 class MMapArea(object):
-  def __init__(self, address, size, file_path, ptr, pages_start, pages_cnt):
+  def __init__(self, address, size, file_path, offset, pages_start, pages_cnt):
     super(MMapArea, self).__init__()
 
     self.address = address
     self.size = size
     self.file_path = file_path
-    self.ptr = ptr
+    self.offset = offset
     self.pages_start = pages_start
     self.pages_cnt = pages_cnt
 
-class MemoryRegion(object):
+  def save_state(self, parent):
+    pass
+
+  def load_state(self, state):
+    pass
+
+class MemoryRegionState(SnapshotNode):
+  def __init__(self):
+    super(MemoryRegionState, self).__init__('name', 'address', 'size', 'flags', 'pages_start', 'pages_cnt')
+
+class MemoryRegion(ISnapshotable, object):
+  region_id = 0
+
   def __init__(self, name, address, size, flags):
     super(MemoryRegion, self).__init__()
+
+    self.id = MemoryRegion.region_id
+    MemoryRegion.region_id += 1
 
     self.name = name
     self.address = address
@@ -403,6 +420,26 @@ class MemoryRegion(object):
     self.pages_start, self.pages_cnt = area_to_pages(self.address, self.size)
 
     debug('MemoryRegion: name=%s, address=%s, size=%s, flags=%s, pages_start=%s, pages_cnt=%s', name, address, size, flags, self.pages_start, self.pages_cnt)
+
+  def save_state(self, parent):
+    state = parent.add_child('memory_region_%i' % self.id, MemoryRegionState())
+
+    state.name = self.name
+    state.address = self.address
+    state.size = self.size
+    state.flags = self.flags.to_uint16()
+    state.pages_start = self.pages_start
+    state.pages_cnt = self.pages_cnt
+
+  def load_state(self, state):
+    pass
+
+class MemoryState(SnapshotNode):
+  def __init__(self):
+    super(MemoryState, self).__init__('size', 'irq_table_address', 'int_table_address', 'segments')
+
+  def get_page_states(self):
+    return [__state for __name, __state in self.get_children().iteritems() if __name.startswith('page_')]
 
 class MemoryController(object):
   def __init__(self, machine, size = 0x1000000):
@@ -432,34 +469,31 @@ class MemoryController(object):
     self.irq_table_address = MEM_IRQ_TABLE_ADDRESS
     self.int_table_address = MEM_INT_TABLE_ADDRESS
 
-  def save_state(self, state):
+  def save_state(self, parent):
     debug('mc.save_state')
 
-    from core import MemoryState, MemorySegmentState
-    state.mm_state = mm_state = MemoryState()
+    state = parent.add_child('memory', MemoryState())
 
-    mm_state.size = self.__size
-    mm_state.irq_table_address = self.irq_table_address
-    mm_state.int_table_address = self.int_table_address
+    state.size = self.__size
+    state.irq_table_address = self.irq_table_address
+    state.int_table_address = self.int_table_address
 
+    state.segments = []
     for segment in self.__segments.keys():
-      state.mm_segment_states.append(MemorySegmentState(segment))
+      state.segments.append(segment)
 
     for page in self.__pages.values():
       page.save_state(state)
-
-    mm_state.segments = len(state.mm_segment_states)
-    mm_state.pages = len(state.mm_page_states)
 
   def load_state(self, state):
     self.size = state.size
     self.irq_table_address = state.irq_table_address
     self.int_table_address = state.int_table_address
 
-    for segment_state in state.mm_segment_states:
-      self.__segments[segment_state.index] = True
+    for segment in state.segments:
+      self.__segments[segment] = True
 
-    for page_state in state.mm_page_states:
+    for page_state in state.get_children():
       page = self.get_page(page_state.index)
       page.load_state(page_state)
 
@@ -659,50 +693,6 @@ class MemoryController(object):
     self.update_pages_flags(pages_start, pages_cnt, 'write', flags.writable == 1)
     self.update_pages_flags(pages_start, pages_cnt, 'execute', flags.executable == 1)
 
-  def load_raw_sections(self, sections, csr = None, dsr = None, stack = True):
-    debug('mc.load_raw_sections: csr=%s, dsr=%s, stack=%s', csr, dsr, stack)
-
-    import mm.binary
-
-    csr = csr or self.alloc_segment()
-    dsr = dsr or csr
-    sp  = None
-    ip  = None
-
-    symbols = {}
-    regions = []
-
-    for s_name, section in sections.items():
-      s_base_addr = None
-
-      if section.type == mm.binary.SectionTypes.SYMBOLS:
-        for symbol in section.content:
-          symbols[symbol.name.name] = symbol.section_ptr
-
-        continue
-
-      s_base_addr = segment_addr_to_addr(csr if section.type == mm.binary.SectionTypes.TEXT else dsr, section.base.u16)
-      pages_start, pages_cnt = area_to_pages(s_base_addr, section.size)
-      flags = mm.binary.SectionFlags.create('r' in section.flags, 'w' in section.flags, 'x' in section.flags, 'b' in section.flags)
-
-      self.for_each_page(pages_start, pages_cnt, self.__alloc_page)
-      self.__set_section_flags(pages_start, pages_cnt, flags)
-
-      if section.type == mm.binary.SectionTypes.TEXT:
-        self.load_text(csr, section.base.u16, section.content)
-
-      elif section.type == mm.binary.SectionTypes.DATA:
-        if 'b' not in section.flags:
-          self.load_data(dsr, section.base.u16, section.content)
-
-      regions.append(MemoryRegion(section.name, s_base_addr, section.size, flags))
-
-    if stack:
-      pg, sp = self.alloc_stack(segment = dsr)
-      regions.append(MemoryRegion('stack', pg.base_address, PAGE_SIZE, mm.binary.SectionFlags.create(True, True, False, False)))
-
-    return (csr, dsr, sp, ip, symbols, regions)
-
   def load_file(self, file_in, csr = None, dsr = None, stack = True):
     debug('mc.load_file: file_in=%s, csr=%s, dsr=%s', file_in, csr, dsr)
 
@@ -770,7 +760,7 @@ class MemoryController(object):
       pg, sp = self.alloc_stack(segment = dsr)
       regions.append(MemoryRegion('stack', pg.base_address, PAGE_SIZE, mm.binary.SectionFlags.create(True, True, False, False)))
 
-    return (csr, dsr, sp, ip, symbols, regions)
+    return (csr, dsr, sp, ip, symbols, regions, f_in)
 
   def __get_mmap_fileno(self, file_path):
     if file_path not in self.opened_mmap_files:

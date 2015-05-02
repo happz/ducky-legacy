@@ -14,12 +14,20 @@ from registers import Registers, REGISTER_NAMES
 from instructions import Opcodes
 from errors import AccessViolationError, InvalidResourceError
 from util import debug, info, warn, error, print_table, LRUCache, exception
+from snapshot import ISnapshotable, SnapshotNode
 
 from ctypes import LittleEndianStructure, c_ubyte, c_ushort
 
 DEFAULT_CPU_SLEEP_QUANTUM = 1.0
 DEFAULT_CPU_INST_CACHE_SIZE = 256
 DEFAULT_CPU_DATA_CACHE_SIZE = 1024
+
+class CPUState(SnapshotNode):
+  pass
+
+class CPUCoreState(SnapshotNode):
+  def __init__(self):
+    super(CPUCoreState, self).__init__('cpuid', 'coreid', 'registers', 'exit_code', 'alive', 'running', 'idle')
 
 class InterruptVector(LittleEndianStructure):
   _pack_ = 0
@@ -176,7 +184,7 @@ class DataCache(LRUCache):
       self[addr][0] = False
       self.core.DEBUG('data_cache.flush: %s written back', ADDR_FMT(addr))
 
-class CPUCore(machine.MachineWorker):
+class CPUCore(ISnapshotable, machine.MachineWorker):
   def __init__(self, coreid, cpu, memory_controller):
     super(CPUCore, self).__init__()
 
@@ -216,6 +224,9 @@ class CPUCore(machine.MachineWorker):
 
       self.math_coprocessor = cpu.coprocessor.math_copro.MathCoprocessor(self)
 
+  def has_coprocessor(self, name):
+    return hasattr(self, '%s_coprocessor' % name)
+
   def LOG(self, logger, *args):
     args = ('%s ' + args[0],) + (self.cpuid_prefix,) + args[1:]
     logger(*args)
@@ -240,38 +251,48 @@ class CPUCore(machine.MachineWorker):
   def __repr__(self):
     return '#%i:#%i' % (self.cpu.id, self.id)
 
-  def save_state(self, state):
-    self.DEBUG('core.save_state')
+  def save_state(self, parent):
+    self.DEBUG('core.save_state: parent=%s', parent)
 
-    from core import CPUCoreState
+    state = parent.add_child('core%i' % self.id, CPUCoreState())
 
-    core_state = CPUCoreState()
+    state.cpuid = self.cpu.id
+    state.coreid = self.id
 
-    core_state.cpuid = self.cpu.id
-    core_state.coreid = self.id
+    state.registers = []
 
-    for reg in REGISTER_NAMES:
+    for i, reg in enumerate(REGISTER_NAMES):
       if reg == 'flags':
-        core_state.flags = self.registers.flags.to_uint16()
+        value = int(self.registers.flags.to_uint16())
 
       else:
-        setattr(core_state, reg, self.registers.map[reg].value)
+        value = int(self.registers.map[reg].value)
 
-    core_state.exit_code = self.exit_code
-    core_state.idle = 1 if self.idle else 0
+      state.registers.append(value)
 
-    state.core_states.append(core_state)
+    state.exit_code = self.exit_code
+    state.idle = self.idle
+    state.alive = self.alive
+    state.running = self.running
 
-  def load_state(self, core_state):
-    for reg in REGISTER_NAMES:
+    if self.has_coprocessor('math'):
+      self.math_coprocessor.save_state(state)
+
+  def load_state(self, state):
+    for i, reg in enumerate(REGISTER_NAMES):
       if reg == 'flags':
-        self.registers.flags.from_uint16(core_state.flags)
+        self.registers.flags.from_uint16(state.registers[i])
 
       else:
-        self.registers.map[reg].value = getattr(core_state, reg)
+        self.registers.map[reg].value = state.registers[i]
 
-    self.exit_code = core_state.exit_code
-    self.idle = True if core_state.idle else False
+    self.exit_code = state.exit_code
+    self.idle = state.idle
+    self.alive = state.alive
+    self.running = state.running
+
+    if self.has_coprocessor('math'):
+      self.math_coprocessor.load_state(state.get_children()['math_coprocessor'])
 
   def FLAGS(self):
     return self.registers.flags
@@ -1046,9 +1067,11 @@ class CPUCore(machine.MachineWorker):
 
     self.cpu.machine.reactor.add_task(self)
 
+    self.core_profiler.enable()
+
     self.INFO('Booted')
 
-class CPU(machine.MachineWorker):
+class CPU(ISnapshotable, machine.MachineWorker):
   def __init__(self, machine, cpuid, cores = 1, memory_controller = None):
     super(CPU, self).__init__()
 
@@ -1063,6 +1086,15 @@ class CPU(machine.MachineWorker):
     for i in xrange(0, cores):
       __core = CPUCore(i, self, self.memory)
       self.cores.append(__core)
+
+  def save_state(self, parent):
+    state = parent.add_child('cpu%i' % self.id, CPUState())
+
+    map(lambda __core: __core.save_state(state), self.cores)
+
+  def load_state(self, state):
+    for core_state in state.get_children().itervalues():
+      self.cores[core_state.coreid].load_state(core_state)
 
   def __LOG(self, logger, *args):
     args = ('%s ' + args[0],) + (self.cpuid_prefix,) + args[1:]

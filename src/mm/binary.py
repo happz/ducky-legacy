@@ -3,7 +3,7 @@ import mmap
 
 import cpu.instructions
 
-from mm import UInt8
+from mm import UInt8, ADDR_FMT
 from util import debug, error, BinaryFile, StringTable, align
 from ctypes import LittleEndianStructure, c_uint, c_ushort, c_ubyte, sizeof
 
@@ -64,6 +64,15 @@ class SectionFlags(LittleEndianStructure):
 
     return flags
 
+  def to_uint16(self):
+    return self.readable | self.writable << 1 | self.executable << 2 | self.bss
+
+  def from_uint16(self, u):
+    self.readable = 1 if u & 0x01 else 0
+    self.writable = 1 if u & 0x02 else 0
+    self.executable = 1 if u & 0x04 else 0
+    self.bss = 1 if u & 0x08 else 0
+
   def __repr__(self):
     return '<SectionFlags: r=%i, w=%i, x=%i, b=%i>' % (self.readable, self.writable, self.executable, self.bss)
 
@@ -97,7 +106,7 @@ class SymbolEntry(LittleEndianStructure):
   ]
 
   def __repr__(self):
-    return '<SymbolEntry: section=%i, name=%s, type=%s>' % (self.section, self.name, SYMBOL_DATA_TYPES[self.type])
+    return '<SymbolEntry: section=%i, name=%s, type=%s, addr=%s>' % (self.section, self.name, SYMBOL_DATA_TYPES[self.type], ADDR_FMT(self.address))
 
 SECTION_ITEM_SIZE = [
   0, sizeof(cpu.instructions.InstBinaryFormat_Master), sizeof(UInt8), sizeof(SymbolEntry)
@@ -114,6 +123,8 @@ class File(BinaryFile):
     self.__sections = []
 
     self.string_table = StringTable()
+
+    self.symbols = None
 
   def create_header(self):
     self.__header = FileHeader()
@@ -138,6 +149,16 @@ class File(BinaryFile):
 
   def get_section(self, i):
     return self.__sections[i]
+
+  def load_symbols(self):
+    self.symbols = {}
+
+    for header, content in self.__sections:
+      if header.type != SectionTypes.SYMBOLS:
+        continue
+
+      for symbol in content:
+        self.symbols[self.string_table.get_string(symbol.name)] = symbol
 
   def load(self):
     self.seek(0)

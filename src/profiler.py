@@ -4,22 +4,30 @@ try:
 except ImportError:
   from profile import Profile as RealMachineProfiler
 
-import marshal
+try:
+  import cPickle as pickle
+
+except ImportError:
+  import pickle
+
+import collections
 import os
 import os.path
 
 class DummyCPUCoreProfiler(object):
-  def __init__(self, core, frequency = 50):
+  def __init__(self, core, frequency = 17):
     super(DummyCPUCoreProfiler, self).__init__()
 
     self.core = core
     self.frequency = frequency
 
+    self.enabled = False
+
   def enable(self):
-    pass
+    self.enabled = True
 
   def disable(self):
-    pass
+    self.enabled = False
 
   def take_sample(self):
     pass
@@ -37,14 +45,22 @@ class RealCPUCoreProfiler(DummyCPUCoreProfiler):
     self.data = []
 
   def take_sample(self):
+    if self.enabled is not True:
+      return
+
     if self.core.registers.cnt.value % self.frequency != 0:
       return
 
     self.data.append(self.core.current_ip)
 
   def dump_stats(self, filename):
+    d = collections.defaultdict(int)
+
+    for e in self.data:
+      d[e] += 1
+
     with open(filename, 'wb') as f:
-      marshal.dump(self.data, f)
+      pickle.dump(d, f)
 
 class DummyMachineProfiler(object):
   def __init__(self, *args, **kwargs):

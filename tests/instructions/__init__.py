@@ -9,11 +9,11 @@ class Tests(unittest.TestCase):
       code = '\n'.join(code)
 
     state = common_run_machine(code)
-    assert_registers(state.core_states[0], **kwargs)
-    assert_flags(state.core_states[0], **kwargs)
+    assert_registers(state.get_child('machine').get_child('core0'), **kwargs)
+    assert_flags(state.get_child('machine').get_child('core0'), **kwargs)
 
     if 'mm' in kwargs:
-      assert_mm(state, **kwargs['mm'])
+      assert_mm(state.get_child('machine').get_child('memory'), **kwargs['mm'])
 
   def test_nop(self):
     self.common_case('main:\nnop\nint 0')

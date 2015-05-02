@@ -1,0 +1,110 @@
+#! /usr/bin/env python
+
+import patch
+
+try:
+  import cPickle as pickle
+
+except ImportError:
+  import pickle
+
+import collections
+import optparse
+import sys
+
+import console
+import cpu
+import mm.binary
+import util
+
+from mm import ADDR_FMT
+from util import info
+
+def main():
+  parser = optparse.OptionParser()
+
+  parser.add_option('-d', dest = 'debug', action = 'store_true', default = False, help = 'Debug mode')
+
+  parser.add_option('-i', dest = 'files_in', action = 'append', default = [], help = 'Input file')
+  parser.add_option('-b', dest = 'binary', action = 'store', default = None, help = 'Profiled binary')
+
+  options, args = parser.parse_args()
+
+  util.CONSOLE = console.Console(None, sys.stdin, sys.stdout)
+
+  if not options.files_in:
+    parser.print_help()
+    sys.exit(1)
+
+  if not options.binary:
+    parser.print_help()
+    sys.exit(1)
+
+  data = collections.defaultdict(int)
+
+  for path in options.files_in:
+    info('Reading profile data from %s', path)
+
+    with open(path, 'rb') as f:
+      d = pickle.load(f)
+
+      for k, v in d.iteritems():
+        data[k] += v
+
+  all_hits = sum(data.itervalues())
+
+  binary = mm.binary.File(options.binary, 'r')
+  binary.load()
+  binary.load_symbols()
+
+  symbol_table = util.SymbolTable(binary)
+
+  def print_points(addresses):
+    table = [
+      ['Address', 'Symbol', 'Hits', 'Percentage', 'Inst']
+    ]
+
+    for addr in addresses:
+      hits = data[addr]
+      symbol, offset = symbol_table[addr]
+
+      symbol_name = symbol + (('[%s]' % offset) if offset is not None else '')
+
+      symbol = symbol_table.get_symbol(symbol)
+      header, content = binary.get_section(symbol.section)
+
+      table.append([ADDR_FMT(addr), symbol_name, hits, '%.02f' % (float(hits) / float(all_hits) * 100.0), cpu.instructions.decode_instruction(content[(symbol.address + offset - header.base) / 4])])
+
+    util.print_table(table)
+
+  def print_symbol_hits(functions):
+    table = [
+      ['Symbol', 'Hits', 'Percentage']
+    ]
+
+    for fn in functions:
+      hits = symbol_hits[fn]
+      table.append([fn, hits, '%.02f' % (float(hits) / float(all_hits) * 100.0)])
+
+    util.print_table(table)
+
+  symbol_hits = collections.defaultdict(int)
+
+  for addr, hits in data.iteritems():
+    hits = data[addr]
+    symbol, offset = symbol_table[addr]
+
+    symbol_hits[symbol] += hits
+
+  info('')
+
+  keys = sorted(data.keys(), key = data.get, reverse = True)
+  print_points(keys[0:20])
+
+  info('')
+
+  keys = sorted(symbol_hits.keys(), key = symbol_hits.get, reverse = True)
+  print_symbol_hits(keys[0:20])
+
+if __name__ == '__main__':
+  main()

@@ -47,9 +47,10 @@
 
 ; Offsets of word header fields
 .def wr_link:     0
-.def wr_flags:    2
-.def wr_namelen:  3
-.def wr_name:     4
+.def wr_namecrc:  2
+.def wr_flags:    4
+.def wr_namelen:  5
+.def wr_name:     6
 
 ; Word flags
 .def F_IMMED:  0x0001
@@ -84,6 +85,7 @@
 name_#label:
   .int link
   .set link, &name_#label
+  .int 0x79
   .byte #flags
   .byte #len
   .ascii #name
@@ -95,6 +97,7 @@ name_#label:
   .section .rodata
 name_#label:
   .int link
+  .int 0x79
   .set link, &name_#label
   .byte #flags
   .byte #len
@@ -185,6 +188,25 @@ strcmp:
   ret
 
 
+strcrc:
+  ; r0: str addr, r1: str len
+  push r1 ; original len
+  push r2 ; saved str ptr
+  push r3 ; current char
+  mov r2, r0
+  li r0, 0
+.strcrc_loop:
+  lb r3, r2
+  add r0, r3
+  inc r2
+  dec r1
+  bnz &.strcrc_loop
+  pop r3
+  pop r2
+  pop r1
+  ret
+
+
 write:
   ; r0 - ptr
   ; r1 - size
@@ -264,6 +286,40 @@ write_word_buffer:
   ret
 
 
+init_crcs:
+  push r0 ; str ptr, crc
+  push r1 ; str len
+  push r2 ; link
+
+  li r2, &var_LATEST
+
+.__init_crcs_loop:
+  lw r2, r2
+  cmp r2, r2
+  bz &.__init_crcs_quit
+
+  mov r0, r2
+  add r0, $wr_name
+
+  mov r1, r2
+  add r1, $wr_namelen
+  lb r1, r1
+
+  call &strcrc
+
+  mov r1, r2
+  add r1, $wr_namecrc
+  stw r1, r0
+
+  j &.__init_crcs_loop
+
+.__init_crcs_quit:
+  pop r2
+  pop r1
+  pop r0
+  ret
+
+
 main:
   ; init RSP
   li $RSP, &rstack_top
@@ -271,6 +327,9 @@ main:
   ; save stack base
   li r0, &var_SZ
   stw r0, sp
+
+  ; init words' crcs
+  call &init_crcs
 
   ; print welcome message
   ;li r0, &welcome_message
@@ -900,14 +959,34 @@ $DEFCODE "FIND", 4, 0, FIND
   ; r1 - length
   ; save working registers
   push r2 ; word ptr
+  push r3 ; crc
 
   li r2, &var_LATEST
   lw r2, r2
+
+  push r0
+  call &strcrc
+  mov r3, r0
+  pop r0
 
 .__FIND_loop:
   cmp r2, r2
   bz &.__FIND_fail
 
+  ; check crc
+  push r2
+  add r2, $wr_namecrc
+  lw r2, r2
+  cmp r2, r3
+  be &.__FIND_crc_success
+  pop r2
+  lw r2, r2 ; load link content
+  j &.__FIND_loop
+
+.__FIND_crc_success:
+  pop r2
+
+.__FIND_strcmp:
   ; prepare call of strcmp
   push r0
   push r1
@@ -943,9 +1022,11 @@ $DEFCODE "FIND", 4, 0, FIND
 .__FIND_immed:
   li r1, 1
 .__FIND_finish:
+  pop r3
   pop r2
   ret
 .__FIND_fail:
+  pop r3
   pop r2
   li r0, 0
   li r1, 0
@@ -1015,6 +1096,7 @@ $DEFCODE "HEADER,", 7, 0, HEADER_COMMA
   $NEXT
 
 .__HEADER_COMMA:
+  ; r0: str ptr, r1: str len
   ; save working registers
   push r2 ; DP address
   push r3 ; DP value
@@ -1033,6 +1115,15 @@ $DEFCODE "HEADER,", 7, 0, HEADER_COMMA
   stw r3, r5
   mov r5, r3
   stw r4, r5
+  ; and move DP to next cell
+  add r3, 2
+  ; save name crc
+  push r0
+  push r1
+  call &strcrc
+  stw r3, r0
+  pop r1
+  pop r0
   ; and move DP to next cell
   add r3, 2
   ; save flags

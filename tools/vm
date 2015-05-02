@@ -12,6 +12,7 @@ import machine
 import reactor
 import util
 import profiler
+import snapshot
 
 from util import print_table, info
 
@@ -145,9 +146,14 @@ def main():
       info('VM halted by user')
       reactor.reactor.add_call(M.halt)
 
+    elif sig == signal.SIGSEGV:
+      info('VM snapshot requested')
+      reactor.reactor.add_call(M.snapshot('ducky-snapshot-user.bin'))
+
   signal.signal(signal.SIGINT,  signal_handler)
   signal.signal(signal.SIGUSR1, signal_handler)
   signal.signal(signal.SIGUSR2, signal_handler)
+  signal.signal(signal.SIGSEGV, signal_handler)
 
   M.boot()
 
@@ -155,11 +161,9 @@ def main():
     info('Press Enter to start execution of loaded binaries')
     util.CONSOLE.wait_on_line()
 
-  M.run() # reactor loop!
+  M.run()  # reactor loop!
 
-  import core
-
-  state = core.VMState.capture_vm_state(M, suspend = False)
+  state = snapshot.VMState.capture_vm_state(M, suspend = False)
   state.save('ducky-snapshot.bin')
   info('VM snapshot save in ducky-snapshot.bin')
 

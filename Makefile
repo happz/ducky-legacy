@@ -110,6 +110,7 @@ tests-pre:
 	$(Q) mkdir -p $(TESTSETDIR)/coverage
 	$(Q) mkdir -p $(TESTSETDIR)/profile
 	$(Q) mkdir -p $(TESTSETDIR)/results
+	$(Q) mkdir -p $(TESTSETDIR)/tmp
 	$(Q) $(CURDIR)/tests/xunit-record --init --file=$(TESTSETDIR)/results/forth.xml --testsuite=forth-$(TESTSET)
 	$(Q) echo "$(CC_GREEN)PASS$(CC_END)"
 
@@ -184,7 +185,7 @@ cloc:
 	cloc --skip-uniqueness src/ forth/ examples/
 
 flake:
-	$(Q) flake8 --config=$(CURDIR)/flake8.cfg $(shell find $(CURDIR)/src $(CURDIR)/tests -name '*.py') $(shell find $(CURDIR)/tools) | sort | grep -v -e "'patch' imported but unused" -e tools/cc
+	-$(Q) flake8 --config=$(CURDIR)/flake8.cfg $(shell find $(CURDIR)/src $(CURDIR)/tests -name '*.py') $(shell find $(CURDIR)/tools) | sort | grep -v -e "'patch' imported but unused" -e tools/cc -e duckyfs
 
 docs:
 	sphinx-apidoc -o docs/ src/

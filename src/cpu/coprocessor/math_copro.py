@@ -16,6 +16,13 @@ from cpu.registers import Registers
 from mm import u32, i32, UINT32_FMT, UINT16_FMT
 from irq import InterruptList
 from irq.virtual import VIRTUAL_INTERRUPTS, VirtualInterrupt
+from snapshot import SnapshotNode, ISnapshotable
+
+STACK_DEPTH = 8
+
+class MathCoprocessorState(SnapshotNode):
+  def __init__(self):
+    super(MathCoprocessorState, self).__init__('stack')
 
 class MathOperationList(enum.IntEnum):
   """
@@ -46,18 +53,32 @@ class FullMathStackError(Exception):
   def __init__(self):
     super(FullMathStackError, self).__init__('Math stack is full')
 
-class RegisterSet(object):
+class RegisterSet(ISnapshotable, object):
   """
   Math stack wrapping class. Provides basic push/pop access, and direct access
   to a top of the stack.
   """
 
-  REGISTER_COUNT = 8
-
-  def __init__(self):
+  def __init__(self, core):
     super(RegisterSet, self).__init__()
 
+    self.core = core
     self.stack = []
+
+  def save_state(self, parent):
+    self.core.DEBUG('RegisterSet.save_state')
+
+    state = parent.add_child('math_coprocessor', MathCoprocessorState())
+
+    state.stack = []
+    for lr in self.stack:
+      state.stack.append(int(lr.value))
+
+  def load_state(self, state):
+    self.core.DEBUG('RegisterSet.load_state')
+
+    for lr in state.depth:
+      self.stack.append(u32(lr))
 
   def push(self, v):
     """
@@ -66,7 +87,7 @@ class RegisterSet(object):
     :raises FullMathStackError: if there is no space available on the stack.
     """
 
-    if len(self.stack) == self.REGISTER_COUNT:
+    if len(self.stack) == STACK_DEPTH:
       raise FullMathStackError()
 
     self.stack.append(v)
@@ -95,7 +116,7 @@ class RegisterSet(object):
 
     return self.stack[-1]
 
-class MathCoprocessor(Coprocessor):
+class MathCoprocessor(ISnapshotable, Coprocessor):
   """
   Coprocessor itself, includes its register set ("math stack").
   """
@@ -103,7 +124,13 @@ class MathCoprocessor(Coprocessor):
   def __init__(self, core, *args, **kwargs):
     super(MathCoprocessor, self).__init__(core, *args, **kwargs)
 
-    self.registers = RegisterSet()
+    self.registers = RegisterSet(core)
+
+  def save_state(self, parent):
+    self.registers.save_state(parent)
+
+  def load_state(self, state):
+    self.registers.load_state(state)
 
   def dump_stack(self):
     """

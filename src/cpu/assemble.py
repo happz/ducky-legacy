@@ -137,11 +137,11 @@ class Section(object):
 
 class TextSection(Section):
   def __init__(self, s_name, flags = None):
-    super(TextSection, self).__init__(s_name, SectionTypes.TEXT, flags or 'rx')
+    super(TextSection, self).__init__(s_name, SectionTypes.TEXT, flags or 'rwx')
 
 class RODataSection(Section):
   def __init__(self, s_name, flags = None):
-    super(RODataSection, self).__init__(s_name, SectionTypes.DATA, flags or 'r')
+    super(RODataSection, self).__init__(s_name, SectionTypes.DATA, flags or 'rw')
 
 class DataSection(Section):
   def __init__(self, s_name, flags = None):
