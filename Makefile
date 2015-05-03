@@ -188,7 +188,7 @@ flake:
 	-$(Q) flake8 --config=$(CURDIR)/flake8.cfg $(shell find $(CURDIR)/src $(CURDIR)/tests -name '*.py') $(shell find $(CURDIR)/tools) | sort | grep -v -e "'patch' imported but unused" -e tools/cc -e duckyfs
 
 docs:
-	sphinx-apidoc -o docs/ src/
+	sphinx-apidoc -T -o docs/ src/
 	make -C docs clean
 	make -C docs html
 
