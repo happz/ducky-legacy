@@ -169,7 +169,7 @@ class File(BinaryFile):
 
     if self.__header.magic != self.MAGIC:
       error('load: magic cookie not recognized!')
-      from mm import MalformedBinaryError
+      from ..mm import MalformedBinaryError
       raise MalformedBinaryError('Magic cookie not recognized!')
 
     for i in range(0, self.__header.sections):
@@ -199,7 +199,7 @@ class File(BinaryFile):
           st_class = cpu.instructions.InstBinaryFormat_Master
 
         else:
-          from mm import MalformedBinaryError
+          from ..mm import MalformedBinaryError
           raise MalformedBinaryError('Unknown section header type %s' % header.type)
 
         for _ in range(0, count):
