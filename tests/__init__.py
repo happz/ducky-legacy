@@ -101,7 +101,7 @@ def compile_code(code):
   with open(os.path.splitext(f_asm.name)[0] + '.bin', 'w+b') as f_bin:
     pass
 
-  subprocess.check_call('PYTHONPATH=%s %s -f -i %s -o %s' % (os.getenv('PYTHONPATH'), os.path.join(os.getenv('PWD'), 'tools', 'as'), f_asm.name, f_bin.name), shell = True)
+  subprocess.check_call('PYTHONPATH=%s %s -f -i %s -o %s' % (os.getenv('PYTHONPATH'), os.path.join(os.getenv('PWD'), 'tools', 'as'), f_asm.name, f_bin.name), shell = True, stderr = subprocess.STDOUT)
 
   os.unlink(f_asm.name)
 
