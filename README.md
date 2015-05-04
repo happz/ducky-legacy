@@ -4,6 +4,7 @@ ducky
 Simple virtual CPU/machine
 
 [![Circle CI](https://circleci.com/gh/happz/ducky.svg?style=svg)](https://circleci.com/gh/happz/ducky)
+[![Read the Docs](https://readthedocs.org/projects/ducky/badge/?version=latest)](http://ducky.readthedocs.org/en/latest/)
 
 - - -
 
