@@ -95,15 +95,21 @@ def assert_file_content(filename, cells):
       assert real_value == cell_value, 'Value at %s (file %s) should be %s, %s found instead' % (cell_offset, filename, ducky.mm.UINT8_FMT(cell_value), ducky.mm.UINT8_FMT(real_value))
 
 def compile_code(code):
-  with get_tempfile() as f_asm:
-    f_asm.write(code)
-    f_asm.flush()
+  f_asm = get_tempfile()
+  f_asm.write(code)
+  f_asm.flush()
+  f_asm.close()
 
-  with open(os.path.splitext(f_asm.name)[0] + '.bin', 'w+b') as f_bin:
-    pass
+  f_bin_name = os.path.splitext(f_asm.name)[0] + '.bin'
 
   try:
-    subprocess.check_call('PYTHONPATH=%s %s -f -i %s -o %s' % (os.getenv('PYTHONPATH'), os.path.join(os.getenv('PWD'), 'tools', 'as'), f_asm.name, f_bin.name), shell = True, stderr = subprocess.STDOUT)
+    subprocess.check_output('PYTHONPATH=%s %s -f -i %s -o %s' % (os.getenv('PYTHONPATH'), os.path.join(os.getenv('PWD'), 'tools', 'as'), f_asm.name, f_bin_name), shell = True, stderr = subprocess.STDOUT)
+
+  except subprocess.CalledProcessError, e:
+    from ducky.util import error
+
+    error('Test case compilation failed: cmd="%s", returncode=%s, output="%s"', e.cmd, e.returncode, e.output)
+    return None
 
   except OSError, e:
     if e.errno == 9:
@@ -115,7 +121,7 @@ def compile_code(code):
 
   os.unlink(f_asm.name)
 
-  return f_bin.name
+  return f_bin_name
 
 def run_machine(code, machine_config, coredump_file = None):
   M = ducky.machine.Machine()
