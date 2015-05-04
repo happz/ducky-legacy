@@ -102,8 +102,10 @@ def compile_code(code):
 
   f_bin_name = os.path.splitext(f_asm.name)[0] + '.bin'
 
+  print os.stat(f_asm.name)
+
   try:
-    subprocess.check_output('PYTHONPATH=%s %s -f -i %s -o %s' % (os.getenv('PYTHONPATH'), os.path.join(os.getenv('PWD'), 'tools', 'as'), f_asm.name, f_bin_name), shell = True, stderr = subprocess.STDOUT)
+    subprocess.check_output('PYTHONPATH=%s %s -f -i %s -o %s' % (os.getenv('PYTHONPATH'), os.path.join(os.getenv('PWD'), 'tools', 'as'), f_asm.name, f_bin_name), shell = True)
 
   except subprocess.CalledProcessError, e:
     from ducky.util import error
