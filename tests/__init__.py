@@ -97,11 +97,21 @@ def assert_file_content(filename, cells):
 def compile_code(code):
   with get_tempfile() as f_asm:
     f_asm.write(code)
+    f_asm.flush()
 
   with open(os.path.splitext(f_asm.name)[0] + '.bin', 'w+b') as f_bin:
     pass
 
-  subprocess.check_call('PYTHONPATH=%s %s -f -i %s -o %s' % (os.getenv('PYTHONPATH'), os.path.join(os.getenv('PWD'), 'tools', 'as'), f_asm.name, f_bin.name), shell = True, stderr = subprocess.STDOUT)
+  try:
+    subprocess.check_call('PYTHONPATH=%s %s -f -i %s -o %s' % (os.getenv('PYTHONPATH'), os.path.join(os.getenv('PWD'), 'tools', 'as'), f_asm.name, f_bin.name), shell = True, stderr = subprocess.STDOUT)
+
+  except OSError, e:
+    if e.errno == 9:
+      # suppress "Bad file descriptor" error
+      pass
+
+    else:
+      raise
 
   os.unlink(f_asm.name)
 
