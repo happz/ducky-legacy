@@ -20,6 +20,7 @@ setup(name = 'ducky',
       install_requires = [
         'threading2',
         'enum34',
+        'tabulate',
         'colorama',
         'pytty',
         'coverage',
