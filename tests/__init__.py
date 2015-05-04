@@ -102,24 +102,7 @@ def compile_code(code):
 
   f_bin_name = os.path.splitext(f_asm.name)[0] + '.bin'
 
-  print os.stat(f_asm.name)
-
-  try:
-    subprocess.check_output('PYTHONPATH=%s %s -f -i %s -o %s' % (os.getenv('PYTHONPATH'), os.path.join(os.getenv('PWD'), 'tools', 'as'), f_asm.name, f_bin_name), shell = True)
-
-  except subprocess.CalledProcessError, e:
-    from ducky.util import error
-
-    error('Test case compilation failed: cmd="%s", returncode=%s, output="%s"', e.cmd, e.returncode, e.output)
-    return None
-
-  except OSError, e:
-    if e.errno == 9:
-      # suppress "Bad file descriptor" error
-      pass
-
-    else:
-      raise
+  os.system('PYTHONPATH=%s %s -f -i %s -o %s' % (os.getenv('PYTHONPATH'), os.path.join(os.getenv('PWD'), 'tools', 'as'), f_asm.name, f_bin_name))
 
   os.unlink(f_asm.name)
 
