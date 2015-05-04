@@ -96,9 +96,13 @@ def assert_file_content(filename, cells):
 
 def compile_code(code):
   f_asm = get_tempfile()
+  print f_asm
   f_asm.write(code)
+  print f_asm
   f_asm.flush()
+  print f_asm
   f_asm.close()
+  print f_asm
 
   f_bin_name = os.path.splitext(f_asm.name)[0] + '.bin'
 
