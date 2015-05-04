@@ -21,6 +21,12 @@ forth/ducky-forth.bin: forth/ducky-forth.asm forth/ducky-forth-words.asm
 FORTH_TESTS_IN  := $(shell find $(CURDIR) -name 'test-*.f' | sort)
 FORTH_TESTS_OUT := $(FORTH_TESTS_IN:%.f=%.f.out)
 
+INSTALLED_EGG := $(VIRTUAL_ENV)/lib/python2.7/site-packages/ducky-1.0-py2.7.egg
+
+ifndef DUCKY_IMPORT_DEVEL
+  DUCKY_IMPORT_DEVEL := no
+endif
+
 ifndef TESTSET
   TESTSET := default
 endif
@@ -67,9 +73,10 @@ ifdef CIRCLECI
 else
   PYPY_BINARY=$(shell which pypy)
 endif
-	PYTHON := PYTHONPATH=$(VIRTUAL_ENV)/lib/python2.7/site-packages:$(CURDIR)/src:$(PYTHONPATH) $(PYPY_BINARY)
+  # pypy does not see our local installed packages
+	PYTHON := PYTHONPATH="$(INSTALLED_EGG):$(VIRTUAL_ENV)/lib/python2.7/site-packages:$(PYTHONPATH)" $(PYPY_BINARY)
 else
-	PYTHON := PYTHONPATH=$(CURDIR)/src:$(PYTHONPATH)
+	PYTHON :=
 endif
 
 
@@ -81,7 +88,7 @@ else
 	$(eval VMCOVERAGE_FILE := )
 	$(eval VMCOVERAGE_BIN  := )
 endif
-	$(Q) $(VMCOVERAGE_FILE) PYTHONUNBUFFERED=yes $(PYTHON) $(VMCOVERAGE_BIN) tools/vm $(VMPROFILE) $(VMDEBUG) $(BINPROFILE) --conio-echo=no --conio-highlight=no --machine-config=tests/forth/test-machine.conf --machine-in=forth/ducky-forth.f
+	$(Q) $(VMCOVERAGE_FILE) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) PYTHONUNBUFFERED=yes $(PYTHON) $(VMCOVERAGE_BIN) tools/vm $(VMPROFILE) $(VMDEBUG) $(BINPROFILE) --conio-echo=no --conio-highlight=no --machine-config=tests/forth/test-machine.conf --machine-in=forth/ducky-forth.f
 
 run-binary: interrupts.bin
 ifeq ($(VMCOVERAGE),yes)
@@ -91,7 +98,7 @@ else
 	$(eval VMCOVERAGE_FILE := )
 	$(eval VMCOVERAGE_BIN  := )
 endif
-	$(Q) $(VMCOVERAGE_FILE) PYTHONUNBUFFERED=yes $(PYTHON) $(VMCOVERAGE_BIN) tools/vm $(VMPROFILE) $(VMDEBUG) $(BINPROFILE) --conio-echo=$(CONIO_ECHO) --conio-stdout-echo=$(CONIO_STDOUT_ECHO) --conio-highlight=no --machine-config=$(MACHINE_CONFIG) -g
+	$(Q) $(VMCOVERAGE_FILE) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) PYTHONUNBUFFERED=yes $(PYTHON) $(VMCOVERAGE_BIN) tools/vm $(VMPROFILE) $(VMDEBUG) $(BINPROFILE) --conio-echo=$(CONIO_ECHO) --conio-stdout-echo=$(CONIO_STDOUT_ECHO) --conio-highlight=no --machine-config=$(MACHINE_CONFIG) -g
 
 run-forth-script: interrupts.bin $(FORTH_KERNEL)
 ifeq ($(VMCOVERAGE),yes)
@@ -101,7 +108,7 @@ else
 	$(eval VMCOVERAGE_FILE := )
 	$(eval VMCOVERAGE_BIN  := )
 endif
-	$(Q) $(VMCOVERAGE_FILE) PYTHONUNBUFFERED=yes $(PYTHON) $(VMCOVERAGE_BIN) tools/vm $(VMPROFILE) $(VMDEBUG) $(BINPROFILE) --conio-echo=$(CONIO_ECHO) --conio-stdout-echo=$(CONIO_STDOUT_ECHO) --conio-highlight=no --machine-config=tests/forth/test-machine.conf --machine-in=forth/ducky-forth.f --machine-in=$(FORTH_SCRIPT) -g
+	$(Q) $(VMCOVERAGE_FILE) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) PYTHONUNBUFFERED=yes $(PYTHON) $(VMCOVERAGE_BIN) tools/vm $(VMPROFILE) $(VMDEBUG) $(BINPROFILE) --conio-echo=$(CONIO_ECHO) --conio-stdout-echo=$(CONIO_STDOUT_ECHO) --conio-highlight=no --machine-config=tests/forth/test-machine.conf --machine-in=forth/ducky-forth.f --machine-in=$(FORTH_SCRIPT) -g
 
 tests-pre:
 	$(Q) echo -n "[TEST] Create test set $(TESTSET) ... "
@@ -123,7 +130,7 @@ else
 	$(eval VMCOVERAGE_FILE := )
 	$(eval COVERAGE_NOSE_FLAG := )
 endif
-	-$(Q) $(VMCOVERAGE_FILE) $(PYTHON) $(VIRTUAL_ENV)/bin/nosetests -v --all-modules $(COVERAGE_NOSE_FLAG) --with-xunit --xunit-file=$(TESTSETDIR)/results/nosetests.xml 2>&1 | stdbuf -oL -eL tee $(TESTSETDIR)/engine.out | grep -v -e '\[INFO\] ' -e '#> '
+	-$(Q) $(VMCOVERAGE_FILE) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) $(VIRTUAL_ENV)/bin/nosetests -v --all-modules $(COVERAGE_NOSE_FLAG) --with-xunit --xunit-file=$(TESTSETDIR)/results/nosetests.xml --no-path-adjustment -w $(VIRTUAL_ENV)/ducky/tests 2>&1 | stdbuf -oL -eL tee $(TESTSETDIR)/engine.out | grep -v -e '\[INFO\] ' -e '#> '
 	-$(Q) sed -i 's/<testsuite name="nosetests"/<testsuite name="nosetests-$(TESTSET)"/' $(TESTSETDIR)/results/nosetests.xml
 
 tests-forth-units: interrupts.bin $(FORTH_KERNEL) $(FORTH_TESTS_OUT)
@@ -140,7 +147,7 @@ else
 	$(eval VMCOVERAGE_FILE := )
 	$(eval VMCOVERAGE_BIN  := )
 endif
-	-$(Q) $(VMCOVERAGE_FILE) $(PYTHON) $(VMCOVERAGE_BIN) tools/vm $(VMPROFILE) $(BINPROFILE) --machine-config=$(CURDIR)/tests/forth/test-machine.conf --machine-in=tests/forth/enable-test-mode.f --machine-in=forth/ducky-forth.f --machine-in=tests/forth/ans/tester.fr --machine-in=tests/forth/ans/core.fr --machine-out=$(tc_out) -g --conio-echo=$(CONIO_ECHO) --conio-console=no --conio-highlight=$(CONIO_HIGHLIGHT) --conio-stdout-echo=yes $(VMDEBUG) 2>&1 | stdbuf -oL -eL tee $(tc_machine) | grep -v -e '\[INFO\] ' -e '#> '
+	-$(Q) $(VMCOVERAGE_FILE) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) $(VMCOVERAGE_BIN) tools/vm $(VMPROFILE) $(BINPROFILE) --machine-config=$(CURDIR)/tests/forth/test-machine.conf --machine-in=tests/forth/enable-test-mode.f --machine-in=forth/ducky-forth.f --machine-in=tests/forth/ans/tester.fr --machine-in=tests/forth/ans/core.fr --machine-out=$(tc_out) -g --conio-echo=$(CONIO_ECHO) --conio-console=no --conio-highlight=$(CONIO_HIGHLIGHT) --conio-stdout-echo=yes $(VMDEBUG) 2>&1 | stdbuf -oL -eL tee $(tc_machine) | grep -v -e '\[INFO\] ' -e '#> '
 	-$(Q) grep -e 'INCORRECT RESULT' -e 'WRONG NUMBER OF RESULTS' $(tc_out) | cat > $(tc_filtered);
 	-$(Q) if [ ! -s $(tc_filtered) ]; then \
 				  $(CURDIR)/tests/xunit-record --add --file=$(TESTSETDIR)/results/forth.xml --ts=forth-$(TESTSET) --name="ANS test suite"; \
@@ -182,13 +189,13 @@ profile-eval:
 	$(Q) python -i -c "import os; import pstats; ps = pstats.Stats(*['$(TESTSETDIR)/profile/%s' % f for f in os.listdir('$(TESTSETDIR)/profile/') if f.find('-Profile-') != -1])"
 
 cloc:
-	cloc --skip-uniqueness src/ forth/ examples/
+	cloc --skip-uniqueness ducky/ forth/ examples/
 
 flake:
-	-$(Q) flake8 --config=$(CURDIR)/flake8.cfg $(shell find $(CURDIR)/src $(CURDIR)/tests -name '*.py') $(shell find $(CURDIR)/tools) | sort | grep -v -e "'patch' imported but unused" -e tools/cc -e duckyfs
+	-$(Q) flake8 --config=$(CURDIR)/flake8.cfg $(shell find $(CURDIR)/ducky $(CURDIR)/tests -name '*.py') $(shell find $(CURDIR)/tools) | sort | grep -v -e "'patch' imported but unused" -e tools/cc -e duckyfs
 
 docs:
-	sphinx-apidoc -T -o docs/ src/
+	sphinx-apidoc -T -e -o docs/ ducky/
 	make -C docs clean
 	make -C docs html
 
@@ -201,7 +208,7 @@ clean:
 #
 %.bin: %.asm
 	$(Q) echo -n "[COMPILE] $< => $@ ... "
-	$(Q) $(PYTHON) tools/as -i $< -o $@ -f $(VMDEBUG); if [ "$$?" -eq 0 ]; then echo "$(CC_GREEN)PASS$(CC_END)"; else echo "$(CC_RED)FAIL$(CC_END)"; fi
+	$(Q) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) tools/as -i $< -o $@ -f $(VMDEBUG); if [ "$$?" -eq 0 ]; then echo "$(CC_GREEN)PASS$(CC_END)"; else echo "$(CC_RED)FAIL$(CC_END)"; fi
 
 %.f.out: %.f interrupts.bin $(FORTH_KERNEL)
 	$(eval tc_name     := $(notdir $(<:%.f=%)))
@@ -219,7 +226,7 @@ else
 	$(eval VMCOVERAGE_BIN  := )
 endif
 	$(Q)  echo -n "[TEST] FORTH $(tc_name) ... "
-	-$(Q) $(VMCOVERAGE_FILE) PYTHONUNBUFFERED=yes $(PYTHON) $(VMCOVERAGE_BIN) tools/vm $(VMPROFILE) $(BINPROFILE) -g --conio-stdout-echo=$(CONIO_STDOUT_ECHO) --conio-echo=$(CONIO_ECHO) --conio-highlight=$(CONIO_HIGHLIGHT) --conio-console=no --machine-config=tests/forth/test-machine.conf --machine-in=tests/forth/enable-test-mode.f --machine-in=forth/ducky-forth.f --machine-in=tests/forth/ans/tester.fr --machine-in=$< --machine-in=tests/forth/run-test-word.f --machine-out=$@ $(VMDEBUG) 2>&1 | stdbuf -oL -eL tee $(tc_machine) | grep -v -e '\[INFO\] ' -e '#> ' | cat
+	-$(Q) $(VMCOVERAGE_FILE) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) PYTHONUNBUFFERED=yes $(PYTHON) $(VMCOVERAGE_BIN) tools/vm $(VMPROFILE) $(BINPROFILE) -g --conio-stdout-echo=$(CONIO_STDOUT_ECHO) --conio-echo=$(CONIO_ECHO) --conio-highlight=$(CONIO_HIGHLIGHT) --conio-console=no --machine-config=tests/forth/test-machine.conf --machine-in=tests/forth/enable-test-mode.f --machine-in=forth/ducky-forth.f --machine-in=tests/forth/ans/tester.fr --machine-in=$< --machine-in=tests/forth/run-test-word.f --machine-out=$@ $(VMDEBUG) 2>&1 | stdbuf -oL -eL tee $(tc_machine) | grep -v -e '\[INFO\] ' -e '#> ' | cat
 	-$(Q) grep -e 'INCORRECT RESULT' -e 'WRONG NUMBER OF RESULTS' $@ | cat > $(tc_filtered)
 	-$(Q) if [ -f $(tc_expected) ]; then diff -u $(tc_expected) $@ | cat &> $(tc_diff); fi
 	-$(Q) if [ ! -s $(tc_filtered) ] && ([ ! -f $(tc_diff) ] || [ ! -s $(tc_diff) ]); then \

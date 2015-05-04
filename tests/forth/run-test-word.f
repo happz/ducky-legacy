@@ -4,6 +4,4 @@
   THEN
 ;
 
-VMDEBUGON
-
 RUN-TEST

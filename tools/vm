@@ -1,20 +1,24 @@
 #! /usr/bin/env python
 
-import patch
+import os
+import sys
+
+if os.environ.get('DUCKY_IMPORT_DEVEL', 'no') == 'yes':
+  sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 
 import optparse
 import signal
-import sys
 
-import config
-import console
-import machine
-import reactor
-import util
-import profiler
-import snapshot
+import ducky.patch
+import ducky.config
+import ducky.console
+import ducky.machine
+import ducky.reactor
+import ducky.util
+import ducky.profiler
+import ducky.snapshot
 
-from util import print_table, info
+from ducky.util import print_table, info
 
 def main():
   parser = optparse.OptionParser()
@@ -110,18 +114,19 @@ def main():
   if options.machine_profile:
     profiler.STORE.enable_cpu()
 
-  main_profiler = profiler.STORE.get_machine_profiler()
+  main_profiler = ducky.profiler.STORE.get_machine_profiler()
   main_profiler.enable()
 
-  M = machine.Machine()
+  M = ducky.machine.Machine()
 
-  util.CONSOLE = console.Console(M, sys.stdin, sys.stdout)
-  util.CONSOLE.boot()
+  ducky.util.CONSOLE = ducky.console.Console(M, sys.stdin, sys.stdout)
+  ducky.util.CONSOLE.boot()
+  ducky.util.CONSOLE.set_quiet_mode(not options.debug)
 
   if options.logfile:
-    util.CONSOLE.set_logfile(options.logfile)
+    ducky.util.CONSOLE.set_logfile(options.logfile)
 
-  machine_config = config.MachineConfig()
+  machine_config = ducky.config.MachineConfig()
   machine_config.read(options.machine_config)
 
   M.hw_setup(machine_config,
@@ -163,7 +168,7 @@ def main():
 
   M.run()  # reactor loop!
 
-  state = snapshot.VMState.capture_vm_state(M, suspend = False)
+  state = ducky.snapshot.VMState.capture_vm_state(M, suspend = False)
   state.save('ducky-snapshot.bin')
   info('VM snapshot save in ducky-snapshot.bin')
 
@@ -215,7 +220,7 @@ def main():
 
   if options.profile or options.machine_profile:
     info('Saving profiling data into %s' % options.profile_dir)
-    profiler.STORE.save(options.profile_dir)
+    ducky.profiler.STORE.save(options.profile_dir)
 
   sys.exit(M.exit_code)
 

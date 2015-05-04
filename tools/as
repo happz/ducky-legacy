@@ -1,20 +1,23 @@
 #! /usr/bin/env python
 
-import patch
-
-import optparse
-import os.path
+import os
 import sys
 
-import console
-import cpu
-import mm
-import mm.binary
-import cpu.assemble
-import util
+if os.environ.get('DUCKY_IMPORT_DEVEL', 'no') == 'yes':
+  sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 
-from mm import UInt16
-from util import error, exception
+import optparse
+
+import ducky.patch
+import ducky.console
+import ducky.cpu
+import ducky.mm
+import ducky.mm.binary
+import ducky.cpu.assemble
+import ducky.util
+
+from ducky.mm import UInt16
+from ducky.util import error, exception
 
 def main():
   parser = optparse.OptionParser()
@@ -34,7 +37,8 @@ def main():
 
   options, args = parser.parse_args()
 
-  util.CONSOLE = console.Console(None, sys.stdin, sys.stdout)
+  ducky.util.CONSOLE = ducky.console.Console(None, sys.stdin, sys.stdout)
+  ducky.util.CONSOLE.set_quiet_mode(not options.debug)
 
   if not options.file_in:
     parser.print_help()
@@ -44,14 +48,14 @@ def main():
     buffer = f_in.read()
 
   if options.preprocess:
-    buffer = cpu.assemble.preprocess_buffer(buffer)
+    buffer = ducky.cpu.assemble.preprocess_buffer(buffer)
     print buffer
     sys.exit(0)
 
   try:
-    sections = cpu.assemble.translate_buffer(buffer, base_address = UInt16(int(options.base)), mmapable_sections = options.mmap, filename = options.file_in, defines = options.defines)
+    sections = ducky.cpu.assemble.translate_buffer(buffer, base_address = UInt16(int(options.base)), mmapable_sections = options.mmap, filename = options.file_in, defines = options.defines)
 
-  except cpu.assemble.AssemblerError, exc:
+  except ducky.cpu.assemble.AssemblerError, exc:
     exception(exc)
     sys.exit(1)
 
@@ -67,7 +71,7 @@ def main():
 
   i = 0
   for s_name, section in sections.items():
-    if section.type == mm.binary.SectionTypes.SYMBOLS:
+    if section.type == ducky.mm.binary.SectionTypes.SYMBOLS:
       continue
 
     if 'b' in section.flags and section.size > 0:
@@ -81,7 +85,7 @@ def main():
     section_name_to_index[s_name] = i
     i += 1
 
-  with mm.binary.File(options.file_out, 'w') as f_out:
+  with ducky.mm.binary.File(options.file_out, 'w') as f_out:
     h_file = f_out.create_header()
     h_file.flags.mmapable = 1 if options.mmap else 0
 
@@ -99,11 +103,11 @@ def main():
       h_section.name = f_out.string_table.put_string(section.name)
       h_section.base = section.base.u16
 
-      if section.type == mm.binary.SectionTypes.SYMBOLS:
+      if section.type == ducky.mm.binary.SectionTypes.SYMBOLS:
         symbol_entries = []
 
         for se in section.content:
-          entry = mm.binary.SymbolEntry()
+          entry = ducky.mm.binary.SymbolEntry()
           symbol_entries.append(entry)
 
           entry.name = f_out.string_table.put_string(se.name.name)
@@ -122,7 +126,7 @@ def main():
           entry.type = se.symbol_type
 
         f_out.set_content(h_section, symbol_entries)
-        h_section.size = cpu.assemble.sizeof(mm.binary.SymbolEntry()) * len(symbol_entries)
+        h_section.size = ducky.cpu.assemble.sizeof(ducky.mm.binary.SymbolEntry()) * len(symbol_entries)
 
       else:
         if 'r' in section.flags:
@@ -137,7 +141,7 @@ def main():
         f_out.set_content(h_section, section.content)
 
     h_section = f_out.create_section()
-    h_section.type = mm.binary.SectionTypes.STRINGS
+    h_section.type = ducky.mm.binary.SectionTypes.STRINGS
     h_section.name = f_out.string_table.put_string('.strings')
 
     f_out.save()

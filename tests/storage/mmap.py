@@ -3,9 +3,9 @@ import random
 import string
 import types
 
-import config
+import ducky.config
 
-from mm import ADDR_FMT, segment_addr_to_addr
+from ducky.mm import ADDR_FMT, segment_addr_to_addr
 from tests import prepare_file, common_run_machine, assert_registers, assert_flags, assert_mm, assert_file_content
 
 class Tests(unittest.TestCase):
@@ -13,7 +13,7 @@ class Tests(unittest.TestCase):
     if isinstance(code, types.ListType):
       code = '\n'.join(code)
 
-    machine_config = config.MachineConfig()
+    machine_config = ducky.config.MachineConfig()
 
     for path, addr, size, offset, access, shared in mmaps:
       machine_config.add_mmap(path, addr, size, offset = offset, access = access, shared = shared)

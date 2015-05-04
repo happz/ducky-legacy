@@ -25,23 +25,22 @@ Code Documentation
 .. toctree::
    :maxdepth: 3
 
-   reactor
-   machine
-   cpu
-   cpu.coprocessor
-   mm
-   io_handlers
-   irq
-   console
-   blockio
-   snapshot
-   debugging
-   profiler
-   config
-   errors
-   util
-   duckyfs
-   patch
+   ducky.reactor
+   ducky.machine
+   ducky.cpu
+   ducky.cpu.coprocessor
+   ducky.mm
+   ducky.io_handlers
+   ducky.irq
+   ducky.console
+   ducky.blockio
+   ducky.snapshot
+   ducky.debugging
+   ducky.profiler
+   ducky.config
+   ducky.errors
+   ducky.util
+   ducky.patch
 
 Indices and tables
 ==================

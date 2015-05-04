@@ -1,19 +1,21 @@
-import patch
-
 import os
-import os.path
-import subprocess
 import sys
+
+if os.environ.get('DUCKY_IMPORT_DEVEL', 'no') == 'yes':
+  sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+
+import subprocess
 import tempfile
 
-import config
-import cpu.assemble
-import cpu.registers
-import console
-import machine
-import mm
-import snapshot
-import util
+import ducky.patch
+import ducky.config
+import ducky.cpu.assemble
+import ducky.cpu.registers
+import ducky.console
+import ducky.machine
+import ducky.mm
+import ducky.snapshot
+import ducky.util
 
 def get_tempfile():
   return tempfile.NamedTemporaryFile('w+b', delete = False, dir = os.path.join(os.getenv('PWD'), 'tests-%s' % os.getenv('TESTSET'), 'tmp'))
@@ -38,7 +40,7 @@ def prepare_file(size, messages = None, pattern = 0xDE):
   return f_tmp
 
 def assert_registers(state, **regs):
-  for reg in cpu.registers.REGISTER_NAMES:
+  for reg in ducky.cpu.registers.REGISTER_NAMES:
     if reg in ('flags', 'ip', 'cnt'):
       continue
 
@@ -51,14 +53,14 @@ def assert_registers(state, **regs):
 
     val = regs.get(reg, default)
 
-    reg_index = cpu.registers.REGISTER_NAMES.index(reg)
+    reg_index = ducky.cpu.registers.REGISTER_NAMES.index(reg)
     reg_value = state.registers[reg_index]
 
-    assert reg_value == val, 'Register %s expected to have value %s (%s), %s (%s) found instead' % (reg, mm.UINT16_FMT(val), val, mm.UINT16_FMT(reg_value), reg_value)
+    assert reg_value == val, 'Register %s expected to have value %s (%s), %s (%s) found instead' % (reg, ducky.mm.UINT16_FMT(val), val, ducky.mm.UINT16_FMT(reg_value), reg_value)
 
 def assert_flags(state, **flags):
-  real_flags = cpu.registers.FlagsRegister()
-  real_flags.from_uint16(state.registers[cpu.registers.Registers.FLAGS])
+  real_flags = ducky.cpu.registers.FlagsRegister()
+  real_flags.from_uint16(state.registers[ducky.cpu.registers.Registers.FLAGS])
 
   assert real_flags.privileged == flags.get('privileged', 1), 'PRIV flag expected to be %s' % flags.get('privileged', 1)
   assert real_flags.hwint == flags.get('hwint', 1), 'HWINT flag expected to be %s' % flags.get('hwint', 1)
@@ -69,28 +71,28 @@ def assert_flags(state, **flags):
 
 def assert_mm(state, **cells):
   for addr, expected_value in cells.items():
-    addr = util.str2int(addr)
-    expected_value = util.str2int(expected_value)
-    page_index = mm.addr_to_page(addr)
-    page_offset = mm.addr_to_offset(addr)
+    addr = ducky.util.str2int(addr)
+    expected_value = ducky.util.str2int(expected_value)
+    page_index = ducky.mm.addr_to_page(addr)
+    page_offset = ducky.mm.addr_to_offset(addr)
 
     for page in state.get_page_states():
       if page.index != page_index:
         continue
 
       real_value = page.content[page_offset] | (page.content[page_offset + 1] << 8)
-      assert real_value == expected_value, 'Value at %s (page %s, offset %s) should be %s, %s found instead' % (mm.ADDR_FMT(addr), page_index, mm.UINT8_FMT(page_offset), mm.UINT16_FMT(expected_value), mm.UINT16_FMT(real_value))
+      assert real_value == expected_value, 'Value at %s (page %s, offset %s) should be %s, %s found instead' % (ducky.mm.ADDR_FMT(addr), page_index, ducky.mm.UINT8_FMT(page_offset), ducky.mm.UINT16_FMT(expected_value), ducky.mm.UINT16_FMT(real_value))
       break
 
     else:
-      assert False, 'Page %i (address %s) not found in memory' % (page_index, mm.ADDR_FMT(addr))
+      assert False, 'Page %i (address %s) not found in memory' % (page_index, ducky.mm.ADDR_FMT(addr))
 
 def assert_file_content(filename, cells):
   with open(filename, 'rb') as f:
     for cell_offset, cell_value in cells.iteritems():
       f.seek(cell_offset)
       real_value = ord(f.read(1))
-      assert real_value == cell_value, 'Value at %s (file %s) should be %s, %s found instead' % (cell_offset, filename, mm.UINT8_FMT(cell_value), mm.UINT8_FMT(real_value))
+      assert real_value == cell_value, 'Value at %s (file %s) should be %s, %s found instead' % (cell_offset, filename, ducky.mm.UINT8_FMT(cell_value), ducky.mm.UINT8_FMT(real_value))
 
 def compile_code(code):
   with get_tempfile() as f_asm:
@@ -106,13 +108,13 @@ def compile_code(code):
   return f_bin.name
 
 def run_machine(code, machine_config, coredump_file = None):
-  M = machine.Machine()
+  M = ducky.machine.Machine()
 
-  if not hasattr(util, 'CONSOLE') or util.CONSOLE is None:
-    util.CONSOLE = console.Console(M, None, sys.stdout)
-    util.CONSOLE.boot()
+  if not hasattr(ducky.util, 'CONSOLE') or ducky.util.CONSOLE is None:
+    ducky.util.CONSOLE = ducky.console.Console(M, None, sys.stdout)
+    ducky.util.CONSOLE.boot()
 
-    util.CONSOLE.set_quiet_mode('VERBOSE' not in os.environ)
+    ducky.util.CONSOLE.set_quiet_mode('VERBOSE' not in os.environ)
 
   binary_path = compile_code(code)
   machine_config.add_section('binary-0')
@@ -123,7 +125,7 @@ def run_machine(code, machine_config, coredump_file = None):
   M.boot()
   M.run()
 
-  state = snapshot.VMState.capture_vm_state(M, suspend = False)
+  state = ducky.snapshot.VMState.capture_vm_state(M, suspend = False)
 
   if coredump_file:
     state.save(coredump_file)
@@ -133,13 +135,13 @@ def run_machine(code, machine_config, coredump_file = None):
   return state
 
 def common_run_machine(code, machine_config = None, cpus = 1, cores = 1, irq_routines = 'instructions/interrupts-basic.bin'):
-  if not machine_config:
-    machine_config = config.MachineConfig()
+  if machine_config is None:
+    machine_config = ducky.config.MachineConfig()
 
   machine_config.add_section('machine')
   machine_config.set('machine', 'cpus', cpus)
   machine_config.set('machine', 'cores', cores)
-  machine_config.set('machine', 'interrupt-routines', 'tests/instructions/interrupts-basic.bin')
+  machine_config.set('machine', 'interrupt-routines', os.path.join(os.getcwd(), 'instructions', 'interrupts-basic.bin'))
   machine_config.add_section('cpu')
   machine_config.set('cpu', 'math-coprocessor', 'yes')
 

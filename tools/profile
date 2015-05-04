@@ -1,6 +1,10 @@
 #! /usr/bin/env python
 
-import patch
+import os
+import sys
+
+if os.environ.get('DUCKY_IMPORT_DEVEL', 'no') == 'yes':
+  sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 
 try:
   import cPickle as pickle
@@ -10,15 +14,15 @@ except ImportError:
 
 import collections
 import optparse
-import sys
 
-import console
-import cpu
-import mm.binary
-import util
+import ducky.patch
+import ducky.console
+import ducky.cpu
+import ducky.mm.binary
+import ducky.util
 
-from mm import ADDR_FMT
-from util import info
+from ducky.mm import ADDR_FMT
+from ducky.util import info
 
 def main():
   parser = optparse.OptionParser()
@@ -30,7 +34,8 @@ def main():
 
   options, args = parser.parse_args()
 
-  util.CONSOLE = console.Console(None, sys.stdin, sys.stdout)
+  ducky.util.CONSOLE = ducky.console.Console(None, sys.stdin, sys.stdout)
+  ducky.util.CONSOLE.set_quiet_mode(not options.debug)
 
   if not options.files_in:
     parser.print_help()
@@ -53,11 +58,11 @@ def main():
 
   all_hits = sum(data.itervalues())
 
-  binary = mm.binary.File(options.binary, 'r')
+  binary = ducky.mm.binary.File(options.binary, 'r')
   binary.load()
   binary.load_symbols()
 
-  symbol_table = util.SymbolTable(binary)
+  symbol_table = ducky.util.SymbolTable(binary)
 
   def print_points(addresses):
     table = [
@@ -73,7 +78,7 @@ def main():
       symbol = symbol_table.get_symbol(symbol)
       header, content = binary.get_section(symbol.section)
 
-      table.append([ADDR_FMT(addr), symbol_name, hits, '%.02f' % (float(hits) / float(all_hits) * 100.0), cpu.instructions.decode_instruction(content[(symbol.address + offset - header.base) / 4])])
+      table.append([ADDR_FMT(addr), symbol_name, hits, '%.02f' % (float(hits) / float(all_hits) * 100.0), ducky.cpu.instructions.decode_instruction(content[(symbol.address + offset - header.base) / 4])])
 
     util.print_table(table)
 

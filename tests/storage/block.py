@@ -3,10 +3,10 @@ import random
 import string
 import types
 
-import config
-import blockio
+import ducky.config
+import ducky.blockio
 
-from mm import ADDR_FMT, segment_addr_to_addr
+from ducky.mm import ADDR_FMT, segment_addr_to_addr
 from tests import common_run_machine, assert_registers, assert_flags, assert_mm, assert_file_content, prepare_file
 
 class Tests(unittest.TestCase):
@@ -14,7 +14,7 @@ class Tests(unittest.TestCase):
     if isinstance(code, types.ListType):
       code = '\n'.join(code)
 
-    machine_config = config.MachineConfig()
+    machine_config = ducky.config.MachineConfig()
 
     for driver, id, path in storages:
       machine_config.add_storage(driver, id, filepath = path)
@@ -30,7 +30,7 @@ class Tests(unittest.TestCase):
       assert_file_content(filename, cells)
 
   def test_unknown_device(self):
-    file_size = blockio.BLOCK_SIZE * 10
+    file_size = ducky.blockio.BLOCK_SIZE * 10
     f_tmp = prepare_file(file_size)
     storage_desc = ('block', 1, f_tmp.name)
 
@@ -50,7 +50,7 @@ class Tests(unittest.TestCase):
     self.common_case(code, [storage_desc], None, [], r0 = 0xFFFF, z = 1)
 
   def test_unknown_operation(self):
-    file_size = blockio.BLOCK_SIZE * 10
+    file_size = ducky.blockio.BLOCK_SIZE * 10
     f_tmp = prepare_file(file_size)
     storage_desc = ('block', 1, f_tmp.name)
 
@@ -70,23 +70,23 @@ class Tests(unittest.TestCase):
 
   def test_block_read(self):
     # size of storage file
-    file_size   = blockio.BLOCK_SIZE * 10
+    file_size   = ducky.blockio.BLOCK_SIZE * 10
     # message length
     msg_length  = 64
     # msg resides in this block
-    msg_block  = random.randint(0, (file_size / blockio.BLOCK_SIZE) - 1)
+    msg_block  = random.randint(0, (file_size / ducky.blockio.BLOCK_SIZE) - 1)
 
     # create random message
     msg = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(msg_length))
 
-    f_tmp = prepare_file(file_size, messages = [(msg_block * blockio.BLOCK_SIZE, msg)])
+    f_tmp = prepare_file(file_size, messages = [(msg_block * ducky.blockio.BLOCK_SIZE, msg)])
 
     storage_desc = ('block', 1, f_tmp.name)
 
     # prepare mm assert dict, and insert message and redzones in front and after the buffer
     mm_assert = {
       ADDR_FMT(segment_addr_to_addr(2, 0)): 0xFEFE,
-      ADDR_FMT(segment_addr_to_addr(2, 2 + blockio.BLOCK_SIZE)): 0xBFBF
+      ADDR_FMT(segment_addr_to_addr(2, 2 + ducky.blockio.BLOCK_SIZE)): 0xBFBF
     }
 
     file_assert = [
@@ -95,8 +95,8 @@ class Tests(unittest.TestCase):
 
     for i in range(0, msg_length, 2):
       mm_assert[ADDR_FMT(segment_addr_to_addr(2, 2 + i))] = ord(msg[i]) | (ord(msg[i + 1]) << 8)
-      file_assert[0][1][msg_block * blockio.BLOCK_SIZE + i] = ord(msg[i])
-      file_assert[0][1][msg_block * blockio.BLOCK_SIZE + i + 1] = ord(msg[i + 1])
+      file_assert[0][1][msg_block * ducky.blockio.BLOCK_SIZE + i] = ord(msg[i])
+      file_assert[0][1][msg_block * ducky.blockio.BLOCK_SIZE + i + 1] = ord(msg[i + 1])
 
     code = """
       .def INT_BLOCKIO: 1
@@ -126,22 +126,22 @@ class Tests(unittest.TestCase):
         li r4, 1
         int $INT_BLOCKIO
         int 0
-    """.format(**{'msg_block': msg_block, 'msg_length': msg_length, 'block_size': blockio.BLOCK_SIZE})
+    """.format(**{'msg_block': msg_block, 'msg_length': msg_length, 'block_size': ducky.blockio.BLOCK_SIZE})
 
     self.common_case(code, [storage_desc], mm_assert, file_assert,
                      r0 = 0, r1 = 0, r2 = msg_block, r3 = 0x0002, r4 = 1)
 
   def test_block_write(self):
     # size of file
-    file_size   = blockio.BLOCK_SIZE * 10
+    file_size   = ducky.blockio.BLOCK_SIZE * 10
     # message length
     msg_length  = 64
     # msg resides in this offset
-    msg_block  = random.randint(0, (file_size / blockio.BLOCK_SIZE) - 1)
+    msg_block  = random.randint(0, (file_size / ducky.blockio.BLOCK_SIZE) - 1)
 
     # create random message
     msg = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(msg_length))
-    msg += (chr(0xBF) * (blockio.BLOCK_SIZE - msg_length))
+    msg += (chr(0xBF) * (ducky.blockio.BLOCK_SIZE - msg_length))
 
     # create file that we later mmap, filled with pseudodata
     f_tmp = prepare_file(file_size)
@@ -155,10 +155,10 @@ class Tests(unittest.TestCase):
       (f_tmp.name, {})
     ]
 
-    for i in range(0, blockio.BLOCK_SIZE, 2):
+    for i in range(0, ducky.blockio.BLOCK_SIZE, 2):
       mm_assert[ADDR_FMT(segment_addr_to_addr(2, i))] = ord(msg[i]) | (ord(msg[i + 1]) << 8)
-      file_assert[0][1][msg_block * blockio.BLOCK_SIZE + i] = ord(msg[i])
-      file_assert[0][1][msg_block * blockio.BLOCK_SIZE + i + 1] = ord(msg[i + 1])
+      file_assert[0][1][msg_block * ducky.blockio.BLOCK_SIZE + i] = ord(msg[i])
+      file_assert[0][1][msg_block * ducky.blockio.BLOCK_SIZE + i + 1] = ord(msg[i + 1])
 
     code = """
       .def INT_BLOCKIO: 1
@@ -182,7 +182,7 @@ class Tests(unittest.TestCase):
         li r4, 1
         int $INT_BLOCKIO
         int 0
-    """.format(**{'msg_block': msg_block, 'msg_length': msg_length, 'block_size': blockio.BLOCK_SIZE, 'msg': msg})
+    """.format(**{'msg_block': msg_block, 'msg_length': msg_length, 'block_size': ducky.blockio.BLOCK_SIZE, 'msg': msg})
 
     self.common_case(code, [storage_desc], mm_assert, file_assert,
                      r0 = 0, r1 = 1, r3 = msg_block, r4 = 1)

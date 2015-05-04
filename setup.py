@@ -7,7 +7,15 @@ setup(name = 'ducky',
       author = 'Milos Prchlik',
       author_email = 'happz@happz.cz',
       license = 'MIT',
-      packages = ['ducky'],
+      packages = [
+        'ducky',
+        'ducky.cpu',
+        'ducky.cpu.coprocessor',
+        'ducky.io_handlers',
+        'ducky.irq',
+        'ducky.mm'
+      ],
+      package_dir = {'ducky': 'ducky'},
       zip_safe = False,
       install_requires = [
         'threading2',

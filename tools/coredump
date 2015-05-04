@@ -1,20 +1,24 @@
 #! /usr/bin/env python
 
-import patch
+import os
+import sys
+
+if os.environ.get('DUCKY_IMPORT_DEVEL', 'no') == 'yes':
+  sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 
 import optparse
 import string
-import sys
 
-import console
-import mm
-import mm.binary
-import snapshot
-import util
+import ducky.patch
+import ducky.console
+import ducky.mm
+import ducky.mm.binary
+import ducky.snapshot
+import ducky.util
 
-from mm import ADDR_FMT, UINT16_FMT, UINT8_FMT, PAGE_SIZE
-from cpu.registers import Flags, Registers
-from util import info, print_table
+from ducky.mm import ADDR_FMT, UINT16_FMT, UINT8_FMT, PAGE_SIZE
+from ducky.cpu.registers import Flags, Registers
+from ducky.util import info, print_table
 
 def show_header(state):
   state = state.get_child('machine')
@@ -86,11 +90,11 @@ def show_stack(state):
 
   sps = {}
   for cs in state.get_child('machine').get_core_states():
-    sps[mm.segment_addr_to_addr(cs.registers[Registers.DS], cs.registers[Registers.SP])] = '#%i:#%i' % (cs.cpuid, cs.coreid)
+    sps[ducky.mm.segment_addr_to_addr(cs.registers[Registers.DS], cs.registers[Registers.SP])] = '#%i:#%i' % (cs.cpuid, cs.coreid)
 
   for pg in stacks:
     pg_address = pg.index * PAGE_SIZE
-    pg_segment = mm.addr_to_segment(pg_address)
+    pg_segment = ducky.mm.addr_to_segment(pg_address)
 
     info('=== Page %s - %s %s ===', pg.index, UINT8_FMT(pg_segment), ADDR_FMT(pg_address))
 
@@ -103,7 +107,7 @@ def show_stack(state):
         v = pg.content[offset] | (pg.content[offset + 1] << 8)
         row.append((sps.get(segment_offset, None), v))
 
-      info('  ' + '  '.join(['%s %s' % (' ' if sp is None else '*', console.WHITE(UINT16_FMT(value)) if value != 0 else console.GREEN(UINT16_FMT(value))) for sp, value in row]))
+      info('  ' + '  '.join(['%s %s' % (' ' if sp is None else '*', ducky.console.WHITE(UINT16_FMT(value)) if value != 0 else ducky.console.GREEN(UINT16_FMT(value))) for sp, value in row]))
 
     info('')
 
@@ -126,7 +130,7 @@ def show_pages(state):
 
   for pg in sorted(state.get_child('machine').get_child('memory').get_page_states(), key = lambda x: x.index):
     pg_addr = pg.index * PAGE_SIZE
-    pg_segment = mm.addr_to_segment(pg_addr)
+    pg_segment = ducky.mm.addr_to_segment(pg_addr)
 
     for bs in state.get_child('machine').get_binary_states():
       if pg_segment == bs.cs:
@@ -145,7 +149,7 @@ def show_pages(state):
 
       for b in pg.content[CPR * i:CPR * (i + 1)]:
         c = '%02X' % b
-        s.append(console.GREEN(c) if b == 0 else console.WHITE(c))
+        s.append(ducky.console.GREEN(c) if b == 0 else ducky.console.WHITE(c))
 
         c = chr(b)
         if c in string.printable[0:-5]:
@@ -177,23 +181,23 @@ def show_pages(state):
     info('')
 
 def load_binary_symbols(vs, bs):
-  bs.raw_binary = mm.binary.File(bs.path, 'r')
+  bs.raw_binary = ducky.mm.binary.File(bs.path, 'r')
   bs.raw_binary.load()
 
   bs.symbols = {}
   for i in range(0, bs.raw_binary.get_header().sections):
     s_header, s_content = bs.raw_binary.get_section(i)
 
-    if s_header.type != mm.binary.SectionTypes.SYMBOLS:
+    if s_header.type != ducky.mm.binary.SectionTypes.SYMBOLS:
       continue
 
     for entry in s_content:
       _header, _content = bs.raw_binary.get_section(entry.section)
 
-      segment = bs.cs if _header.type == mm.binary.SectionTypes.TEXT else bs.ds
+      segment = bs.cs if _header.type == ducky.mm.binary.SectionTypes.TEXT else bs.ds
 
       symbol_name = bs.raw_binary.string_table.get_string(entry.name)
-      symbol_address = mm.segment_addr_to_addr(segment, entry.address)
+      symbol_address = ducky.mm.segment_addr_to_addr(segment, entry.address)
 
       if symbol_address not in bs.symbols:
         bs.symbols[symbol_address] = []
@@ -217,7 +221,8 @@ def main():
 
   options, args = parser.parse_args()
 
-  util.CONSOLE = console.Console(None, sys.stdin, sys.stdout)
+  ducky.util.CONSOLE = ducky.console.Console(None, sys.stdin, sys.stdout)
+  ducky.util.CONSOLE.set_quiet_mode(not options.debug)
 
   if not options.file_in:
     parser.print_help()
@@ -228,7 +233,7 @@ def main():
 
   info('Input file: %s', options.file_in)
 
-  with snapshot.CoreDumpFile(options.file_in, 'r') as f_in:
+  with ducky.snapshot.CoreDumpFile(options.file_in, 'r') as f_in:
     state = f_in.load()
 
     for bs in state.get_child('machine').get_binary_states():

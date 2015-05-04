@@ -4,10 +4,9 @@ lse
 .noseids
 
 # Test logs
-*.machine
-*.out
-*.xml
-
+tests-default
+tests-pypy
+tests-python
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -60,6 +59,7 @@ coverage.xml
 
 # Sphinx documentation
 docs/_build/
+docs/ducky.rst
 
 # PyBuilder
 target/
