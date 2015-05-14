@@ -109,10 +109,10 @@ def main():
   options, args = parser.parse_args()
 
   if options.profile:
-    profiler.STORE.enable_machine()
+    ducky.profiler.STORE.enable_machine()
 
   if options.machine_profile:
-    profiler.STORE.enable_cpu()
+    ducky.profiler.STORE.enable_cpu()
 
   main_profiler = ducky.profiler.STORE.get_machine_profiler()
   main_profiler.enable()
@@ -141,19 +141,19 @@ def main():
   def signal_handler(sig, frame):
     if sig == signal.SIGUSR1:
       info('VM suspended by user')
-      reactor.reactor.add_call(M.suspend)
+      ducky.reactor.reactor.add_call(M.suspend)
 
     elif sig == signal.SIGUSR2:
       info('VM unsuspended by user')
-      reactor.reactor.add_call(M.wake_up)
+      ducky.reactor.reactor.add_call(M.wake_up)
 
     elif sig == signal.SIGINT:
       info('VM halted by user')
-      reactor.reactor.add_call(M.halt)
+      ducky.reactor.reactor.add_call(M.halt)
 
     elif sig == signal.SIGSEGV:
       info('VM snapshot requested')
-      reactor.reactor.add_call(M.snapshot('ducky-snapshot-user.bin'))
+      ducky.reactor.reactor.add_call(M.snapshot('ducky-snapshot-user.bin'))
 
   signal.signal(signal.SIGINT,  signal_handler)
   signal.signal(signal.SIGUSR1, signal_handler)
@@ -164,7 +164,7 @@ def main():
 
   if not options.go_on:
     info('Press Enter to start execution of loaded binaries')
-    util.CONSOLE.wait_on_line()
+    ducky.util.CONSOLE.wait_on_line()
 
   M.run()  # reactor loop!
 

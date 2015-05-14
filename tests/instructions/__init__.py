@@ -1,7 +1,9 @@
 import types
 import unittest
 
-from tests import common_run_machine, assert_registers, assert_flags, assert_mm
+from tests import common_run_machine, assert_registers, assert_flags, assert_mm, raises
+
+import ducky.errors
 
 class Tests(unittest.TestCase):
   def common_case(self, code, **kwargs):
@@ -249,3 +251,71 @@ class Tests(unittest.TestCase):
     ]
 
     self.common_case(code, r2 = 0xDEAD, s = 1, mm = {'0x020000': 0xAD, '0x020002': 0})
+
+  def test_cli(self):
+    code = [
+      '  .text',
+      'main:',
+      '  li r1, 0xFF',
+      '  cli',
+      '  li r1, 0xEE',
+      '  int 0'
+    ]
+
+    self.common_case(code, r1 = 0xFF, fp = 0x0200, sp = 0x0200, cs = 0x02, ds = 0x02, privileged = 0)
+
+    code = [
+      '  .text',
+      'main:',
+      '  li r1, 0xFF',
+      '  int 11',
+    ]
+
+    self.common_case(code, r1 = 0xFF, hwint = 0)
+
+  def test_sti(self):
+    # hwint is always 1... This is just a sanity test, nothing serious.
+    # But it's better than nothing.
+
+    code = [
+      '  .text',
+      'main:',
+      '  int 12'
+    ]
+
+    self.common_case(code)
+
+  def test_cas(self):
+    code = [
+      '  .data',
+
+      '  .type foo, int',
+      '  .int 0x0A',
+
+      '  .text',
+      'main:',
+      '  li r1, &foo',
+      '  li r2, 0x0A',
+      '  li r3, 0x0B',
+      '  cas r1, r2, r3',
+      '  int 0'
+    ]
+
+    self.common_case(code, r2 = 0x0A, r3 = 0x0B, e = 1, mm = {'0x020000': 0x0B})
+
+    code = [
+      '  .data',
+
+      '  .type foo, int',
+      '  .int 0x0A',
+
+      '  .text',
+      'main:',
+      '  li r1, &foo',
+      '  li r2, 0x0B',
+      '  li r3, 0x0C',
+      '  cas r1, r2, r3',
+      '  int 0'
+    ]
+
+    self.common_case(code, r2 = 0x0A, r3 = 0x0C, mm = {'0x020000': 0x0A})

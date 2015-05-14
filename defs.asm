@@ -1,4 +1,11 @@
 ;
+; Instruction sets
+;
+.def INST_SET_DUCKY: 0
+.def INST_SET_MATH:  1
+
+
+;
 ; Memory
 ;
 

@@ -10,6 +10,7 @@ import types
 
 from .. import cpu
 from .. import mm
+from ..cpu.coprocessor.math_copro import MathCoprocessorInstructionSet
 
 from ..mm import UInt8, UInt16, ADDR_FMT, PAGE_SIZE
 from ..mm.binary import SectionTypes
@@ -540,6 +541,8 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, filen
   labels = []
   variables = {}
 
+  instruction_set = cpu.instructions.DuckyInstructionSet
+
   defs = collections.OrderedDict()
 
   macros = collections.OrderedDict()
@@ -854,7 +857,10 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, filen
     emited_inst = None
 
     # Find instruction descriptor
-    for desc in cpu.instructions.INSTRUCTIONS:
+    line = line.strip()
+
+    for desc in instruction_set.instructions:
+      debug(msg_prefix + 'pattern: %s', desc.pattern.pattern)
       if not desc.pattern.match(line):
         continue
       break
@@ -874,7 +880,12 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, filen
 
     labels = []
 
-    debug(msg_prefix + 'emitted instruction: %s', cpu.instructions.disassemble_instruction(emited_inst))
+    debug(msg_prefix + 'emitted instruction: %s', emited_inst.desc.instruction_set.disassemble_instruction(emited_inst))
+
+    if isinstance(desc, cpu.instructions.Inst_SIS):
+      debug(msg_prefix + 'switching istruction set: inst_set=%s', emited_inst.immediate)
+
+      instruction_set = cpu.instructions.get_instruction_set(emited_inst.immediate)
 
   for s_name, section in sections_pass1.items():
     debug('pass #1: section %s', s_name)
@@ -1016,7 +1027,7 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, filen
             debug(ptr_prefix + 'reference "%s" unknown, fix in the next pass', inst.refers_to)
 
         section.content.append(inst)
-        debug(ptr_prefix + cpu.instructions.disassemble_instruction(inst))
+        debug(ptr_prefix + inst.desc.instruction_set.disassemble_instruction(inst))
         section.ptr.u16 += 4
 
     base_ptr.u16 = align_to_next_mmap(section.ptr.u16) if mmapable_sections else align_to_next_page(section.ptr.u16)

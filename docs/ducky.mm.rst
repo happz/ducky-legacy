@@ -7,6 +7,7 @@ Submodules
 .. toctree::
 
    ducky.mm.binary
+   ducky.mm.interrupt
 
 Module contents
 ---------------

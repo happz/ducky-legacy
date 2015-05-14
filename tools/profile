@@ -80,7 +80,7 @@ def main():
 
       table.append([ADDR_FMT(addr), symbol_name, hits, '%.02f' % (float(hits) / float(all_hits) * 100.0), ducky.cpu.instructions.decode_instruction(content[(symbol.address + offset - header.base) / 4])])
 
-    util.print_table(table)
+    ducky.util.print_table(table)
 
   def print_symbol_hits(functions):
     table = [
@@ -91,7 +91,7 @@ def main():
       hits = symbol_hits[fn]
       table.append([fn, hits, '%.02f' % (float(hits) / float(all_hits) * 100.0)])
 
-    util.print_table(table)
+    ducky.util.print_table(table)
 
   symbol_hits = collections.defaultdict(int)
 

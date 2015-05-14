@@ -453,7 +453,7 @@ $DEFCODE "DEPTH", 5, 0, DEPTH
   push sp
   pop $X
   sub $W, $X
-  div $W, $CELL_SIZE
+  div $W, $CELL
   push $W
   $NEXT
 
@@ -649,7 +649,7 @@ $DEFCODE ">BODY", 5, 0, TOBODY
 $DEFCODE "CELLS", 5, 0, CELLS
   ; ( n -- cell_size*n )
   pop $W
-  mul $W, $CELL_SIZE
+  mul $W, $CELL
   push $W
   $NEXT
 
@@ -824,124 +824,74 @@ $DEFCODE "ABS", 3, 0, ABS
 ;
 ; Double-cell integer operations
 ;
-; This routines use math coprocessor's (MC) interrupt
-;
-.macro DC_dup:
-  li r0, $MATH_DUPL
-  int $INT_MATH
-.end
-
-.macro DC_mul:
-  li r0, $MATH_MULL
-  int $INT_MATH
-.end
-
-.macro DC_div:
-  li r0, $MATH_DIVL
-  int $INT_MATH
-.end
-
-.macro DC_mod:
-  li r0, $MATH_MODL
-  int $INT_MATH
-.end
-
-.macro DC_symdiv:
-  li r0, $MATH_SYMDIVL
-  int $INT_MATH
-.end
-
-.macro DC_symmod:
-  li r0, $MATH_SYMMODL
-  int $INT_MATH
-.end
-
-.macro DC_itos_to_l:
-  li r0, $MATH_ITOL
-  pop r1
-  int $INT_MATH
-.end
-
-.macro DC_utos_to_l:
-  li r0, $MATH_UTOL
-  pop r1
-  int $INT_MATH
-.end
-
-.macro DC_ir_to_l reg:
-  li r0, $MATH_ITOL
-  mov r1, #reg
-  int $INT_MATH
-.end
-
-.macro DC_dtos_to_l:
-  li r0, $MATH_IITOL
-  pop r2
-  pop r1
-  int $INT_MATH
-.end
-
-.macro DC_l_to_itos:
-  li r0, $MATH_LTOI
-  int $INT_MATH
-  push r1
-.end
-
-.macro DC_l_to_dtos:
-  li r0, $MATH_LTOII
-  int $INT_MATH
-  push r1
-  push r2
-.end
-
 $DEFCODE "S>D", 3, 0, STOD
   ; ( n -- d )
-  $DC_itos_to_l
-  $DC_l_to_dtos
+  sis $INST_SET_MATH
+  pop r1
+  itol
+  ltoii
+  push r1
+  push r2
+  sis $INST_SET_DUCKY
   $NEXT
 
 
 $DEFCODE "M*", 2, 0, MSTAR
   ; ( n1 n2 -- d )
-  $DC_itos_to_l
-  $DC_itos_to_l
-  $DC_mul
-  $DC_l_to_dtos
+  sis $INST_SET_MATH
+  pop r1
+  itol
+  pop r1
+  itol
+  mull
+  ltoii
+  push r1
+  push r2
+  sis $INST_SET_DUCKY
   $NEXT
+
 
 $DEFCODE "FM/MOD", 6, 0, FMMOD
   ; ( d1 n1 -- n2 n3 )
+  sis $INST_SET_MATH
   pop $W
-
-  $DC_dtos_to_l
-  $DC_dup
-
-  $DC_ir_to_l $W
-  $DC_mod
-  $DC_l_to_itos
-
-  $DC_ir_to_l $W
-  $DC_div
-  $DC_l_to_itos
-
+  pop r2
+  pop r1
+  iitol
+  dupl
+  mov r1, $W
+  itol
+  modl
+  ltoi
+  push r1
+  mov r1, $W
+  itol
+  divl
+  ltoi
+  push r1
+  sis $INST_SET_DUCKY
   $NEXT
 
 
 $DEFCODE "SM/REM", 6, 0, SMMOD
   ; ( d1 n1 -- n2 n3 )
+  sis $INST_SET_MATH
   pop $W
-
-  $DC_dtos_to_l
-  $DC_dup
-
-  $DC_ir_to_l $W
-  $DC_symmod
-  $DC_l_to_itos
-
-  $DC_ir_to_l $W
-  $DC_symdiv
-  $DC_l_to_itos
-
+  pop r2
+  pop r1
+  iitol
+  dupl
+  mov r1, $W
+  itol
+  symmodl
+  ltoi
+  push r1
+  mov r1, $W
+  itol
+  symdivl
+  ltoi
+  push r1
+  sis $INST_SET_DUCKY
   $NEXT
 
 
@@ -951,43 +901,62 @@ $DEFCODE "UM/MOD", 6, 0, UMMOD
 
 $DEFCODE "*/", 2, 0, STARSLASH
   ; ( n1 n2 n3 -- n4 )
+  sis $INST_SET_MATH
   pop $W
   pop $X
   pop $Y
-  $DC_ir_to_l $Y
-  $DC_ir_to_l $X
-  $DC_mul
-  $DC_ir_to_l $W
-  $DC_div
-  $DC_l_to_itos
+  mov r1, $Y
+  itol
+  mov r1, $X
+  itol
+  mull
+  mov r1, $W
+  itol
+  divl
+  ltoi
+  push r1
+  sis $INST_SET_DUCKY
   $NEXT
 
 
 $DEFCODE "*/MOD", 5, 0, STARMOD
   ; ( n1 n2 n3 -- n4 n5 )
+  sis $INST_SET_MATH
   pop $W
   pop $X
   pop $Y
-
-  $DC_ir_to_l $Y
-  $DC_ir_to_l $X
-  $DC_mul
-  $DC_dup
-  $DC_ir_to_l $W
-  $DC_mod
-  $DC_l_to_itos
-  $DC_ir_to_l $W
-  $DC_div
-  $DC_l_to_itos
+  mov r1, $Y
+  itol
+  mov r1, $X
+  itol
+  mull
+  dupl
+  mov r1, $W
+  itol
+  modl
+  ltoi
+  push r1
+  mov r1, $W
+  itol
+  divl
+  ltoi
+  push r1
+  sis $INST_SET_DUCKY
   $NEXT
 
 
 $DEFCODE "UM*", 3, 0, UMSTAR
   ; ( u1 u2 -- ud )
-  $DC_utos_to_l
-  $DC_utos_to_l
-  $DC_mul
-  $DC_l_to_dtos
+  sis $INST_SET_MATH
+  pop r1
+  utol
+  pop r1
+  utol
+  mull
+  ltoii
+  push r1
+  push r2
+  sis $INST_SET_DUCKY
   $NEXT
 
 

@@ -119,7 +119,7 @@ LEAVE-SP LEAVE-SP !
 
 \ ID. takes an address of a dictionary entry and prints the word's name.
 : ID.
-  3 +   ( skip over the link pointer and flags byte )
+  5 +   ( skip over the link pointer and flags byte )
 	DUP C@		( get the flags/length byte )
 
 	BEGIN

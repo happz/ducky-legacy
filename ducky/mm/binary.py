@@ -3,7 +3,7 @@ import mmap
 
 from .. import cpu
 
-from ..mm import UInt8, ADDR_FMT
+from ..mm import UInt8, UInt32, ADDR_FMT
 from ..util import debug, error, BinaryFile, StringTable, align
 from ctypes import LittleEndianStructure, c_uint, c_ushort, c_ubyte, sizeof
 
@@ -109,7 +109,7 @@ class SymbolEntry(LittleEndianStructure):
     return '<SymbolEntry: section=%i, name=%s, type=%s, addr=%s>' % (self.section, self.name, SYMBOL_DATA_TYPES[self.type], ADDR_FMT(self.address))
 
 SECTION_ITEM_SIZE = [
-  0, sizeof(cpu.instructions.InstBinaryFormat_Master), sizeof(UInt8), sizeof(SymbolEntry)
+  0, 4, sizeof(UInt8), sizeof(SymbolEntry)
 ]
 
 class File(BinaryFile):
@@ -196,7 +196,7 @@ class File(BinaryFile):
 
         elif header.type == SectionTypes.TEXT:
           count = header.items
-          st_class = cpu.instructions.InstBinaryFormat_Master
+          st_class = UInt32
 
         else:
           from ..mm import MalformedBinaryError

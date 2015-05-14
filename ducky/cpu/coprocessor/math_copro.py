@@ -12,15 +12,22 @@ back.
 import enum
 
 from . import Coprocessor
+from .. import CPUException
 from ..registers import Registers
+from ..instructions import InstructionSet, InstDescriptor_Generic, Inst_POP, Inst_PUSH, Inst_MOV, Inst_SIS, INSTRUCTION_SETS
 from ...mm import u32, i32, UINT32_FMT, UINT16_FMT
 from ...irq import InterruptList
 from ...irq.virtual import VIRTUAL_INTERRUPTS, VirtualInterrupt
 from ...snapshot import SnapshotNode, ISnapshotable
 
+#: Number of available spots on the math stack.
 STACK_DEPTH = 8
 
 class MathCoprocessorState(SnapshotNode):
+  """
+  Snapshot node holding the state of math coprocessor.
+  """
+
   def __init__(self):
     super(MathCoprocessorState, self).__init__('stack')
 
@@ -45,18 +52,30 @@ class MathOperationList(enum.IntEnum):
   SYMDIVL = 13
   SYMMODL = 14
 
-class EmptyMathStackError(Exception):
-  def __init__(self):
-    super(EmptyMathStackError, self).__init__('Math stack is empty')
+class EmptyMathStackError(CPUException):
+  """
+  Raised when operation expects at least one value on math stack but stack
+  is empty.
+  """
 
-class FullMathStackError(Exception):
-  def __init__(self):
-    super(FullMathStackError, self).__init__('Math stack is full')
+  def __init__(self, *args, **kwargs):
+    super(EmptyMathStackError, self).__init__('Math stack is empty', *args, **kwargs)
+
+class FullMathStackError(CPUException):
+  """
+  Raised when operation tries to put value on math stack but there is no empty
+  spot available.
+  """
+
+  def __init__(self, *args, **kwargs):
+    super(FullMathStackError, self).__init__('Math stack is full', *args, **kwargs)
 
 class RegisterSet(ISnapshotable, object):
   """
   Math stack wrapping class. Provides basic push/pop access, and direct access
   to a top of the stack.
+
+  :param ducky.cpu.CPUCore core: CPU core registers belong to.
   """
 
   def __init__(self, core):
@@ -119,6 +138,8 @@ class RegisterSet(ISnapshotable, object):
 class MathCoprocessor(ISnapshotable, Coprocessor):
   """
   Coprocessor itself, includes its register set ("math stack").
+
+  :param ducky.cpu.CPUCore core: CPU core coprocessor belongs to.
   """
 
   def __init__(self, core, *args, **kwargs):
@@ -388,6 +409,9 @@ class MathCoprocessor(ISnapshotable, Coprocessor):
     D('modl: %s %s', UINT32_FMT(old_tos), UINT32_FMT(lr.value))
     self.dump_stack()
 
+#
+# Virtual interrupt
+#
 class MathInterrupt(VirtualInterrupt):
   """
   Virtual interrupt handler of math coprocessor.
@@ -455,4 +479,194 @@ class MathInterrupt(VirtualInterrupt):
       core.WARN('Unknown math operation requested: %s', op)
       core.REG(Registers.R00).value = 0xFFFF
 
+#
+# Instruction set
+#
+class MathCoprocessorOpcodes(enum.IntEnum):
+  """
+  Math coprocessor's instruction opcodes.
+  """
+
+  INCL    =  0
+  DECL    =  1
+  ADDL    =  2
+  SUBL    =  3
+  MULL    =  4
+  DIVL    =  5
+  MODL    =  6
+  ITOL    =  7
+  LTOI    =  8
+  LTOII   =  9
+  IITOL   = 10
+  DUPL    = 11
+  UTOL    = 12
+  SYMDIVL = 13
+  SYMMODL = 14
+
+  POP     = 60
+  PUSH    = 61
+  MOV     = 62
+  SIS     = 63
+
+class MathCoprocessorInstructionSet(InstructionSet):
+  """
+  Math coprocessor's instruction set.
+  """
+
+  id = 1
+
+  opcodes = MathCoprocessorOpcodes
+
+class Inst_PUSH(Inst_PUSH):
+  opcode = MathCoprocessorOpcodes.PUSH
+
+class Inst_POP(Inst_POP):
+  opcode = MathCoprocessorOpcodes.POP
+
+class Inst_MOV(Inst_MOV):
+  opcode = MathCoprocessorOpcodes.MOV
+
+class Inst_INCL(InstDescriptor_Generic):
+  mnemonic = 'incl'
+  opcode = MathCoprocessorOpcodes.INCL
+
+  @staticmethod
+  def execute(core, inst):
+    core.math_coprocessor.op_incl()
+
+class Inst_DECL(InstDescriptor_Generic):
+  mnemonic = 'decl'
+  opcode = MathCoprocessorOpcodes.DECL
+
+  @staticmethod
+  def execute(core, inst):
+    core.math_coprocessor.op_decl()
+
+class Inst_ADDL(InstDescriptor_Generic):
+  mnemonic = 'addl'
+  opcode = MathCoprocessorOpcodes.ADDL
+
+  @staticmethod
+  def execute(core, inst):
+    core.math_coprocessor.op_addl()
+
+class Inst_SUBL(InstDescriptor_Generic):
+  mnemonic = 'subl'
+  opcode = MathCoprocessorOpcodes.SUBL
+
+  @staticmethod
+  def execute(core, inst):
+    core.math_coprocessor.op_subl()
+
+class Inst_MULL(InstDescriptor_Generic):
+  mnemonic = 'mull'
+  opcode = MathCoprocessorOpcodes.MULL
+
+  @staticmethod
+  def execute(core, inst):
+    core.math_coprocessor.op_mull()
+
+class Inst_DIVL(InstDescriptor_Generic):
+  mnemonic = 'divl'
+  opcode = MathCoprocessorOpcodes.DIVL
+
+  @staticmethod
+  def execute(core, inst):
+    core.math_coprocessor.op_divl()
+
+class Inst_MODL(InstDescriptor_Generic):
+  mnemonic = 'modl'
+  opcode = MathCoprocessorOpcodes.MODL
+
+  @staticmethod
+  def execute(core, inst):
+    core.math_coprocessor.op_modl()
+
+class Inst_ITOL(InstDescriptor_Generic):
+  mnemonic = 'itol'
+  opcode = MathCoprocessorOpcodes.ITOL
+
+  @staticmethod
+  def execute(core, inst):
+    core.math_coprocessor.op_itol()
+
+class Inst_LTOI(InstDescriptor_Generic):
+  mnemonic = 'ltoi'
+  opcode = MathCoprocessorOpcodes.LTOI
+
+  @staticmethod
+  def execute(core, inst):
+    core.math_coprocessor.op_ltoi()
+
+class Inst_LTOII(InstDescriptor_Generic):
+  mnemonic = 'ltoii'
+  opcode = MathCoprocessorOpcodes.LTOII
+
+  @staticmethod
+  def execute(core, inst):
+    core.math_coprocessor.op_ltoii()
+
+class Inst_IITOL(InstDescriptor_Generic):
+  mnemonic = 'iitol'
+  opcode = MathCoprocessorOpcodes.IITOL
+
+  @staticmethod
+  def execute(core, inst):
+    core.math_coprocessor.op_iitol()
+
+class Inst_DUPL(InstDescriptor_Generic):
+  mnemonic = 'dupl'
+  opcode = MathCoprocessorOpcodes.DUPL
+
+  @staticmethod
+  def execute(core, inst):
+    core.math_coprocessor.op_dupl()
+
+class Inst_UTOL(InstDescriptor_Generic):
+  mnemonic = 'utol'
+  opcode = MathCoprocessorOpcodes.UTOL
+
+  @staticmethod
+  def execute(core, inst):
+    core.math_coprocessor.op_utol()
+
+class Inst_SYMDIVL(InstDescriptor_Generic):
+  mnemonic = 'symdivl'
+  opcode = MathCoprocessorOpcodes.SYMDIVL
+
+  @staticmethod
+  def execute(core, inst):
+    core.math_coprocessor.op_symdivl()
+
+class Inst_SYMMODL(InstDescriptor_Generic):
+  mnemonic = 'symmodl'
+  opcode = MathCoprocessorOpcodes.SYMMODL
+
+  @staticmethod
+  def execute(core, inst):
+    core.math_coprocessor.op_symmodl()
+
+Inst_INCL(MathCoprocessorInstructionSet)
+Inst_DECL(MathCoprocessorInstructionSet)
+Inst_ADDL(MathCoprocessorInstructionSet)
+Inst_SUBL(MathCoprocessorInstructionSet)
+Inst_MULL(MathCoprocessorInstructionSet)
+Inst_DIVL(MathCoprocessorInstructionSet)
+Inst_MODL(MathCoprocessorInstructionSet)
+Inst_ITOL(MathCoprocessorInstructionSet)
+Inst_LTOI(MathCoprocessorInstructionSet)
+Inst_LTOII(MathCoprocessorInstructionSet)
+Inst_IITOL(MathCoprocessorInstructionSet)
+Inst_DUPL(MathCoprocessorInstructionSet)
+Inst_UTOL(MathCoprocessorInstructionSet)
+Inst_SYMDIVL(MathCoprocessorInstructionSet)
+Inst_SYMMODL(MathCoprocessorInstructionSet)
+Inst_PUSH(MathCoprocessorInstructionSet)
+Inst_POP(MathCoprocessorInstructionSet)
+Inst_MOV(MathCoprocessorInstructionSet)
+Inst_SIS(MathCoprocessorInstructionSet)
+
+MathCoprocessorInstructionSet.init()
+
+INSTRUCTION_SETS[MathCoprocessorInstructionSet.id] = MathCoprocessorInstructionSet
 VIRTUAL_INTERRUPTS[InterruptList.MATH] = MathInterrupt

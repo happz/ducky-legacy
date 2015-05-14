@@ -9,7 +9,7 @@ from . import util
 from .console import Console
 from .errors import InvalidResourceError
 from .util import debug, info, error, str2int, LRUCache, warn, print_table, exception
-from .mm import addr_to_segment, ADDR_FMT, segment_addr_to_addr
+from .mm import addr_to_segment, ADDR_FMT, segment_addr_to_addr, UInt16
 from .snapshot import ISnapshotable, SnapshotNode
 
 class MachineWorker(object):
@@ -338,11 +338,13 @@ class Machine(ISnapshotable, MachineWorker):
       binary.load_symbols()
 
       entry_label = self.config.get(binary_section, 'entry', 'main')
-      binary.ip = binary.symbols.get(entry_label).u16
+      entry_addr = binary.symbols.get(entry_label, None)
 
-      if not binary.ip:
-        warn('Entry point "%s" not found', entry_label)
-        binary.ip = 0
+      if entry_addr is None:
+        warn('Entry point "%s" of binary %s not found', entry_label, binary.path)
+        entry_addr = UInt16(0)
+
+      binary.ip = entry_addr.u16
 
       __print_regions(binary.regions)
 

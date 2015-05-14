@@ -80,7 +80,7 @@ class UInt8(LittleEndianStructure):
   ]
 
   def __repr__(self):
-    return '<(uint8) 0x%02X>' % self.u8
+    return '<(u8) 0x%02X>' % self.u8
 
 class UInt16(LittleEndianStructure):
   _pack_ = 0
@@ -89,7 +89,7 @@ class UInt16(LittleEndianStructure):
   ]
 
   def __repr__(self):
-    return '<(uint16) 0x%04X>' % self.u16
+    return '<(u16) 0x%04X>' % self.u16
 
 # Yes, this one is larger but it's used only for transporting
 # addresses between CPUs and memory controller => segment
@@ -101,7 +101,7 @@ class UInt24(LittleEndianStructure):
   ]
 
   def __repr__(self):
-    return '<(uint24) 0x%06X>' % self.u24
+    return '<(u24) 0x%06X>' % self.u24
 
 class UInt32(LittleEndianStructure):
   _pack_ = 0
@@ -110,7 +110,7 @@ class UInt32(LittleEndianStructure):
   ]
 
   def __repr__(self):
-    return '<(uint32) 0x%06X>' % self.u24
+    return '<(u32) 0x%06X>' % self.u32
 
 def segment_base_addr(segment):
   return segment * SEGMENT_SIZE * PAGE_SIZE
@@ -958,8 +958,6 @@ class MemoryController(object):
       sp += 2
 
   def __load_content_u32(self, segment, base, content):
-    from ..cpu import instructions
-
     bsp = segment_addr_to_addr(segment, base)
     sp   = bsp
     size = len(content) * 2
@@ -967,8 +965,7 @@ class MemoryController(object):
     debug('mc.__load_content_u32: segment=%s, base=%s, size=%s, sp=%s', segment, base, size, sp)
 
     for i in content:
-      i = instructions.convert_to_master(i)
-      self.write_u32(sp, i.overall.u32, privileged = True)
+      self.write_u32(sp, i.u32, privileged = True)
       sp += 4
 
   def load_text(self, segment, base, content):
@@ -1083,8 +1080,8 @@ class MemoryController(object):
 
     :param string file_path: path of external file, whose content new area
       should reflect.
-    :param uint24 address: address where new area should start.
-    :param uint24 size: length of area, in bytes.
+    :param u24 address: address where new area should start.
+    :param u24 size: length of area, in bytes.
     :param int offset: starting point of the area in mmaped file.
     :param string access: combination of letters ``r`` (`read`), ``w``
       (`write`) and ``x`` (`execute`), specifying access flags of pages in new

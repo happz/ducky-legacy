@@ -14,6 +14,7 @@ import tabulate
 import ducky.patch
 import ducky.console
 import ducky.cpu
+import ducky.cpu.coprocessor.math_copro
 import ducky.mm
 import ducky.cpu.instructions
 import ducky.mm.binary
@@ -63,6 +64,7 @@ def show_disassemble(f):
   info('=== Disassemble ==')
   info('')
 
+  instruction_set = ducky.cpu.instructions.DuckyInstructionSet
   f_header = f.get_header()
 
   for i in range(0, f_header.sections):
@@ -74,11 +76,16 @@ def show_disassemble(f):
     info('  Section %s', f.string_table.get_string(header.name))
 
     csp = UInt16(header.base)
-    for inst in content:
+    for raw_inst in content:
       csp_str = ADDR_FMT(csp.u16)
       csp.u16 += 4
 
-      info('  %s (%s) %s', csp_str, UINT32_FMT(inst.overall.u32), ducky.cpu.instructions.disassemble_instruction(inst))
+      inst = instruction_set.decode_instruction(raw_inst)
+
+      info('  %s (%s) %s', csp_str, UINT32_FMT(raw_inst.u32), instruction_set.disassemble_instruction(raw_inst))
+
+      if inst.opcode == ducky.cpu.instructions.DuckyInstructionSet.opcodes.SIS:
+        instruction_set = ducky.cpu.instructions.get_instruction_set(inst.immediate)
 
   info('')
 

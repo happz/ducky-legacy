@@ -125,12 +125,12 @@ tests-engine: tests/instructions/interrupts-basic.bin
 	$(Q)  echo "[TEST] Engine unit tests"
 ifeq ($(VMCOVERAGE),yes)
 	$(eval VMCOVERAGE_FILE := COVERAGE_FILE="$(TESTSETDIR)/coverage/.coverage.engine")
-	$(eval COVERAGE_NOSE_FLAG := --with-coverage)
+	$(eval COVERAGE_NOSE_FLAG := --with-coverage --cover-branches)
 else
 	$(eval VMCOVERAGE_FILE := )
 	$(eval COVERAGE_NOSE_FLAG := )
 endif
-	-$(Q) $(VMCOVERAGE_FILE) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) $(VIRTUAL_ENV)/bin/nosetests -v --all-modules $(COVERAGE_NOSE_FLAG) --with-xunit --xunit-file=$(TESTSETDIR)/results/nosetests.xml --no-path-adjustment -w $(CURDIR)/tests 2>&1 | stdbuf -oL -eL tee $(TESTSETDIR)/engine.out | grep -v -e '\[INFO\] ' -e '#> '
+	-$(Q) $(VMCOVERAGE_FILE) CURDIR=$(CURDIR) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) $(VIRTUAL_ENV)/bin/nosetests -v --all-modules $(COVERAGE_NOSE_FLAG) --with-xunit --xunit-file=$(TESTSETDIR)/results/nosetests.xml --no-path-adjustment -w $(CURDIR)/tests 2>&1 | stdbuf -oL -eL tee $(TESTSETDIR)/engine.out | grep -v -e '\[INFO\] ' -e '#> '
 	-$(Q) sed -i 's/<testsuite name="nosetests"/<testsuite name="nosetests-$(TESTSET)"/' $(TESTSETDIR)/results/nosetests.xml
 
 tests-forth-units: interrupts.bin $(FORTH_KERNEL) $(FORTH_TESTS_OUT)
@@ -198,6 +198,9 @@ docs:
 	sphinx-apidoc -T -e -o docs/ ducky/
 	make -C docs clean
 	make -C docs html
+
+install:
+	python setup.py install
 
 clean:
 	$(Q) rm -f $(BINARIES)

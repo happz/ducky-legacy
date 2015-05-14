@@ -6,3 +6,14 @@ int_routine_10:
   li r0, 0xEE
   cmp r0, 0xFF
   retint
+
+int_routine_11:
+  ; disable interrupts
+  cli
+  hlt r0
+
+int_routine_12:
+  ; disable and enable interrupts
+  cli
+  sti
+  hlt r0

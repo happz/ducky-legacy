@@ -4,9 +4,10 @@ lse
 .noseids
 
 # Test logs
-tests-default
-tests-pypy
-tests-python
+tests-pypy-devel
+tests-pypy-egg
+tests-python-devel
+tests-python-egg
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

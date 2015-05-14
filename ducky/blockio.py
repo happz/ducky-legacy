@@ -22,14 +22,23 @@ from .irq.virtual import VirtualInterrupt, VIRTUAL_INTERRUPTS
 from .mm import segment_addr_to_addr
 from .util import debug
 
+#: Size of block, in bytes.
 BLOCK_SIZE = 1024
 
 class StorageAccessError(Exception):
+  """
+  Base class for storage-related exceptions.
+  """
+
   pass
 
 class Storage(machine.MachineWorker):
   """
   Base class for all block storages.
+
+  :param ducky.machine.Machine machine: machine storage is attached to.
+  :param int sid: id of storage.
+  :param int size: size of storage, in bytes.
   """
 
   def __init__(self, machine, sid, size):
@@ -45,8 +54,8 @@ class Storage(machine.MachineWorker):
 
     Child classes are supposed to reimplement this particular method.
 
-    :param uint16 src: block id of the first block
-    :param uint24 dst: destination buffer address
+    :param u16 src: block id of the first block
+    :param u24 dst: destination buffer address
     :param int cnt: number of blocks to read
     """
 
@@ -58,7 +67,7 @@ class Storage(machine.MachineWorker):
 
     Child classes are supposed to reimplement this particular method.
 
-    :param uint24 src: source buffer address
+    :param u24 src: source buffer address
     :param uin16 dst: block id of the first block
     :param int cnt: number of blocks to write
     """
@@ -72,8 +81,8 @@ class Storage(machine.MachineWorker):
     Child classes should not reimplement this method, as it provides checks
     common for (probably) all child classes.
 
-    :param uint16 src: block id of the first block
-    :param uint24 dst: destination buffer address
+    :param u16 src: block id of the first block
+    :param u24 dst: destination buffer address
     :param int cnt: number of blocks to read
     """
 
@@ -91,7 +100,7 @@ class Storage(machine.MachineWorker):
     Child classes should not reimplement this method, as it provides checks
     common for (probably) all child classes.
 
-    :param uint24 src: source buffer address
+    :param u24 src: source buffer address
     :param uin16 dst: block id of the first block
     :param int cnt: number of blocks to write
     """
@@ -158,6 +167,7 @@ class FileBackedStorage(Storage):
 
     debug('BIO: %s bytes written at %s:%s', cnt * BLOCK_SIZE, self.file.name, dst * BLOCK_SIZE)
 
+#: List of known storage classes and their names.
 STORAGES = {
   'block': FileBackedStorage,
 }

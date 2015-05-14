@@ -9,16 +9,17 @@ from .. import profiler
 
 from ..mm import ADDR_FMT, UINT8_FMT, UINT16_FMT, UINT32_FMT, SEGMENT_SIZE, PAGE_SIZE, i16
 from .registers import Registers, REGISTER_NAMES
-from .instructions import Opcodes, decode_instruction, disassemble_instruction
+from .instructions import DuckyInstructionSet
 from ..errors import AccessViolationError, InvalidResourceError
 from ..util import debug, info, warn, error, print_table, LRUCache, exception
 from ..snapshot import ISnapshotable, SnapshotNode
 
 from ctypes import LittleEndianStructure, c_ubyte, c_ushort
 
-DEFAULT_CPU_SLEEP_QUANTUM = 1.0
-DEFAULT_CPU_INST_CACHE_SIZE = 256
-DEFAULT_CPU_DATA_CACHE_SIZE = 1024
+#: Default size of core instruction cache, in instructions.
+DEFAULT_CORE_INST_CACHE_SIZE = 256
+#: Default size of core data cache, in words.
+DEFAULT_CORE_DATA_CACHE_SIZE = 1024
 
 class CPUState(SnapshotNode):
   pass
@@ -28,6 +29,10 @@ class CPUCoreState(SnapshotNode):
     super(CPUCoreState, self).__init__('cpuid', 'coreid', 'registers', 'exit_code', 'alive', 'running', 'idle')
 
 class InterruptVector(LittleEndianStructure):
+  """
+  Interrupt vector table entry.
+  """
+
   _pack_ = 0
   _fields_ = [
     ('cs', c_ubyte),
@@ -36,18 +41,54 @@ class InterruptVector(LittleEndianStructure):
   ]
 
 class CPUException(Exception):
-  pass
+  """
+  Base class for CPU-related exceptions.
 
-class InvalidOpcodeError(Exception):
-  def __init__(self, opcode, ip = None):
-    msg = 'Invalid opcode: opcode=%i, ip=%s' % (opcode, ip) if ip else 'Invalid opcode: opcode=%i' % opcode
+  :param string msg: message describing exceptional state.
+  :param ducky.cpu.CPUCore core: CPU core that raised exception, if any.
+  :param u16 ip: address of an instruction that caused exception, if any.
+  """
 
-    super(InvalidOpcodeError, self).__init__(msg)
+  def __init__(self, msg, core = None, ip = None):
+    super(CPUException, self).__init__(msg)
 
-    self.opcode = opcode
+    self.core = core
     self.ip = ip
 
+class InvalidOpcodeError(CPUException):
+  """
+  Raised when unknown or invalid opcode is found in instruction.
+
+  :param int opcode: wrong opcode.
+  """
+
+  def __init__(self, opcode, *args, **kwargs):
+    super(InvalidOpcodeError, self).__init__('Invalid opcode: opcode=%i' % opcode, *args, **kwargs)
+
+    self.opcode = opcode
+
+class InvalidInstructionSetError(CPUException):
+  """
+  Raised when switch to unknown or invalid instruction set is requested.
+
+  :param int inst_set: instruction set id.
+  """
+
+  def __init__(self, inst_set, *args, **kwargs):
+    super(InvalidInstructionSetError, self).__init__('Invalid instruction set requested: inst_set=%i' % inst_set, *args, **kwargs)
+
+    self.inst_set = inst_set
+
 def do_log_cpu_core_state(core, logger = None):
+  """
+  Log state of a CPU core. Content of its registers, and other interesting or
+  useful internal variables are logged.
+
+  :param ducky.cpu.CPUCore core: core whose state should be logged.
+  :param logger: called for each line of output to actualy log it. By default,
+    core's :py:meth:`ducky.cpu.CPUCore.DEBUG` method is used.
+  """
+
   logger = logger or core.DEBUG
 
   for i in range(0, Registers.REGISTER_SPECIAL, 4):
@@ -65,7 +106,7 @@ def do_log_cpu_core_state(core, logger = None):
       logger('MS: %02i: %s', index, UINT32_FMT(v.value))
 
   if core.current_instruction:
-    inst = instructions.disassemble_instruction(core.current_instruction)
+    inst = core.instruction_set.disassemble_instruction(core.current_instruction)
     logger('current=%s' % inst)
   else:
     logger('current=<none>')
@@ -74,6 +115,13 @@ def do_log_cpu_core_state(core, logger = None):
     logger('Frame #%i: %s + %s (%s)' % (index, symbol, offset, ip))
 
 def log_cpu_core_state(*args, **kwargs):
+  """
+  This is a wrapper for ducky.cpu.do_log_cpu_core_state function. Its main
+  purpose is to be removed when debug mode is not set, therefore all debug
+  calls of ducky.cpu.do_log_cpu_core_state will disappear from code,
+  making such code effectively "quiet".
+  """
+
   do_log_cpu_core_state(*args, **kwargs)
 
 class StackFrame(object):
@@ -97,6 +145,9 @@ class StackFrame(object):
 class InstructionCache(LRUCache):
   """
   Simple instruction cache class, based on LRU dictionary, with a limited size.
+
+  :param ducky.cpu.CPUCore core: CPU core that owns this cache.
+  :param int size: maximal number of entries this cache can store.
   """
 
   def __init__(self, core, size, *args, **kwargs):
@@ -109,20 +160,45 @@ class InstructionCache(LRUCache):
     Read instruction from memory. This method is responsible for the real job of
     fetching instructions and filling the cache.
 
-    :param uint24 addr: absolute address to read from
+    :param u24 addr: absolute address to read from
     :return: instruction
     :rtype: ``InstBinaryFormat_Master``
     """
 
-    return instructions.decode_instruction(self.core.memory.read_u32(addr))
+    return self.core.instruction_set.decode_instruction(self.core.memory.read_u32(addr))
 
 class DataCache(LRUCache):
+  """
+  Simple data cache class, based on LRU dictionary, with a limited size.
+  Operates on words, and only write-back policy is supported.
+
+  All modified entries are marked as dirty, and are NOT written back to
+  memory until cache is flushed or there is a need for space and entry is
+  to be removed from cache.
+
+  Helper methods are provided, to wrap cache API to a standardized "memory
+  access" API. In the future, I may extend support to more sizes, or
+  restructure internal storage to keep longer blocks keyed by address (like the
+  real caches do). Therefore, CPU (and others) are expected to access data
+  using :py:meth:`ducky.cpu.DataCache.read_u16` and
+  :py:meth:`ducky.cpu.DataCache.write_u16`, instead of accessing raw values
+  using address as a dictionary key.
+
+  :param ducky.cpu.CPUCore core: CPU core that owns this cache.
+  :param int size: maximal number of entries this cache can store.
+  """
+
   def __init__(self, core, size, *args, **kwargs):
     super(DataCache, self).__init__(size, *args, **kwargs)
 
     self.core = core
 
   def make_space(self):
+    """
+    Removes at least one of entries in cache, saving its content into memory
+    when necessary.
+    """
+
     addr, value = self.popitem(last = False)
     dirty, value = value
 
@@ -130,19 +206,44 @@ class DataCache(LRUCache):
 
     if dirty:
       self.core.memory.write_u16(addr, value)
+
     self.prunes += 1
 
   def get_object(self, addr):
+    """
+    Read word from memory. This method is responsible for the real job of
+    fetching data and filling the cache.
+
+    :param u24 addr: absolute address to read from.
+    :rtype: u16
+    """
+
     self.core.DEBUG('data_cache.get_object: addr=%s', ADDR_FMT(addr))
 
     return [False, self.core.memory.read_u16(addr)]
 
   def read_u16(self, addr):
+    """
+    Read word from cache. Value is read from memory if it is not yet present
+    in cache.
+
+    :param u24 addr: absolute address to read from.
+    :rtype: u16
+    """
+
     self.core.DEBUG('data_cache.read_u16: addr=%s', ADDR_FMT(addr))
 
     return self[addr][1]
 
   def write_u16(self, addr, value):
+    """
+    Write word to cache. Value in cache is overwritten, and marked as dirty. It
+    is not written back to the memory yet.
+
+    :param u24 addr: absolute address to modify.
+    :param u16 value: new value to write.
+    """
+
     self.core.DEBUG('data_cache.write_u16: addr=%s, value=%s', ADDR_FMT(addr), UINT16_FMT(value))
 
     if addr not in self:
@@ -151,6 +252,14 @@ class DataCache(LRUCache):
     self[addr] = [True, value]
 
   def remove_page_references(self, page, writeback = True):
+    """
+    Remove entries that are located on a specific memory page.
+
+    :param ducky.mm.MemoryPage page: referenced page.
+    :param bool writeback: is ``True``, values are written back to memory
+      before they are removed from cache, otherwise they are just dropped.
+    """
+
     self.core.DEBUG('data_cache.remove_page_references: page=%s', page.index)
 
     addresses = [i for i in range(page.base_address, page.base_address + PAGE_SIZE, 2)]
@@ -170,6 +279,10 @@ class DataCache(LRUCache):
       del self[addr]
 
   def flush(self):
+    """
+    Save all dirty entries back to memory. No entries are removed from cache.
+    """
+
     self.core.DEBUG('data_cache.flush')
 
     for addr in self.keys():
@@ -183,6 +296,18 @@ class DataCache(LRUCache):
       self.core.DEBUG('data_cache.flush: %s written back', ADDR_FMT(addr))
 
 class CPUCore(ISnapshotable, machine.MachineWorker):
+  """
+  This class represents the main workhorse, one of CPU cores. Reads
+  instructions, executes them, has registers, caches, handles interrupts,
+  ...
+
+  :param int coreid: id of this core. Usually, it's its serial number but it
+    has no special meaning.
+  :param ducky.cpu.CPU cpu: CPU that owns this core.
+  :param ducky.mm.MemoryController memory_controller: use this controller to
+    access main memory.
+  """
+
   def __init__(self, coreid, cpu, memory_controller):
     super(CPUCore, self).__init__()
 
@@ -193,6 +318,8 @@ class CPUCore(ISnapshotable, machine.MachineWorker):
     self.memory = memory_controller
 
     self.registers = registers.RegisterSet()
+
+    self.instruction_set = DuckyInstructionSet
 
     self.current_ip = None
     self.current_instruction = None
@@ -210,12 +337,8 @@ class CPUCore(ISnapshotable, machine.MachineWorker):
 
     self.debug = debugging.DebuggingSet(self)
 
-    self.opcode_map = {}
-    for opcode in Opcodes:
-      self.opcode_map[opcode.value] = getattr(self, 'inst_%s' % opcode.name)
-
-    self.instruction_cache = InstructionCache(self, self.cpu.machine.config.getint('cpu', 'inst-cache', default = DEFAULT_CPU_INST_CACHE_SIZE))
-    self.data_cache = DataCache(self, self.cpu.machine.config.getint('cpu', 'data-cache', default = DEFAULT_CPU_INST_CACHE_SIZE))
+    self.instruction_cache = InstructionCache(self, self.cpu.machine.config.getint('cpu', 'inst-cache', default = DEFAULT_CORE_INST_CACHE_SIZE))
+    self.data_cache = DataCache(self, self.cpu.machine.config.getint('cpu', 'data-cache', default = DEFAULT_CORE_DATA_CACHE_SIZE))
 
     if self.cpu.machine.config.getbool('cpu', 'math-coprocessor', False):
       from .coprocessor import math_copro
@@ -355,7 +478,7 @@ class CPUCore(ISnapshotable, machine.MachineWorker):
     except ``HWINT`` flag which is set to one, and ``IP`` is set to requested value.
     Both instruction and data cached are flushed.
 
-    :param uint16 new_ip: new ``IP`` value, defaults to zero
+    :param u16 new_ip: new ``IP`` value, defaults to zero
     """
 
     for reg in registers.RESETABLE_REGISTERS:
@@ -408,67 +531,67 @@ class CPUCore(ISnapshotable, machine.MachineWorker):
 
     return bt
 
-  def __raw_push(self, val):
+  def raw_push(self, val):
     """
     Push value on stack. ``SP`` is decremented by two, and value is written at this new address.
 
-    :param uint16 val: value to be pushed
+    :param u16 val: value to be pushed
     """
 
     self.registers.sp.value -= 2
     self.data_cache.write_u16(self.DS_ADDR(self.registers.sp.value), val)
 
-  def __raw_pop(self):
+  def raw_pop(self):
     """
     Pop value from stack. 2 byte number is read from address in ``SP``, then ``SP`` is incremented by two.
 
     :return: popped value
-    :rtype: ``uint16``
+    :rtype: ``u16``
     """
 
     ret = self.data_cache.read_u16(self.DS_ADDR(self.registers.sp.value))
     self.registers.sp.value += 2
     return ret
 
-  def __push(self, *regs):
+  def push(self, *regs):
     for reg_id in regs:
       reg = self.registers.map[reg_id]
 
-      self.DEBUG('__push: %s (%s) at %s', reg_id, reg, UINT16_FMT(self.registers.sp.value - 2))
+      self.DEBUG('push: %s (%s) at %s', reg_id, reg, UINT16_FMT(self.registers.sp.value - 2))
       value = self.registers.flags.to_uint16() if reg_id == Registers.FLAGS else self.registers.map[reg_id].value
-      self.__raw_push(value)
+      self.raw_push(value)
 
-  def __pop(self, *regs):
+  def pop(self, *regs):
     for reg_id in regs:
       if reg_id == Registers.FLAGS:
-        self.registers.flags.from_uint16(self.__raw_pop())
+        self.registers.flags.from_uint16(self.raw_pop())
       else:
-        self.registers.map[reg_id].value = self.__raw_pop()
+        self.registers.map[reg_id].value = self.raw_pop()
 
-      self.DEBUG('__pop: %s (%s) from %s', reg_id, self.registers.map[reg_id], UINT16_FMT(self.registers.sp.value - 2))
+      self.DEBUG('pop: %s (%s) from %s', reg_id, self.registers.map[reg_id], UINT16_FMT(self.registers.sp.value - 2))
 
-  def __create_frame(self):
+  def create_frame(self):
     """
     Create new call stack frame. Push ``IP`` and ``FP`` registers and set ``FP`` value to ``SP``.
     """
 
-    self.DEBUG('__create_frame')
+    self.DEBUG('create_frame')
 
-    self.__push(Registers.IP, Registers.FP)
+    self.push(Registers.IP, Registers.FP)
 
     self.registers.fp.value = self.registers.sp.value
 
     if self.check_frames:
       self.frames.append(StackFrame(self.registers.cs.value, self.registers.ds.value, self.registers.fp.value))
 
-  def __destroy_frame(self):
+  def destroy_frame(self):
     """
     Destroy current call frame. Pop ``FP`` and ``IP`` from stack, by popping ``FP`` restores previous frame.
 
     :raises CPUException: if current frame does not match last created frame.
     """
 
-    self.DEBUG('__destroy_frame')
+    self.DEBUG('destroy_frame')
 
     if self.check_frames:
       if self.frames[-1].FP != self.registers.sp.value:
@@ -476,7 +599,7 @@ class CPUCore(ISnapshotable, machine.MachineWorker):
 
       self.frames.pop()
 
-    self.__pop(Registers.FP, Registers.IP)
+    self.pop(Registers.FP, Registers.IP)
 
     self.__symbol_for_ip()
 
@@ -487,7 +610,7 @@ class CPUCore(ISnapshotable, machine.MachineWorker):
     into privileged mode. ``CS`` and ``IP`` are set to values, stored in interrupt descriptor
     table at specified offset.
 
-    :param uint24 table_address: address of interrupt descriptor table
+    :param u24 table_address: address of interrupt descriptor table
     :param int index: interrupt number, its index into IDS
     """
 
@@ -503,11 +626,11 @@ class CPUCore(ISnapshotable, machine.MachineWorker):
     self.registers.ds.value = iv.ds
     self.registers.sp.value = sp
 
-    self.__raw_push(old_DS)
-    self.__raw_push(old_SP)
-    self.__push(Registers.CS, Registers.FLAGS)
-    self.__push(*[i for i in range(0, Registers.REGISTER_SPECIAL)])
-    self.__create_frame()
+    self.raw_push(old_DS)
+    self.raw_push(old_SP)
+    self.push(Registers.CS, Registers.FLAGS)
+    self.push(*[i for i in range(0, Registers.REGISTER_SPECIAL)])
+    self.create_frame()
 
     self.privileged = 1
 
@@ -517,22 +640,22 @@ class CPUCore(ISnapshotable, machine.MachineWorker):
     if self.check_frames:
       self.frames[-1].IP = iv.ip
 
-  def __exit_interrupt(self):
+  def exit_interrupt(self):
     """
     Restore CPU state after running a interrupt routine. Call frame is destroyed, registers
     are restored, stack is returned back to memory pool.
     """
 
-    self.DEBUG('__exit_interrupt')
+    self.DEBUG('exit_interrupt')
 
-    self.__destroy_frame()
-    self.__pop(*[i for i in reversed(range(0, Registers.REGISTER_SPECIAL))])
-    self.__pop(Registers.FLAGS, Registers.CS)
+    self.destroy_frame()
+    self.pop(*[i for i in reversed(range(0, Registers.REGISTER_SPECIAL))])
+    self.pop(Registers.FLAGS, Registers.CS)
 
     stack_page = self.memory.get_page(mm.addr_to_page(self.DS_ADDR(self.registers.sp.value)))
 
-    old_SP = self.__raw_pop()
-    old_DS = self.__raw_pop()
+    old_SP = self.raw_pop()
+    old_DS = self.raw_pop()
 
     self.registers.ds.value = old_DS
     self.registers.sp.value = old_SP
@@ -540,7 +663,7 @@ class CPUCore(ISnapshotable, machine.MachineWorker):
     self.data_cache.remove_page_references(stack_page, writeback = False)
     self.memory.free_page(stack_page)
 
-  def __do_int(self, index):
+  def do_int(self, index):
     """
     Handle software interrupt. Real software interrupts cause CPU state to be saved
     and new stack and register values are prepared by ``__enter_interrupt`` method,
@@ -549,19 +672,19 @@ class CPUCore(ISnapshotable, machine.MachineWorker):
     :param int index: interrupt number
     """
 
-    self.DEBUG('__do_int: %s', index)
+    self.DEBUG('do_int: %s', index)
 
     if index in self.cpu.machine.virtual_interrupts:
-      self.DEBUG('__do_int: calling virtual interrupt')
+      self.DEBUG('do_int: calling virtual interrupt')
 
       self.cpu.machine.virtual_interrupts[index].run(self)
 
-      self.DEBUG('__do_int: virtual interrupt finished')
+      self.DEBUG('do_int: virtual interrupt finished')
 
     else:
       self.__enter_interrupt(self.memory.int_table_address, index)
 
-      self.DEBUG('__do_int: CPU state prepared to handle interrupt')
+      self.DEBUG('do_int: CPU state prepared to handle interrupt')
 
   def __do_irq(self, index):
     """
@@ -596,7 +719,7 @@ class CPUCore(ISnapshotable, machine.MachineWorker):
 
   privileged = property(__get_privileged, __set_privileged)
 
-  def __check_protected_ins(self):
+  def check_protected_ins(self):
     """
     Raise ``AccessViolationError`` if core is not running in privileged mode.
 
@@ -613,21 +736,21 @@ class CPUCore(ISnapshotable, machine.MachineWorker):
       if reg in registers.PROTECTED_REGISTERS and not self.privileged:
         raise AccessViolationError('Access not allowed in unprivileged mode: opcode=%i reg=%i' % (self.current_instruction.opcode, reg))
 
-  def __check_protected_port(self, port):
+  def check_protected_port(self, port):
     if port not in self.cpu.machine.ports:
       raise InvalidResourceError('Unhandled port: port=%u' % port)
 
     if self.cpu.machine.ports[port].is_protected and not self.privileged:
       raise AccessViolationError('Access to port not allowed in unprivileged mode: opcode=%i, port=%u' % (self.current_instruction.opcode, port))
 
-  def __update_arith_flags(self, *regs):
+  def update_arith_flags(self, *regs):
     """
     Set relevant arithmetic flags according to content of registers. Flags are set to zero at the beginning,
     then content of each register is examined, and ``S`` and ``Z`` flags are set.
 
     ``E`` flag is not touched, ``O`` flag is set to zero.
 
-    :param list regs: list of ``uint16`` registers
+    :param list regs: list of ``u16`` registers
     """
 
     F = self.registers.flags
@@ -668,8 +791,8 @@ class CPUCore(ISnapshotable, machine.MachineWorker):
     ``O`` flag is reset like the others, therefore caller has to take care of it's setting if it's required
     to set it.
 
-    :param uint16 x: left hand number
-    :param uint16 y: right hand number
+    :param u16 x: left hand number
+    :param u16 y: right hand number
     :param bool signed: use signed, defaults to ``True``
     """
 
@@ -708,264 +831,6 @@ class CPUCore(ISnapshotable, machine.MachineWorker):
     self.DEBUG('offset addr: addr=%s', addr)
     return self.DS_ADDR(addr)
 
-  #
-  # Opcode handlers
-  #
-  def inst_NOP(self, inst):
-    pass
-
-  def inst_LW(self, inst):
-    self.check_protected_reg(inst.reg)
-    self.registers.map[inst.reg].value = self.data_cache.read_u16(self.OFFSET_ADDR(inst))
-    self.__update_arith_flags(self.registers.map[inst.reg])
-
-  def inst_LB(self, inst):
-    self.check_protected_reg(inst.reg)
-    self.registers.map[inst.reg].value = self.memory.read_u8(self.OFFSET_ADDR(inst))
-    self.__update_arith_flags(self.registers.map[inst.reg])
-
-  def inst_LI(self, inst):
-    self.check_protected_reg(inst.reg)
-    self.registers.map[inst.reg].value = inst.immediate
-    self.__update_arith_flags(self.registers.map[inst.reg])
-
-  def inst_STW(self, inst):
-    self.data_cache.write_u16(self.OFFSET_ADDR(inst), self.registers.map[inst.reg].value)
-
-  def inst_STB(self, inst):
-    self.memory.write_u8(self.OFFSET_ADDR(inst), self.registers.map[inst.reg].value & 0xFF)
-
-  def inst_MOV(self, inst):
-    self.registers.map[inst.reg1].value = self.registers.map[inst.reg2].value
-
-  def inst_SWP(self, inst):
-    v = self.registers.map[inst.reg1].value
-    self.registers.map[inst.reg1].value = self.registers.map[inst.reg2].value
-    self.registers.map[inst.reg2].value = v
-
-  def inst_CAS(self, inst):
-    self.registers.flags.e = 0
-
-    v = self.memory.cas_16(self.DS_ADDR(self.registers.map[inst.r_addr]), self.registers.map[inst.r_test], self.registers.map[inst.r_rep])
-    if v is True:
-      self.registers.flags.e = 1
-    else:
-      self.registers.map[inst.r_test].value = v.value
-
-  def inst_INT(self, inst):
-    self.__do_int(self.RI_VAL(inst))
-
-  def inst_RETINT(self, inst):
-    self.__check_protected_ins()
-
-    self.__exit_interrupt()
-
-  def inst_CALL(self, inst):
-    self.__create_frame()
-
-    self.JUMP(inst)
-
-    if self.check_frames:
-      self.frames[-1].IP = self.registers.ip.value
-
-  def inst_RET(self, inst):
-    self.__destroy_frame()
-
-  def inst_CLI(self, inst):
-    self.__check_protected_ins()
-
-    self.registers.flags.hwint = 0
-
-  def inst_STI(self, inst):
-    self.__check_protected_ins()
-
-    self.registers.flags.hwint = 1
-
-  def inst_HLT(self, inst):
-    self.__check_protected_ins()
-
-    self.exit_code = self.RI_VAL(inst)
-
-    self.halt()
-
-  def inst_RST(self, inst):
-    self.__check_protected_ins()
-
-    self.reset()
-
-  def inst_IDLE(self, inst):
-    self.idle = True
-
-  def inst_PUSH(self, inst):
-    self.__raw_push(self.RI_VAL(inst))
-
-  def inst_POP(self, inst):
-    self.check_protected_reg(inst.reg)
-
-    self.__pop(inst.reg)
-    self.__update_arith_flags(self.registers.map[inst.reg])
-
-  def inst_INC(self, inst):
-    self.check_protected_reg(inst.reg)
-    self.registers.map[inst.reg].value += 1
-    self.__update_arith_flags(self.registers.map[inst.reg])
-
-  def inst_DEC(self, inst):
-    self.check_protected_reg(inst.reg)
-    self.registers.map[inst.reg].value -= 1
-    self.__update_arith_flags(self.registers.map[inst.reg])
-
-  def inst_ADD(self, inst):
-    self.check_protected_reg(inst.reg)
-    v = self.registers.map[inst.reg].value + self.RI_VAL(inst)
-    self.registers.map[inst.reg].value += self.RI_VAL(inst)
-    self.__update_arith_flags(self.registers.map[inst.reg])
-    if v > 0xFFFF:
-      self.registers.flags.o = 1
-
-  def inst_SUB(self, inst):
-    self.check_protected_reg(inst.reg)
-    v = self.RI_VAL(inst) > self.registers.map[inst.reg].value
-    self.registers.map[inst.reg].value -= self.RI_VAL(inst)
-    self.__update_arith_flags(self.registers.map[inst.reg])
-
-    if v:
-      self.registers.flags.s = 1
-
-  def inst_AND(self, inst):
-    self.check_protected_reg(inst.reg)
-    self.registers.map[inst.reg].value &= self.RI_VAL(inst)
-    self.__update_arith_flags(self.registers.map[inst.reg])
-
-  def inst_OR(self, inst):
-    self.check_protected_reg(inst.reg)
-    self.registers.map[inst.reg].value |= self.RI_VAL(inst)
-    self.__update_arith_flags(self.registers.map[inst.reg])
-
-  def inst_XOR(self, inst):
-    self.check_protected_reg(inst.reg)
-    self.registers.map[inst.reg].value ^= self.RI_VAL(inst)
-    self.__update_arith_flags(self.registers.map[inst.reg])
-
-  def inst_NOT(self, inst):
-    self.check_protected_reg(inst.reg)
-    self.registers.map[inst.reg].value = ~self.registers.map[inst.reg].value
-    self.__update_arith_flags(self.registers.map[inst.reg])
-
-  def inst_SHIFTL(self, inst):
-    self.check_protected_reg(inst.reg)
-    self.registers.map[inst.reg].value <<= self.RI_VAL(inst)
-    self.__update_arith_flags(self.registers.map[inst.reg])
-
-  def inst_SHIFTR(self, inst):
-    self.check_protected_reg(inst.reg)
-    self.registers.map[inst.reg].value >>= self.RI_VAL(inst)
-    self.__update_arith_flags(self.registers.map[inst.reg])
-
-  def inst_IN(self, inst):
-    port = self.RI_VAL(inst)
-
-    self.__check_protected_port(port)
-    self.check_protected_reg(inst.reg)
-
-    self.registers.map[inst.reg].value = self.cpu.machine.ports[port].read_u16(port)
-
-  def inst_INB(self, inst):
-    port = self.RI_VAL(inst)
-
-    self.__check_protected_port(port)
-    self.check_protected_reg(inst.reg)
-
-    self.registers.map[inst.reg].value = self.cpu.machine.ports[port].read_u8(port)
-    self.__update_arith_flags(self.registers.map[inst.reg])
-
-  def inst_OUT(self, inst):
-    port = self.RI_VAL(inst)
-
-    self.__check_protected_port(port)
-
-    self.cpu.machine.ports[port].write_u16(port, self.registers.map[inst.reg].value)
-
-  def inst_OUTB(self, inst):
-    port = self.RI_VAL(inst)
-
-    self.__check_protected_port(port)
-
-    self.cpu.machine.ports[port].write_u8(port, self.registers.map[inst.reg].value & 0xFF)
-
-  def inst_CMP(self, inst):
-    self.CMP(self.registers.map[inst.reg].value, self.RI_VAL(inst))
-
-  def inst_CMPU(self, inst):
-    self.CMP(self.registers.map[inst.reg].value, self.RI_VAL(inst), signed = False)
-
-  def inst_J(self, inst):
-    self.JUMP(inst)
-
-  def inst_BE(self, inst):
-    if self.registers.flags.e == 1:
-      self.JUMP(inst)
-
-  def inst_BNE(self, inst):
-    if self.registers.flags.e == 0:
-      self.JUMP(inst)
-
-  def inst_BZ(self, inst):
-    if self.registers.flags.z == 1:
-      self.JUMP(inst)
-
-  def inst_BNZ(self, inst):
-    if self.registers.flags.z == 0:
-      self.JUMP(inst)
-
-  def inst_BS(self, inst):
-    if self.registers.flags.s == 1:
-      self.JUMP(inst)
-
-  def inst_BNS(self, inst):
-    if self.registers.flags.s == 0:
-      self.JUMP(inst)
-
-  def inst_BG(self, inst):
-    if self.registers.flags.s == 0 and self.registers.flags.e == 0:
-      self.JUMP(inst)
-
-  def inst_BL(self, inst):
-    if self.registers.flags.s == 1 and self.registers.flags.e == 0:
-      self.JUMP(inst)
-
-  def inst_BGE(self, inst):
-    if self.registers.flags.s == 0 or self.registers.flags.e == 1:
-      self.JUMP(inst)
-
-  def inst_BLE(self, inst):
-    if self.registers.flags.s == 1 or self.registers.flags.e == 1:
-      self.JUMP(inst)
-
-  def inst_MUL(self, inst):
-    self.check_protected_reg(inst.reg)
-    r = self.registers.map[inst.reg]
-    x = i16(r.value).value
-    y = i16(self.RI_VAL(inst)).value
-    r.value = x * y
-    self.__update_arith_flags(self.registers.map[inst.reg])
-
-  def inst_DIV(self, inst):
-    self.check_protected_reg(inst.reg)
-    r = self.registers.map[inst.reg]
-    x = i16(r.value).value
-    y = i16(self.RI_VAL(inst)).value
-    r.value = x / y
-    self.__update_arith_flags(self.registers.map[inst.reg])
-
-  def inst_MOD(self, inst):
-    self.check_protected_reg(inst.reg)
-    r = self.registers.map[inst.reg]
-    x = i16(r.value).value
-    y = i16(self.RI_VAL(inst)).value
-    r.value = x % y
-    self.__update_arith_flags(self.registers.map[inst.reg])
-
   def step(self):
     """
     Perform one "step" - fetch next instruction, increment IP, and execute instruction's code (see inst_* methods)
@@ -984,13 +849,13 @@ class CPUCore(ISnapshotable, machine.MachineWorker):
     self.current_instruction = self.fetch_instruction()
     opcode = self.current_instruction.opcode
 
-    self.DEBUG('"EXECUTE" phase: %s %s', UINT16_FMT(self.current_ip), disassemble_instruction(self.current_instruction))
+    self.DEBUG('"EXECUTE" phase: %s %s', UINT16_FMT(self.current_ip), self.instruction_set.disassemble_instruction(self.current_instruction))
     log_cpu_core_state(self)
 
-    if opcode not in self.opcode_map:
-      raise InvalidOpcodeError(opcode, ip = self.current_ip)
+    if opcode not in self.instruction_set.opcode_desc_map:
+      raise InvalidOpcodeError(opcode, ip = self.current_ip, core = self)
 
-    self.opcode_map[opcode](self.current_instruction)
+    self.instruction_set.opcode_desc_map[opcode].execute(self, self.current_instruction)
 
     cnt = self.registers.cnt
     cnt.value += 1
@@ -1205,9 +1070,9 @@ def cmd_next(console, cmd):
     return core.CS_ADDR(core.registers.ip.value + offset)
 
   try:
-    inst = decode_instruction(core.memory.read_u32(__ip_addr()))
+    inst = core.instruction_set.decode_instruction(core.memory.read_u32(__ip_addr()))
 
-    if inst.opcode == Opcodes.CALL:
+    if inst.opcode == core.instruction_set.opcodes.CALL:
       from debugging import add_breakpoint
 
       add_breakpoint(core, core.registers.ip.value + 4, ephemeral = True)

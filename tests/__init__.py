@@ -4,7 +4,6 @@ import sys
 if os.environ.get('DUCKY_IMPORT_DEVEL', 'no') == 'yes':
   sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 
-import subprocess
 import tempfile
 
 import ducky.patch
@@ -16,6 +15,8 @@ import ducky.machine
 import ducky.mm
 import ducky.snapshot
 import ducky.util
+
+from nose.tools import raises
 
 def get_tempfile():
   return tempfile.NamedTemporaryFile('w+b', delete = False, dir = os.path.join(os.getenv('PWD'), 'tests-%s' % os.getenv('TESTSET'), 'tmp'))
@@ -139,14 +140,14 @@ def run_machine(code, machine_config, coredump_file = None):
 
   return state
 
-def common_run_machine(code, machine_config = None, cpus = 1, cores = 1, irq_routines = 'instructions/interrupts-basic.bin'):
+def common_run_machine(code, machine_config = None, cpus = 1, cores = 1, irq_routines = 'tests/instructions/interrupts-basic.bin'):
   if machine_config is None:
     machine_config = ducky.config.MachineConfig()
 
   machine_config.add_section('machine')
   machine_config.set('machine', 'cpus', cpus)
   machine_config.set('machine', 'cores', cores)
-  machine_config.set('machine', 'interrupt-routines', os.path.join(os.getcwd(), 'instructions', 'interrupts-basic.bin'))
+  machine_config.set('machine', 'interrupt-routines', os.path.join(os.getenv('CURDIR'), irq_routines))
   machine_config.add_section('cpu')
   machine_config.set('cpu', 'math-coprocessor', 'yes')
 

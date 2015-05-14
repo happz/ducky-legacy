@@ -1,15 +1,37 @@
+"""
+IRQs, and interrupts at general, are a way how external resource providers can
+interrupt execution flow, and deliver resources, previously requested by
+running program, or inform running programs about important external events.
+
+Ducky VM knows 3 types of interrupts:
+ - irq, aka. "hardware" interrupt - simulates hardware resource: clock, console,
+   block, serial or character device, etc.
+ - int, aka. "software" interrupt - invoked by running progam itself using
+   ``INT`` instruction.
+ - virtual interrupts - subset of software interrupts but their routines are
+   implemented by ducky VM itself, to provide access to a complex internal
+   resources
+"""
+
 import enum
 
 from .. import machine
-from .. import reactor
 
 class IRQList(enum.IntEnum):
+  """
+  List of known IRQ sources.
+  """
+
   TIMER = 0
   CONIO = 1
 
-  IRQ_COUNT = 16
+  IRQ_COUNT = 64
 
 class InterruptList(enum.IntEnum):
+  """
+  List of known software interrupts.
+  """
+
   HALT    = 0
   BLOCKIO = 1
   VMDEBUG = 2
@@ -19,18 +41,14 @@ class InterruptList(enum.IntEnum):
 
   INT_COUNT = 64
 
-class TimerIRQEvent(reactor.ReactorTask):
-  def __init__(self, machine, handler):
-    self.machine = machine
-    self.handler = handler
-
-  def runnable(self):
-    return True
-
-  def run(self):
-    machine.route_irq(self.handler)
-
 class IRQSource(machine.MachineWorker):
+  """
+  IRQ source. Represents an hardware resource, e.g. clock or block device,
+  that can interrupt running programs.
+
+  :param ducky.machine.Machine machine: machine this IRQ source is attached to.
+  """
+
   def __init__(self, machine):
     super(IRQSource, self).__init__()
 
@@ -43,6 +61,10 @@ class IRQSource(machine.MachineWorker):
     pass
 
 class IRQSourceSet(object):
+  """
+  Set of IRQ sources, which can be seen as a interrupt controller.
+  """
+
   def __init__(self):
     super(IRQSourceSet, self).__init__()
 
