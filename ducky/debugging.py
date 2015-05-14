@@ -164,7 +164,7 @@ class VMDebugOperationList(enum.Enum):
 
 class VMDebugInterrupt(VirtualInterrupt):
   def run(self, core):
-    from ..cpu.registers import Registers
+    from .cpu.registers import Registers
 
     core.DEBUG('VMDebugInterrupt: triggered')
 
