@@ -13,11 +13,11 @@ About
 -----
 
 .. toctree::
-  :maxdepth: 1
+  :maxdepth: 2
 
   introduction.rst
-  features.rst
-  instruction_set.rst
+  getting-started.rst
+  hardware.rst
 
 
 Code Documentation

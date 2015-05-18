@@ -1,4 +1,4 @@
-import threading2
+import threading
 import time
 
 from .. import irq
@@ -14,7 +14,7 @@ class Timer(irq.IRQSource):
   def boot(self):
     super(Timer, self).boot()
 
-    self.thread = threading2.Thread(name = 'timer-irq', target = self.loop, daemon = True, priority = 0.0)
+    self.thread = threading.Thread(name = 'timer-irq', target = self.loop, daemon = True, priority = 0.0)
     self.thread.start()
 
   def loop(self):

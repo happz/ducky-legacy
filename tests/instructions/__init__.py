@@ -1,21 +1,17 @@
-import types
 import unittest
 
-from tests import common_run_machine, assert_registers, assert_flags, assert_mm, raises
-
-import ducky.errors
+from tests import common_run_machine, assert_registers, assert_flags, assert_mm
 
 class Tests(unittest.TestCase):
   def common_case(self, code, **kwargs):
-    if isinstance(code, types.ListType):
-      code = '\n'.join(code)
+    def __assert_state(M, S):
+      assert_registers(S.get_child('machine').get_child('core0'), **kwargs)
+      assert_flags(S.get_child('machine').get_child('core0'), **kwargs)
 
-    state = common_run_machine(code)
-    assert_registers(state.get_child('machine').get_child('core0'), **kwargs)
-    assert_flags(state.get_child('machine').get_child('core0'), **kwargs)
+      if 'mm' in kwargs:
+        assert_mm(S.get_child('machine').get_child('memory'), **kwargs['mm'])
 
-    if 'mm' in kwargs:
-      assert_mm(state.get_child('machine').get_child('memory'), **kwargs['mm'])
+    common_run_machine(code, post_run = [__assert_state])
 
   def test_nop(self):
     self.common_case('main:\nnop\nint 0')

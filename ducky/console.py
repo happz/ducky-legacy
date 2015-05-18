@@ -5,7 +5,7 @@ import types
 
 from . import profiler
 
-from threading2 import Thread, Lock, Event
+from threading import Thread, Lock, Event
 
 CONSOLE_ID = 0
 
@@ -268,7 +268,8 @@ class Console(object):
     cid = Console.console_id
     Console.console_id += 1
 
-    self.thread = Thread(target = self.loop, name = 'Console #%i' % cid, daemon = True, priority = 0.0)
+    self.thread = Thread(target = self.loop, name = 'Console #%i' % cid)
+    self.thread.daemon = True
     self.thread.start()
 
 def cmd_help(console, cmd):

@@ -788,7 +788,7 @@ class MemoryController(object):
 
     debug('mc.alloc_pages: segment=%s, count=%s', segment if segment else '', count)
 
-    if segment:
+    if segment is not None:
       pages_start = segment * SEGMENT_SIZE
       pages_cnt = SEGMENT_SIZE
     else:
@@ -821,7 +821,7 @@ class MemoryController(object):
 
     debug('mc.alloc_page: segment=%s', segment if segment else '')
 
-    if segment:
+    if segment is not None:
       pages_start = segment * SEGMENT_SIZE
       pages_cnt = SEGMENT_SIZE
     else:

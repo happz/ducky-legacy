@@ -4,7 +4,6 @@ machine:
 
 dependencies:
   pre:
-    - pip install threading2
     - pip install enum34
     - pip install tabulate
     - pip install colorama

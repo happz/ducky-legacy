@@ -1,7 +1,7 @@
 from .. import irq
 from .. import profiler
 
-from threading2 import Thread
+from threading import Thread
 
 class Console(irq.IRQSource):
   def __init__(self, machine, conio, *args, **kwargs):
@@ -15,7 +15,8 @@ class Console(irq.IRQSource):
   def boot(self):
     super(Console, self).boot()
 
-    self.thread = Thread(name = 'conio', target = self.loop, daemon = True, priority = 0.0)
+    self.thread = Thread(name = 'conio', target = self.loop)
+    self.thread.daemon = True
     self.thread.start()
 
   def loop(self):

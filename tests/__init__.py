@@ -5,6 +5,7 @@ if os.environ.get('DUCKY_IMPORT_DEVEL', 'no') == 'yes':
   sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 
 import tempfile
+import types
 
 import ducky.patch
 import ducky.config
@@ -88,6 +89,14 @@ def assert_mm(state, **cells):
     else:
       assert False, 'Page %i (address %s) not found in memory' % (page_index, ducky.mm.ADDR_FMT(addr))
 
+def assert_mm_pages(state, *pages):
+  for pg_id in pages:
+    for pg_state in state.get_page_states():
+      if pg_state.index == pg_id:
+        break
+    else:
+      assert False, 'Page %i not found in VM state' % pg_id
+
 def assert_file_content(filename, cells):
   with open(filename, 'rb') as f:
     for cell_offset, cell_value in cells.iteritems():
@@ -113,7 +122,10 @@ def compile_code(code):
 
   return f_bin_name
 
-def run_machine(code, machine_config, coredump_file = None):
+def run_machine(code, machine_config = None, coredump_file = None, post_boot = None, post_run = None):
+  post_boot = post_boot or []
+  post_run = post_run or []
+
   M = ducky.machine.Machine()
 
   if not hasattr(ducky.util, 'CONSOLE') or ducky.util.CONSOLE is None:
@@ -127,8 +139,11 @@ def run_machine(code, machine_config, coredump_file = None):
   machine_config.set('binary-0', 'file', binary_path)
 
   M.hw_setup(machine_config)
-
   M.boot()
+
+  for fn in post_boot:
+    fn(M)
+
   M.run()
 
   state = ducky.snapshot.VMState.capture_vm_state(M, suspend = False)
@@ -136,11 +151,15 @@ def run_machine(code, machine_config, coredump_file = None):
   if coredump_file:
     state.save(coredump_file)
 
-  os.unlink(binary_path)
+  os.unlink(machine_config.get('binary-0', 'file'))
 
-  return state
+  for fn in post_run:
+    fn(M, state)
 
-def common_run_machine(code, machine_config = None, cpus = 1, cores = 1, irq_routines = 'tests/instructions/interrupts-basic.bin'):
+def common_run_machine(code, machine_config = None, cpus = 1, cores = 1, irq_routines = 'tests/instructions/interrupts-basic.bin', post_boot = None, post_run = None):
+  if isinstance(code, types.ListType):
+    code = '\n'.join(code)
+
   if machine_config is None:
     machine_config = ducky.config.MachineConfig()
 
@@ -151,4 +170,4 @@ def common_run_machine(code, machine_config = None, cpus = 1, cores = 1, irq_rou
   machine_config.add_section('cpu')
   machine_config.set('cpu', 'math-coprocessor', 'yes')
 
-  return run_machine(code, machine_config)
+  run_machine(code, machine_config = machine_config, post_boot = post_boot, post_run = post_run)

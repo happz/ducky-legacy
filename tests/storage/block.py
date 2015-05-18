@@ -1,7 +1,6 @@
 import unittest
 import random
 import string
-import types
 
 import ducky.config
 import ducky.blockio
@@ -11,23 +10,22 @@ from tests import common_run_machine, assert_registers, assert_flags, assert_mm,
 
 class Tests(unittest.TestCase):
   def common_case(self, code, storages, mm, files, **kwargs):
-    if isinstance(code, types.ListType):
-      code = '\n'.join(code)
-
     machine_config = ducky.config.MachineConfig()
 
     for driver, id, path in storages:
       machine_config.add_storage(driver, id, filepath = path)
 
-    state = common_run_machine(code, machine_config = machine_config)
+    def __assert_state(M, S):
+      assert_registers(S.get_child('machine').get_child('core0'), **kwargs)
+      assert_flags(S.get_child('machine').get_child('core0'), **kwargs)
 
-    assert_registers(state.get_child('machine').get_child('core0'), **kwargs)
-    assert_flags(state.get_child('machine').get_child('core0'), **kwargs)
-    if mm:
-      assert_mm(state.get_child('machine').get_child('memory'), **mm)
+      if mm:
+        assert_mm(S.get_child('machine').get_child('memory'), **mm)
 
-    for filename, cells in files:
-      assert_file_content(filename, cells)
+      for filename, cells in files:
+        assert_file_content(filename, cells)
+
+    common_run_machine(code, machine_config = machine_config, post_run = [__assert_state])
 
   def test_unknown_device(self):
     file_size = ducky.blockio.BLOCK_SIZE * 10

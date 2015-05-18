@@ -18,7 +18,6 @@ setup(name = 'ducky',
       package_dir = {'ducky': 'ducky'},
       zip_safe = False,
       install_requires = [
-        'threading2',
         'enum34',
         'tabulate',
         'colorama',
