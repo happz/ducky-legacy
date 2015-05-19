@@ -551,7 +551,7 @@ cold_start:
 ;
 $DEFVAR "UP", 2, 0, UP, HERE_INIT
 $DEFVAR "STATE", 5, 0, STATE, 0
-$DEFVAR "DP", 4, 0, DP, HERE_INIT
+$DEFVAR "DP", 2, 0, DP, HERE_INIT
 $DEFVAR "LATEST", 6, 0, LATEST, &name_BYE
 $DEFVAR "S0", 2, 0, SZ, 0
 $DEFVAR "BASE", 4, 0, BASE, 10
@@ -944,12 +944,16 @@ $DEFCODE "FIND", 4, 0, FIND
   lb r1, r1
   call &.__FIND
   cmp r0, 0
-  bz &.__FIND_next
+  bz &.__FIND_notfound
   push r1
   call &.__TCFA
   pop r1
   push r0
   push r1
+  j &.__FIND_next
+.__FIND_notfound:
+  push 0
+  push 0
 .__FIND_next:
   $NEXT
 
@@ -1877,7 +1881,7 @@ $DEFCONST "DODOES", 6, 0, __DODOES, &DODOES
 .include "forth/ducky-forth-words.asm"
 
 
-$DEFCODE "\", 1, $F_IMMED, BACKSLASH
+$DEFCODE "\\\\", 1, $F_IMMED, BACKSLASH
   li $W, &input_buffer_length
   lw $W, $W
   li $X, &input_buffer_index
@@ -1898,4 +1902,5 @@ $DEFCODE "BYE", 3, 0, BYE
   li r0, &bye_message
   call &writes
 
+  li r0, 0
   call &halt

@@ -290,7 +290,7 @@ class Machine(ISnapshotable, MachineWorker):
     self.register_port(0x100, self.conio)
     self.register_port(0x101, self.conio)
 
-    self.register_irq_source(irq.IRQList.CONIO, irq.conio.Console(self, self.conio))
+    self.register_irq_source(irq.IRQList.CONIO, irq.conio.ConsoleIRQ(self, self.conio))
 
     self.memory.boot()
 

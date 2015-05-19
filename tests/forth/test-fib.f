@@ -10,6 +10,4 @@ DECIMAL
   THEN
 ;
 
-: TEST
-  22 FIB . CR
-;
+T{ 22 FIB -> 28657 }T

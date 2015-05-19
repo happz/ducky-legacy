@@ -1,31 +1,26 @@
 from .. import irq
-from .. import profiler
+from .. import reactor
 
-from threading import Thread
+class ConioIRQTask(reactor.ReactorTask):
+  def __init__(self, machine, conio_io, conio_irq):
+    self.machine = machine
+    self.conio_io = conio_io
+    self.conio_irq = conio_irq
 
-class Console(irq.IRQSource):
-  def __init__(self, machine, conio, *args, **kwargs):
-    super(Console, self).__init__(machine, *args, **kwargs)
+  def runnable(self):
+    return True
 
-    self.conio = conio
-    self.thread = None
+  def run(self):
+    self.conio_io.read_raw_input(self.conio_irq)
 
-    self.profiler = profiler.STORE.get_machine_profiler()
+class ConsoleIRQ(irq.IRQSource):
+  def __init__(self, machine, conio_io, *args, **kwargs):
+    super(ConsoleIRQ, self).__init__(machine, *args, **kwargs)
+
+    self.conio_task = ConioIRQTask(machine, conio_io, self)
 
   def boot(self):
-    super(Console, self).boot()
+    reactor.reactor.add_task(self.conio_task)
 
-    self.thread = Thread(name = 'conio', target = self.loop)
-    self.thread.daemon = True
-    self.thread.start()
-
-  def loop(self):
-    self.profiler.enable()
-
-    while True:
-      if self.conio.read_raw_input() is False:
-        break
-
-      self.machine.trigger_irq(self)
-
-    self.profiler.disable()
+  def halt(self):
+    reactor.reactor.remove_task(self.conio_task)

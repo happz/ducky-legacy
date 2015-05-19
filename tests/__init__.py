@@ -17,8 +17,6 @@ import ducky.mm
 import ducky.snapshot
 import ducky.util
 
-from nose.tools import raises
-
 def get_tempfile():
   return tempfile.NamedTemporaryFile('w+b', delete = False, dir = os.path.join(os.getenv('PWD'), 'tests-%s' % os.getenv('TESTSET'), 'tmp'))
 

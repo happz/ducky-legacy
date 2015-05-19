@@ -191,6 +191,11 @@ $DEFCODE "'\\\\n'", 4, 0, CHAR_NL
   push 10
   $NEXT
 
+$DEFCODE "'\\\\r'", 4, 0, CHAR_CR
+  ; ( -- <carriage return char>
+  push 13
+  $NEXT
+
 $DEFCODE "BL", 2, 0, CHAR_SPACE
   ; ( -- <space> )
   push 32
@@ -246,6 +251,8 @@ $DEFWORD "'.'", 3, 0, CHAR_DOT
 
 $DEFWORD "CR", 2, 0, CR
   ; ( -- )
+  .int &CHAR_CR
+  .int &EMIT
   .int &CHAR_NL
   .int &EMIT
   .int &EXIT
@@ -1014,4 +1021,3 @@ $DEFCODE ".S", 2, 0, DOTS
 ; This is fake - exceptions are not implemented yet
 $DEFCODE "ABORT", 5, 0, ABORT
   call &code_BYE
-

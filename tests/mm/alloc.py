@@ -1,4 +1,3 @@
-import functools
 import unittest
 import random
 
@@ -54,25 +53,28 @@ class Tests(unittest.TestCase):
   def test_alloc_pages_segment_user(self):
     self.test_alloc_pages(segment = 2)
 
-  def test_free_page(self):
+  def test_free_page(self, segment = None):
     def __test(M):
       S = ducky.snapshot.VMState.capture_vm_state(M, suspend = False)
       assert_mm_pages(S.get_child('machine').get_child('memory'), *[0, 1, 256, 257, 512, 513])
 
-      M.memory.alloc_page()
+      pg = M.memory.alloc_page(segment = segment)
 
       S = ducky.snapshot.VMState.capture_vm_state(M, suspend = False)
-      assert_mm_pages(S.get_child('machine').get_child('memory'), *[0, 1, 2, 256, 257, 512, 513])
+      assert_mm_pages(S.get_child('machine').get_child('memory'), *[0, 1, 256, 257, 512, 513, pg.index])
 
-      M.memory.free_page(M.memory.get_page(2))
+      M.memory.free_page(pg)
 
       S = ducky.snapshot.VMState.capture_vm_state(M, suspend = False)
       assert_mm_pages(S.get_child('machine').get_child('memory'), *[0, 1, 256, 257, 512, 513])
 
-    def __assert_state(M, S):
-      assert_mm_pages(S.get_child('machine').get_child('memory'), *[0, 1, 256, 257, 512, 513])
+    self.common_case(post_boot = [__test])
 
-    self.common_case(post_boot = [__test], post_run = [__assert_state])
+  def test_free_page_segment_protected(self):
+    self.test_free_page(segment = 0)
+
+  def test_free_page_segment_user(self):
+    self.test_free_page(segment = 2)
 
   def test_alloc_and_free_pages_overlap(self):
     cnt1 = 17

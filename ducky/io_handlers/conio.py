@@ -11,7 +11,7 @@ from .. import io_handlers
 from .. import util
 
 from ..cpu.registers import Registers
-from ..util import debug, info, warn, error
+from ..util import debug, info, warn, error, exception
 from ..console import WHITE
 from ..irq import InterruptList
 from ..irq.virtual import VirtualInterrupt, VIRTUAL_INTERRUPTS
@@ -59,7 +59,6 @@ class ConsoleIOHandler(io_handlers.IOHandler):
     self.queue = Queue.Queue()
 
     self.booted = False
-    self.halt_signaled = False
 
   def get_terminal_dev(self):
     return self.terminal_device
@@ -89,6 +88,7 @@ class ConsoleIOHandler(io_handlers.IOHandler):
 
       self.input = stream
       self.input_fd = self.pttys[0]
+
       self.queue.put(ControlMessages.CRLF_ON)
       self.queue.put(ControlMessages.ECHO_ON)
       self.queue.put(ControlMessages.FLUSH_ON)
@@ -98,7 +98,9 @@ class ConsoleIOHandler(io_handlers.IOHandler):
 
       self.input = open(stream, 'rb')
       self.input_fd = self.input.fileno()
+
       self.queue.put(ControlMessages.CRLF_OFF)
+      self.queue.put(ControlMessages.ECHO_ON if self.echo is True else ControlMessages.ECHO_OFF)
       self.queue.put(ControlMessages.FLUSH_OFF)
 
     else:
@@ -132,7 +134,7 @@ class ConsoleIOHandler(io_handlers.IOHandler):
       ptty.baud = 115200
       self.input_streams.append(ptty)
 
-    self.queue.put(ControlMessages.ECHO_ON if self.echo else ControlMessages.ECHO_OFF)
+    self.queue.put(ControlMessages.ECHO_ON if self.echo is True else ControlMessages.ECHO_OFF)
     self.queue.put(ControlMessages.FLUSH_OFF)
 
     if self.output_streams:
@@ -178,10 +180,12 @@ class ConsoleIOHandler(io_handlers.IOHandler):
       self.input = self.output = None
 
     if self.input:
-      self.input.close()
+      input, self.input = self.input, None
+      input.close()
 
     if self.output:
-      self.output.close()
+      output, self.output = self.output, None
+      output.close()
 
   def check_available_input(self):
     if not self.input_fd:
@@ -193,15 +197,17 @@ class ConsoleIOHandler(io_handlers.IOHandler):
       return False
 
     try:
-      r_read, r_write, r_exc = select.select([self.input_fd], [], [])
+      r_read, r_write, r_exc = select.select([self.input_fd], [], [], 0)
 
       return self.input_fd in r_read
 
     except Exception, e:
-      debug('conio.check_available_input: exception happened: e=%s', type(e))
+      e.exc_stack = sys.exc_info()
+      error('conio.check_available_input: exception happened: e=%s', type(e))
+      exception(e, logger = error)
       return False
 
-  def read_raw_input(self):
+  def read_raw_input(self, conio_irq):
     while True:
       if not self.check_available_input():
         debug('conio.read_input: no input available')
@@ -223,8 +229,12 @@ class ConsoleIOHandler(io_handlers.IOHandler):
         for c in s:
           self.queue.put(c)
 
+        self.machine.trigger_irq(conio_irq)
+
       except IOError, e:
-        error('conio.__read_char: error=%s', e)
+        e.exc_stack = sys.exc_info()
+        error('conio.read_raw_input: failed to read from input: input=%s', repr(self.input))
+        exception(e, logger = error)
         return False
 
       return True
@@ -259,9 +269,7 @@ class ConsoleIOHandler(io_handlers.IOHandler):
 
         elif c == ControlMessages.HALT:
           debug('conio: planned halt, execute')
-
-          if not self.halt_signaled:
-            self.machine.halt()
+          self.machine.halt()
 
           return None
 
@@ -291,7 +299,9 @@ class ConsoleIOHandler(io_handlers.IOHandler):
         sys.stdout.flush()
 
     except IOError, e:
-      error('Exception raised during console write: %s', str(e))
+      e.exc_stack = sys.exc_info()
+      error('Exception raised during console write')
+      exception(e, logger = error)
 
   def read_u8_256(self):
     debug('conio.read_u8_256')
