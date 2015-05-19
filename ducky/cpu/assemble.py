@@ -10,7 +10,7 @@ import types
 
 from .. import cpu
 from .. import mm
-from ..cpu.coprocessor.math_copro import MathCoprocessorInstructionSet
+from ..cpu.coprocessor.math_copro import MathCoprocessorInstructionSet  # noqa - it's not unused, SIS instruction may need it but that's hidden from flake
 
 from ..mm import UInt8, UInt16, ADDR_FMT, PAGE_SIZE
 from ..mm.binary import SectionTypes
@@ -422,7 +422,7 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, filen
     if not v_value:
       raise buff.get_error(IncompleteDirectiveError, '.ascii directive without a string')
 
-    var.value = v_value.replace('\\r', '\r').replace('\\n', '\n').replace('\\"', '"')
+    var.value = v_value.decode('string_escape')
 
   def __parse_string(var, matches):
     if not var.lineno:
@@ -435,7 +435,7 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, filen
     if not v_value:
       raise buff.get_error(IncompleteDirectiveError, '.string directive without a string')
 
-    var.value = v_value.replace('\\r', '\r').replace('\\n', '\n').replace('\\"', '"')
+    var.value = v_value.decode('string_escape')
 
   def __parse_space(var, matches):
     if not var.lineno:
