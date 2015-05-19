@@ -80,7 +80,7 @@ else
 endif
 
 
-run:
+run: interrupts.bin $(FORTH_KERNEL)
 ifeq ($(VMCOVERAGE),yes)
 	$(eval VMCOVERAGE_FILE := COVERAGE_FILE="$(CURDIR)/.coverage.run")
 	$(eval VMCOVERAGE_BIN  := $(VIRTUAL_ENV)/bin/coverage run)
