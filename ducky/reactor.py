@@ -120,12 +120,16 @@ class Reactor(object):
       if not self.tasks:
         break
 
-      runnable_tasks = [task for task in self.tasks if task.runnable()]
+      ran_tasks = 0
 
-      if runnable_tasks:
-        for task in runnable_tasks:
-          task.run()
+      for task in self.tasks:
+        if task.runnable() is not True:
+          continue
 
+        task.run()
+        ran_tasks += 1
+
+      if ran_tasks > 0:
         while not self.events.empty():
           e = self.events.get_nowait()
           e.run()
