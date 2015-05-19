@@ -9,4 +9,4 @@ class VirtualInterrupt(object):
 
 VIRTUAL_INTERRUPTS = {}
 
-from ..mm import interrupt
+from ..mm import interrupt  # noqa - it's not unused, after import mm interrupt handler registers itself
