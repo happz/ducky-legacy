@@ -84,4 +84,4 @@ class IOPortSet(object):
     return port in self.__ports
 
   def __iter__(self):
-    return self.__ports.itervalues()
+    return iter({}.fromkeys(self.__ports.values()).keys())
