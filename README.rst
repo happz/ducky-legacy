@@ -9,6 +9,9 @@ Ducky is a simple virtual CPU/machine simulator, with modular design and interes
 .. image:: https://readthedocs.org/projects/ducky/badge/?version=latest
   :target: http://ducky.readthedocs.org/en/latest/
 
+.. image:: http://www.quantifiedcode.com/api/v1/project/e7859c764ad2426fae178204016ba5b4/badge.svg
+  :target: http://www.quantifiedcode.com/app/project/e7859c764ad2426fae178204016ba5b4
+
 Ducky was created for learning purposes, no bigger ambitions. The goal was to experiment with
 CPU and virtual machine simulation, different instruction sets, and later working FORTH kernel
 become one of the main goals.
