@@ -852,10 +852,15 @@ class CPUCore(ISnapshotable, machine.MachineWorker):
     self.DEBUG('"EXECUTE" phase: %s %s', UINT16_FMT(self.current_ip), self.instruction_set.disassemble_instruction(self.current_instruction))
     log_cpu_core_state(self)
 
-    if opcode not in self.instruction_set.opcode_desc_map:
-      raise InvalidOpcodeError(opcode, ip = self.current_ip, core = self)
+    try:
+      if opcode not in self.instruction_set.opcode_desc_map:
+        raise InvalidOpcodeError(opcode, ip = self.current_ip, core = self)
 
-    self.instruction_set.opcode_desc_map[opcode].execute(self, self.current_instruction)
+      self.instruction_set.opcode_desc_map[opcode].execute(self, self.current_instruction)
+
+    except (InvalidOpcodeError, AccessViolationError, InvalidResourceError) as e:
+      self.die(e)
+      return
 
     cnt = self.registers.cnt
     cnt.value += 1
@@ -906,6 +911,10 @@ class CPUCore(ISnapshotable, machine.MachineWorker):
       self.step()
 
     except (CPUException, ZeroDivisionError, AccessViolationError) as e:
+      e.exc_stack = sys.exc_info()
+      self.die(e)
+
+    except Exception as e:
       e.exc_stack = sys.exc_info()
       self.die(e)
 

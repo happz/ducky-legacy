@@ -2,7 +2,6 @@ import enum
 import os
 import pty
 import pytty
-import Queue
 import select
 import sys
 import types
@@ -56,7 +55,7 @@ class ConsoleIOHandler(io_handlers.IOHandler):
 
     self.immediate_flush = False
 
-    self.queue = Queue.Queue()
+    self.queue = []
 
     self.booted = False
 
@@ -77,8 +76,10 @@ class ConsoleIOHandler(io_handlers.IOHandler):
     # In case input_streams are empty, there is no ptty console,
     # just halt VM - no other input wil ever come
     if not self.input_streams:
-      debug('conio.__open_input_stream: no additional input streams, plan halt')
-      self.queue.put(ControlMessages.HALT)
+      debug('conio.__open_input_stream: no additional input streams')
+      if self.queue[-1] != ControlMessages.HALT:
+        debug('conio.__open_input_stream: plan halt')
+        self.queue.append(ControlMessages.HALT)
       return
 
     stream = self.input_streams.pop(0)
@@ -89,9 +90,9 @@ class ConsoleIOHandler(io_handlers.IOHandler):
       self.input = stream
       self.input_fd = self.pttys[0]
 
-      self.queue.put(ControlMessages.CRLF_ON)
-      self.queue.put(ControlMessages.ECHO_ON)
-      self.queue.put(ControlMessages.FLUSH_ON)
+      self.queue.append(ControlMessages.CRLF_ON)
+      self.queue.append(ControlMessages.ECHO_ON)
+      self.queue.append(ControlMessages.FLUSH_ON)
 
     elif isinstance(stream, types.StringType):
       debug('conio.__open_input_stream: input file attached')
@@ -99,9 +100,9 @@ class ConsoleIOHandler(io_handlers.IOHandler):
       self.input = open(stream, 'rb')
       self.input_fd = self.input.fileno()
 
-      self.queue.put(ControlMessages.CRLF_OFF)
-      self.queue.put(ControlMessages.ECHO_ON if self.echo is True else ControlMessages.ECHO_OFF)
-      self.queue.put(ControlMessages.FLUSH_OFF)
+      self.queue.append(ControlMessages.CRLF_OFF)
+      self.queue.append(ControlMessages.ECHO_ON if self.echo is True else ControlMessages.ECHO_OFF)
+      self.queue.append(ControlMessages.FLUSH_OFF)
 
     else:
       warn('__open_input_stream: Unknown input stream type: %s of type %s', stream, type(stream))
@@ -134,8 +135,8 @@ class ConsoleIOHandler(io_handlers.IOHandler):
       ptty.baud = 115200
       self.input_streams.append(ptty)
 
-    self.queue.put(ControlMessages.ECHO_ON if self.echo is True else ControlMessages.ECHO_OFF)
-    self.queue.put(ControlMessages.FLUSH_OFF)
+    self.queue.append(ControlMessages.ECHO_ON if self.echo is True else ControlMessages.ECHO_OFF)
+    self.queue.append(ControlMessages.FLUSH_OFF)
 
     if self.output_streams:
       self.output = open(self.output_streams, 'wb')
@@ -146,8 +147,8 @@ class ConsoleIOHandler(io_handlers.IOHandler):
 
       else:
         self.output = pytty.TTY(self.pttys[0])
-        self.queue.put(ControlMessages.ECHO_ON)
-        self.queue.put(ControlMessages.FLUSH_ON)
+        self.queue.append(ControlMessages.ECHO_ON)
+        self.queue.append(ControlMessages.FLUSH_ON)
 
     self.terminal_device = os.ttyname(self.pttys[1]) if self.pttys else '/dev/unknown'
 
@@ -227,7 +228,7 @@ class ConsoleIOHandler(io_handlers.IOHandler):
           continue
 
         for c in s:
-          self.queue.put(c)
+          self.queue.append(c)
 
         self.machine.trigger_irq(conio_irq)
 
@@ -244,11 +245,12 @@ class ConsoleIOHandler(io_handlers.IOHandler):
 
   def __read_char(self):
     while True:
-      if self.queue.empty():
+      try:
+        c = self.queue.pop(0)
+
+      except IndexError:
         debug('conio.__read_char: select claims no input available')
         return None
-
-      c = self.queue.get_nowait()
 
       if type(c) == ControlMessages:
         if c == ControlMessages.CRLF_ON:

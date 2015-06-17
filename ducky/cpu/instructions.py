@@ -7,7 +7,7 @@ from ctypes import LittleEndianStructure, c_uint, c_int
 
 from ..util import debug
 from .registers import Registers, REGISTER_NAMES
-from ..mm import OFFSET_FMT, UINT16_FMT, i16, UInt32
+from ..mm import OFFSET_FMT, UINT16_FMT, i16, u16, UInt32
 
 class GenericInstBinaryFormat_Overall(LittleEndianStructure):
   _pack_ = 0
@@ -572,6 +572,8 @@ class DuckyOpcodes(enum.IntEnum):
   DIV    = 49
   MOD    = 50
 
+  UDIV   = 52
+
   CMPU   = 51
 
   SIS    = 63
@@ -1117,8 +1119,35 @@ class Inst_DIV(InstDescriptor_Generic_Binary_R_RI):
     r = core.registers.map[inst.reg]
     x = i16(r.value).value
     y = i16(core.RI_VAL(inst)).value
-    r.value = x / y
+
+    if abs(y) > abs(x):
+      r.value = 0
+
+    else:
+      r.value = x / y
+
+    # print 'DIV: %s / %s = %s (%s / %s = %s)' % (x, y, i16(r.value).value, x, y, i16(r.value).value)
+    # print 'pre:  priv=%i, hwint=%i, e=%i, z=%i, o=%i, s=%i' % (core.registers.flags.privileged, core.registers.flags.hwint, core.registers.flags.e, core.registers.flags.z, core.registers.flags.o, core.registers.flags.s)
     core.update_arith_flags(core.registers.map[inst.reg])
+    # print 'post: priv=%i, hwint=%i, e=%i, z=%i, o=%i, s=%i' % (core.registers.flags.privileged, core.registers.flags.hwint, core.registers.flags.e, core.registers.flags.z, core.registers.flags.o, core.registers.flags.s)
+
+class Inst_UDIV(InstDescriptor_Generic_Binary_R_RI):
+  mnemonic = 'udiv'
+  opcode = DuckyOpcodes.UDIV
+
+  @staticmethod
+  def execute(core, inst):
+    core.check_protected_reg(inst.reg)
+    r = core.registers.map[inst.reg]
+    x = u16(r.value).value
+    y = u16(core.RI_VAL(inst)).value
+
+    r.value = x / y
+
+    # print 'UDIV: %s / %s = %s (%s / %s = %s)' % (x, y, u16(r.value).value, x, y, u16(r.value).value)
+    # print 'pre:  priv=%i, hwint=%i, e=%i, z=%i, o=%i, s=%i' % (core.registers.flags.privileged, core.registers.flags.hwint, core.registers.flags.e, core.registers.flags.z, core.registers.flags.o, core.registers.flags.s)
+    core.update_arith_flags(core.registers.map[inst.reg])
+    # print 'post: priv=%i, hwint=%i, e=%i, z=%i, o=%i, s=%i' % (core.registers.flags.privileged, core.registers.flags.hwint, core.registers.flags.e, core.registers.flags.z, core.registers.flags.o, core.registers.flags.s)
 
 class Inst_MOD(InstDescriptor_Generic_Binary_R_RI):
   mnemonic = 'mod'
@@ -1184,6 +1213,7 @@ Inst_MOV(DuckyInstructionSet)
 Inst_SWP(DuckyInstructionSet)
 Inst_MUL(DuckyInstructionSet)
 Inst_DIV(DuckyInstructionSet)
+Inst_UDIV(DuckyInstructionSet)
 Inst_MOD(DuckyInstructionSet)
 Inst_CMPU(DuckyInstructionSet)
 Inst_CAS(DuckyInstructionSet)

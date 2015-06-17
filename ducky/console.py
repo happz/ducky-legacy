@@ -49,6 +49,19 @@ def BLUE(s):
 def WHITE(s):
   return colorama.Fore.WHITE + s + __COLOR_RESET
 
+def format(level, *args):
+  fmt = args[0]
+  args = tuple(args[1:]) if len(args) > 1 else ()
+
+  msg = fmt % args if len(args) else fmt
+
+  return '{color_start}[{level}] {msgs}{color_stop}\n'.format(**{
+    'color_start': COLORS[level],
+    'color_stop':  colorama.Fore.RESET + colorama.Back.RESET + colorama.Style.RESET_ALL,
+    'level':       LEVELS[level],
+    'msgs':        msg
+  })
+
 class Console(object):
   console_id = 0
   commands = {}
@@ -119,19 +132,7 @@ class Console(object):
     if level == VerbosityLevels.DEBUG and self.quiet_mode:
       return
 
-    fmt = args[0]
-    args = tuple(args[1:]) if len(args) > 1 else ()
-
-    msg = fmt % args if len(args) else fmt
-
-    msg = '{color_start}[{level}] {msgs}{color_stop}\n'.format(**{
-      'color_start': COLORS[level],
-      'color_stop':  colorama.Fore.RESET + colorama.Back.RESET + colorama.Style.RESET_ALL,
-      'level':       LEVELS[level],
-      'msgs':        msg
-    })
-
-    self.write(msg)
+    self.write(format(level, *args))
 
   def debug(self, *args):
     self.writeln(VerbosityLevels.DEBUG, *args)

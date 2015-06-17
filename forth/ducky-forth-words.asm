@@ -730,6 +730,86 @@ $DEFCODE "UNUSED", 6, 0, UNUSED
   $NEXT
 
 
+$DEFCODE "FILL", 4, 0, FILL
+  ; ( c-addr u char -- )
+  pop $W ; char
+  pop $X ; u
+  pop $Y ; c-addr
+
+  cmp $W, 0
+  ble &.__FILL_next
+
+.__FILL_loop:
+  cmp $X, 0
+  bz &.__FILL_next
+  stb $Y, $W
+  inc $Y
+  dec $X
+  j &.__FILL_loop
+
+.__FILL_next:
+  $NEXT
+
+
+memcpy:
+  ; r0 - src
+  ; r1 - dst
+  ; r2 - length
+  cmp r2, 0
+  bz &.__memcpy_quit
+  push r3
+.__memcpy_loop:
+  lb r3, r0
+  stb r1, r3
+  inc r0
+  inc r1
+  dec r2
+  bnz &.__memcpy_loop
+  pop r3
+.__memcpy_quit:
+  ret
+
+memmove:
+  ; r0 - src
+  ; r1 - dst
+  ; r2 - length
+  ; r3 - tmp ptr
+
+  push r3
+  li r3, &var_UP
+  lw r3, r3
+
+  push r0
+  push r1
+  push r2
+  mov r1, r3
+  call &memcpy
+  pop r2
+  pop r1
+  pop r0
+
+  push r0
+  push r1
+  push r2
+  mov r0, r3
+  call &memcpy
+  pop r2
+  pop r1
+  pop r0
+  pop r3
+  ret
+
+
+$DEFCODE "MOVE", 4, 0, MOVE
+  ; ( addr1 addr2 u -- )
+  pop r2 ; u
+  pop r1 ; addr2
+  pop r0 ; addr1
+
+  call &memmove
+  $NEXT
+
+
 ; - Arithmetics -------------------------------------------------------------------------
 
 $DEFCODE "LSHIFT", 6, 0, LSHIFT
@@ -981,7 +1061,7 @@ $DEFCODE "U.", 2, 0, UDOT
   lw r1, r1
 
   push r0 ; save r0 for mod later
-  div r0, r1
+  udiv r0, r1
   bz &.__UDOT_print
   call &.__UDOT
 
@@ -991,16 +1071,16 @@ $DEFCODE "U.", 2, 0, UDOT
   cmp r0, 10
   bge &.__UDOT_print_letters
   add r0, 48
-  pop r1
-  j &.__EMIT ; tail call
+
+.__UDOT_emit:
+  call &.__EMIT
+  pop r1 ; restore saved r1 (BASE)
+  ret
 
 .__UDOT_print_letters:
   sub r0, 10
   add r0, 65
-
-.__UDOT_emit:
-  pop r1
-  j &.__EMIT ; tail call
+  j &.__UDOT_emit
 
 
 $DEFCODE ".S", 2, 0, DOTS

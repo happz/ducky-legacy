@@ -977,6 +977,19 @@ $DEFCODE "FIND", 4, 0, FIND
   cmp r2, r2
   bz &.__FIND_fail
 
+  ; check HIDDEN flag
+  push r2
+  add r2, $wr_flags
+  lb r2, r2
+  and r2, $F_HIDDEN
+  bz &.__FIND_hidden_success
+  pop r2
+  lw r2, r2
+  j &.__FIND_loop
+
+.__FIND_hidden_success:
+  pop r2
+
   ; check crc
   push r2
   add r2, $wr_namecrc
