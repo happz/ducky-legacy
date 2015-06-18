@@ -555,6 +555,46 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, filen
   data_section = sections_pass1['.data']
   curr_section = text_section
 
+  ifs = []
+
+  def __fast_forward():
+    debug(msg_prefix + 'fast forwarding')
+
+    depth = 1
+
+    while buff.has_lines():
+      line = buff.get_line()
+
+      if line is None:
+        return
+
+      if not line.strip():
+        continue
+
+      matches = RE_IFDEF.match(line)
+      if matches:
+        depth += 1
+        continue
+
+      matches = RE_IFNDEF.match(line)
+      if matches:
+        depth += 1
+        continue
+
+      matches = RE_ENDIF.match(line)
+      if matches:
+        depth -= 1
+        if depth == 0:
+          buff.put_line(line)
+          return
+
+      matches = RE_ELSE.match(line)
+      if matches:
+        depth -= 1
+        if depth == 0:
+          buff.put_line(line)
+          return
+
   while buff.has_lines():
     line = buff.get_line()
 
@@ -580,19 +620,55 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, filen
 
     matches = RE_IFDEF.match(line)
     if matches:
-      pass
+      var = matches.groupdict()['var']
+
+      debug(msg_prefix + 'ifdef %s', var)
+
+      ifs.append((True, var))
+
+      if var in defines:
+        debug(msg_prefix + 'defined, continue processing')
+        continue
+
+      __fast_forward()
+      continue
 
     matches = RE_IFNDEF.match(line)
     if matches:
-      pass
+      var = matches.groupdict()['var']
+
+      debug(msg_prefix + 'ifndef %s', var)
+
+      ifs.append((False, var))
+
+      if var not in defines:
+        debug(msg_prefix + 'not defined, continue processing')
+        continue
+
+      __fast_forward()
+      continue
 
     matches = RE_ENDIF.match(line)
     if matches:
-      pass
+      debug(msg_prefix + 'removing the last conditional from stack: %s', ifs[-1])
+
+      ifs.pop()
+      continue
 
     matches = RE_ELSE.match(line)
     if matches:
-      pass
+      defined, var = ifs.pop()
+
+      debug(msg_prefix + 'previous block was "%s %s"', 'ifdef' if defined is True else 'ifndef', var)
+
+      ifs.append((not defined, var))
+
+      if defined and var in defines:
+        __fast_forward()
+        continue
+
+      debug(msg_prefix + 'continue processing')
+      continue
 
     matches = RE_INCLUDE.match(line)
     if matches:
