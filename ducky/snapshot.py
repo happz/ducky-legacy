@@ -32,7 +32,7 @@ class SnapshotNode(object):
     for field in self.__fields:
       print offset, '  ', '%s: %s' % (field, getattr(self, field))
 
-    if len(self.__children):
+    if self.__children:
       print offset, '  children:'
 
       for name, value in self.__children.iteritems():

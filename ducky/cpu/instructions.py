@@ -66,7 +66,10 @@ class InstDescriptor(object):
     self.binary_format_name = 'InstBinaryFormat_%s' % self.mnemonic
     self.binary_format = type(self.binary_format_name, (ctypes.LittleEndianStructure,), {'_pack_': 0, '_fields_': fields})
 
-    self.binary_format.__repr__ = lambda inst: '<' + self.instruction_set.disassemble_instruction(inst) + '>'
+    def __repr__(__inst):
+      return '<' + self.instruction_set.disassemble_instruction(__inst) + '>'
+
+    self.binary_format.__repr__ = __repr__
 
   def __init__(self, instruction_set):
     super(InstDescriptor, self).__init__()
@@ -443,7 +446,7 @@ class InstructionSetMetaclass(type):
 class InstructionSet(object):
   __metaclass__ = InstructionSetMetaclass
 
-  id = None
+  instruction_set_id = None
   opcodes = None
 
   @classmethod
@@ -1163,7 +1166,7 @@ class Inst_MOD(InstDescriptor_Generic_Binary_R_RI):
     core.update_arith_flags(core.registers.map[inst.reg])
 
 class DuckyInstructionSet(InstructionSet):
-  id = 0
+  instruction_set_id = 0
   opcodes = DuckyOpcodes
 
 Inst_NOP(DuckyInstructionSet)
@@ -1222,7 +1225,7 @@ Inst_SIS(DuckyInstructionSet)
 DuckyInstructionSet.init()
 
 INSTRUCTION_SETS = {
-  DuckyInstructionSet.id: DuckyInstructionSet
+  DuckyInstructionSet.instruction_set_id: DuckyInstructionSet
 }
 
 def get_instruction_set(i, exc = None):

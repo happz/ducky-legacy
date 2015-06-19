@@ -175,8 +175,12 @@ class ConsoleIOHandler(io_handlers.IOHandler):
         os.close(self.pttys[0])
 
         self.input = self.output = None
-      except:
-        pass
+
+      except Exception as e:
+        e.exc_stack = sys.exc_info()
+
+        warn('Exception raised while closing PTY')
+        exception(e)
 
       self.input = self.output = None
 

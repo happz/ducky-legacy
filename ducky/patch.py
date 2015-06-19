@@ -80,9 +80,8 @@ class ModuleLoader(object):
     return mod
 
 class Importer(object):
-  def find_module(self, fullname, path = []):
-    if not path:
-      path = sys.path
+  def find_module(self, fullname, path = None):
+    path = path or sys.path
 
     for directory in path:
       loader = self.loader_for_path(directory, fullname)

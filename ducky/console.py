@@ -211,7 +211,7 @@ class Console(object):
         if c == 127:
           buff[-1:] = []
 
-          if len(buff):
+          if buff:
             buff[-1:] = []
 
             __clear_line()

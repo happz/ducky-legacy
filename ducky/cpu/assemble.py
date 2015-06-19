@@ -313,7 +313,7 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, filen
 
       debug(msg_prefix + 'replacing macro: name=%s', m_desc['name'])
 
-      if len(m_desc['params']):
+      if m_desc['params']:
         matches = matches.groupdict()
 
         replace_map = {}
@@ -948,7 +948,7 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, filen
     emited_inst = desc.emit_instruction(line)
     emited_inst.desc = desc
 
-    if len(labels):
+    if labels:
       text_section.content.append((labels, emited_inst))
 
     else:

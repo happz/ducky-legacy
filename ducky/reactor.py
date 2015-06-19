@@ -18,14 +18,14 @@ class ReactorTask(object):
   Base class for all reactor tasks.
   """
 
-  def runnable():
+  def runnable(self):
     """
     Returns ``True`` if task can be run.
     """
 
     return False
 
-  def run():
+  def run(self):
     """
     This method is called by reactor to perform task's actions.
     """

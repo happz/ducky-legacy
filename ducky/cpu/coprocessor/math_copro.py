@@ -513,7 +513,7 @@ class MathCoprocessorInstructionSet(InstructionSet):
   Math coprocessor's instruction set.
   """
 
-  id = 1
+  instruction_set_id = 1
 
   opcodes = MathCoprocessorOpcodes
 
@@ -668,5 +668,5 @@ Inst_SIS(MathCoprocessorInstructionSet)
 
 MathCoprocessorInstructionSet.init()
 
-INSTRUCTION_SETS[MathCoprocessorInstructionSet.id] = MathCoprocessorInstructionSet
+INSTRUCTION_SETS[MathCoprocessorInstructionSet.instruction_set_id] = MathCoprocessorInstructionSet
 VIRTUAL_INTERRUPTS[InterruptList.MATH] = MathInterrupt
