@@ -989,6 +989,7 @@ TESTING OUTPUT: . ." CR EMIT SPACE SPACES TYPE U.
 
 T{ OUTPUT-TEST -> }T
 
+BYE
 
 \ ------------------------------------------------------------------------
 TESTING INPUT: ACCEPT
