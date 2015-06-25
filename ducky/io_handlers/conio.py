@@ -30,6 +30,8 @@ class ControlMessages(enum.IntEnum):
   CONTROL_MESSAGE_FIRST = 1024
 
 class ConsoleIOHandler(io_handlers.IOHandler):
+  CTRL_HALT = ControlMessages.HALT
+
   def __init__(self, f_in, f_out, *args, **kwargs):
     super(ConsoleIOHandler, self).__init__(*args, **kwargs)
 
@@ -77,9 +79,9 @@ class ConsoleIOHandler(io_handlers.IOHandler):
     # just halt VM - no other input wil ever come
     if not self.input_streams:
       debug('conio.__open_input_stream: no additional input streams')
-      if self.queue[-1] != ControlMessages.HALT:
+      if self.queue[-1] != ConsoleIOHandler.CTRL_HALT:
         debug('conio.__open_input_stream: plan halt')
-        self.queue.append(ControlMessages.HALT)
+        self.queue.append(ConsoleIOHandler.CTRL_HALT)
       return
 
     stream = self.input_streams.pop(0)
@@ -90,9 +92,9 @@ class ConsoleIOHandler(io_handlers.IOHandler):
       self.input = stream
       self.input_fd = self.pttys[0]
 
-      self.queue.append(ControlMessages.CRLF_ON)
-      self.queue.append(ControlMessages.ECHO_ON)
-      self.queue.append(ControlMessages.FLUSH_ON)
+      l = [ControlMessages.CRLF_ON, ControlMessages.ECHO_ON, ControlMessages.FLUSH_ON]
+      if self.queue[-3:] != l:
+        self.queue += l
 
     elif isinstance(stream, types.StringType):
       debug('conio.__open_input_stream: input file attached')
@@ -100,9 +102,9 @@ class ConsoleIOHandler(io_handlers.IOHandler):
       self.input = open(stream, 'rb')
       self.input_fd = self.input.fileno()
 
-      self.queue.append(ControlMessages.CRLF_OFF)
-      self.queue.append(ControlMessages.ECHO_ON if self.echo is True else ControlMessages.ECHO_OFF)
-      self.queue.append(ControlMessages.FLUSH_OFF)
+      l = [ControlMessages.CRLF_OFF, ControlMessages.ECHO_ON if self.echo is True else ControlMessages.ECHO_OFF, ControlMessages.FLUSH_OFF]
+      if self.queue[-3:] != l:
+        self.queue += l
 
     else:
       warn('__open_input_stream: Unknown input stream type: %s of type %s', stream, type(stream))
