@@ -32,7 +32,7 @@ RE_ASCII = re.compile(r'^\s*\.ascii\s+"(?P<value>.*?)"\s*$', re.MULTILINE)
 RE_BYTE = re.compile(r'^\s*\.byte\s+(?:(?P<value_hex>-?0x[a-fA-F0-9]+)|(?P<value_dec>(?:0)|(?:-?[1-9][0-9]*))|(?P<value_var>[a-zA-Z][a-zA-Z0-9_]*))\s*$', re.MULTILINE)
 RE_DATA = re.compile(r'^\s*\.data(?:\s+(?P<name>\.[a-z][a-z0-9_]*))?\s*$', re.MULTILINE)
 RE_INT = re.compile(r'^\s*\.int\s+(?:(?P<value_hex>-?0x[a-fA-F0-9]+)|(?P<value_dec>0|(?:-?[1-9][0-9]*))|(?P<value_var>[a-zA-Z][a-zA-Z0-9_]*)|(?P<value_label>&[a-zA-Z_\.][a-zA-Z0-9_]*))\s*$', re.MULTILINE)
-RE_SECTION = re.compile(r'^\s*\.section\s+(?P<name>\.[a-zA-z0-9_]+)(?:,\s*(?P<flags>[rwxb]*))?\s*$', re.MULTILINE)
+RE_SECTION = re.compile(r'^\s*\.section\s+(?P<name>\.[a-zA-z0-9_]+)(?:,\s*(?P<flags>[rwxbm]*))?\s*$', re.MULTILINE)
 RE_SET = re.compile(r'^\s*\.set\s+(?P<name>[a-zA-Z_][a-zA-Z0-9_]*),\s*(?:(?P<current>\.)|(?P<value_hex>-?0x[a-fA-F0-9]+)|(?P<value_dec>0|(?:-?[1-9][0-9]*))|(?P<value_label>&[a-zA-Z][a-zA-Z0-9_]*))\s*$', re.MULTILINE)
 RE_SIZE = re.compile(r'^\s*\.size\s+(?P<size>[1-9][0-9]*)\s*$', re.MULTILINE)
 RE_SPACE = re.compile(r'^\s*\.space\s+(?P<size>[1-9][0-9]*)\s*$', re.MULTILINE)
@@ -123,8 +123,11 @@ class Section(object):
     self.ptr  = UInt16(0)
 
   def __getattr__(self, name):
-    if name == 'size':
+    if name == 'data_size':
       return sum([sizeof(i) for i in self.content])
+
+    if name == 'file_size':
+      return align_to_next_mmap(self.data_size) if 'm' in self.flags else self.data_size
 
     if name == 'items':
       return len(self.content)
@@ -133,22 +136,22 @@ class Section(object):
       return 'b' in self.flags
 
   def __repr__(self):
-    return '<Section: name=%s, type=%s, flags=%s, base=%s, ptr=%s, items=%s, size=%s>' % (self.name, self.type, self.flags, self.base, self.ptr, self.items, self.size)
+    return '<Section: name=%s, type=%s, flags=%s, base=%s, ptr=%s, items=%s, data_size=%s, file_size=%s>' % (self.name, self.type, self.flags, self.base, self.ptr, self.items, self.data_size, self.file_size)
 
 class TextSection(Section):
-  def __init__(self, s_name, flags = None):
+  def __init__(self, s_name, flags = None, **kwargs):
     super(TextSection, self).__init__(s_name, SectionTypes.TEXT, flags or 'rwx')
 
 class RODataSection(Section):
-  def __init__(self, s_name, flags = None):
+  def __init__(self, s_name, flags = None, **kwargs):
     super(RODataSection, self).__init__(s_name, SectionTypes.DATA, flags or 'rw')
 
 class DataSection(Section):
-  def __init__(self, s_name, flags = None):
+  def __init__(self, s_name, flags = None, **kwargs):
     super(DataSection, self).__init__(s_name, SectionTypes.DATA, flags or 'rw')
 
 class BssSection(Section):
-  def __init__(self, s_name, flags = None):
+  def __init__(self, s_name, flags = None, **kwargs):
     super(BssSection, self).__init__(s_name, SectionTypes.DATA, flags or 'rwb')
 
 class Label(object):
@@ -286,6 +289,10 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, filen
     '.bss':  BssSection('.bss'),
     '.symtab': Section('.symtab', SectionTypes.SYMBOLS, '')
   }
+
+  if mmapable_sections:
+    for section in sections_pass1.itervalues():
+      section.flags += 'm'
 
   debug('Pass #1')
 

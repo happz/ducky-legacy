@@ -74,10 +74,10 @@ def main():
     if section.type == ducky.mm.binary.SectionTypes.SYMBOLS:
       continue
 
-    if 'b' in section.flags and section.size > 0:
+    if 'b' in section.flags and section.data_size > 0:
       continue
 
-    if section.size > 0:
+    if section.data_size > 0:
       continue
 
     del sections[s_name]
@@ -99,7 +99,8 @@ def main():
       h_section = f_out.create_section()
       h_section.type = section.type
       h_section.items = section.items
-      h_section.size = section.size
+      h_section.data_size = section.data_size
+      h_section.file_size = section.file_size
       h_section.name = f_out.string_table.put_string(section.name)
       h_section.base = section.base.u16
 
@@ -126,7 +127,7 @@ def main():
           entry.type = se.symbol_type
 
         f_out.set_content(h_section, symbol_entries)
-        h_section.size = ducky.cpu.assemble.sizeof(ducky.mm.binary.SymbolEntry()) * len(symbol_entries)
+        h_section.data_size = h_section.file_size = ducky.cpu.assemble.sizeof(ducky.mm.binary.SymbolEntry()) * len(symbol_entries)
 
       else:
         if 'r' in section.flags:
@@ -137,6 +138,8 @@ def main():
           h_section.flags.executable = 1
         if 'b' in section.flags:
           h_section.flags.bss = 1
+        if 'm' in section.flags:
+          h_section.flags.mmapable = 1
 
         f_out.set_content(h_section, section.content)
 

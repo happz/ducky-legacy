@@ -79,6 +79,10 @@ else
 	PYTHON :=
 endif
 
+ifndef MMAPABLE_SECTIONS
+  MMAPABLE_SECTIONS := no
+endif
+
 
 run: interrupts.bin $(FORTH_KERNEL)
 ifeq ($(VMCOVERAGE),yes)
@@ -210,8 +214,13 @@ clean:
 # Wildcard targets
 #
 %.bin: %.asm
+ifeq ($(MMAPABLE_SECTIONS),yes)
+	$(eval mmapable_sections := -m)
+else
+	$(eval mmapable_sections := )
+endif
 	$(Q) echo -n "[COMPILE] $< => $@ ... "
-	$(Q) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) tools/as -i $< -o $@ -f $(VMDEBUG); if [ "$$?" -eq 0 ]; then echo "$(CC_GREEN)PASS$(CC_END)"; else echo "$(CC_RED)FAIL$(CC_END)"; fi
+	$(Q) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) tools/as -i $< -o $@ -f $(mmapable_sections) $(VMDEBUG); if [ "$$?" -eq 0 ]; then echo "$(CC_GREEN)PASS$(CC_END)"; else echo "$(CC_RED)FAIL$(CC_END)"; fi
 
 %.f.out: %.f interrupts.bin $(FORTH_KERNEL)
 	$(eval tc_name     := $(notdir $(<:%.f=%)))

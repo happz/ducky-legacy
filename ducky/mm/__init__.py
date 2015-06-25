@@ -960,7 +960,7 @@ class MemoryController(object):
   def __load_content_u32(self, segment, base, content):
     bsp = segment_addr_to_addr(segment, base)
     sp   = bsp
-    size = len(content) * 2
+    size = len(content) * 4
 
     debug('mc.__load_content_u32: segment=%s, base=%s, size=%s, sp=%s', segment, base, size, sp)
 
@@ -1022,18 +1022,18 @@ class MemoryController(object):
           continue
 
         s_base_addr = segment_addr_to_addr(csr if s_header.type == binary.SectionTypes.TEXT else dsr, s_header.base)
-        pages_start, pages_cnt = area_to_pages(s_base_addr, s_header.size)
+        pages_start, pages_cnt = area_to_pages(s_base_addr, s_header.file_size)
 
         if f_header.flags.mmapable == 1:
           access = ''
-          if s_header.flags.read == 1:
+          if s_header.flags.readable == 1:
             access += 'r'
-          if s_header.flags.write == 1:
+          if s_header.flags.writable == 1:
             access += 'w'
-          if s_header.flags.execute == 1:
+          if s_header.flags.executable == 1:
             access += 'x'
 
-          self.mmap_area(f_in.name, s_base_addr, s_header.size, offset = s_header.offset, access = access, shared = False)
+          self.mmap_area(f_in.name, s_base_addr, s_header.file_size, offset = s_header.offset, access = access, shared = False)
 
         else:
           self.for_each_page(pages_start, pages_cnt, self.__alloc_page)
@@ -1047,11 +1047,11 @@ class MemoryController(object):
 
         self.__set_section_flags(pages_start, pages_cnt, s_header.flags)
 
-        regions.append(MemoryRegion(f_in.string_table.get_string(s_header.name), s_base_addr, s_header.size, s_header.flags))
+        regions.append(MemoryRegion(f_in.string_table.get_string(s_header.name), s_base_addr, s_header.file_size, s_header.flags))
 
     if stack:
       pg, sp = self.alloc_stack(segment = dsr)
-      regions.append(MemoryRegion('stack', pg.base_address, PAGE_SIZE, binary.SectionFlags.create(True, True, False, False)))
+      regions.append(MemoryRegion('stack', pg.base_address, PAGE_SIZE, binary.SectionFlags.create(True, True, False, False, False)))
 
     return (csr, dsr, sp, ip, symbols, regions, f_in)
 

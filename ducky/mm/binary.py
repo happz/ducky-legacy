@@ -51,30 +51,33 @@ class SectionFlags(LittleEndianStructure):
     ('readable',   c_ubyte, 1),
     ('writable',   c_ubyte, 1),
     ('executable', c_ubyte, 1),
-    ('bss',        c_ubyte, 1)
+    ('bss',        c_ubyte, 1),
+    ('mmapable',   c_ubyte, 1)
   ]
 
   @staticmethod
-  def create(r, w, x, b):
+  def create(r, w, x, b, m):
     flags = SectionFlags()
     flags.readable = 1 if r else 0
     flags.writable = 1 if w else 0
     flags.executable = 1 if x else 0
     flags.bss = 1 if b else 0
+    flags.mmapable = 1 if m else 0
 
     return flags
 
   def to_uint16(self):
-    return self.readable | self.writable << 1 | self.executable << 2 | self.bss
+    return self.readable | self.writable << 1 | self.executable << 2 | self.bss << 3 | self.mmapable << 4
 
   def from_uint16(self, u):
     self.readable = 1 if u & 0x01 else 0
     self.writable = 1 if u & 0x02 else 0
     self.executable = 1 if u & 0x04 else 0
     self.bss = 1 if u & 0x08 else 0
+    self.mmapable = 1 if u & 0x10 else 0
 
   def __repr__(self):
-    return '<SectionFlags: r=%i, w=%i, x=%i, b=%i>' % (self.readable, self.writable, self.executable, self.bss)
+    return '<SectionFlags: r=%i, w=%i, x=%i, b=%i, m=%i>' % (self.readable, self.writable, self.executable, self.bss, self.mmapable)
 
 class SectionHeader(LittleEndianStructure):
   _pack_ = 0
@@ -86,12 +89,13 @@ class SectionHeader(LittleEndianStructure):
     ('padding', c_ubyte),
     ('base',    c_ushort),
     ('items',   c_ushort),
-    ('size',    c_ushort),
+    ('data_size', c_ushort),
+    ('file_size', c_ushort),
     ('offset',  c_uint)
   ]
 
   def __repr__(self):
-    return '<SectionHeader: index=%i, name=%i, type=%i, flags=%s, base=%s, items=%s, size=%s, offset=%s>' % (self.index, self.name, self.type, self.flags, self.base, self.items, self.size, self.offset)
+    return '<SectionHeader: index=%i, name=%i, type=%i, flags=%s, base=%s, items=%s, data_size=%s, file_size=%s, offset=%s>' % (self.index, self.name, self.type, self.flags, self.base, self.items, self.data_size, self.file_size, self.offset)
 
 class SymbolEntry(LittleEndianStructure):
   _pack_ = 0
@@ -183,11 +187,11 @@ class File(BinaryFile):
       self.seek(header.offset)
 
       if header.type == SectionTypes.STRINGS:
-        self.string_table.buff = self.read(header.size)
+        self.string_table.buff = self.read(header.file_size)
 
       else:
         if header.type == SectionTypes.DATA:
-          count = header.size
+          count = header.data_size
           st_class = UInt8
 
         elif header.type == SectionTypes.SYMBOLS:
@@ -222,11 +226,11 @@ class File(BinaryFile):
       debug('set section %s offset to %s', self.string_table.get_string(header.name), offset)
 
       if header.type == SectionTypes.STRINGS:
-        header.size = len(self.string_table.buff)
+        header.data_size = header.file_size = len(self.string_table.buff)
 
       if header.flags.bss != 1:
-        offset += header.size
-        debug('extending offset by %s to %s', header.size, offset)
+        offset += header.file_size
+        debug('extending offset by %s to %s', header.file_size, offset)
 
         if self.__header.flags.mmapable == 1:
           offset = align(mmap.PAGESIZE, offset)
@@ -264,3 +268,7 @@ class File(BinaryFile):
 
           else:
             self.write_struct(item)
+
+        if header.data_size != header.file_size:
+          debug('write after-section padding of %s bytes', header.file_size - header.data_size)
+          self.write('\x00' * (header.file_size - header.data_size))
