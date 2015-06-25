@@ -267,6 +267,26 @@ write_new_line:
   ret
 
 
+write_word_name:
+  push r1
+  push r2
+  mov r1, r0
+  mov r2, r0
+  add r1, $wr_namelen
+  lb r1, r1
+  add r2, $wr_name
+.__write_word_name_loop:
+  lb r0, r2
+  outb $PORT_CONIO_STDOUT, r0
+  inc r2
+  dec r1
+  bnz &.__write_word_name_loop
+  call &write_new_line
+  pop r2
+  pop r1
+  ret
+
+
 write_word_buffer:
   push r0
   push r1
@@ -959,6 +979,10 @@ $DEFCODE "FIND", 4, 0, FIND
 
 
 .__FIND:
+.ifdef DEBUG_FIND
+  call &write_word_buffer
+.endif
+
   ; r0 - address
   ; r1 - length
   ; save working registers
@@ -976,6 +1000,14 @@ $DEFCODE "FIND", 4, 0, FIND
 .__FIND_loop:
   cmp r2, r2
   bz &.__FIND_fail
+
+.ifdef DEBUG_FIND
+  ; print name
+  push r0
+  mov r0, r2
+  call &write_word_name
+  pop r0
+.endif
 
   ; check HIDDEN flag
   push r2
