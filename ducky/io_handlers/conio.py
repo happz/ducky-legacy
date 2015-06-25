@@ -187,12 +187,12 @@ class ConsoleIOHandler(io_handlers.IOHandler):
       self.input = self.output = None
 
     if self.input:
-      input, self.input = self.input, None
-      input.close()
+      _input, self.input = self.input, None
+      _input.close()
 
     if self.output:
-      output, self.output = self.output, None
-      output.close()
+      _output, self.output = self.output, None
+      _output.close()
 
   def check_available_input(self):
     if not self.input_fd:
