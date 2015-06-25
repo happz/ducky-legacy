@@ -46,7 +46,7 @@ def assert_registers(state, **regs):
 
     default = 0
     if reg in ('fp', 'sp'):
-      default = 0x02DA
+      default = 0x11DA if os.environ.get('MMAPABLE_SECTIONS', 'no') == 'yes' else 0x02DA
 
     elif reg in ('cs', 'ds'):
       default = 0x01

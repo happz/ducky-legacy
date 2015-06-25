@@ -134,7 +134,7 @@ else
 	$(eval VMCOVERAGE_FILE := )
 	$(eval COVERAGE_NOSE_FLAG := )
 endif
-	-$(Q) $(VMCOVERAGE_FILE) CURDIR=$(CURDIR) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) $(VIRTUAL_ENV)/bin/nosetests -v --all-modules $(COVERAGE_NOSE_FLAG) --with-xunit --xunit-file=$(TESTSETDIR)/results/nosetests.xml --no-path-adjustment -w $(CURDIR)/tests 2>&1 | stdbuf -oL -eL tee $(TESTSETDIR)/engine.out | grep -v -e '\[INFO\] ' -e '#> '
+	-$(Q) $(VMCOVERAGE_FILE) CURDIR=$(CURDIR) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) MMAPABLE_SECTIONS=yes $(PYTHON) $(VIRTUAL_ENV)/bin/nosetests -v --all-modules $(COVERAGE_NOSE_FLAG) --with-xunit --xunit-file=$(TESTSETDIR)/results/nosetests.xml --no-path-adjustment -w $(CURDIR)/tests 2>&1 | stdbuf -oL -eL tee $(TESTSETDIR)/engine.out | grep -v -e '\[INFO\] ' -e '#> '
 	-$(Q) sed -i 's/<testsuite name="nosetests"/<testsuite name="nosetests-$(TESTSET)"/' $(TESTSETDIR)/results/nosetests.xml
 
 tests-forth-units: interrupts.bin $(FORTH_KERNEL) $(FORTH_TESTS_OUT)
