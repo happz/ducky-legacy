@@ -63,7 +63,7 @@ class InvalidOpcodeError(CPUException):
   """
 
   def __init__(self, opcode, *args, **kwargs):
-    super(InvalidOpcodeError, self).__init__('Invalid opcode: opcode=%i' % opcode, *args, **kwargs)
+    super(InvalidOpcodeError, self).__init__('Invalid opcode: opcode={}'.format(opcode), *args, **kwargs)
 
     self.opcode = opcode
 
@@ -75,7 +75,7 @@ class InvalidInstructionSetError(CPUException):
   """
 
   def __init__(self, inst_set, *args, **kwargs):
-    super(InvalidInstructionSetError, self).__init__('Invalid instruction set requested: inst_set=%i' % inst_set, *args, **kwargs)
+    super(InvalidInstructionSetError, self).__init__('Invalid instruction set requested: inst_set={}'.format(inst_set), *args, **kwargs)
 
     self.inst_set = inst_set
 
@@ -93,13 +93,13 @@ def do_log_cpu_core_state(core, logger = None):
 
   for i in range(0, Registers.REGISTER_SPECIAL, 4):
     regs = [(i + j) for j in range(0, 4) if (i + j) < Registers.REGISTER_SPECIAL]
-    s = ['reg%02i=%s' % (reg, UINT16_FMT(core.registers.map[reg].value)) for reg in regs]
+    s = ['reg{:02d}={}'.format(reg, UINT16_FMT(core.registers.map[reg].value)) for reg in regs]
     logger(' '.join(s))
 
-  logger('cs=%s    ds=%s' % (UINT16_FMT(core.registers.cs.value), UINT16_FMT(core.registers.ds.value)))
-  logger('fp=%s    sp=%s    ip=%s' % (UINT16_FMT(core.registers.fp.value), UINT16_FMT(core.registers.sp.value), UINT16_FMT(core.registers.ip.value)))
-  logger('priv=%i, hwint=%i, e=%i, z=%i, o=%i, s=%i' % (core.registers.flags.privileged, core.registers.flags.hwint, core.registers.flags.e, core.registers.flags.z, core.registers.flags.o, core.registers.flags.s))
-  logger('cnt=%s, idle=%s, exit=%i' % (core.registers.cnt.value, core.idle, core.exit_code))
+  logger('cs=%s    ds=%s', UINT16_FMT(core.registers.cs.value), UINT16_FMT(core.registers.ds.value))
+  logger('fp=%s    sp=%s    ip=%s', UINT16_FMT(core.registers.fp.value), UINT16_FMT(core.registers.sp.value), UINT16_FMT(core.registers.ip.value))
+  logger('priv=%i, hwint=%i, e=%i, z=%i, o=%i, s=%i', core.registers.flags.privileged, core.registers.flags.hwint, core.registers.flags.e, core.registers.flags.z, core.registers.flags.o, core.registers.flags.s)
+  logger('cnt=%s, idle=%s, exit=%i', core.registers.cnt.value, core.idle, core.exit_code)
 
   if hasattr(core, 'math_coprocessor'):
     for index, v in enumerate(core.math_coprocessor.registers.stack):
@@ -107,12 +107,12 @@ def do_log_cpu_core_state(core, logger = None):
 
   if core.current_instruction:
     inst = core.instruction_set.disassemble_instruction(core.current_instruction)
-    logger('current=%s' % inst)
+    logger('current=%s', inst)
   else:
     logger('current=<none>')
 
   for index, (ip, symbol, offset) in enumerate(core.backtrace()):
-    logger('Frame #%i: %s + %s (%s)' % (index, symbol, offset, ip))
+    logger('Frame #%i: %s + %s (%s)', index, symbol, offset, ip)
 
 def log_cpu_core_state(*args, **kwargs):
   """
@@ -140,7 +140,7 @@ class StackFrame(object):
     return super(StackFrame, self).__getattribute__(name)
 
   def __repr__(self):
-    return '<StackFrame: CS=%s DS=%s FP=%s IP=%s, (%s)' % (UINT8_FMT(self.CS), UINT8_FMT(self.DS), UINT16_FMT(self.FP), UINT16_FMT(self.IP if self.IP is not None else 0), ADDR_FMT(self.address))
+    return '<StackFrame: CS={} DS={} FP={} IP={}, ({})'.format(UINT8_FMT(self.CS), UINT8_FMT(self.DS), UINT16_FMT(self.FP), UINT16_FMT(self.IP if self.IP is not None else 0), ADDR_FMT(self.address))
 
 class InstructionCache(LRUCache):
   """
@@ -311,7 +311,7 @@ class CPUCore(ISnapshotable, machine.MachineWorker):
   def __init__(self, coreid, cpu, memory_controller):
     super(CPUCore, self).__init__()
 
-    self.cpuid_prefix = '#%u:#%u: ' % (cpu.id, coreid)
+    self.cpuid_prefix = '#{}:#{}: '.format(cpu.id, coreid)
 
     self.id = coreid
     self.cpu = cpu
@@ -346,7 +346,7 @@ class CPUCore(ISnapshotable, machine.MachineWorker):
       self.math_coprocessor = math_copro.MathCoprocessor(self)
 
   def has_coprocessor(self, name):
-    return hasattr(self, '%s_coprocessor' % name)
+    return hasattr(self, '{}_coprocessor'.format(name))
 
   def LOG(self, logger, *args):
     args = ('%s ' + args[0],) + (self.cpuid_prefix,) + args[1:]
@@ -370,12 +370,12 @@ class CPUCore(ISnapshotable, machine.MachineWorker):
     do_log_cpu_core_state(self, logger = self.ERROR)
 
   def __repr__(self):
-    return '#%i:#%i' % (self.cpu.id, self.id)
+    return '#{}:#{}'.format(self.cpu.id, self.id)
 
   def save_state(self, parent):
     self.DEBUG('core.save_state: parent=%s', parent)
 
-    state = parent.add_child('core%i' % self.id, CPUCoreState())
+    state = parent.add_child('core{}'.format(self.id), CPUCoreState())
 
     state.cpuid = self.cpu.id
     state.coreid = self.id
@@ -505,7 +505,7 @@ class CPUCore(ISnapshotable, machine.MachineWorker):
       self.WARN('symbol_for_ip: Unknown jump target: %s', ip)
       return
 
-    self.DEBUG('symbol_for_ip: %s%s (%s)', symbol, ' + %s' % offset if offset != 0 else '', ip.value)
+    self.DEBUG('symbol_for_ip: %s%s (%s)', symbol, ' + {}'.format(offset if offset != 0 else ''), ip.value)
 
   def backtrace(self):
     bt = []
@@ -595,7 +595,7 @@ class CPUCore(ISnapshotable, machine.MachineWorker):
 
     if self.check_frames:
       if self.frames[-1].FP != self.registers.sp.value:
-        raise CPUException('Leaving frame with wrong SP: IP=%s, saved SP=%s, current SP=%s' % (ADDR_FMT(self.registers.ip.value), ADDR_FMT(self.frames[-1].FP), ADDR_FMT(self.registers.sp.value)))
+        raise CPUException('Leaving frame with wrong SP: IP={}, saved SP={}, current SP={}'.format(ADDR_FMT(self.registers.ip.value), ADDR_FMT(self.frames[-1].FP), ADDR_FMT(self.registers.sp.value)))
 
       self.frames.pop()
 
@@ -729,19 +729,19 @@ class CPUCore(ISnapshotable, machine.MachineWorker):
     """
 
     if not self.privileged:
-      raise AccessViolationError('Instruction not allowed in unprivileged mode: opcode=%i' % self.current_instruction.opcode)
+      raise AccessViolationError('Instruction not allowed in unprivileged mode: opcode={}'.format(self.current_instruction.opcode))
 
   def check_protected_reg(self, *regs):
     for reg in regs:
       if reg in registers.PROTECTED_REGISTERS and not self.privileged:
-        raise AccessViolationError('Access not allowed in unprivileged mode: opcode=%i reg=%i' % (self.current_instruction.opcode, reg))
+        raise AccessViolationError('Access not allowed in unprivileged mode: opcode={}, reg={}'.format(self.current_instruction.opcode, reg))
 
   def check_protected_port(self, port):
     if port not in self.cpu.machine.ports:
-      raise InvalidResourceError('Unhandled port: port=%u' % port)
+      raise InvalidResourceError('Unhandled port: port={}'.format(port))
 
     if self.cpu.machine.ports[port].is_protected and not self.privileged:
-      raise AccessViolationError('Access to port not allowed in unprivileged mode: opcode=%i, port=%u' % (self.current_instruction.opcode, port))
+      raise AccessViolationError('Access to port not allowed in unprivileged mode: opcode={}, port={}'.format(self.current_instruction.opcode, port))
 
   def update_arith_flags(self, *regs):
     """
@@ -947,7 +947,7 @@ class CPU(ISnapshotable, machine.MachineWorker):
   def __init__(self, machine, cpuid, cores = 1, memory_controller = None):
     super(CPU, self).__init__()
 
-    self.cpuid_prefix = '#%i:' % cpuid
+    self.cpuid_prefix = '#{}:'.format(cpuid)
 
     self.machine = machine
     self.id = cpuid
@@ -960,7 +960,7 @@ class CPU(ISnapshotable, machine.MachineWorker):
       self.cores.append(__core)
 
   def save_state(self, parent):
-    state = parent.add_child('cpu%i' % self.id, CPUState())
+    state = parent.add_child('cpu{}'.format(self.id), CPUState())
 
     map(lambda __core: __core.save_state(state), self.cores)
 

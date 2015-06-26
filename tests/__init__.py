@@ -18,7 +18,7 @@ import ducky.snapshot
 import ducky.util
 
 def get_tempfile():
-  return tempfile.NamedTemporaryFile('w+b', delete = False, dir = os.path.join(os.getenv('PWD'), 'tests-%s' % os.getenv('TESTSET'), 'tmp'))
+  return tempfile.NamedTemporaryFile('w+b', delete = False, dir = os.path.join(os.getenv('PWD'), 'tests-{}'.format(os.getenv('TESTSET')), 'tmp'))
 
 def prepare_file(size, messages = None, pattern = 0xDE):
   f_tmp = get_tempfile()
@@ -56,18 +56,18 @@ def assert_registers(state, **regs):
     reg_index = ducky.cpu.registers.REGISTER_NAMES.index(reg)
     reg_value = state.registers[reg_index]
 
-    assert reg_value == val, 'Register %s expected to have value %s (%s), %s (%s) found instead' % (reg, ducky.mm.UINT16_FMT(val), val, ducky.mm.UINT16_FMT(reg_value), reg_value)
+    assert reg_value == val, 'Register {} expected to have value {} ({}), {} ({}) found instead'.format(reg, ducky.mm.UINT16_FMT(val), val, ducky.mm.UINT16_FMT(reg_value), reg_value)
 
 def assert_flags(state, **flags):
   real_flags = ducky.cpu.registers.FlagsRegister()
   real_flags.from_uint16(state.registers[ducky.cpu.registers.Registers.FLAGS])
 
-  assert real_flags.privileged == flags.get('privileged', 1), 'PRIV flag expected to be %s' % flags.get('privileged', 1)
-  assert real_flags.hwint == flags.get('hwint', 1), 'HWINT flag expected to be %s' % flags.get('hwint', 1)
-  assert real_flags.e == flags.get('e', 0), 'E flag expected to be %s' % flags.get('e', 0)
-  assert real_flags.z == flags.get('z', 0), 'Z flag expected to be %s' % flags.get('z', 0)
-  assert real_flags.o == flags.get('o', 0), 'O flag expected to be %s' % flags.get('o', 0)
-  assert real_flags.s == flags.get('s', 0), 'S flag expected to be %s' % flags.get('s', 0)
+  assert real_flags.privileged == flags.get('privileged', 1), 'PRIV flag expected to be {}'.format(flags.get('privileged', 1))
+  assert real_flags.hwint == flags.get('hwint', 1), 'HWINT flag expected to be {}'.format(flags.get('hwint', 1))
+  assert real_flags.e == flags.get('e', 0), 'E flag expected to be {}'.format(flags.get('e', 0))
+  assert real_flags.z == flags.get('z', 0), 'Z flag expected to be {}'.format(flags.get('z', 0))
+  assert real_flags.o == flags.get('o', 0), 'O flag expected to be {}'.format(flags.get('o', 0))
+  assert real_flags.s == flags.get('s', 0), 'S flag expected to be {}'.format(flags.get('s', 0))
 
 def assert_mm(state, **cells):
   for addr, expected_value in cells.items():
@@ -81,11 +81,11 @@ def assert_mm(state, **cells):
         continue
 
       real_value = page.content[page_offset] | (page.content[page_offset + 1] << 8)
-      assert real_value == expected_value, 'Value at %s (page %s, offset %s) should be %s, %s found instead' % (ducky.mm.ADDR_FMT(addr), page_index, ducky.mm.UINT8_FMT(page_offset), ducky.mm.UINT16_FMT(expected_value), ducky.mm.UINT16_FMT(real_value))
+      assert real_value == expected_value, 'Value at {} (page {}, offset {}) should be {}, {} found instead'.format(ducky.mm.ADDR_FMT(addr), page_index, ducky.mm.UINT8_FMT(page_offset), ducky.mm.UINT16_FMT(expected_value), ducky.mm.UINT16_FMT(real_value))
       break
 
     else:
-      assert False, 'Page %i (address %s) not found in memory' % (page_index, ducky.mm.ADDR_FMT(addr))
+      assert False, 'Page {} (address {}) not found in memory'.format(page_index, ducky.mm.ADDR_FMT(addr))
 
 def assert_mm_pages(state, *pages):
   for pg_id in pages:
@@ -93,14 +93,14 @@ def assert_mm_pages(state, *pages):
       if pg_state.index == pg_id:
         break
     else:
-      assert False, 'Page %i not found in VM state' % pg_id
+      assert False, 'Page {} not found in VM state'.format(pg_id)
 
 def assert_file_content(filename, cells):
   with open(filename, 'rb') as f:
     for cell_offset, cell_value in cells.iteritems():
       f.seek(cell_offset)
       real_value = ord(f.read(1))
-      assert real_value == cell_value, 'Value at %s (file %s) should be %s, %s found instead' % (cell_offset, filename, ducky.mm.UINT8_FMT(cell_value), ducky.mm.UINT8_FMT(real_value))
+      assert real_value == cell_value, 'Value at {} (file {}) should be {}, {} found instead'.format(cell_offset, filename, ducky.mm.UINT8_FMT(cell_value), ducky.mm.UINT8_FMT(real_value))
 
 def compile_code(code):
   f_asm = get_tempfile()
@@ -114,7 +114,7 @@ def compile_code(code):
 
   f_bin_name = os.path.splitext(f_asm.name)[0] + '.bin'
 
-  os.system('PYTHONPATH=%s %s -f -i %s -o %s' % (os.getenv('PYTHONPATH'), os.path.join(os.getenv('PWD'), 'tools', 'as'), f_asm.name, f_bin_name))
+  os.system('PYTHONPATH={} {} -f -i {} -o {}'.format(os.getenv('PYTHONPATH'), os.path.join(os.getenv('PWD'), 'tools', 'as'), f_asm.name, f_bin_name))
 
   os.unlink(f_asm.name)
 

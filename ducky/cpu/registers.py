@@ -44,7 +44,7 @@ PROTECTED_REGISTERS = [13, 15, 16, 17, 18, 19]
 
 RESETABLE_REGISTERS = [i for i in range(0, Registers.REGISTER_COUNT) if i != Registers.FLAGS]
 
-REGISTER_NAMES = ['r%i' % i for i in range(0, Registers.REGISTER_SPECIAL)] + ['fp', 'sp', 'ds', 'cs', 'ip', 'flags', 'cnt']
+REGISTER_NAMES = ['r%i'.format(i) for i in range(0, Registers.REGISTER_SPECIAL)] + ['fp', 'sp', 'ds', 'cs', 'ip', 'flags', 'cnt']
 
 class FlagsRegister(object):
   def __init__(self):
@@ -67,7 +67,7 @@ class FlagsRegister(object):
     self.s = 1 if u & Flags.SIGNED else 0
 
   def __repr__(self):
-    return '<FlagsRegister: privileged=%i, hwint=%i, e=%i, z=%i, o=%i, s=%i>' % (self.privileged, self.hwint, self.e, self.z, self.o, self.s)
+    return '<FlagsRegister: privileged={}, hwint={}, e={}, z={}, o={}, s={}>'.format(self.privileged, self.hwint, self.e, self.z, self.o, self.s)
 
 class RegisterSet(object):
   def __init__(self):

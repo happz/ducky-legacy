@@ -40,7 +40,7 @@ class BreakPoint(WatchPoint):
     self.ip = ip
 
   def __repr__(self):
-    return '<BreakPoint: ip=%s>' % ADDR_FMT(self.ip)
+    return '<BreakPoint: ip={}>'.format(ADDR_FMT(self.ip))
 
 class DebuggingSet(object):
   def __init__(self, owner):
@@ -119,7 +119,7 @@ def cmd_bp_list(console, cmd):
 
   for point in Point.points.values():
     bps.append([
-      '%i' % point.id,
+      str(point.id),
       '*' if point.active else '',
       '*' if point.flip else '',
       '*' if point.ephemeral else '',

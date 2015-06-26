@@ -44,7 +44,7 @@ class MachineConfig(ConfigParser):
         return default
 
       if v not in self._boolean_states:
-        raise ValueError('Not a boolean: %s' % v)
+        raise ValueError('Not a boolean: {}'.format(v))
 
       return self._boolean_states[v]
 
@@ -106,7 +106,7 @@ class MachineConfig(ConfigParser):
       yield s_name
 
   def add_binary(self, filename, segment = None, core = None, entry = None):
-    binary_section = 'binary-%s' % self.binaries_cnt
+    binary_section = 'binary-{}'.format(self.binaries_cnt)
     self.binaries_cnt += 1
 
     self.add_section(binary_section)
@@ -122,7 +122,7 @@ class MachineConfig(ConfigParser):
       self.set(binary_section, 'entry', entry)
 
   def add_breakpoint(self, core, address, active = None, flip = None, ephemeral = None, countdown = None):
-    bp_section = 'breakpoint-%i' % self.breakpoints_cnt
+    bp_section = 'breakpoint-{}'.format(self.breakpoints_cnt)
     self.breakpoints_cnt += 1
 
     self.add_section(bp_section)
@@ -142,7 +142,7 @@ class MachineConfig(ConfigParser):
       self.set(bp_section, 'countdown', str(countdown))
 
   def add_mmap(self, filepath, address, size, offset = None, access = None, shared = None):
-    mmap_section = 'mmap-%i' % self.mmaps_cnt
+    mmap_section = 'mmap-{}'.format(self.mmaps_cnt)
     self.mmaps_cnt += 1
 
     self.add_section(mmap_section)
@@ -160,7 +160,7 @@ class MachineConfig(ConfigParser):
       self.set(mmap_section, 'shared', shared)
 
   def add_storage(self, driver, id, filepath = None):
-    st_section = 'storage-%i' % self.storages_cnt
+    st_section = 'storage-{}'.format(self.storages_cnt)
     self.storages_cnt += 1
 
     self.add_section(st_section)

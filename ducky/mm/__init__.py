@@ -45,16 +45,16 @@ def __var_to_int(v):
   return v
 
 def UINT8_FMT(v):
-  return '0x%02X' % (__var_to_int(v) & 0xFF)
+  return '0x{:02X}'.format(__var_to_int(v) & 0xFF)
 
 def UINT16_FMT(v):
-  return '0x%04X' % (__var_to_int(v) & 0xFFFF)
+  return '0x{:04X}'.format(__var_to_int(v) & 0xFFFF)
 
 def UINT24_FMT(v):
-  return '0x%06X' % (__var_to_int(v) & 0xFFFFFF)
+  return '0x{:06X}'.format(__var_to_int(v) & 0xFFFFFF)
 
 def UINT32_FMT(v):
-  return '0x%08X' % __var_to_int(v)
+  return '0x{:08X}'.format(__var_to_int(v))
 
 def SEGM_FMT(segment):
   return UINT8_FMT(segment)
@@ -63,12 +63,12 @@ def ADDR_FMT(address):
   return UINT24_FMT(address)
 
 def SIZE_FMT(size):
-  return '%u' % size
+  return str(size)
 
 def OFFSET_FMT(offset):
   s = '-' if offset < 0 else ''
 
-  return '%s0x%04X' % (s, abs(offset))
+  return '{}0x{:04X}'.format(s, abs(offset))
 
 class MalformedBinaryError(Exception):
   pass
@@ -80,7 +80,7 @@ class UInt8(LittleEndianStructure):
   ]
 
   def __repr__(self):
-    return '<(u8) 0x%02X>' % self.u8
+    return '<(u8) 0x{:02X}>'.format(self.u8)
 
 class UInt16(LittleEndianStructure):
   _pack_ = 0
@@ -89,7 +89,7 @@ class UInt16(LittleEndianStructure):
   ]
 
   def __repr__(self):
-    return '<(u16) 0x%04X>' % self.u16
+    return '<(u16) 0x{:04X}>'.format(self.u16)
 
 # Yes, this one is larger but it's used only for transporting
 # addresses between CPUs and memory controller => segment
@@ -101,7 +101,7 @@ class UInt24(LittleEndianStructure):
   ]
 
   def __repr__(self):
-    return '<(u24) 0x%06X>' % self.u24
+    return '<(u24) 0x{:06X}>'.format(self.u24)
 
 class UInt32(LittleEndianStructure):
   _pack_ = 0
@@ -110,7 +110,7 @@ class UInt32(LittleEndianStructure):
   ]
 
   def __repr__(self):
-    return '<(u32) 0x%06X>' % self.u32
+    return '<(u32) 0x{:06X}>'.format(self.u32)
 
 def segment_base_addr(segment):
   return segment * SEGMENT_SIZE * PAGE_SIZE
@@ -165,7 +165,7 @@ class MemoryPage(object):
     :type parent: ducky.snapshot.SnapshotNode
     """
 
-    state = parent.add_child('page_%i' % self.index, MemoryPageState())
+    state = parent.add_child('page_{}'.format(self.index), MemoryPageState())
 
     state.index = self.index
 
@@ -233,13 +233,13 @@ class MemoryPage(object):
     debug('mp.check_access: page=%s, offset=%s, access=%s, %s', self.index, offset, access, self.flags_str())
 
     if access == 'read' and not self.read:
-      raise AccessViolationError('Not allowed to read from memory: page=%s, offset=%s' % (self.index, offset))
+      raise AccessViolationError('Not allowed to read from memory: page=%s, offset={}'.format(self.index, offset))
 
     if access == 'write' and not self.write:
-      raise AccessViolationError('Not allowed to write to memory: page=%s, offset=%s' % (self.index, offset))
+      raise AccessViolationError('Not allowed to write to memory: page=%s, offset={}'.format(self.index, offset))
 
     if access == 'execute' and not self.execute:
-      raise AccessViolationError('Not allowed to execute from memory: page=%s, offset=%s' % (self.index, offset))
+      raise AccessViolationError('Not allowed to execute from memory: page=%s, offset={}'.format(self.index, offset))
 
     return True
 
@@ -258,7 +258,7 @@ class MemoryPage(object):
     This operation is implemented by child classes.
     """
 
-    raise AccessViolationError('Not allowed to clear memory on this address: page=%s' % self.index)
+    raise AccessViolationError('Not allowed to clear memory on this address: page={}'.format(self.index))
 
   def do_read_u8(self, offset):
     """
@@ -270,7 +270,7 @@ class MemoryPage(object):
     :rtype: int
     """
 
-    raise AccessViolationError('Not allowed to access memory on this address: page=%s, offset=%s' % (self.index, offset))
+    raise AccessViolationError('Not allowed to access memory on this address: page=%s, offset={}'.format(self.index, offset))
 
   def do_read_u16(self, offset):
     """
@@ -282,7 +282,7 @@ class MemoryPage(object):
     :rtype: int
     """
 
-    raise AccessViolationError('Not allowed to access memory on this address: page=%s, offset=%s' % (self.index, offset))
+    raise AccessViolationError('Not allowed to access memory on this address: page=%s, offset={}'.format(self.index, offset))
 
   def do_read_u32(self, offset):
     """
@@ -294,7 +294,7 @@ class MemoryPage(object):
     :rtype: int
     """
 
-    raise AccessViolationError('Not allowed to access memory on this address: page=%s, offset=%s' % (self.index, offset))
+    raise AccessViolationError('Not allowed to access memory on this address: page=%s, offset={}'.format(self.index, offset))
 
   def do_write_u8(self, offset, value):
     """
@@ -306,7 +306,7 @@ class MemoryPage(object):
     :param int value: value to write into memory.
     """
 
-    raise AccessViolationError('Not allowed to access memory on this address: page=%s, offset=%s' % (self.index, offset))
+    raise AccessViolationError('Not allowed to access memory on this address: page=%s, offset={}'.format(self.index, offset))
 
   def do_write_u16(self, offset, value):
     """
@@ -318,7 +318,7 @@ class MemoryPage(object):
     :param int value: value to write into memory.
     """
 
-    raise AccessViolationError('Not allowed to access memory on this address: page=%s, offset=%s' % (self.index, offset))
+    raise AccessViolationError('Not allowed to access memory on this address: page=%s, offset={}'.format(self.index, offset))
 
   def do_write_u32(self, offset, value):
     """
@@ -330,7 +330,7 @@ class MemoryPage(object):
     :param int value: value to write into memory.
     """
 
-    raise AccessViolationError('Not allowed to access memory on this address: page=%s, offset=%s' % (self.index, offset))
+    raise AccessViolationError('Not allowed to access memory on this address: page=%s, offset={}'.format(self.index, offset))
 
   def clear(self, privileged = False):
     """
@@ -617,7 +617,7 @@ class MemoryRegion(ISnapshotable, object):
     debug('MemoryRegion: name=%s, address=%s, size=%s, flags=%s, pages_start=%s, pages_cnt=%s', name, address, size, flags, self.pages_start, self.pages_cnt)
 
   def save_state(self, parent):
-    state = parent.add_child('memory_region_%i' % self.id, MemoryRegionState())
+    state = parent.add_child('memory_region_{}'.format(self.id), MemoryRegionState())
 
     state.name = self.name
     state.address = self.address
@@ -735,7 +735,7 @@ class MemoryController(object):
     """
 
     if index not in self.__pages:
-      raise AccessViolationError('Page %s not allocated yet' % index)
+      raise AccessViolationError('Page {} not allocated yet'.format(index))
 
     return self.__pages[index]
 
@@ -769,7 +769,7 @@ class MemoryController(object):
     debug('mc.alloc_specific_page: index=%s', index)
 
     if index in self.__pages:
-      raise AccessViolationError('Page %s is already allocated' % index)
+      raise AccessViolationError('Page {} is already allocated'.format(index))
 
     return self.__alloc_page(index, None)
 
@@ -1178,7 +1178,7 @@ class MemoryController(object):
     debug('mc.read_u16: addr=%s, priv=%i', addr, privileged)
 
     if self.force_aligned_access and addr % 2:
-      raise AccessViolationError('Unable to access unaligned address: addr=%s' % ADDR_FMT(addr))
+      raise AccessViolationError('Unable to access unaligned address: addr={}'.format(ADDR_FMT(addr)))
 
     return self.get_page((addr & PAGE_MASK) >> PAGE_SHIFT).read_u16(addr & (PAGE_SIZE - 1), privileged = privileged)
 
@@ -1186,7 +1186,7 @@ class MemoryController(object):
     debug('mc.read_u32: addr=%s, priv=%i', addr, privileged)
 
     if self.force_aligned_access and addr % 4:
-      raise AccessViolationError('Unable to access unaligned address: addr=%s' % ADDR_FMT(addr))
+      raise AccessViolationError('Unable to access unaligned address: addr={}'.format(ADDR_FMT(addr)))
 
     return self.get_page((addr & PAGE_MASK) >> PAGE_SHIFT).read_u32(addr & (PAGE_SIZE - 1), privileged = privileged)
 
@@ -1198,7 +1198,7 @@ class MemoryController(object):
     debug('mc.write_u16: addr=%s, value=%s, priv=%i, dirty=%i', addr, value, privileged, dirty)
 
     if self.force_aligned_access and addr % 2:
-      raise AccessViolationError('Unable to access unaligned address: addr=%s' % ADDR_FMT(addr))
+      raise AccessViolationError('Unable to access unaligned address: addr={}'.format(ADDR_FMT(addr)))
 
     self.get_page((addr & PAGE_MASK) >> PAGE_SHIFT).write_u16(addr & (PAGE_SIZE - 1), value, privileged = privileged, dirty = dirty)
 
@@ -1206,7 +1206,7 @@ class MemoryController(object):
     debug('mc.write_u32: addr=%s, value=%s, priv=%i, dirty=%i', addr, value, privileged, dirty)
 
     if self.force_aligned_access and addr % 4:
-      raise AccessViolationError('Unable to access unaligned address: addr=%s' % ADDR_FMT(addr))
+      raise AccessViolationError('Unable to access unaligned address: addr={}'.format(ADDR_FMT(addr)))
 
     self.get_page((addr & PAGE_MASK) >> PAGE_SHIFT).write_u32(addr & (PAGE_SIZE - 1), value, privileged = privileged, dirty = dirty)
 

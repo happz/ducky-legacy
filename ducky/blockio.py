@@ -89,7 +89,7 @@ class Storage(machine.MachineWorker):
     debug('read_block: id=%s, src=%s, dst=%s, cnt=%s', self.id, src, dst, cnt)
 
     if (src + cnt) * BLOCK_SIZE > self.size:
-      raise StorageAccessError('Out of bounds access: storage size %s is too small' % self.size)
+      raise StorageAccessError('Out of bounds access: storage size {} is too small'.format(self.size))
 
     self.do_read_block(src, dst, cnt)
 
@@ -108,7 +108,7 @@ class Storage(machine.MachineWorker):
     debug('write_block: id=%s, src=%s, dst=%s, cnt=%s', self.id, src, dst, cnt)
 
     if (dst + cnt) * BLOCK_SIZE > self.size:
-      raise StorageAccessError('Out of bounds access: storage size %s is too small' % self.size)
+      raise StorageAccessError('Out of bounds access: storage size {} is too small'.format(self.size))
 
     self.do_write_block(src, dst, cnt)
 

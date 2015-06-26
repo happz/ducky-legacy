@@ -28,15 +28,15 @@ PO_IMMEDIATE = r'(?:(?P<immediate_hex>-?0x[0-9a-fA-F]+)|(?P<immediate_dec>-?\d+)
 
 
 def BF_FLG(n):
-  return '%s:1' % n
+  return '{}:1'.format(n)
 
 def BF_REG(*args):
   args = args or ['reg']
-  return '%s:4' % args[0]
+  return '{}:4'.format(args[0])
 
 def BF_IMM(*args):
   args = args or ['immediate']
-  return '%s:17:int' % args[0]
+  return '{}:17:int'.format(args[0])
 
 
 class InstDescriptor(object):
@@ -63,7 +63,7 @@ class InstDescriptor(object):
       data_type = c_int if len(field) == 3 else c_uint
       fields.append((field[0], data_type, int(field[1])))
 
-    self.binary_format_name = 'InstBinaryFormat_%s' % self.mnemonic
+    self.binary_format_name = 'InstBinaryFormat_{}'.format(self.mnemonic)
     self.binary_format = type(self.binary_format_name, (ctypes.LittleEndianStructure,), {'_pack_': 0, '_fields_': fields})
 
     def __repr__(__inst):
@@ -97,7 +97,7 @@ class InstDescriptor(object):
             operand_pattern.append(PO_IMMEDIATE)
 
           else:
-            raise Exception('Unhandled operand type: %s' % operand_type)
+            raise Exception('Unhandled operand type: {}'.format(operand_type))
 
         operand_patterns.append('(?:' + '|'.join(operand_pattern) + ')')
 
@@ -125,26 +125,26 @@ class InstDescriptor(object):
     return []
 
   def emit_instruction(self, line):
-    debug('emit_instruction: input line: %s' % line)
+    debug('emit_instruction: input line: %s', line)
 
     master = self.instruction_set.binary_format_master()
     master.overall.u16 = 0
 
-    debug('emit_instruction: binary format is %s' % self.binary_format_name)
-    debug('emit_instruction: desc is %s' % self)
+    debug('emit_instruction: binary format is %s', self.binary_format_name)
+    debug('emit_instruction: desc is %s', self)
 
     real = getattr(master, self.binary_format_name)
     real.opcode = self.opcode
 
     raw_match = self.pattern.match(line)
     matches = raw_match.groupdict()
-    debug('emit_instruction: matches=%s' % matches)
+    debug('emit_instruction: matches=%s', matches)
 
     operands = []
 
     if self.operands and len(self.operands):
       for operand_index in range(0, len(self.operands)):
-        reg_group_name = 'register_n%i' % operand_index
+        reg_group_name = 'register_n{}'.format(operand_index)
 
         if reg_group_name in matches and matches[reg_group_name]:
           reg = matches[reg_group_name]
@@ -192,7 +192,7 @@ class InstDescriptor(object):
           operands.append(matches['immediate_address'])
 
         else:
-          raise Exception('Unhandled operand: %s' % matches)
+          raise Exception('Unhandled operand: {}'.format(matches))
 
     else:
       pass
@@ -213,7 +213,7 @@ class InstDescriptor_Generic_Unary_R(InstDescriptor):
   binary_format = [BF_REG()]
 
   def assemble_operands(self, inst, operands):
-    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
+    debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
     inst.reg = operands[0]
 
@@ -226,7 +226,7 @@ class InstDescriptor_Generic_Unary_I(InstDescriptor):
   binary_format = [BF_IMM()]
 
   def assemble_operands(self, inst, operands):
-    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
+    debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
     v = operands[0]
 
@@ -237,7 +237,7 @@ class InstDescriptor_Generic_Unary_I(InstDescriptor):
       inst.refers_to = v
 
   def fix_refers_to(self, inst, refers_to):
-    debug('fix_refers_to: inst=%s, refers_to=%s' % (inst, OFFSET_FMT(refers_to)))
+    debug('fix_refers_to: inst=%s, refers_to=%s', inst, OFFSET_FMT(refers_to))
 
     inst.immediate = int(refers_to)
     inst.refers_to = None
@@ -250,7 +250,7 @@ class InstDescriptor_Generic_Unary_RI(InstDescriptor):
   binary_format = [BF_FLG('is_reg'), BF_REG('ireg'), BF_IMM()]
 
   def assemble_operands(self, inst, operands):
-    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
+    debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
     v = operands[0]
 
@@ -267,7 +267,7 @@ class InstDescriptor_Generic_Unary_RI(InstDescriptor):
       inst.refers_to = v
 
   def fix_refers_to(self, inst, refers_to):
-    debug('fix_refers_to: inst=%s, refers_to=%s' % (inst, OFFSET_FMT(refers_to)))
+    debug('fix_refers_to: inst=%s, refers_to=%s', inst, OFFSET_FMT(refers_to))
 
     inst.immediate = int(refers_to)
     inst.refers_to = None
@@ -283,7 +283,7 @@ class InstDescriptor_Generic_Binary_R_I(InstDescriptor):
   binary_format = [BF_REG(), BF_IMM()]
 
   def assemble_operands(self, inst, operands):
-    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
+    debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
     inst.reg = operands[0]
 
@@ -296,7 +296,7 @@ class InstDescriptor_Generic_Binary_R_I(InstDescriptor):
       inst.refers_to = v
 
   def fix_refers_to(self, inst, refers_to):
-    debug('fix_refers_to: inst=%s, refers_to=%s' % (inst, UINT16_FMT(refers_to)))
+    debug('fix_refers_to: inst=%s, refers_to=%s', inst, UINT16_FMT(refers_to))
 
     inst.immediate = int(refers_to)
     inst.refers_to = None
@@ -309,7 +309,7 @@ class InstDescriptor_Generic_Binary_R_RI(InstDescriptor):
   binary_format = [BF_FLG('is_reg'), BF_REG(), BF_REG('ireg'), BF_IMM()]
 
   def assemble_operands(self, inst, operands):
-    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
+    debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
     inst.reg = operands[0]
 
@@ -328,7 +328,7 @@ class InstDescriptor_Generic_Binary_R_RI(InstDescriptor):
       inst.refers_to = v
 
   def fix_refers_to(self, inst, refers_to):
-    debug('fix_refers_to: inst=%s, refers_to=%s' % (inst, UINT16_FMT(refers_to)))
+    debug('fix_refers_to: inst=%s, refers_to=%s',  inst, UINT16_FMT(refers_to))
 
     inst.immediate = int(refers_to)
     inst.refers_to = None
@@ -344,7 +344,7 @@ class InstDescriptor_Generic_Binary_RI_R(InstDescriptor):
   binary_format = [BF_FLG('is_reg'), BF_REG(), BF_REG('ireg'), BF_IMM()]
 
   def assemble_operands(self, inst, operands):
-    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
+    debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
     inst.reg = operands[1]
 
@@ -363,7 +363,7 @@ class InstDescriptor_Generic_Binary_RI_R(InstDescriptor):
       inst.refers_to = v
 
   def fix_refers_to(self, inst, refers_to):
-    debug('fix_refers_to: inst=%s, refers_to=%s' % (inst, UINT16_FMT(refers_to)))
+    debug('fix_refers_to: inst=%s, refers_to=%s', inst, UINT16_FMT(refers_to))
 
     inst.immediate = int(refers_to)
     inst.refers_to = None
@@ -379,7 +379,7 @@ class InstDescriptor_Generic_Binary_R_A(InstDescriptor):
   binary_format = [BF_REG(), BF_REG('ireg'), BF_IMM()]
 
   def assemble_operands(self, inst, operands):
-    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
+    debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
     inst.reg = operands[0]
     inst.ireg = operands[1]
@@ -392,7 +392,7 @@ class InstDescriptor_Generic_Binary_R_A(InstDescriptor):
     if inst.immediate != 0:
       reg = REGISTER_NAMES[inst.ireg]
       s = '-' if inst.immediate < 0 else ''
-      operands.append('%s[%s0x%04X]' % (reg, s, abs(inst.immediate)))
+      operands.append('{}[{}0x{:04X}]'.format(reg, s, abs(inst.immediate)))
 
     else:
       operands.append(REGISTER_NAMES[inst.ireg])
@@ -404,7 +404,7 @@ class InstDescriptor_Generic_Binary_A_R(InstDescriptor):
   binary_format = [BF_REG(), BF_REG('ireg'), BF_IMM()]
 
   def assemble_operands(self, inst, operands):
-    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
+    debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
     inst.reg = operands[-1]
     inst.ireg = operands[0]
@@ -417,7 +417,7 @@ class InstDescriptor_Generic_Binary_A_R(InstDescriptor):
     if inst.immediate != 0:
       reg = REGISTER_NAMES[inst.ireg]
       s = '-' if inst.immediate < 0 else ''
-      operands.append('%s[%s0x%04X]' % (reg, s, abs(inst.immediate)))
+      operands.append('{}[{}0x{:04X}]'.format(reg, s, abs(inst.immediate)))
 
     else:
       operands.append(REGISTER_NAMES[inst.ireg])
@@ -431,7 +431,7 @@ class InstDescriptor_Generic_Binary_R_R(InstDescriptor):
   binary_format = [BF_REG('reg1'), BF_REG('reg2')]
 
   def assemble_operands(self, inst, operands):
-    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
+    debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
     inst.reg1 = operands[0]
     inst.reg2 = operands[1]
@@ -467,7 +467,7 @@ class InstructionSet(object):
     for desc in cls.instructions:
       fields.append((desc.binary_format_name, desc.binary_format))
 
-    cls.binary_format_master = type('InstBinaryFormat_Master_%s' % cls.__name__, (ctypes.Union,), {'_pack_': 0, '_fields_': fields})
+    cls.binary_format_master = type('InstBinaryFormat_Master_{}'.format(cls.__name__), (ctypes.Union,), {'_pack_': 0, '_fields_': fields})
 
   @classmethod
   def convert_to_master(cls, inst):
@@ -1008,7 +1008,7 @@ class Inst_CAS(InstDescriptor):
   binary_format = [BF_REG('r_addr'), BF_REG('r_test'), BF_REG('r_rep')]
 
   def assemble_operands(self, inst, operands):
-    debug('assemble_operands: inst=%s, operands=%s' % (inst, operands))
+    debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
     inst.r_addr = operands[0]
     inst.r_test = operands[1]
@@ -1129,10 +1129,7 @@ class Inst_DIV(InstDescriptor_Generic_Binary_R_RI):
     else:
       r.value = x / y
 
-    # print 'DIV: %s / %s = %s (%s / %s = %s)' % (x, y, i16(r.value).value, x, y, i16(r.value).value)
-    # print 'pre:  priv=%i, hwint=%i, e=%i, z=%i, o=%i, s=%i' % (core.registers.flags.privileged, core.registers.flags.hwint, core.registers.flags.e, core.registers.flags.z, core.registers.flags.o, core.registers.flags.s)
     core.update_arith_flags(core.registers.map[inst.reg])
-    # print 'post: priv=%i, hwint=%i, e=%i, z=%i, o=%i, s=%i' % (core.registers.flags.privileged, core.registers.flags.hwint, core.registers.flags.e, core.registers.flags.z, core.registers.flags.o, core.registers.flags.s)
 
 class Inst_UDIV(InstDescriptor_Generic_Binary_R_RI):
   mnemonic = 'udiv'
@@ -1147,10 +1144,7 @@ class Inst_UDIV(InstDescriptor_Generic_Binary_R_RI):
 
     r.value = x / y
 
-    # print 'UDIV: %s / %s = %s (%s / %s = %s)' % (x, y, u16(r.value).value, x, y, u16(r.value).value)
-    # print 'pre:  priv=%i, hwint=%i, e=%i, z=%i, o=%i, s=%i' % (core.registers.flags.privileged, core.registers.flags.hwint, core.registers.flags.e, core.registers.flags.z, core.registers.flags.o, core.registers.flags.s)
     core.update_arith_flags(core.registers.map[inst.reg])
-    # print 'post: priv=%i, hwint=%i, e=%i, z=%i, o=%i, s=%i' % (core.registers.flags.privileged, core.registers.flags.hwint, core.registers.flags.e, core.registers.flags.z, core.registers.flags.o, core.registers.flags.s)
 
 class Inst_MOD(InstDescriptor_Generic_Binary_R_RI):
   mnemonic = 'mod'

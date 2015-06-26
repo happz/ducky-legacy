@@ -151,7 +151,7 @@ class Console(object):
 
   def execute(self, cmd):
     if cmd[0] not in self.commands:
-      self.error('Unknown command: %s' % cmd)
+      self.error('Unknown command: %s', cmd)
       return
 
     cmd_desc = self.commands[cmd[0]]
@@ -269,7 +269,7 @@ class Console(object):
     cid = Console.console_id
     Console.console_id += 1
 
-    self.thread = Thread(target = self.loop, name = 'Console #%i' % cid)
+    self.thread = Thread(target = self.loop, name = 'Console #{}'.format(cid))
     self.thread.daemon = True
     self.thread.start()
 

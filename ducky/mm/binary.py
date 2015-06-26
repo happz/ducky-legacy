@@ -77,7 +77,7 @@ class SectionFlags(LittleEndianStructure):
     self.mmapable = 1 if u & 0x10 else 0
 
   def __repr__(self):
-    return '<SectionFlags: r=%i, w=%i, x=%i, b=%i, m=%i>' % (self.readable, self.writable, self.executable, self.bss, self.mmapable)
+    return '<SectionFlags: r={}, w={}, x={}, b={}, m={}>'.format(self.readable, self.writable, self.executable, self.bss, self.mmapable)
 
 class SectionHeader(LittleEndianStructure):
   _pack_ = 0
@@ -95,7 +95,7 @@ class SectionHeader(LittleEndianStructure):
   ]
 
   def __repr__(self):
-    return '<SectionHeader: index=%i, name=%i, type=%i, flags=%s, base=%s, items=%s, data_size=%s, file_size=%s, offset=%s>' % (self.index, self.name, self.type, self.flags, self.base, self.items, self.data_size, self.file_size, self.offset)
+    return '<SectionHeader: index={}, name={}, type={}, flags={}, base={}, items={}, data_size={}, file_size={}, offset={}>'.format(self.index, self.name, self.type, self.flags, self.base, self.items, self.data_size, self.file_size, self.offset)
 
 class SymbolEntry(LittleEndianStructure):
   _pack_ = 0
@@ -110,7 +110,7 @@ class SymbolEntry(LittleEndianStructure):
   ]
 
   def __repr__(self):
-    return '<SymbolEntry: section=%i, name=%s, type=%s, addr=%s>' % (self.section, self.name, SYMBOL_DATA_TYPES[self.type], ADDR_FMT(self.address))
+    return '<SymbolEntry: section={}, name={}, type={}, addr={}>'.format(self.section, self.name, SYMBOL_DATA_TYPES[self.type], ADDR_FMT(self.address))
 
 SECTION_ITEM_SIZE = [
   0, 4, sizeof(UInt8), sizeof(SymbolEntry)
@@ -204,7 +204,7 @@ class File(BinaryFile):
 
         else:
           from ..mm import MalformedBinaryError
-          raise MalformedBinaryError('Unknown section header type %s' % header.type)
+          raise MalformedBinaryError('Unknown section header type {}'.format(header.type))
 
         for _ in range(0, count):
           content.append(self.read_struct(st_class))

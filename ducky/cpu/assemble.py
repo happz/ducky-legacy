@@ -42,7 +42,7 @@ RE_TYPE = re.compile(r'^\s*\.type\s+(?P<name>[a-zA-Z_\.][a-zA-Z0-9_]*),\s*(?P<ty
 
 class AssemblerError(Exception):
   def __init__(self, filename, lineno, msg, line):
-    super(AssemblerError, self).__init__('%s:%s: %s' % (filename, lineno, msg))
+    super(AssemblerError, self).__init__('{}:{}: {}'.format(filename, lineno, msg))
 
     self.filename = filename
     self.lineno   = lineno
@@ -51,7 +51,7 @@ class AssemblerError(Exception):
 
 class IncompleteDirectiveError(AssemblerError):
   def __init__(self, filename, lineno, msg, line):
-    super(IncompleteDirectiveError, self).__init__(filename, lineno, 'Incomplete directive: %s' % msg, line)
+    super(IncompleteDirectiveError, self).__init__(filename, lineno, 'Incomplete directive: {}'.format(msg, line))
 
 class Buffer(object):
   def __init__(self, filename, buff):
@@ -136,7 +136,7 @@ class Section(object):
       return 'b' in self.flags
 
   def __repr__(self):
-    return '<Section: name=%s, type=%s, flags=%s, base=%s, ptr=%s, items=%s, data_size=%s, file_size=%s>' % (self.name, self.type, self.flags, self.base, self.ptr, self.items, self.data_size, self.file_size)
+    return '<Section: name={}, type={}, flags={}, base={}, ptr={}, items={}, data_size={}, file_size={}>'.format(self.name, self.type, self.flags, self.base, self.ptr, self.items, self.data_size, self.file_size)
 
 class TextSection(Section):
   def __init__(self, s_name, flags = None, **kwargs):
@@ -165,7 +165,7 @@ class Label(object):
     self.lineno = lineno
 
   def __repr__(self):
-    return '<label %s in section %s (%s:%s)>' % (self.name, self.section.name, self.filename, self.lineno)
+    return '<label {} in section {} ({}:{})>'.format(self.name, self.section.name, self.filename, self.lineno)
 
 class DataSlot(object):
   def __init__(self):
@@ -197,7 +197,7 @@ class ByteSlot(DataSlot):
     self.value = UInt8(self.value or 0)
 
   def __repr__(self):
-    return '<ByteSlot: name=%s, size=%s, section=%s, value=%s>' % (self.name, self.size, self.section.name if self.section else '', self.value)
+    return '<ByteSlot: name={}, size={}, section={}, value={}>'.format(self.name, self.size, self.section.name if self.section else '', self.value)
 
 class IntSlot(DataSlot):
   symbol_type = mm.binary.SymbolDataTypes.INT
@@ -212,7 +212,7 @@ class IntSlot(DataSlot):
     self.size = UInt16(2)
 
   def __repr__(self):
-    return '<IntSlot: name=%s, size=%s, section=%s, value=%s, refers_to=%s>' % (self.name, self.size, self.section.name if self.section else '', self.value, self.refers_to)
+    return '<IntSlot: name={}, size={}, section={}, value={}, refers_to={}>'.format(self.name, self.size, self.section.name if self.section else '', self.value, self.refers_to)
 
 class CharSlot(DataSlot):
   symbol_type = mm.binary.SymbolDataTypes.CHAR
@@ -222,7 +222,7 @@ class CharSlot(DataSlot):
     self.size = UInt16(1)
 
   def __repr__(self):
-    return '<CharSlot: name=%s, section=%s, value=%s>' % (self.name, self.section.name if self.section else '', self.value)
+    return '<CharSlot: name={}, section={}, value={}>'.format(self.name, self.section.name if self.section else '', self.value)
 
 class SpaceSlot(DataSlot):
   symbol_type = mm.binary.SymbolDataTypes.ASCII
@@ -232,7 +232,7 @@ class SpaceSlot(DataSlot):
     self.size = UInt16(self.size)
 
   def __repr__(self):
-    return '<SpaceSlot: name=%s, size=%s, section=%s>' % (self.name, self.size, self.section.name if self.section else '')
+    return '<SpaceSlot: name={}, size={}, section={}>'.format(self.name, self.size, self.section.name if self.section else '')
 
 class AsciiSlot(DataSlot):
   symbol_type = mm.binary.SymbolDataTypes.ASCII
@@ -243,7 +243,7 @@ class AsciiSlot(DataSlot):
     self.size = UInt16(len(self.value))
 
   def __repr__(self):
-    return '<AsciiSlot: name=%s, size=%s, section=%s, value=%s>' % (self.name, self.size, self.section.name if self.section else '', self.value)
+    return '<AsciiSlot: name={}, size={}, section={}, value={}>'.format(self.name, self.size, self.section.name if self.section else '', self.value)
 
 class StringSlot(DataSlot):
   symbol_type = mm.binary.SymbolDataTypes.STRING
@@ -254,7 +254,7 @@ class StringSlot(DataSlot):
     self.size = UInt16(len(self.value))
 
   def __repr__(self):
-    return '<StringSlot: name=%s, size=%s, section=%s, value=%s>' % (self.name, self.size, self.section.name if self.section else '', self.value)
+    return '<StringSlot: name={}, size={}, section={}, value={}>'.format(self.name, self.size, self.section.name if self.section else '', self.value)
 
 class FunctionSlot(DataSlot):
   symbol_type = mm.binary.SymbolDataTypes.FUNCTION
@@ -263,7 +263,7 @@ class FunctionSlot(DataSlot):
     self.size = UInt16(0)
 
   def __repr__(self):
-    return '<FunctionSlot: name=%s, section=%s>' % (self.name, self.section.name if self.section else '')
+    return '<FunctionSlot: name={}, section={}>'.format(self.name, self.section.name if self.section else '')
 
 def sizeof(o):
   if isinstance(o, DataSlot):
@@ -325,9 +325,9 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, filen
 
         replace_map = {}
         for i in range(0, len(m_desc['params'])):
-          replace_map[re.compile(r'#%s' % m_desc['params'][i])] = matches['arg%i' % i]
+          replace_map[re.compile(r'#{}'.format(m_desc['params'][i]))] = matches['arg{}'.format(i)]
 
-        debug(msg_prefix + 'macro args: %s', ', '.join(['%s => %s' % (pattern.pattern, repl) for pattern, repl in replace_map.iteritems()]))
+        debug(msg_prefix + 'macro args: %s', ', '.join(['{} => {}'.format(pattern.pattern, repl) for pattern, repl in replace_map.iteritems()]))
 
         body = []
         for line in m_desc['body']:
@@ -491,7 +491,7 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, filen
       if matches:
         continue
 
-      msg_prefix = 'pass #1: %s:%s: ' % (os.path.split(buff.filename)[1], buff.lineno)
+      msg_prefix = 'pass #1: {}:{}: '.format(os.path.split(buff.filename)[1], buff.lineno)
 
       line = __apply_defs(line)
 
@@ -611,7 +611,7 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, filen
     if not line.strip():
       continue
 
-    msg_prefix = 'pass #1: %s:%s: ' % (os.path.split(buff.filename)[1], buff.lineno)
+    msg_prefix = 'pass #1: {}:{}: '.format(os.path.split(buff.filename)[1], buff.lineno)
 
     line = __apply_defs(line)
 
@@ -623,7 +623,7 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, filen
     if matches:
       continue
 
-    msg_prefix = 'pass #1: %s:%s: ' % (os.path.split(buff.filename)[1], buff.lineno)
+    msg_prefix = 'pass #1: {}:{}: '.format(os.path.split(buff.filename)[1], buff.lineno)
 
     matches = RE_IFDEF.match(line)
     if matches:
@@ -705,7 +705,7 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, filen
 
       debug(msg_prefix + 'variable defined: name=%s, value=%s', v_name, v_body)
 
-      defs[re.compile(r'\$%s' % v_name)] = v_body.strip()
+      defs[re.compile(r'\${}'.format(v_name))] = v_body.strip()
 
       continue
 
@@ -735,10 +735,10 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, filen
         arg_pattern = r'(?P<arg%i>(?:".*?")|(?:.*?))'
         arg_patterns = ',\s*'.join([arg_pattern % i for i in range(0, len(current_macro['params']))])
 
-        current_macro['pattern'] = re.compile(r'^\s*\$%s\s+%s\s*(?:[;/#].*)?$' % (m_name, arg_patterns), re.MULTILINE)
+        current_macro['pattern'] = re.compile(r'^\s*\${}\s+{}\s*(?:[;/#].*)?$'.format(m_name, arg_patterns), re.MULTILINE)
 
       else:
-        current_macro['pattern'] = re.compile(r'\s*\$%s' % m_name)
+        current_macro['pattern'] = re.compile(r'\s*\${}'.format(m_name))
 
       continue
 
@@ -819,7 +819,7 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, filen
       __parse_byte(var, matches)
 
       if len(labels) > 1:
-        raise buff.get_error(AssemblerError, 'Too many data labels: %s' % labels)
+        raise buff.get_error(AssemblerError, 'Too many data labels: {}'.format(labels))
 
       var.name = labels[0] if labels else None
       var.close()
@@ -836,7 +836,7 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, filen
       __parse_int(var, matches)
 
       if len(labels) > 1:
-        raise buff.get_error(AssemblerError, 'Too many data labels: %s' % labels)
+        raise buff.get_error(AssemblerError, 'Too many data labels: {}'.format(labels))
 
       var.name = labels[0] if labels else None
       var.close()
@@ -853,7 +853,7 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, filen
       __parse_ascii(var, matches)
 
       if len(labels) > 1:
-        raise buff.get_error(AssemblerError, 'Too many data labels: %s' % labels)
+        raise buff.get_error(AssemblerError, 'Too many data labels: {}'.format(labels))
 
       var.name = labels[0] if labels else None
       var.close()
@@ -870,7 +870,7 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, filen
       __parse_string(var, matches)
 
       if len(labels) > 1:
-        raise buff.get_error(AssemblerError, 'Too many data labels: %s' % labels)
+        raise buff.get_error(AssemblerError, 'Too many data labels: {}'.format(labels))
 
       var.name = labels[0] if labels else None
       var.close()
@@ -887,7 +887,7 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, filen
       __parse_space(var, matches)
 
       if len(labels) > 1:
-        raise buff.get_error(AssemblerError, 'Too many data labels: %s' % labels)
+        raise buff.get_error(AssemblerError, 'Too many data labels: {}'.format(labels))
 
       var.name = labels[0] if labels else None
       var.close()
@@ -949,7 +949,7 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, filen
       break
 
     else:
-      raise buff.get_error(AssemblerError, 'Unknown pattern: line="%s"' % line)
+      raise buff.get_error(AssemblerError, 'Unknown pattern: line="{}"'.format(line))
 
     # pylint: disable-msg=W0631
     emited_inst = desc.emit_instruction(line)
@@ -1138,7 +1138,7 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, filen
         debug(ptr_prefix + 'fix reference: %s', item)
 
         if item.refers_to not in references:
-          raise buff.get_error(AssemblerError, 'Unknown reference: name=%s' % item.refers_to)
+          raise buff.get_error(AssemblerError, 'Unknown reference: name={}'.format(item.refers_to))
 
         item.value = references[item.refers_to].section_ptr.u16
         debug(ptr_prefix + 'reference replaced with %s', ADDR_FMT(item.value))
@@ -1151,7 +1151,7 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, filen
         debug(ptr_prefix + 'fix reference: %s', item)
 
         if item.refers_to not in references:
-          raise buff.get_error(AssemblerError, 'No such label: name=%s' % item.refers_to)
+          raise buff.get_error(AssemblerError, 'No such label: name={}'.format(item.refers_to))
 
         refers_to_var = references[item.refers_to]
         refers_to_addr = refers_to_var.section_ptr.u16

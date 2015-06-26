@@ -142,7 +142,7 @@ class Binary(ISnapshotable, object):
     self.symbol_table = util.SymbolTable(self.raw_binary)
 
   def save_state(self, parent):
-    state = parent.add_child('binary_%i' % self.id, BinaryState())
+    state = parent.add_child('binary_{}'.format(self.id), BinaryState())
 
     state.path = self.path
     state.cs = self.cs
@@ -245,7 +245,7 @@ class Machine(ISnapshotable, MachineWorker):
     # ignore binary states
 
     for __cpu in self.cpus:
-      cpu_state = state.get_children().get('cpu%i' % __cpu.id, None)
+      cpu_state = state.get_children().get('cpu{}'.format(__cpu.id), None)
       if cpu_state is None:
         warn('State of CPU #%i not found!', __cpu.id)
         continue
@@ -319,10 +319,10 @@ class Machine(ISnapshotable, MachineWorker):
         self.memory.save_interrupt_vector(table, index, desc)
 
       for i in range(0, irq.IRQList.IRQ_COUNT):
-        __save_iv('irq_routine_%i' % i, self.memory.irq_table_address, i)
+        __save_iv('irq_routine_{}'.format(i), self.memory.irq_table_address, i)
 
       for i in range(0, irq.InterruptList.INT_COUNT):
-        __save_iv('int_routine_%i' % i, self.memory.int_table_address, i)
+        __save_iv('int_routine_{}'.format(i), self.memory.int_table_address, i)
 
       __print_regions(binary.regions)
 
@@ -411,14 +411,14 @@ class Machine(ISnapshotable, MachineWorker):
   def register_irq_source(self, index, src, reassign = False):
     if self.irq_sources[index]:
       if not reassign:
-        raise InvalidResourceError('IRQ already assigned: %i' % index)
+        raise InvalidResourceError('IRQ already assigned: {}'.format(index))
 
       for i in range(0, len(self.irq_sources)):
         if not self.irq_sources[i]:
           index = i
           break
       else:
-        raise InvalidResourceError('IRQ already assigned, no available free IRQ: %i' % index)
+        raise InvalidResourceError('IRQ already assigned, no available free IRQ: {}'.format(index))
 
     self.irq_sources[index] = src
     src.irq = index
@@ -429,7 +429,7 @@ class Machine(ISnapshotable, MachineWorker):
 
   def register_port(self, port, handler):
     if port in self.ports:
-      raise IndexError('Port already assigned: %i' % port)
+      raise IndexError('Port already assigned: {}'.format(port))
 
     self.ports[port] = handler
 
@@ -528,7 +528,7 @@ def cmd_snapshot(console, cmd):
 
   state = snapshot.VMState.capture_vm_state(console.machine)
 
-  filename = 'ducky-core.%s' % os.getpid()
+  filename = 'ducky-core.{}'.format(os.getpid())
   state.save(filename)
 
   console.info('Snapshot saved as %s', filename)

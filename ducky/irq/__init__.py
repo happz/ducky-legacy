@@ -72,7 +72,7 @@ class IRQSourceSet(object):
 
   def __check_irq_limits(self, irq):
     if irq < 0 or irq >= IRQList.IRQ_COUNT:
-      raise IndexError('IRQ out of range: irq=%i' % irq)
+      raise IndexError('IRQ out of range: irq={}'.format(irq))
 
   def __getitem__(self, irq):
     self.__check_irq_limits(irq)

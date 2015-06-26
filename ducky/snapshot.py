@@ -30,18 +30,18 @@ class SnapshotNode(object):
     print offset, self.__class__.__name__
 
     for field in self.__fields:
-      print offset, '  ', '%s: %s' % (field, getattr(self, field))
+      print offset, '  ', '{}: {}'.format(field, getattr(self, field))
 
     if self.__children:
       print offset, '  children:'
 
       for name, value in self.__children.iteritems():
         if isinstance(value, SnapshotNode):
-          print offset, '    ', '%s: %s' % (name, value.__class__.__name__)
+          print offset, '    ', '{}: {}'.format(name, value.__class__.__name__)
           value.print_node(level = level + 2)
 
         else:
-          print offset, '    ', '%s: %s' % (name, value)
+          print offset, '    ', '{}: {}'.format(name, value)
 
 class ISnapshotable(object):
   def save_state(self, parent):
