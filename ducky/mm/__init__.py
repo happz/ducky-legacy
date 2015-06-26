@@ -169,7 +169,7 @@ class MemoryPage(object):
 
     state.index = self.index
 
-    state.content = [int(i) for i in self.data]
+    state.content = [ord(i) if isinstance(i, str) else i for i in self.data]
     state.read = self.read
     state.write = self.write
     state.execute = self.execute
@@ -522,12 +522,6 @@ class MMapMemoryPage(MemoryPage):
 
     self.data = data
     self.__offset = offset
-
-  def save_state(self, state):
-    pass
-
-  def load_state(self, state):
-    pass
 
   def do_clear(self):
     for i in range(0, PAGE_SIZE):
