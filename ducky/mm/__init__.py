@@ -1042,15 +1042,10 @@ class MemoryController(object):
         pages_start, pages_cnt = area_to_pages(s_base_addr, s_header.file_size)
 
         if f_header.flags.mmapable == 1:
-          access = ''
-          if s_header.flags.readable == 1:
-            access += 'r'
-          if s_header.flags.writable == 1:
-            access += 'w'
-          if s_header.flags.executable == 1:
-            access += 'x'
-
-          self.mmap_area(f_in.name, s_base_addr, s_header.file_size, offset = s_header.offset, access = access, shared = False)
+          # Always mmap sections as RW, and disable W if section' flags requires that
+          # Otherwise, when program asks Vm to enable W, any access would fail because
+          # the underlying mmap area was not mmaped as writable
+          self.mmap_area(f_in.name, s_base_addr, s_header.file_size, offset = s_header.offset, access = 'rw', shared = False)
 
         else:
           for i in xrange(pages_start, pages_start + pages_cnt):
