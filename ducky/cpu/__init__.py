@@ -1,18 +1,17 @@
 import sys
 
 from .. import console
-from .. import debugging
-from .. import machine
 from . import registers
 from .. import mm
 from .. import profiler
 
-from ..mm import ADDR_FMT, UINT8_FMT, UINT16_FMT, UINT32_FMT, SEGMENT_SIZE, PAGE_SIZE, i16
+from ..interfaces import IMachineWorker, ISnapshotable
+from ..mm import ADDR_FMT, UINT8_FMT, UINT16_FMT, UINT32_FMT, SEGMENT_SIZE, PAGE_SIZE, i16, UINT24_FMT
 from .registers import Registers, REGISTER_NAMES
 from .instructions import DuckyInstructionSet
 from ..errors import AccessViolationError, InvalidResourceError
 from ..util import debug, info, warn, error, print_table, LRUCache, exception
-from ..snapshot import ISnapshotable, SnapshotNode
+from ..snapshot import SnapshotNode
 
 from ctypes import LittleEndianStructure, c_ubyte, c_ushort
 
@@ -165,9 +164,9 @@ class InstructionCache(LRUCache):
     :rtype: ``InstBinaryFormat_Master``
     """
 
-    return self.core.instruction_set.decode_instruction(self.core.memory.read_u32(addr))
+    return self.core.instruction_set.decode_instruction(self.core.memory.read_u32(addr, not_execute = False))
 
-class DataCache(LRUCache):
+class CPUDataCache(LRUCache):
   """
   Simple data cache class, based on LRU dictionary, with a limited size.
   Operates on words, and only write-back policy is supported.
@@ -188,9 +187,10 @@ class DataCache(LRUCache):
   :param int size: maximal number of entries this cache can store.
   """
 
-  def __init__(self, core, size, *args, **kwargs):
-    super(DataCache, self).__init__(size, *args, **kwargs)
+  def __init__(self, controller, core, size, *args, **kwargs):
+    super(CPUDataCache, self).__init__(size, *args, **kwargs)
 
+    self.controller = controller
     self.core = core
 
   def make_space(self):
@@ -202,7 +202,7 @@ class DataCache(LRUCache):
     addr, value = self.popitem(last = False)
     dirty, value = value
 
-    self.core.DEBUG('data_cache.make_space: addr=%s, value=%s', ADDR_FMT(addr), UINT16_FMT(value))
+    self.core.DEBUG('CPUDataCache.make_space: addr=%s, value=%s', ADDR_FMT(addr), UINT16_FMT(value))
 
     if dirty:
       self.core.memory.write_u16(addr, value)
@@ -218,7 +218,7 @@ class DataCache(LRUCache):
     :rtype: u16
     """
 
-    self.core.DEBUG('data_cache.get_object: addr=%s', ADDR_FMT(addr))
+    self.core.DEBUG('CPUDataCache.get_object: address=%s', ADDR_FMT(addr))
 
     return [False, self.core.memory.read_u16(addr)]
 
@@ -231,7 +231,7 @@ class DataCache(LRUCache):
     :rtype: u16
     """
 
-    self.core.DEBUG('data_cache.read_u16: addr=%s', ADDR_FMT(addr))
+    self.core.DEBUG('CPUDataCache.read_u16: addr=%s', ADDR_FMT(addr))
 
     return self[addr][1]
 
@@ -244,14 +244,44 @@ class DataCache(LRUCache):
     :param u16 value: new value to write.
     """
 
-    self.core.DEBUG('data_cache.write_u16: addr=%s, value=%s', ADDR_FMT(addr), UINT16_FMT(value))
+    self.core.DEBUG('CPUDataCache.write_u16: addr=%s, value=%s', ADDR_FMT(addr), UINT16_FMT(value))
 
     if addr not in self:
       self.__missing__(addr)
 
     self[addr] = [True, value]
 
-  def remove_page_references(self, page, writeback = True):
+    self.controller.release_entry_references(self.core, addr)
+
+  def release_entry_references(self, addr, writeback = True, remove = True):
+    """
+    Remove entry that is located at specific address.
+
+    :param u24 address: entry address
+    :param bool writeback: if ``True``, value is written back to memory
+      before it's removed from cache, otherwise it's just dropped.
+    """
+
+    self.core.DEBUG('CPUDataCache.release_entry_references: address=%s, writeback=%s, remove=%s', ADDR_FMT(addr), writeback, remove)
+
+    dirty, value = self.get(addr, (None, None))
+
+    if dirty is None and value is None:
+      self.core.DEBUG('CPUDataCache.release_entry_references: not cached')
+      return
+
+    if dirty and writeback:
+      self.core.memory.write_u16(addr, value)
+      self.core.DEBUG('CPUDataCache.release_entry_references: written back')
+
+    if remove:
+      del self[addr]
+      self.core.DEBUG('CPUDataCache.release_entry_references: removed')
+
+    else:
+      self[addr] = (False, value)
+
+  def release_page_references(self, page, writeback = True, remove = True):
     """
     Remove entries that are located on a specific memory page.
 
@@ -260,7 +290,7 @@ class DataCache(LRUCache):
       before they are removed from cache, otherwise they are just dropped.
     """
 
-    self.core.DEBUG('data_cache.remove_page_references: page=%s', page.index)
+    self.core.DEBUG('data_cache.release_page_references: page=%s, writeback=%s, remove=%s', page.index, writeback, remove)
 
     addresses = [i for i in range(page.base_address, page.base_address + PAGE_SIZE, 2)]
 
@@ -268,34 +298,64 @@ class DataCache(LRUCache):
       if addr not in addresses:
         continue
 
-      dirty, value = self[addr]
+      self.release_entry_references(addr, writeback = writeback, remove = remove)
 
-      if dirty and writeback:
-        self.core.memory.write_u16(addr, value)
-        self.core.DEBUG('data_cache.remove_page_references: %s written back', ADDR_FMT(addr))
+  def release_area_references(self, address, size, writeback = True, remove = True):
+    self.core.DEBUG('CPUDataCache.remove_area_references: address=%s, size=%s, writeback=%s, remove=%s', ADDR_FMT(address), UINT16_FMT(size), writeback, remove)
 
-      self.core.DEBUG('data_cache.remove_page_references: %s removed', ADDR_FMT(addr))
-
-      del self[addr]
-
-  def flush(self):
-    """
-    Save all dirty entries back to memory. No entries are removed from cache.
-    """
-
-    self.core.DEBUG('data_cache.flush')
+    addresses = [i for i in range(address, address + size, 2)]
 
     for addr in self.keys():
-      dirty, value = self[addr]
-
-      if not dirty:
+      if addr not in addresses:
         continue
 
-      self.core.memory.write_u16(addr, value)
-      self[addr][0] = False
-      self.core.DEBUG('data_cache.flush: %s written back', ADDR_FMT(addr))
+      self.release_entry_references(addr, writeback = writeback, remove = remove)
 
-class CPUCore(ISnapshotable, machine.MachineWorker):
+  def release_references(self, writeback = True, remove = True):
+    """
+    Save all dirty entries back to memory.
+    """
+
+    self.core.DEBUG('CPUDataCache.release_references: writeback=%s, remove=%s', writeback, remove)
+
+    for addr in self.keys():
+      self.release_entry_references(addr, writeback = writeback, remove = remove)
+
+class CPUCacheController(object):
+  def __init__(self):
+    self.cores = []
+
+  def register_core(self, core):
+    self.cores.append(core)
+
+  def unregister_core(self, core):
+    self.cores.remove(core)
+
+  def release_entry_references(self, caller, address):
+    debug('CPUCacheController.release_entry_references: caller=%s, addresss=%s', str(caller), ADDR_FMT(address))
+
+    writeback = True if caller is None else False
+    map(lambda core: core.data_cache.release_entry_references(address, writeback = writeback, remove = True), [core for core in self.cores if core is not caller])
+
+  def release_page_references(self, caller, pg):
+    debug('CPUCacheController.release_page_references: caller=%s, pg=%s', str(caller), pg)
+
+    writeback = True if caller is None else False
+    map(lambda core: core.data_cache.release_page_references(pg, writeback = writeback, remove = True), [core for core in self.cores if core is not caller])
+
+  def release_area_references(self, caller, address, size):
+    debug('CPUCacheController.release_area_references: caller=%s, address=%s, size=%s', str(caller), ADDR_FMT(address), UINT24_FMT(size))
+
+    writeback = True if caller is None else False
+    map(lambda core: core.data_cache.release_area_references(address, size, writeback = writeback, remove = True), [core for core in self.cores if core is not caller])
+
+  def release_references(self, caller):
+    debug('CPUCacheController.release_references: caller=%s', str(caller))
+
+    writeback = True if caller is None else False
+    map(lambda core: core.data_cache.release_references(writeback = writeback, remove = True), [core for core in self.cores if core is not caller])
+
+class CPUCore(ISnapshotable, IMachineWorker):
   """
   This class represents the main workhorse, one of CPU cores. Reads
   instructions, executes them, has registers, caches, handles interrupts,
@@ -308,7 +368,7 @@ class CPUCore(ISnapshotable, machine.MachineWorker):
     access main memory.
   """
 
-  def __init__(self, coreid, cpu, memory_controller):
+  def __init__(self, coreid, cpu, memory_controller, cache_controller):
     super(CPUCore, self).__init__()
 
     self.cpuid_prefix = '#{}:#{}: '.format(cpu.id, coreid)
@@ -335,10 +395,13 @@ class CPUCore(ISnapshotable, machine.MachineWorker):
     self.frames = []
     self.check_frames = cpu.machine.config.getbool('cpu', 'check-frames', default = False)
 
+    from .. import debugging
     self.debug = debugging.DebuggingSet(self)
 
+    self.cache_controller = cache_controller
     self.instruction_cache = InstructionCache(self, self.cpu.machine.config.getint('cpu', 'inst-cache', default = DEFAULT_CORE_INST_CACHE_SIZE))
-    self.data_cache = DataCache(self, self.cpu.machine.config.getint('cpu', 'data-cache', default = DEFAULT_CORE_DATA_CACHE_SIZE))
+    self.data_cache = CPUDataCache(cache_controller, self, self.cpu.machine.config.getint('cpu', 'data-cache', default = DEFAULT_CORE_DATA_CACHE_SIZE))
+    self.cache_controller.register_core(self)
 
     if self.cpu.machine.config.getbool('cpu', 'math-coprocessor', False):
       from .coprocessor import math_copro
@@ -660,7 +723,7 @@ class CPUCore(ISnapshotable, machine.MachineWorker):
     self.registers.ds.value = old_DS
     self.registers.sp.value = old_SP
 
-    self.data_cache.remove_page_references(stack_page, writeback = False)
+    self.data_cache.release_page_references(stack_page, writeback = False)
     self.memory.free_page(stack_page)
 
   def do_int(self, index):
@@ -895,7 +958,7 @@ class CPUCore(ISnapshotable, machine.MachineWorker):
     self.running = False
     self.alive = False
 
-    self.data_cache.flush()
+    self.data_cache.release_references(writeback = True, remove = False)
 
     log_cpu_core_state(self)
 
@@ -943,8 +1006,8 @@ class CPUCore(ISnapshotable, machine.MachineWorker):
 
     self.INFO('Booted')
 
-class CPU(ISnapshotable, machine.MachineWorker):
-  def __init__(self, machine, cpuid, cores = 1, memory_controller = None):
+class CPU(ISnapshotable, IMachineWorker):
+  def __init__(self, machine, cpuid, memory_controller, cache_controller, cores = 1):
     super(CPU, self).__init__()
 
     self.cpuid_prefix = '#{}:'.format(cpuid)
@@ -952,11 +1015,12 @@ class CPU(ISnapshotable, machine.MachineWorker):
     self.machine = machine
     self.id = cpuid
 
-    self.memory = memory_controller or mm.MemoryController()
+    self.memory = memory_controller
+    self.cache_controller = cache_controller
 
     self.cores = []
     for i in xrange(0, cores):
-      __core = CPUCore(i, self, self.memory)
+      __core = CPUCore(i, self, self.memory, self.cache_controller)
       self.cores.append(__core)
 
   def save_state(self, parent):
@@ -1082,7 +1146,7 @@ def cmd_next(console, cmd):
     inst = core.instruction_set.decode_instruction(core.memory.read_u32(__ip_addr()))
 
     if inst.opcode == core.instruction_set.opcodes.CALL:
-      from debugging import add_breakpoint
+      from ..debugging import add_breakpoint
 
       add_breakpoint(core, core.registers.ip.value + 4, ephemeral = True)
 

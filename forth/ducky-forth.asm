@@ -10,6 +10,8 @@
 
 .def DUCKY_VERSION: 0x0001
 
+.def TEXT_OFFSET:   0x0000
+
 ; One cell is 16 bits, 2 bytes, this is 16-bit FORTH. I hope it's clear now :)
 .def CELL:               2
 
@@ -46,6 +48,28 @@
 .def Z:   r7
 
 ; Offsets of word header fields
+;
+; +-------------+ <- 0; label "name_$WORD"
+; | link        |
+; |             |
+; +-------------+ <- 2
+; | name CRC    |
+; |             |
+; +-------------+ <- 4
+; | flags       |
+; +-------------+ <- 5
+; | name length |
+; +-------------+ <- 6
+; | name        |
+; .             .
+; .             .
+; .             .
+; |             |
+; +-------------+ <- 6 + name length + padding byte
+; | codeword    |
+; |             |
+; +-------------+ <- 8 + name length + padding byte
+;
 .def wr_link:     0
 .def wr_namecrc:  2
 .def wr_flags:    4
@@ -129,9 +153,10 @@ code_#label:
   and #reg, 0xFFFE
 .end
 
-.macro align4 reg, mask_reg:
-  add #reg, 3
-  and #reg, 0xFFFC
+.macro align_page reg:
+  add #reg, $PAGE_SIZE
+  dec #reg
+  and #reg, $PAGE_MASK
 .end
 
 .macro unpack_word_for_find:
@@ -141,11 +166,25 @@ code_#label:
 .end
 
 
+.ifndef FORTH_TEXT_WRITABLE
+  ; mprotect boundary pivots
+  .section .text
+text_boundary_first:
+  ret
+
+  .section .rodata
+  .type rodata_boundary_first, int
+  .int 0xDEAD
+.endif
+
+
   ; Welcome and bye messages
   .section .rodata
 
+.ifdef FORTH_WELCOME
   .type welcome_message, string
   .string "Ducky Forth welcomes you\n\r\n\r"
+.endif
 
   .type bye_message, string
   .string "\r\nBye.\r\n"
@@ -259,9 +298,9 @@ writesln:
 
 write_new_line:
   push r0
-  li r0, 0xA
-  outb $PORT_CONIO_STDOUT, r0
   li r0, 0xD
+  outb $PORT_CONIO_STDOUT, r0
+  li r0, 0xA
   outb $PORT_CONIO_STDOUT, r0
   pop r0
   ret
@@ -306,7 +345,119 @@ write_word_buffer:
   ret
 
 
+mm_area_remove_flag:
+  ; r0 - start address
+  ; r1 - end address
+  ; r2 - segment
+  ; r3 - flag to remove
+  push r4
+  push r5
+
+  ; align addresses...
+  $align_page r0
+  $align_page r1
+  ; and save them for later
+  push r0
+  push r1
+  push r2
+  push r3
+
+  ; shift args and make space for operation argument
+  mov r3, r2 ; segment -> r3
+  mov r2, r1 ; end -> r2
+  mov r1, r0 ; start -> r1
+  li r0, $MM_OP_MTELL
+  int $INT_MM
+
+  cmp r0, 0
+  bnz &halt
+
+  ; save returned flags
+  mov r4, r1
+
+  pop r5 ; flag to remove
+  pop r3 ; segment
+  pop r2 ; end
+  pop r1 ; start
+  li r0, $MM_OP_MPROTECT
+  ; add returned flags to segment
+  or r3, r4
+  ; and flags argument with all flags except the one we should remove
+  not r5
+  and r3, r5
+  int $INT_MM
+
+  cmp r0, 0
+  bnz &halt
+
+  pop r5
+  pop r4
+  ret
+
+mm_area_add_flag:
+  ; r0 - start address
+  ; r1 - end address
+  ; r2 - segment
+  ; r3 - flag to add
+  push r4
+  push r5
+
+  ; align addresses...
+  $align_page r0
+  $align_page r1
+  ; and save them for later
+  push r0
+  push r1
+  push r2
+  push r3
+
+  ; shift args and make space for operation argument
+  mov r3, r2 ; segment -> r3
+  mov r2, r1 ; end -> r2
+  mov r1, r0 ; start -> r1
+  li r0, $MM_OP_MTELL
+  int $INT_MM
+
+  cmp r0, 0
+  bnz &halt
+
+  ; save returned flags
+  mov r4, r1
+
+  pop r5 ; flag to add
+  pop r3 ; segment
+  pop r2 ; end
+  pop r1 ; start
+  li r0, $MM_OP_MPROTECT
+  ; add returned flags to segment
+  or r3, r4
+  ; and add our flag
+  or r3, r5
+  int $INT_MM
+
+  cmp r0, 0
+  bnz &halt
+
+  pop r5
+  pop r4
+  ret
+
+
 init_crcs:
+.ifndef FORTH_TEXT_WRITABLE
+  li r0, $TEXT_OFFSET
+  li r1, &text_boundary_last
+  li r2, $MM_FLAG_CS
+  li r3, $MM_FLAG_WRITE
+  call &mm_area_add_flag
+
+  li r0, &rodata_boundary_first
+  li r1, &rodata_boundary_last
+  li r2, $MM_FLAG_DS
+  li r3, $MM_FLAG_WRITE
+  call &mm_area_add_flag
+.endif
+
   push r0 ; str ptr, crc
   push r1 ; str len
   push r2 ; link
@@ -337,6 +488,21 @@ init_crcs:
   pop r2
   pop r1
   pop r0
+
+.ifndef FORTH_TEXT_WRITABLE
+  li r0, 0
+  li r1, &text_boundary_last
+  li r2, $MM_FLAG_CS
+  li r3, $MM_FLAG_WRITE
+  call &mm_area_remove_flag
+
+  li r0, &rodata_boundary_first
+  li r1, &rodata_boundary_last
+  li r2, $MM_FLAG_DS
+  li r3, $MM_FLAG_WRITE
+  call &mm_area_remove_flag
+.endif
+
   ret
 
 
@@ -351,9 +517,11 @@ main:
   ; init words' crcs
   call &init_crcs
 
+.ifdef FORTH_WELCOME
   ; print welcome message
-  ;li r0, &welcome_message
-  ;call &writes
+  li r0, &welcome_message
+  call &writes
+.endif
 
   ; and boot...
   li $FIP, &cold_start ; boot
@@ -723,6 +891,10 @@ $DEFCODE "INTERPRET", 9, 0, INTERPRET
   .type buffer_print_postfix, string
   .string "<<<"
 
+.ifdef FORTH_DEBUG_FIND
+  .type find_debug_header, string
+  .string "FIND WORD:\r\n"
+.endif
 
 $DEFCODE "EVALUATE", 8, 0, EVALUATE
   pop r1 ; length
@@ -979,7 +1151,11 @@ $DEFCODE "FIND", 4, 0, FIND
 
 
 .__FIND:
-.ifdef DEBUG_FIND
+.ifdef FORTH_DEBUG_FIND
+  push r0
+  li r0, &find_debug_header
+  call &writesln
+  pop r0
   call &write_word_buffer
 .endif
 
@@ -1001,7 +1177,7 @@ $DEFCODE "FIND", 4, 0, FIND
   cmp r2, r2
   bz &.__FIND_fail
 
-.ifdef DEBUG_FIND
+.ifdef FORTH_DEBUG_FIND
   ; print name
   push r0
   mov r0, r2
@@ -1949,3 +2125,15 @@ $DEFCODE "BYE", 3, 0, BYE
 
   li r0, 0
   call &halt
+
+
+.ifndef FORTH_TEXT_WRITABLE
+  ; mprotect boundary pivots
+  .section .rodata
+  .type rodata_boundary_last, int
+  .int 0xDEAD
+
+  .section .text
+text_boundary_last:
+  ret
+.endif

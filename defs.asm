@@ -10,6 +10,18 @@
 ;
 
 .def PAGE_SIZE: 256
+.def PAGE_MASK: 0xFF00
+
+.def MM_OP_MPROTECT: 1
+.def MM_OP_MTELL:    2
+
+.def MM_FLAG_READ:    0x0001
+.def MM_FLAG_WRITE:   0x0002
+.def MM_FLAG_EXECUTE: 0x0004
+.def MM_FLAG_DIRTY:   0x0008
+
+.def MM_FLAG_CS:      0x1000
+.def MM_FLAG_DS:      0x2000
 
 ;
 ; Interrupts

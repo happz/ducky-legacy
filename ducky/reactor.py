@@ -13,26 +13,9 @@ There are two different kinds of objects that reactor manages:
 
 import Queue
 
-class ReactorTask(object):
-  """
-  Base class for all reactor tasks.
-  """
+from .interfaces import IReactorTask
 
-  def runnable(self):
-    """
-    Returns ``True`` if task can be run.
-    """
-
-    return False
-
-  def run(self):
-    """
-    This method is called by reactor to perform task's actions.
-    """
-
-    pass
-
-class CallInReactorTask(ReactorTask):
+class CallInReactorTask(IReactorTask):
   """
   This task request running particular function during the reactor loop. Useful
   for planning future work, and for running tasks in reactor's thread.

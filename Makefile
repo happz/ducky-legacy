@@ -23,50 +23,73 @@ FORTH_TESTS_OUT := $(FORTH_TESTS_IN:%.f=%.f.out)
 
 INSTALLED_EGG := $(VIRTUAL_ENV)/lib/python2.7/site-packages/ducky-1.0-py2.7.egg
 
-ifndef DUCKY_IMPORT_DEVEL
-  DUCKY_IMPORT_DEVEL := no
-endif
+#
+# Control variables
+#
 
+# Testset name
 ifndef TESTSET
   TESTSET := default
 endif
 
 TESTSETDIR := $(CURDIR)/tests-$(TESTSET)
 
-ifdef VMDEBUG
+# Using development sources instead of installed package
+ifndef DUCKY_IMPORT_DEVEL
+  DUCKY_IMPORT_DEVEL := no
+endif
+
+# VM debugging
+ifndef VMDEBUG
+  VMDEBUG := no
+endif
+ifeq ($(VMDEBUG),yes)
   VMDEBUG := -d
 else
   VMDEBUG :=
 endif
 
-ifdef VMPROFILE
+# VM profiling
+ifndef VMPROFILE
+  VMPROFILE := no
+endif
+ifeq ($(VMPROFILE),yes)
   VMPROFILE := -p --profile-dir=$(TESTSETDIR)/profile
 else
   VMPROFILE :=
 endif
 
+# VM coverage
 ifndef VMCOVERAGE
-  VMCOVERAGE=yes
+  VMCOVERAGE=no
 endif
 
-ifdef BINPROFILE
+# Binary profiling
+ifndef BINPROFILE
+  BINPROFILE := no
+endif
+ifeq ($(BINPROFILE),yes)
   BINPROFILE := --machine-profile --profile-dir=$(TESTSETDIR)/profile
 else
   BINPROFILE :=
 endif
 
+# Repeat pressed keys
 ifndef CONIO_ECHO
   CONIO_ECHO := no
 endif
 
+# Highlight output of running binaries
 ifndef CONIO_HIGHLIGHT
   CONIO_HIGHLIGHT := no
 endif
 
+# Copy VM output to its stdout
 ifndef CONIO_STDOUT_ECHO
-  CONIO_STDOUT_ECHO := yes
+  CONIO_STDOUT_ECHO := no
 endif
 
+# pypy selection
 ifdef PYPY
 ifdef CIRCLECI
   PYPY_BINARY=$(shell pyenv which pypy-2.4.0)
@@ -79,8 +102,21 @@ else
 	PYTHON :=
 endif
 
+# Use mmapable sections
 ifndef MMAPABLE_SECTIONS
   MMAPABLE_SECTIONS := no
+endif
+
+ifndef FORTH_DEBUG_FIND
+  FORTH_DEBUG_FIND := no
+endif
+
+ifndef FORTH_TEXT_WRITABLE
+  FORTH_TEXT_WRITABLE := no
+endif
+
+ifndef FORTH_WELCOME
+  FORTH_WELCOME := no
 endif
 
 
@@ -208,6 +244,7 @@ install:
 
 clean:
 	$(Q) rm -f $(BINARIES)
+	$(!) rm -rf ducky-snapshot.bin build dist ducky.egg-info tests-python-egg-mmap tests-python-egg-read tests-python-devel-mmap tests-python-devel-read tests-pypy-devel-mmap tests-pypy-devel-mmap tests-pypy-devel-read tests-pypy-egg-mmap tests-pypy-egg-read
 
 
 #
@@ -215,12 +252,27 @@ clean:
 #
 %.bin: %.asm
 ifeq ($(MMAPABLE_SECTIONS),yes)
-	$(eval mmapable_sections := -m)
+	$(eval mmapable_sections := --mmapable-sections)
 else
 	$(eval mmapable_sections := )
 endif
+ifeq ($(FORTH_DEBUG_FIND),yes)
+	$(eval forth_debug_find := -D FORTH_DEBUG_FIND)
+else
+	$(eval forth_debug_find := )
+endif
+ifeq ($(FORTH_TEXT_WRITABLE),yes)
+	$(eval forth_text_writable := -D FORTH_TEXT_WRITABLE --writable-sections)
+else
+	$(eval forth_text_writable := )
+endif
+ifeq ($(FORTH_WELCOME),yes)
+	$(eval forth_welcome := -D FORTH_WELCOME)
+else
+	$(eval forth_welcome := )
+endif
 	$(Q) echo -n "[COMPILE] $< => $@ ... "
-	$(Q) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) tools/as -i $< -o $@ -f $(mmapable_sections) $(VMDEBUG); if [ "$$?" -eq 0 ]; then echo "$(CC_GREEN)PASS$(CC_END)"; else echo "$(CC_RED)FAIL$(CC_END)"; fi
+	$(Q) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) tools/as -i $< -o $@ -f $(mmapable_sections) $(forth_debug_find) $(forth_text_writable) $(forth_welcome) $(VMDEBUG); if [ "$$?" -eq 0 ]; then echo "$(CC_GREEN)PASS$(CC_END)"; else echo "$(CC_RED)FAIL$(CC_END)"; fi
 
 %.f.out: %.f interrupts.bin $(FORTH_KERNEL)
 	$(eval tc_name     := $(notdir $(<:%.f=%)))

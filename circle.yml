@@ -14,12 +14,12 @@ dependencies:
 
 test:
   override:
-    - time DUCKY_IMPORT_DEVEL=yes TESTSET=python-devel-read Q=@                        MMAPABLE_SECTIONS=no  CONIO_STDOUT_ECHO=no make clean tests
-    - time DUCKY_IMPORT_DEVEL=yes TESTSET=python-devel-mmap Q=@                        MMAPABLE_SECTIONS=yes CONIO_STDOUT_ECHO=no make clean tests
-    - time DUCKY_IMPORT_DEVEL=no  TESTSET=python-egg-read   Q=@                        MMAPABLE_SECTIONS=no  CONIO_STDOUT_ECHO=no make clean tests
-    - time DUCKY_IMPORT_DEVEL=no  TESTSET=python-egg-mmap   Q=@                        MMAPABLE_SECTIONS=yes CONIO_STDOUT_ECHO=no make clean tests
+    - time DUCKY_IMPORT_DEVEL=yes TESTSET=python-devel-read Q=@                                make clean tests
+    - time DUCKY_IMPORT_DEVEL=yes TESTSET=python-devel-mmap Q=@          MMAPABLE_SECTIONS=yes make clean tests
+    - time                        TESTSET=python-egg-read   Q=@                                make clean tests
+    - time                        TESTSET=python-egg-mmap   Q=@          MMAPABLE_SECTIONS=yes make clean tests
     - pyenv global pypy-2.4.0
-    - time DUCKY_IMPORT_DEVEL=yes TESTSET=pypy-devel-read   Q=@ PYPY=yes VMCOVERAGE=no MMAPABLE_SECTIONS=no  CONIO_STDOUT_ECHO=no make clean tests
-    - time DUCKY_IMPORT_DEVEL=yes TESTSET=pypy-devel-mmap   Q=@ PYPY=yes VMCOVERAGE=no MMAPABLE_SECTIONS=yes CONIO_STDOUT_ECHO=no make clean tests
-    - time DUCKY_IMPORT_DEVEL=no  TESTSET=pypy-egg-read     Q=@ PYPY=yes VMCOVERAGE=no MMAPABLE_SECTIONS=no  CONIO_STDOUT_ECHO=no make clean tests
-    - time DUCKY_IMPORT_DEVEL=no  TESTSET=pypy-egg-mmap     Q=@ PYPY=yes VMCOVERAGE=no MMAPABLE_SECTIONS=yes CONIO_STDOUT_ECHO=no make clean tests
+    - time DUCKY_IMPORT_DEVEL=yes TESTSET=pypy-devel-read   Q=@ PYPY=yes                       make clean tests
+    - time DUCKY_IMPORT_DEVEL=yes TESTSET=pypy-devel-mmap   Q=@ PYPY=yes MMAPABLE_SECTIONS=yes make clean tests
+    - time                        TESTSET=pypy-egg-read     Q=@ PYPY=yes                       make clean tests
+    - time                        TESTSET=pypy-egg-mmap     Q=@ PYPY=yes MMAPABLE_SECTIONS=yes make clean tests

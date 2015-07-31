@@ -18,6 +18,8 @@ About
   introduction.rst
   getting-started.rst
   hardware.rst
+  software.rst
+  tools.rst
 
 
 Code Documentation

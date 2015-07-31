@@ -43,13 +43,6 @@ class SnapshotNode(object):
         else:
           print offset, '    ', '{}: {}'.format(name, value)
 
-class ISnapshotable(object):
-  def save_state(self, parent):
-    pass
-
-  def load_state(self, state):
-    pass
-
 class VMState(SnapshotNode):
   @staticmethod
   def capture_vm_state(vm, suspend = True):

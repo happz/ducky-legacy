@@ -17,6 +17,7 @@ import ducky.snapshot
 import ducky.util
 
 from ducky.mm import ADDR_FMT, UINT16_FMT, UINT8_FMT, PAGE_SIZE
+from ducky.mm.binary import SectionFlags
 from ducky.cpu.registers import Flags, Registers
 from ducky.util import info, print_table
 
@@ -42,7 +43,9 @@ def show_binaries(state):
     ]
 
     for rs in bs.get_children().itervalues():
-      table.append([rs.name, ADDR_FMT(rs.address), rs.size, rs.flags, rs.pages_start, rs.pages_start + rs.pages_cnt - 1])
+      flags = SectionFlags.from_uint16(rs.flags)
+
+      table.append([rs.name, ADDR_FMT(rs.address), rs.size, flags.to_string(), rs.pages_start, rs.pages_start + rs.pages_cnt - 1])
 
     print_table(table)
     info('')

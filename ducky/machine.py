@@ -6,64 +6,13 @@ from . import reactor
 from . import snapshot
 from . import util
 
+from .interfaces import IMachineWorker, ISnapshotable, IReactorTask
+
 from .console import Console
 from .errors import InvalidResourceError
 from .util import debug, info, error, str2int, LRUCache, warn, print_table, exception
 from .mm import addr_to_segment, ADDR_FMT, segment_addr_to_addr, UInt16
-from .snapshot import ISnapshotable, SnapshotNode
-
-class MachineWorker(object):
-  """
-  Base class for objects that provide pluggable service to others.
-  """
-
-  def boot(self, *args):
-    """
-    Prepare for providing the service. After this call, it may be requested
-    by others.
-    """
-
-    pass
-
-  def run(self):
-    """
-    Called by reactor's loop when this object is enqueued as a reactor task.
-    """
-
-    pass
-
-  def suspend(self):
-    """
-    Suspend service. Object should somehow conserve its internal state, its
-    service will not be used until the next call of ``wake_up`` method.
-    """
-
-    pass
-
-  def wake_up(self):
-    """
-    Wake up service. In this method, object should restore its internal state,
-    and after this call its service can be requested by others again.
-    """
-
-    pass
-
-  def die(self, exc):
-    """
-    Exceptional state requires immediate termination of service. Probably no
-    object will ever have need to call others' ``die`` method, it's intended
-    for internal use only.
-    """
-
-    pass
-
-  def halt(self):
-    """
-    Terminate service. It will never be requested again, object can destroy
-    its internal state, and free allocated resources.
-    """
-
-    pass
+from .snapshot import SnapshotNode
 
 class MachineState(SnapshotNode):
   def __init__(self):
@@ -156,7 +105,7 @@ class Binary(ISnapshotable, object):
   def get_init_state(self):
     return (self.cs, self.ds, self.sp, self.ip, False)
 
-class IRQRouterTask(reactor.ReactorTask):
+class IRQRouterTask(IReactorTask):
   def __init__(self, machine):
     self.machine = machine
 
@@ -169,7 +118,7 @@ class IRQRouterTask(reactor.ReactorTask):
     while self.queue:
       self.machine.cpus[0].cores[0].irq(self.queue.pop(0).irq)
 
-class CheckLivingCoresTask(reactor.ReactorTask):
+class CheckLivingCoresTask(IReactorTask):
   def __init__(self, machine):
     self.machine = machine
 
@@ -179,7 +128,7 @@ class CheckLivingCoresTask(reactor.ReactorTask):
   def run(self):
     self.machine.halt()
 
-class Machine(ISnapshotable, MachineWorker):
+class Machine(ISnapshotable, IMachineWorker):
   def __init__(self):
     self.reactor = reactor.reactor
 
@@ -257,7 +206,6 @@ class Machine(ISnapshotable, MachineWorker):
   def hw_setup(self, machine_config, machine_in = None, machine_out = None):
     import irq
     import irq.conio
-    import irq.virtual
 
     import io_handlers
     import io_handlers.conio
@@ -281,8 +229,10 @@ class Machine(ISnapshotable, MachineWorker):
 
     import cpu
 
+    self.cpu_cache_controller = cpu.CPUCacheController()
+
     for cpuid in range(0, self.nr_cpus):
-      self.cpus.append(cpu.CPU(self, cpuid, cores = self.nr_cores, memory_controller = self.memory))
+      self.cpus.append(cpu.CPU(self, cpuid, self.memory, self.cpu_cache_controller, cores = self.nr_cores))
 
     self.conio = io_handlers.conio.ConsoleIOHandler(machine_in, machine_out, self)
     self.conio.echo = True
@@ -294,7 +244,8 @@ class Machine(ISnapshotable, MachineWorker):
 
     self.memory.boot()
 
-    for index, cls in irq.virtual.VIRTUAL_INTERRUPTS.iteritems():
+    import irq
+    for index, cls in irq.VIRTUAL_INTERRUPTS.iteritems():
       self.virtual_interrupts[index] = cls(self)
 
     if self.config.has_option('machine', 'interrupt-routines'):

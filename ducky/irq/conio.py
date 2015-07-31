@@ -1,7 +1,9 @@
 from .. import irq
 from .. import reactor
 
-class ConioIRQTask(reactor.ReactorTask):
+from ..interfaces import IReactorTask
+
+class ConioIRQTask(IReactorTask):
   def __init__(self, machine, conio_io, conio_irq):
     self.machine = machine
     self.conio_io = conio_io

@@ -83,8 +83,8 @@ class Tests(unittest.TestCase):
 
     # prepare mm assert dict, and insert message and redzones in front and after the buffer
     mm_assert = {
-      ADDR_FMT(segment_addr_to_addr(2, 0)): 0xFEFE,
-      ADDR_FMT(segment_addr_to_addr(2, 2 + ducky.blockio.BLOCK_SIZE)): 0xBFBF
+      ADDR_FMT(segment_addr_to_addr(2, 0x0100)): 0xFEFE,
+      ADDR_FMT(segment_addr_to_addr(2, 0x0102 + ducky.blockio.BLOCK_SIZE)): 0xBFBF
     }
 
     file_assert = [
@@ -92,7 +92,7 @@ class Tests(unittest.TestCase):
     ]
 
     for i in range(0, msg_length, 2):
-      mm_assert[ADDR_FMT(segment_addr_to_addr(2, 2 + i))] = ord(msg[i]) | (ord(msg[i + 1]) << 8)
+      mm_assert[ADDR_FMT(segment_addr_to_addr(2, 0x0102 + i))] = ord(msg[i]) | (ord(msg[i + 1]) << 8)
       file_assert[0][1][msg_block * ducky.blockio.BLOCK_SIZE + i] = ord(msg[i])
       file_assert[0][1][msg_block * ducky.blockio.BLOCK_SIZE + i + 1] = ord(msg[i + 1])
 
@@ -127,7 +127,7 @@ class Tests(unittest.TestCase):
     """.format(**{'msg_block': msg_block, 'msg_length': msg_length, 'block_size': ducky.blockio.BLOCK_SIZE})
 
     self.common_case(code, [storage_desc], mm_assert, file_assert,
-                     r0 = 0, r1 = 0, r2 = msg_block, r3 = 0x0002, r4 = 1)
+                     r0 = 0, r1 = 0, r2 = msg_block, r3 = 0x0102, r4 = 1)
 
   def test_block_write(self):
     # size of file
@@ -154,7 +154,7 @@ class Tests(unittest.TestCase):
     ]
 
     for i in range(0, ducky.blockio.BLOCK_SIZE, 2):
-      mm_assert[ADDR_FMT(segment_addr_to_addr(2, i))] = ord(msg[i]) | (ord(msg[i + 1]) << 8)
+      mm_assert[ADDR_FMT(segment_addr_to_addr(2, 0x0100 + i))] = ord(msg[i]) | (ord(msg[i + 1]) << 8)
       file_assert[0][1][msg_block * ducky.blockio.BLOCK_SIZE + i] = ord(msg[i])
       file_assert[0][1][msg_block * ducky.blockio.BLOCK_SIZE + i + 1] = ord(msg[i + 1])
 
@@ -183,4 +183,4 @@ class Tests(unittest.TestCase):
     """.format(**{'msg_block': msg_block, 'msg_length': msg_length, 'block_size': ducky.blockio.BLOCK_SIZE, 'msg': msg})
 
     self.common_case(code, [storage_desc], mm_assert, file_assert,
-                     r0 = 0, r1 = 1, r3 = msg_block, r4 = 1)
+                     r0 = 0, r1 = 1, r2 = 0x0100, r3 = msg_block, r4 = 1)

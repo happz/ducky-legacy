@@ -181,18 +181,20 @@ class Tests(unittest.TestCase):
     self.common_case(['main:', 'li r0, 0xDEAD', 'int 0'], r0 = 0xDEAD, s = 1)
 
   def test_lw(self):
-    code = [
-      '  .data',
-      '  .type foo, int',
-      '  .int 0xDEAD',
-      '  .text',
-      'main:',
-      '  li r0, &foo',
-      '  lw r1, r0',
-      '  int 0'
-    ]
+    code = """
+        .data
 
-    self.common_case(code, r1 = 0xDEAD, s = 1)
+        .type foo, int
+        .int 0xDEAD
+
+        .text
+      main:
+        li r0, &foo
+        lw r1, r0
+        int 0
+    """
+
+    self.common_case(code, r0 = 0x0100, r1 = 0xDEAD, s = 1)
 
   def test_lb(self):
     code = """
@@ -214,7 +216,7 @@ class Tests(unittest.TestCase):
         int 0
     """
 
-    self.common_case(code, r0 = 2, r1 = 0xAD)
+    self.common_case(code, r0 = 0x0102, r1 = 0xAD)
 
   def test_stw(self):
     code = [
@@ -230,7 +232,7 @@ class Tests(unittest.TestCase):
       '  int 0',
     ]
 
-    self.common_case(code, r1 = 0xF00, r2 = 0xDEAD, s = 1, mm = {'0x020000': 0xDEAD, '0x020002': 0})
+    self.common_case(code, r0 = 0x0100, r1 = 0xF00, r2 = 0xDEAD, s = 1, mm = {'0x020100': 0xDEAD, '0x020102': 0})
 
   def test_stb(self):
     code = [
@@ -246,7 +248,7 @@ class Tests(unittest.TestCase):
       '  int 0',
     ]
 
-    self.common_case(code, r2 = 0xDEAD, s = 1, mm = {'0x020000': 0xAD, '0x020002': 0})
+    self.common_case(code, r0 = 0x0100, r2 = 0xDEAD, s = 1, mm = {'0x020100': 0xAD, '0x020102': 0})
 
   def test_cli(self):
     code = [
@@ -297,7 +299,7 @@ class Tests(unittest.TestCase):
       '  int 0'
     ]
 
-    self.common_case(code, r2 = 0x0A, r3 = 0x0B, e = 1, mm = {'0x020000': 0x0B})
+    self.common_case(code, r1 = 0x0100, r2 = 0x0A, r3 = 0x0B, e = 1, mm = {'0x020100': 0x0B})
 
     code = [
       '  .data',
@@ -314,4 +316,4 @@ class Tests(unittest.TestCase):
       '  int 0'
     ]
 
-    self.common_case(code, r2 = 0x0A, r3 = 0x0C, mm = {'0x020000': 0x0A})
+    self.common_case(code, r1 = 0x0100, r2 = 0x0A, r3 = 0x0C, mm = {'0x020100': 0x0A})

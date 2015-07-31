@@ -1079,6 +1079,9 @@ class Inst_STB(InstDescriptor_Generic_Binary_A_R):
 
   @staticmethod
   def execute(core, inst):
+    addr = core.OFFSET_ADDR(inst)
+
+    core.cache_controller.release_entry_references(None, (addr + 1) & (~1))
     core.memory.write_u8(core.OFFSET_ADDR(inst), core.registers.map[inst.reg].value & 0xFF)
 
 class Inst_MOV(InstDescriptor_Generic_Binary_R_R):

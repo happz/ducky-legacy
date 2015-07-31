@@ -121,4 +121,4 @@ Stack
  - grows from higher addresses to lower
  - 1 page is allocated for stack of each loaded binary right now but this will be tweakable
  - when push'ing value to stack, ``sp`` is decreased by 2 and then value is stored on this address
- - each interrupt routie gets its own stack, allocated specificaly for its invocation from data segment, stored in interrupt routine's IVT entry
+ - each interrupt routine gets its own stack, allocated specificaly for its invocation from data segment, stored in interrupt routine's IVT entry

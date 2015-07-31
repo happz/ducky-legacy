@@ -14,11 +14,9 @@ set values in registers.
 
 import os
 
-from . import machine
-
+from .interfaces import IMachineWorker, IVirtualInterrupt
 from .cpu.registers import Registers
-from .irq import InterruptList
-from .irq.virtual import VirtualInterrupt, VIRTUAL_INTERRUPTS
+from .irq import InterruptList, VIRTUAL_INTERRUPTS
 from .mm import segment_addr_to_addr
 from .util import debug
 
@@ -32,7 +30,7 @@ class StorageAccessError(Exception):
 
   pass
 
-class Storage(machine.MachineWorker):
+class Storage(IMachineWorker):
   """
   Base class for all block storages.
 
@@ -172,7 +170,7 @@ STORAGES = {
   'block': FileBackedStorage,
 }
 
-class BlockIOInterrupt(VirtualInterrupt):
+class BlockIOInterrupt(IVirtualInterrupt):
   """
   Virtual interrupt handler of block IO.
   """

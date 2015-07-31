@@ -3,9 +3,12 @@ import mmap
 
 from ctypes import LittleEndianStructure, c_ubyte, c_ushort, c_uint, sizeof
 
+from ..interfaces import ISnapshotable
 from ..errors import AccessViolationError, InvalidResourceError
 from ..util import debug, align
-from ..snapshot import SnapshotNode, ISnapshotable
+from ..snapshot import SnapshotNode
+
+import enum
 
 # Types
 from ctypes import c_byte as i8  # NOQA
@@ -28,6 +31,17 @@ SEGMENT_SHIFT = 16
 #: Size of segment, in pages
 SEGMENT_SIZE  = 256  # pages
 SEGMENT_PROTECTED = 0  # first segment is already allocated
+
+class MMOperationList(enum.IntEnum):
+  MPROTECT = 1
+  MTELL    = 2
+
+MM_FLAG_READ    = 0x0001
+MM_FLAG_WRITE   = 0x0002
+MM_FLAG_EXECUTE = 0x0004
+MM_FLAG_DIRTY   = 0x0008
+
+MM_FLAG_CS      = 0x1000
 
 def __var_to_int(v):
   if type(v) == UInt8:
@@ -233,13 +247,13 @@ class MemoryPage(object):
     debug('mp.check_access: page=%s, offset=%s, access=%s, %s', self.index, offset, access, self.flags_str())
 
     if access == 'read' and not self.read:
-      raise AccessViolationError('Not allowed to read from memory: page=%s, offset={}'.format(self.index, offset))
+      raise AccessViolationError('Not allowed to read from memory: page={}, offset={}'.format(self.index, offset))
 
     if access == 'write' and not self.write:
-      raise AccessViolationError('Not allowed to write to memory: page=%s, offset={}'.format(self.index, offset))
+      raise AccessViolationError('Not allowed to write to memory: page={}, offset={}'.format(self.index, offset))
 
     if access == 'execute' and not self.execute:
-      raise AccessViolationError('Not allowed to execute from memory: page=%s, offset={}'.format(self.index, offset))
+      raise AccessViolationError('Not allowed to execute from memory: page={}, offset={}'.format(self.index, offset))
 
     return True
 
@@ -380,19 +394,22 @@ class MemoryPage(object):
 
     return self.do_read_u16(offset)
 
-  def read_u32(self, offset, privileged = False):
+  def read_u32(self, offset, privileged = False, not_execute = True):
     """
     Read longword. Checks page flags, and calls ``do_read_u32`` method to
     perform the `read` operation.
 
     :param int offset: offset of requested longword.
     :param bool privileged: if not ``True``, page access is checked first.
+    :param bool execute: if ``False``, read value will be interpreted as
+      an instruction and executed
     :raises ducky.errors.AccessViolationError: when page is not readable.
     """
 
-    debug('mp.read_u32: page=%s, offset=%s, priv=%s', self.index, offset, privileged)
+    debug('mp.read_u32: page=%s, offset=%s, priv=%s, not_execute=%s', self.index, offset, privileged, not_execute)
 
     privileged or self.check_access(offset, 'read')
+    not_execute or self.check_access(offset, 'execute')
 
     return self.do_read_u32(offset)
 
@@ -608,7 +625,7 @@ class MemoryRegion(ISnapshotable, object):
 
     self.pages_start, self.pages_cnt = area_to_pages(self.address, self.size)
 
-    debug('MemoryRegion: name=%s, address=%s, size=%s, flags=%s, pages_start=%s, pages_cnt=%s', name, address, size, flags, self.pages_start, self.pages_cnt)
+    debug('MemoryRegion: name=%s, address=%s, size=%s, flags=%s, pages_start=%s, pages_cnt=%s', name, address, size, self.flags.to_string(), self.pages_start, self.pages_cnt)
 
   def save_state(self, parent):
     state = parent.add_child('memory_region_{}'.format(self.id), MemoryRegionState())
@@ -877,18 +894,20 @@ class MemoryController(object):
     for i in range(page.index, page.index + count):
       self.free_page(self.__pages[i])
 
-  def for_each_page(self, pages_start, pages_cnt, fn):
-    debug('mc.for_each_page: pages_start=%i, pages_cnt=%i, fn=%s', pages_start, pages_cnt, fn)
+  def pages(self, pages_start = 0, pages_cnt = None):
+    debug('mc.pages: pages_start=%s, pages_cnt=%s', pages_start, pages_cnt)
 
-    area_index = 0
-    for page_index in range(pages_start, pages_start + pages_cnt):
-      fn(page_index, area_index)
-      area_index += 1
+    pages_cnt = pages_cnt or self.__pages_cnt
 
-  def for_each_page_in_area(self, address, size, fn):
+    return (self.__pages[i] for i in xrange(pages_start, pages_start + pages_cnt))
+
+  def pages_in_area(self, address = 0, size = None):
+    debug('mc.pages_in_area: address=%s, size=%s', ADDR_FMT(address), size)
+
+    size = size or self.__size
     pages_start, pages_cnt = area_to_pages(address, size)
 
-    self.for_each_page(pages_start, pages_cnt, fn)
+    return self.pages(pages_start = pages_start, pages_cnt = pages_cnt)
 
   def boot(self):
     """
@@ -907,22 +926,26 @@ class MemoryController(object):
   def update_area_flags(self, address, size, flag, value):
     debug('mc.update_area_flags: address=%s, size=%s, flag=%s, value=%i', address, size, flag, value)
 
-    self.for_each_page_in_area(address, size, lambda page_index, area_index: setattr(self.get_page(page_index), flag, value))
+    for pg in self.pages_in_area(address = address, size = size):
+      setattr(pg, flag, value)
 
   def update_pages_flags(self, pages_start, pages_cnt, flag, value):
     debug('mc.update_pages_flags: page=%s, cnt=%s, flag=%s, value=%i', pages_start, pages_cnt, flag, value)
 
-    self.for_each_page(pages_start, pages_cnt, lambda page_index, area_index: setattr(self.get_page(page_index), flag, value))
+    for pg in self.pages(pages_start = pages_start, pages_cnt = pages_cnt):
+      setattr(pg, flag, value)
 
   def reset_area_flags(self, address, size):
     debug('mc.reset_area_flags: address=%s, size=%s', address, size)
 
-    self.for_each_page_in_area(address, size, lambda page_index, area_index: self.get_page(page_index).flags_reset())
+    for pg in self.pages_in_area(address = address, size = size):
+      pg.flags_reset()
 
   def reset_pages_flags(self, pages_start, pages_cnt):
     debug('mc.reset_pages_flags: page=%s, size=%s', pages_start, pages_cnt)
 
-    self.for_each_page(pages_start, pages_cnt, lambda page_index, area_index: self.get_page(page_index).flags_reset())
+    for pg in self.pages(pages_start = pages_start, pages_cnt = pages_cnt):
+      pg.flags_reset()
 
   def __load_content_u8(self, segment, base, content):
     from ..cpu.assemble import SpaceSlot
@@ -1030,7 +1053,8 @@ class MemoryController(object):
           self.mmap_area(f_in.name, s_base_addr, s_header.file_size, offset = s_header.offset, access = access, shared = False)
 
         else:
-          self.for_each_page(pages_start, pages_cnt, self.__alloc_page)
+          for i in xrange(pages_start, pages_start + pages_cnt):
+            self.__alloc_page(i, 0)
 
           if s_header.type == binary.SectionTypes.TEXT:
             self.load_text(csr, s_header.base, s_content)
@@ -1045,7 +1069,7 @@ class MemoryController(object):
 
     if stack:
       pg, sp = self.alloc_stack(segment = dsr)
-      regions.append(MemoryRegion('stack', pg.base_address, PAGE_SIZE, binary.SectionFlags.create(True, True, False, False, False)))
+      regions.append(MemoryRegion('stack', pg.base_address, PAGE_SIZE, binary.SectionFlags.create(readable = True, writable = True)))
 
     return (csr, dsr, sp, ip, symbols, regions, f_in)
 
@@ -1101,11 +1125,9 @@ class MemoryController(object):
 
     pages_start, pages_cnt = area_to_pages(address, size)
 
-    def __assert_page_missing(page_index, area_index):
-      if page_index in self.__pages:
+    for i in xrange(pages_start, pages_start + pages_cnt):
+      if i in self.__pages:
         raise InvalidResourceError('MMap request overlaps with existing pages')
-
-    self.for_each_page(pages_start, pages_cnt, __assert_page_missing)
 
     access = access.lower()
 
@@ -1124,10 +1146,8 @@ class MemoryController(object):
       prot = mmap_prot,
       offset = offset)
 
-    def __create_mmap_page(page_index, area_index):
-      self.__pages[page_index] = MMapMemoryPage(self, page_index, ptr, area_index * PAGE_SIZE)
-
-    self.for_each_page(pages_start, pages_cnt, __create_mmap_page)
+    for i in xrange(pages_start, pages_start + pages_cnt):
+      self.__pages[i] = MMapMemoryPage(self, i, ptr, (i - pages_start) * PAGE_SIZE)
 
     self.reset_pages_flags(pages_start, pages_cnt)
 
@@ -1143,10 +1163,8 @@ class MemoryController(object):
   def unmmap_area(self, mmap_area):
     self.reset_pages_flags(mmap_area.pages_start, mmap_area.pages_cnt)
 
-    def __remove_mmap_page(page_index, _):
-      del self.__pages[page_index]
-
-    self.for_each_page(mmap_area.pages_start, mmap_area.pages_cnt, __remove_mmap_page)
+    for pg in self.pages(pages_start = mmap_area.pages_start, pages_cnt = mmap_area.pages_cnt):
+      del self.__pages[pg.index]
 
     del self.mmap_areas[mmap_area.address]
 
@@ -1176,13 +1194,13 @@ class MemoryController(object):
 
     return self.get_page((addr & PAGE_MASK) >> PAGE_SHIFT).read_u16(addr & (PAGE_SIZE - 1), privileged = privileged)
 
-  def read_u32(self, addr, privileged = False):
-    debug('mc.read_u32: addr=%s, priv=%i', addr, privileged)
+  def read_u32(self, addr, privileged = False, not_execute = True):
+    debug('mc.read_u32: addr=%s, priv=%s, not_execute=%s', addr, privileged, not_execute)
 
     if self.force_aligned_access and addr % 4:
       raise AccessViolationError('Unable to access unaligned address: addr={}'.format(ADDR_FMT(addr)))
 
-    return self.get_page((addr & PAGE_MASK) >> PAGE_SHIFT).read_u32(addr & (PAGE_SIZE - 1), privileged = privileged)
+    return self.get_page((addr & PAGE_MASK) >> PAGE_SHIFT).read_u32(addr & (PAGE_SIZE - 1), privileged = privileged, not_execute = not_execute)
 
   def write_u8(self, addr, value, privileged = False, dirty = True):
     debug('mc.write_u8: addr=%s, value=%s, priv=%i, dirty=%i', addr, value, privileged, dirty)
@@ -1238,3 +1256,124 @@ class MemoryController(object):
     desc.ip = self.read_u16(vector_address + 2, privileged = True)
 
     return desc
+
+from ..interfaces import IVirtualInterrupt
+from ..irq import VIRTUAL_INTERRUPTS, InterruptList
+
+class MMInterrupt(IVirtualInterrupt):
+  def run(self, core):
+    from ..cpu import do_log_cpu_core_state
+    from ..cpu.registers import Registers
+
+    core.DEBUG('MMInterrupt: triggered')
+
+    do_log_cpu_core_state(core, logger = core.DEBUG)
+
+    op = core.REG(Registers.R00).value
+
+    if op == MMOperationList.MTELL:
+      core.REG(Registers.R00).value = 0xFFFF
+
+      start = core.REG(Registers.R01).value
+      end   = core.REG(Registers.R02).value
+      flags = core.REG(Registers.R03).value
+
+      if start % PAGE_SIZE != 0:
+        core.WARN('Start address must be page-aligned: start=%s', ADDR_FMT(start))
+        return
+
+      if end % PAGE_SIZE != 0:
+        core.WARN('End address must be page-aligned: end=%s', ADDR_FMT(end))
+        return
+
+      if end <= start:
+        core.WARN('Size of area must be bigger than zero: size=%s', ADDR_FMT(end - start))
+        return
+
+      segment = core.REG(Registers.CS).value if flags & MM_FLAG_CS == MM_FLAG_CS else core.REG(Registers.DS).value
+      start = segment_addr_to_addr(segment & 0xFF, start)
+      end   = segment_addr_to_addr(segment & 0xFF, end)
+      size  = end - start
+
+      mc = core.cpu.machine.memory
+
+      flags = 0
+
+      for pg in mc.pages_in_area(address = start, size = size):
+        if pg.read:
+          flags |= MM_FLAG_READ
+        if pg.write:
+          flags |= MM_FLAG_WRITE
+        if pg.execute:
+          flags |= MM_FLAG_EXECUTE
+        if pg.dirty:
+          flags |= MM_FLAG_DIRTY
+
+      core.REG(Registers.R00).value = 0
+      core.REG(Registers.R01).value = 0xFFFF & flags
+
+      core.DEBUG('mtell: start=%s, end=%s, size=%s, flags=%s', ADDR_FMT(start), ADDR_FMT(end), UINT24_FMT(end - start),
+                 ''.join([
+                   'R' if flags & MM_FLAG_READ else '-',
+                   'W' if flags & MM_FLAG_WRITE else '-',
+                   'X' if flags & MM_FLAG_EXECUTE else '-',
+                   'D' if flags & MM_FLAG_DIRTY else '-',
+                   'CS' if flags & MM_FLAG_CS else 'DS'
+                 ]))
+
+    elif op == MMOperationList.MPROTECT:
+      core.REG(Registers.R00).value = 0xFFFF
+
+      start = core.REG(Registers.R01).value
+      end   = core.REG(Registers.R02).value
+      flags = core.REG(Registers.R03).value
+
+      core.DEBUG('mprotect: start=%s, end=%s, size=%s, flags=%s', ADDR_FMT(start), ADDR_FMT(end), UINT24_FMT(end - start),
+                 ''.join([
+                   'R' if flags & MM_FLAG_READ else '-',
+                   'W' if flags & MM_FLAG_WRITE else '-',
+                   'X' if flags & MM_FLAG_EXECUTE else '-',
+                   'D' if flags & MM_FLAG_DIRTY else '-',
+                   'CS' if flags & MM_FLAG_CS else 'DS'
+                 ]))
+
+      if start % PAGE_SIZE != 0:
+        core.WARN('Start address must be page-aligned: start=%s', ADDR_FMT(start))
+        return
+
+      if end % PAGE_SIZE != 0:
+        core.WARN('End address must be page-aligned: end=%s', ADDR_FMT(end))
+        return
+
+      if end <= start:
+        core.WARN('Size of area must be bigger than zero: size=%s', ADDR_FMT(end - start))
+        return
+
+      segment = core.REG(Registers.CS).value if flags & MM_FLAG_CS == MM_FLAG_CS else core.REG(Registers.DS).value
+      start = segment_addr_to_addr(segment & 0xFF, start)
+      end   = segment_addr_to_addr(segment & 0xFF, end)
+      size  = end - start
+
+      core.cache_controller.release_area_references(None, start, size)
+
+      core.cpu.machine.memory.reset_area_flags(start, size)
+
+      if flags & MM_FLAG_READ:
+        core.cpu.machine.memory.update_area_flags(start, size, 'read', True)
+
+      if flags & MM_FLAG_WRITE:
+        core.cpu.machine.memory.update_area_flags(start, size, 'write', True)
+
+      if flags & MM_FLAG_EXECUTE:
+        core.cpu.machine.memory.update_area_flags(start, size, 'execute', True)
+
+      if flags & MM_FLAG_DIRTY:
+        core.cpu.machine.memory.update_area_flags(start, size, 'dirty', True)
+
+      core.REG(Registers.R00).value = 0
+
+    else:
+      core.WARN('Unknown mm operation requested: %s', op)
+      core.REG(Registers.R00).value = 0xFFFF
+
+VIRTUAL_INTERRUPTS[InterruptList.MM.value] = MMInterrupt

@@ -15,7 +15,9 @@ Ducky VM knows 3 types of interrupts:
 
 import enum
 
-from .. import machine
+from ..interfaces import IMachineWorker
+
+VIRTUAL_INTERRUPTS = {}
 
 class IRQList(enum.IntEnum):
   """
@@ -41,7 +43,7 @@ class InterruptList(enum.IntEnum):
 
   INT_COUNT = 64
 
-class IRQSource(machine.MachineWorker):
+class IRQSource(IMachineWorker):
   """
   IRQ source. Represents an hardware resource, e.g. clock or block device,
   that can interrupt running programs.

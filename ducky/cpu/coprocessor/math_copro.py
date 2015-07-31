@@ -11,14 +11,14 @@ back.
 
 import enum
 
+from ...interfaces import ISnapshotable, IVirtualInterrupt
 from . import Coprocessor
 from .. import CPUException
 from ..registers import Registers
 from ..instructions import InstructionSet, InstDescriptor_Generic, Inst_POP, Inst_PUSH, Inst_MOV, Inst_SIS, INSTRUCTION_SETS
 from ...mm import u32, i32, UINT32_FMT, UINT16_FMT
-from ...irq import InterruptList
-from ...irq.virtual import VIRTUAL_INTERRUPTS, VirtualInterrupt
-from ...snapshot import SnapshotNode, ISnapshotable
+from ...irq import InterruptList, VIRTUAL_INTERRUPTS
+from ...snapshot import SnapshotNode
 
 #: Number of available spots on the math stack.
 STACK_DEPTH = 8
@@ -412,7 +412,7 @@ class MathCoprocessor(ISnapshotable, Coprocessor):
 #
 # Virtual interrupt
 #
-class MathInterrupt(VirtualInterrupt):
+class MathInterrupt(IVirtualInterrupt):
   """
   Virtual interrupt handler of math coprocessor.
   """

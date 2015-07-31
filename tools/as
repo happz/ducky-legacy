@@ -16,44 +16,45 @@ import ducky.mm.binary
 import ducky.cpu.assemble
 import ducky.util
 
-from ducky.mm import UInt16
 from ducky.util import error, exception
 
-def main():
+def parse_options():
   parser = optparse.OptionParser()
 
   parser.add_option('-d', dest = 'debug', action = 'store_true', default = False, help = 'Debug mode')
 
   parser.add_option('-i', dest = 'file_in', default = None, help = 'Input file')
   parser.add_option('-o', dest = 'file_out', default = None, help = 'Output file')
-
-  parser.add_option('-D', dest = 'defines', action = 'append', default = [], help = 'Define variable')
-
-  parser.add_option('-E', action = 'store_true', dest = 'preprocess', default = False, help = 'Preprocess only')
-
   parser.add_option('-f', dest = 'force', default = False, action = 'store_true', help = 'Force overwrite of the output file')
-  parser.add_option('-b', dest = 'base', default = 0, help = 'Base address of code segment')
-  parser.add_option('-m', '--mmap', dest = 'mmap', action = 'store_true', default = False, help = 'Create mmap\'able sections')
+
+  group = optparse.OptionGroup(parser, 'Translation options')
+  parser.add_option_group(group)
+  group.add_option('-D', dest = 'defines', action = 'append', default = [], help = 'Define variable', metavar = 'VAR')
+
+  group = optparse.OptionGroup(parser, 'Binary options')
+  parser.add_option_group(group)
+  group.add_option('-m', '--mmapable-sections', dest = 'mmapable_sections', action = 'store_true', default = False, help = 'Create mmap\'able sections')
+  group.add_option('-w', '--writable-sections', dest = 'writable_sections', action = 'store_true', default = False, help = '.text and other read-only sections will be marked as writable too')
 
   options, args = parser.parse_args()
-
-  ducky.util.CONSOLE = ducky.console.Console(None, sys.stdin, sys.stdout)
-  ducky.util.CONSOLE.set_quiet_mode(not options.debug)
 
   if not options.file_in:
     parser.print_help()
     sys.exit(1)
 
+  return options
+
+def main():
+  options = parse_options()
+
+  ducky.util.CONSOLE = ducky.console.Console(None, sys.stdin, sys.stdout)
+  ducky.util.CONSOLE.set_quiet_mode(not options.debug)
+
   with open(options.file_in, 'r') as f_in:
     buffer = f_in.read()
 
-  if options.preprocess:
-    buffer = ducky.cpu.assemble.preprocess_buffer(buffer)
-    print buffer
-    sys.exit(0)
-
   try:
-    sections = ducky.cpu.assemble.translate_buffer(buffer, base_address = UInt16(int(options.base)), mmapable_sections = options.mmap, filename = options.file_in, defines = options.defines)
+    sections = ducky.cpu.assemble.translate_buffer(buffer, mmapable_sections = options.mmapable_sections, writable_sections = options.writable_sections, filename = options.file_in, defines = options.defines)
 
   except ducky.cpu.assemble.AssemblerError, exc:
     exception(exc)
@@ -63,8 +64,8 @@ def main():
     error('Output file %s already exists, use -f to force overwrite' % options.file_out)
     sys.exit(1)
 
-  if options.file_out.endswith('.asm'):
-    error('Output file has strange extension: %s' % options.file_out)
+  if not options.file_out.endswith('.bin') and not options.force:
+    error('Output file %s has strange extension, use -f to force write' % options.file_out)
     sys.exit(1)
 
   section_name_to_index = {}
@@ -74,7 +75,7 @@ def main():
     if section.type == ducky.mm.binary.SectionTypes.SYMBOLS:
       continue
 
-    if 'b' in section.flags and section.data_size > 0:
+    if section.flags.bss and section.data_size > 0:
       continue
 
     if section.data_size > 0:
@@ -87,7 +88,7 @@ def main():
 
   with ducky.mm.binary.File(options.file_out, 'w') as f_out:
     h_file = f_out.create_header()
-    h_file.flags.mmapable = 1 if options.mmap else 0
+    h_file.flags.mmapable = 1 if options.mmapable_sections else 0
 
     filenames = {}
 
@@ -130,17 +131,7 @@ def main():
         h_section.data_size = h_section.file_size = ducky.cpu.assemble.sizeof(ducky.mm.binary.SymbolEntry()) * len(symbol_entries)
 
       else:
-        if 'r' in section.flags:
-          h_section.flags.readable = 1
-        if 'w' in section.flags:
-          h_section.flags.writable = 1
-        if 'x' in section.flags:
-          h_section.flags.executable = 1
-        if 'b' in section.flags:
-          h_section.flags.bss = 1
-        if 'm' in section.flags:
-          h_section.flags.mmapable = 1
-
+        h_section.flags = section.flags
         f_out.set_content(h_section, section.content)
 
     h_section = f_out.create_section()

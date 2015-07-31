@@ -13,7 +13,7 @@ from .. import mm
 from ..cpu.coprocessor.math_copro import MathCoprocessorInstructionSet  # noqa - it's not unused, SIS instruction may need it but that's hidden from flake
 
 from ..mm import UInt8, UInt16, ADDR_FMT, PAGE_SIZE
-from ..mm.binary import SectionTypes
+from ..mm.binary import SectionTypes, SectionFlags
 from ..util import debug, align
 
 align_to_next_page = functools.partial(align, PAGE_SIZE)
@@ -119,7 +119,7 @@ class Section(object):
     self.flags   = s_flags
     self.content = []
 
-    self.base = UInt16(0)
+    self.base = None
     self.ptr  = UInt16(0)
 
   def __getattr__(self, name):
@@ -127,32 +127,29 @@ class Section(object):
       return sum([sizeof(i) for i in self.content])
 
     if name == 'file_size':
-      return align_to_next_mmap(self.data_size) if 'm' in self.flags else self.data_size
+      return align_to_next_mmap(self.data_size) if self.flags.mmapable == 1 else self.data_size
 
     if name == 'items':
       return len(self.content)
 
-    if name == 'is_bss':
-      return 'b' in self.flags
-
   def __repr__(self):
-    return '<Section: name={}, type={}, flags={}, base={}, ptr={}, items={}, data_size={}, file_size={}>'.format(self.name, self.type, self.flags, self.base, self.ptr, self.items, self.data_size, self.file_size)
+    return '<Section: name={}, type={}, flags={}, base={}, ptr={}, items={}, data_size={}, file_size={}>'.format(self.name, self.type, self.flags.to_string(), self.base, self.ptr, self.items, self.data_size, self.file_size)
 
 class TextSection(Section):
   def __init__(self, s_name, flags = None, **kwargs):
-    super(TextSection, self).__init__(s_name, SectionTypes.TEXT, flags or 'rwx')
+    super(TextSection, self).__init__(s_name, SectionTypes.TEXT, flags or SectionFlags.create(readable = True, executable = True))
 
 class RODataSection(Section):
   def __init__(self, s_name, flags = None, **kwargs):
-    super(RODataSection, self).__init__(s_name, SectionTypes.DATA, flags or 'rw')
+    super(RODataSection, self).__init__(s_name, SectionTypes.DATA, flags or SectionFlags.create(readable = True))
 
 class DataSection(Section):
   def __init__(self, s_name, flags = None, **kwargs):
-    super(DataSection, self).__init__(s_name, SectionTypes.DATA, flags or 'rw')
+    super(DataSection, self).__init__(s_name, SectionTypes.DATA, flags or SectionFlags.create(readable = True, writable = True))
 
 class BssSection(Section):
   def __init__(self, s_name, flags = None, **kwargs):
-    super(BssSection, self).__init__(s_name, SectionTypes.DATA, flags or 'rwb')
+    super(BssSection, self).__init__(s_name, SectionTypes.DATA, flags or SectionFlags.create(readable = True, writable = True, bss = True))
 
 class Label(object):
   def __init__(self, name, section, filename, lineno):
@@ -274,7 +271,7 @@ def sizeof(o):
 
   return None
 
-def translate_buffer(buff, base_address = None, mmapable_sections = False, filename = None, defines = None):
+def translate_buffer(buff, base_address = None, mmapable_sections = False, writable_sections = False, filename = None, defines = None):
   filename = filename or '<unknown>'
   defines = defines or []
 
@@ -282,17 +279,21 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, filen
 
   base_address = base_address or UInt16(0)
 
-  sections_pass1 = {
-    '.text': TextSection('.text'),
-    '.rodata': RODataSection('.rodata'),
-    '.data': DataSection('.data'),
-    '.bss':  BssSection('.bss'),
-    '.symtab': Section('.symtab', SectionTypes.SYMBOLS, '')
-  }
+  sections_pass1 = collections.OrderedDict([
+    ('.text',   TextSection('.text')),
+    ('.rodata', RODataSection('.rodata')),
+    ('.data',   DataSection('.data')),
+    ('.bss',    BssSection('.bss')),
+    ('.symtab', Section('.symtab', SectionTypes.SYMBOLS, SectionFlags.create()))
+  ])
 
   if mmapable_sections:
     for section in sections_pass1.itervalues():
-      section.flags += 'm'
+      section.flags.mmapable = 1
+
+  if writable_sections:
+    for section in sections_pass1.itervalues():
+      section.flags.writable = 1
 
   debug('Pass #1')
 
@@ -766,10 +767,10 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, filen
       s_name = matches['name']
 
       if s_name not in sections_pass1:
-        flags = matches.get('flags', None)
-        section_type = SectionTypes.TEXT if flags and 'x' in flags else SectionTypes.DATA
+        section_flags = SectionFlags.from_string(matches.get('flags', None) or '')
+        section_type = SectionTypes.TEXT if section_flags.executable == 1 else SectionTypes.DATA
 
-        section = sections_pass1[s_name] = Section(s_name, section_type, flags)
+        section = sections_pass1[s_name] = Section(s_name, section_type, section_flags)
         debug(msg_prefix + 'section %s created', s_name)
 
       curr_section = sections_pass1[s_name]
@@ -983,7 +984,7 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, filen
 
   debug('Pass #2')
 
-  sections_pass2 = {}
+  sections_pass2 = collections.OrderedDict()
   references = {}
   base_ptr = UInt16(base_address.u16)
 
@@ -1022,11 +1023,17 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, filen
           refers_to = var.refers_to
 
           if isinstance(refers_to, types.TupleType):
-            var.value = sections_pass2[refers_to[0]].base.u16 + refers_to[1].u16
-            var.refers_to = None
-            var.close()
+            referred_section = sections_pass2[refers_to[0]]
 
-            debug(ptr_prefix + 'reference "%s" replaced with %s', refers_to, ADDR_FMT(var.value))
+            if referred_section.base is None:
+              debug('reference "%s" cannot be resolved, referred section has no base address yet', refers_to)
+
+            else:
+              var.value = referred_section.base.u16 + refers_to[1].u16
+              var.refers_to = None
+              var.close()
+
+              debug(ptr_prefix + 'reference "%s" replaced with %s', refers_to, ADDR_FMT(var.value))
 
           elif refers_to not in references:
             debug(ptr_prefix  + 'unresolved reference to %s', refers_to)
@@ -1137,11 +1144,21 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, filen
       elif type(item) == IntSlot and item.refers_to:
         debug(ptr_prefix + 'fix reference: %s', item)
 
-        if item.refers_to not in references:
-          raise buff.get_error(AssemblerError, 'Unknown reference: name={}'.format(item.refers_to))
+        if isinstance(item.refers_to, types.TupleType):
+          referred_section = sections_pass2[item.refers_to[0]]
 
-        item.value = references[item.refers_to].section_ptr.u16
-        debug(ptr_prefix + 'reference replaced with %s', ADDR_FMT(item.value))
+          if referred_section.base is None:
+            raise buff.get_error(AssemblerError, 'Referred section has no base address set: name={}'.format(item.refers_to))
+
+          item.value = referred_section.base.u16 + item.refers_to[1].u16
+
+        else:
+          if item.refers_to not in references:
+            raise buff.get_error(AssemblerError, 'Unknown reference: name={}'.format(item.refers_to))
+
+          item.value = references[item.refers_to].section_ptr.u16
+
+        debug(ptr_prefix + 'reference "%s" replaced with %s', item.refers_to, ADDR_FMT(item.value))
         item.refers_to = None
         item.close()
 

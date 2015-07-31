@@ -44,7 +44,7 @@ PROTECTED_REGISTERS = [13, 15, 16, 17, 18, 19]
 
 RESETABLE_REGISTERS = [i for i in range(0, Registers.REGISTER_COUNT) if i != Registers.FLAGS]
 
-REGISTER_NAMES = ['r%i'.format(i) for i in range(0, Registers.REGISTER_SPECIAL)] + ['fp', 'sp', 'ds', 'cs', 'ip', 'flags', 'cnt']
+REGISTER_NAMES = ['r{}'.format(i) for i in range(0, Registers.REGISTER_SPECIAL)] + ['fp', 'sp', 'ds', 'cs', 'ip', 'flags', 'cnt']
 
 class FlagsRegister(object):
   def __init__(self):

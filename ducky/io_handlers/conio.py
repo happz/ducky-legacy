@@ -9,11 +9,11 @@ import types
 from .. import io_handlers
 from .. import util
 
+from ..interfaces import IVirtualInterrupt
 from ..cpu.registers import Registers
 from ..util import debug, info, warn, error, exception
 from ..console import WHITE
-from ..irq import InterruptList
-from ..irq.virtual import VirtualInterrupt, VIRTUAL_INTERRUPTS
+from ..irq import InterruptList, VIRTUAL_INTERRUPTS
 
 CR = ord('\r')
 LF = ord('\n')
@@ -351,7 +351,7 @@ class ConsoleIOHandler(io_handlers.IOHandler):
 class ConioOperationList(enum.IntEnum):
   ECHO = 0
 
-class ConioInterrupt(VirtualInterrupt):
+class ConioInterrupt(IVirtualInterrupt):
   def run(self, core):
     core.DEBUG('ConioInterrupt: triggered')
 

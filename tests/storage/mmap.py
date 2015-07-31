@@ -44,8 +44,8 @@ class Tests(unittest.TestCase):
 
     # prepare mm assert dict, and insert message and redzones in front and after the buffer
     mm_assert = {
-      ADDR_FMT(segment_addr_to_addr(2, 0)): 0xFEFE,
-      ADDR_FMT(segment_addr_to_addr(2, 2 + msg_length)): 0xBFBF
+      ADDR_FMT(segment_addr_to_addr(2, 0x0100)): 0xFEFE,
+      ADDR_FMT(segment_addr_to_addr(2, 0x0102 + msg_length)): 0xBFBF
     }
 
     file_assert = [
@@ -53,7 +53,7 @@ class Tests(unittest.TestCase):
     ]
 
     for i in range(0, msg_length, 2):
-      mm_assert[ADDR_FMT(segment_addr_to_addr(2, 2 + i))] = ord(msg[i]) | (ord(msg[i + 1]) << 8)
+      mm_assert[ADDR_FMT(segment_addr_to_addr(2, 0x0102 + i))] = ord(msg[i]) | (ord(msg[i + 1]) << 8)
       file_assert[0][1][msg_offset + i] = ord(msg[i])
       file_assert[0][1][msg_offset + i + 1] = ord(msg[i + 1])
 
@@ -92,7 +92,7 @@ class Tests(unittest.TestCase):
         int 0
     """.format(**{'mmap_offset': mmap_offset, 'msg_offset': msg_offset, 'msg_length': msg_length})
 
-    self.common_case(code, [mmap_desc], mm_assert, file_assert, r0 = mmap_offset + msg_offset + msg_length, r1 = 2 + msg_length, r3 = ord(msg[-1]), e = 1, z = 1)
+    self.common_case(code, [mmap_desc], mm_assert, file_assert, r0 = mmap_offset + msg_offset + msg_length, r1 = 0x0100 + 2 + msg_length, r3 = ord(msg[-1]), e = 1, z = 1)
 
   def test_mmap_write(self):
     # size of mmapable file
@@ -120,7 +120,7 @@ class Tests(unittest.TestCase):
     ]
 
     for i in range(0, msg_length, 2):
-      mm_assert[ADDR_FMT(segment_addr_to_addr(2, i))] = ord(msg[i]) | (ord(msg[i + 1]) << 8)
+      mm_assert[ADDR_FMT(segment_addr_to_addr(2, 0x0100 + i))] = ord(msg[i]) | (ord(msg[i + 1]) << 8)
       file_assert[0][1][msg_offset + i] = ord(msg[i])
       file_assert[0][1][msg_offset + i + 1] = ord(msg[i + 1])
 
@@ -153,4 +153,4 @@ class Tests(unittest.TestCase):
         int 0
     """.format(**{'mmap_offset': mmap_offset, 'msg_offset': msg_offset, 'msg_length': msg_length, 'msg': msg})
 
-    self.common_case(code, [mmap_desc], mm_assert, file_assert, r0 = mmap_offset + msg_offset + msg_length, r1 = msg_length, r3 = ord(msg[-1]), e = 1, z = 1)
+    self.common_case(code, [mmap_desc], mm_assert, file_assert, r0 = mmap_offset + msg_offset + msg_length, r1 = 0x0100 + msg_length, r3 = ord(msg[-1]), e = 1, z = 1)

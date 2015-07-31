@@ -1,8 +1,9 @@
 import enum
 
+from .interfaces import IVirtualInterrupt
 from .console import Console
 from .mm import ADDR_FMT
-from .irq.virtual import VirtualInterrupt, VIRTUAL_INTERRUPTS
+from .irq import InterruptList, VIRTUAL_INTERRUPTS
 
 class Point(object):
   point_index = 0
@@ -162,7 +163,7 @@ Console.register_command('bp_active', cmd_bp_active)
 class VMDebugOperationList(enum.Enum):
   QUIET_MODE = 0
 
-class VMDebugInterrupt(VirtualInterrupt):
+class VMDebugInterrupt(IVirtualInterrupt):
   def run(self, core):
     from .cpu.registers import Registers
 
@@ -181,5 +182,4 @@ class VMDebugInterrupt(VirtualInterrupt):
       core.WARN('Unknown vmdebug operation requested: %s', op)
       core.REG(Registers.R00).value = 0xFFFF
 
-from .irq import InterruptList
 VIRTUAL_INTERRUPTS[InterruptList.VMDEBUG.value] = VMDebugInterrupt

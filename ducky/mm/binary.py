@@ -56,25 +56,54 @@ class SectionFlags(LittleEndianStructure):
   ]
 
   @staticmethod
-  def create(r, w, x, b, m):
+  def create(readable = False, writable = False, executable = False, bss = False, mmapable = False):
     flags = SectionFlags()
-    flags.readable = 1 if r else 0
-    flags.writable = 1 if w else 0
-    flags.executable = 1 if x else 0
-    flags.bss = 1 if b else 0
-    flags.mmapable = 1 if m else 0
+    flags.readable = 1 if readable else 0
+    flags.writable = 1 if writable else 0
+    flags.executable = 1 if executable else 0
+    flags.bss = 1 if bss else 0
+    flags.mmapable = 1 if mmapable else 0
 
     return flags
 
   def to_uint16(self):
     return self.readable | self.writable << 1 | self.executable << 2 | self.bss << 3 | self.mmapable << 4
 
-  def from_uint16(self, u):
+  def load_uint16(self, u):
     self.readable = 1 if u & 0x01 else 0
     self.writable = 1 if u & 0x02 else 0
     self.executable = 1 if u & 0x04 else 0
     self.bss = 1 if u & 0x08 else 0
     self.mmapable = 1 if u & 0x10 else 0
+
+  @staticmethod
+  def from_uint16(u):
+    flags = SectionFlags()
+    flags.load_uint16(u)
+    return flags
+
+  def to_string(self):
+    return ''.join([
+      'R' if self.readable == 1 else '-',
+      'W' if self.writable == 1 else '-',
+      'X' if self.executable == 1 else '-',
+      'B' if self.bss == 1 else '-',
+      'M' if self.mmapable == 1 else '-'
+    ])
+
+  def load_string(self, s):
+    s = s.lower()
+    self.readable = 1 if 'r' in s else 0
+    self.writable = 1 if 'w' in s else 0
+    self.executable = 1 if 'x' in s else 0
+    self.bss = 1 if 'b' in s else 0
+    self.mmapable = 1 if 'm' in s else 0
+
+  @staticmethod
+  def from_string(s):
+    flags = SectionFlags()
+    flags.load_string(s)
+    return flags
 
   def __repr__(self):
     return '<SectionFlags: r={}, w={}, x={}, b={}, m={}>'.format(self.readable, self.writable, self.executable, self.bss, self.mmapable)
