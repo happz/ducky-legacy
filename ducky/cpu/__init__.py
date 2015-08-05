@@ -7,7 +7,7 @@ from .. import profiler
 
 from ..interfaces import IMachineWorker, ISnapshotable
 from ..mm import ADDR_FMT, UINT8_FMT, UINT16_FMT, UINT32_FMT, SEGMENT_SIZE, PAGE_SIZE, i16, UINT24_FMT
-from .registers import Registers, REGISTER_NAMES
+from .registers import Registers, REGISTER_NAMES, FlagsRegister, GENERAL_REGISTERS
 from .instructions import DuckyInstructionSet
 from ..errors import AccessViolationError, InvalidResourceError
 from ..util import debug, info, warn, error, print_table, LRUCache, exception
@@ -78,7 +78,7 @@ class InvalidInstructionSetError(CPUException):
 
     self.inst_set = inst_set
 
-def do_log_cpu_core_state(core, logger = None):
+def do_log_cpu_core_state(core, logger = None, disassemble = True):
   """
   Log state of a CPU core. Content of its registers, and other interesting or
   useful internal variables are logged.
@@ -97,18 +97,21 @@ def do_log_cpu_core_state(core, logger = None):
 
   logger('cs=%s    ds=%s', UINT16_FMT(core.registers.cs.value), UINT16_FMT(core.registers.ds.value))
   logger('fp=%s    sp=%s    ip=%s', UINT16_FMT(core.registers.fp.value), UINT16_FMT(core.registers.sp.value), UINT16_FMT(core.registers.ip.value))
-  logger('priv=%i, hwint=%i, e=%i, z=%i, o=%i, s=%i', core.registers.flags.privileged, core.registers.flags.hwint, core.registers.flags.e, core.registers.flags.z, core.registers.flags.o, core.registers.flags.s)
-  logger('cnt=%s, idle=%s, exit=%i', core.registers.cnt.value, core.idle, core.exit_code)
+  logger('flags=%s', core.registers.flags.to_string())
+  logger('cnt=%s, alive=%s, running=%s, idle=%s, exit=%i', core.registers.cnt.value, core.alive, core.running, core.idle, core.exit_code)
 
   if hasattr(core, 'math_coprocessor'):
     for index, v in enumerate(core.math_coprocessor.registers.stack):
       logger('MS: %02i: %s', index, UINT32_FMT(v.value))
 
-  if core.current_instruction:
-    inst = core.instruction_set.disassemble_instruction(core.current_instruction)
-    logger('current=%s', inst)
+  if disassemble is True:
+    if core.current_instruction:
+      inst = core.instruction_set.disassemble_instruction(core.current_instruction)
+      logger('current=%s', inst)
+    else:
+      logger('current=<none>')
   else:
-    logger('current=<none>')
+    logger('current=<unknown>')
 
   for index, (ip, symbol, offset) in enumerate(core.backtrace()):
     logger('Frame #%i: %s + %s (%s)', index, symbol, offset, ip)
@@ -380,6 +383,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
     self.registers = registers.RegisterSet()
 
     self.instruction_set = DuckyInstructionSet
+    self.instruction_set_stack = []
 
     self.current_ip = None
     self.current_instruction = None
@@ -430,7 +434,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
   def EXCEPTION(self, exc):
     exception(exc, logger = self.ERROR)
 
-    do_log_cpu_core_state(self, logger = self.ERROR)
+    do_log_cpu_core_state(self, logger = self.ERROR, disassemble = False if isinstance(exc, InvalidOpcodeError) else True)
 
   def __repr__(self):
     return '#{}:#{}'.format(self.cpu.id, self.id)
@@ -528,7 +532,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
 
     self.current_ip = ip.value
 
-    self.DEBUG('fetch_instruction: cs=%s, ip=%s', self.registers.cs, ip.value)
+    self.DEBUG('fetch_instruction: cs=%s, ip=%s', UINT8_FMT(self.registers.cs.value), ADDR_FMT(ip.value))
 
     inst = self.instruction_cache[self.CS_ADDR(ip.value)]
     ip.value += 4
@@ -620,18 +624,20 @@ class CPUCore(ISnapshotable, IMachineWorker):
     for reg_id in regs:
       reg = self.registers.map[reg_id]
 
-      self.DEBUG('push: %s (%s) at %s', reg_id, reg, UINT16_FMT(self.registers.sp.value - 2))
+      self.DEBUG('push: %s (%s) at %s', reg_id, reg.to_string() if isinstance(reg, FlagsRegister) else UINT16_FMT(reg.value), UINT16_FMT(self.registers.sp.value - 2))
       value = self.registers.flags.to_uint16() if reg_id == Registers.FLAGS else self.registers.map[reg_id].value
       self.raw_push(value)
 
   def pop(self, *regs):
     for reg_id in regs:
       if reg_id == Registers.FLAGS:
-        self.registers.flags.from_uint16(self.raw_pop())
+        reg = self.registers.flags
+        reg.from_uint16(self.raw_pop())
       else:
-        self.registers.map[reg_id].value = self.raw_pop()
+        reg = self.registers.map[reg_id]
+        reg.value = self.raw_pop()
 
-      self.DEBUG('pop: %s (%s) from %s', reg_id, self.registers.map[reg_id], UINT16_FMT(self.registers.sp.value - 2))
+      self.DEBUG('pop: %s (%s) from %s', reg_id, reg.to_string() if isinstance(reg, FlagsRegister) else UINT16_FMT(reg.value), UINT16_FMT(self.registers.sp.value - 2))
 
   def create_frame(self):
     """
@@ -692,7 +698,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
     self.raw_push(old_DS)
     self.raw_push(old_SP)
     self.push(Registers.CS, Registers.FLAGS)
-    self.push(*[i for i in range(0, Registers.REGISTER_SPECIAL)])
+    self.push(*GENERAL_REGISTERS)
     self.create_frame()
 
     self.privileged = 1
@@ -703,6 +709,9 @@ class CPUCore(ISnapshotable, IMachineWorker):
     if self.check_frames:
       self.frames[-1].IP = iv.ip
 
+    self.instruction_set_stack.append(self.instruction_set)
+    self.instruction_set = DuckyInstructionSet
+
   def exit_interrupt(self):
     """
     Restore CPU state after running a interrupt routine. Call frame is destroyed, registers
@@ -712,7 +721,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
     self.DEBUG('exit_interrupt')
 
     self.destroy_frame()
-    self.pop(*[i for i in reversed(range(0, Registers.REGISTER_SPECIAL))])
+    self.pop(*reversed(GENERAL_REGISTERS))
     self.pop(Registers.FLAGS, Registers.CS)
 
     stack_page = self.memory.get_page(mm.addr_to_page(self.DS_ADDR(self.registers.sp.value)))
@@ -725,6 +734,8 @@ class CPUCore(ISnapshotable, IMachineWorker):
 
     self.data_cache.release_page_references(stack_page, writeback = False)
     self.memory.free_page(stack_page)
+
+    self.instruction_set = self.instruction_set_stack.pop(0)
 
   def do_int(self, index):
     """
@@ -912,12 +923,12 @@ class CPUCore(ISnapshotable, IMachineWorker):
     self.current_instruction = self.fetch_instruction()
     opcode = self.current_instruction.opcode
 
-    self.DEBUG('"EXECUTE" phase: %s %s', UINT16_FMT(self.current_ip), self.instruction_set.disassemble_instruction(self.current_instruction))
-    log_cpu_core_state(self)
+    if opcode not in self.instruction_set.opcode_desc_map:
+      raise InvalidOpcodeError(opcode, ip = self.current_ip, core = self)
 
     try:
-      if opcode not in self.instruction_set.opcode_desc_map:
-        raise InvalidOpcodeError(opcode, ip = self.current_ip, core = self)
+      self.DEBUG('"EXECUTE" phase: %s %s', UINT16_FMT(self.current_ip), self.instruction_set.disassemble_instruction(self.current_instruction))
+      log_cpu_core_state(self)
 
       self.instruction_set.opcode_desc_map[opcode].execute(self, self.current_instruction)
 

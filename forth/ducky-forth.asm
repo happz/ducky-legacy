@@ -394,6 +394,7 @@ mm_area_remove_flag:
   pop r4
   ret
 
+
 mm_area_add_flag:
   ; r0 - start address
   ; r1 - end address
@@ -440,6 +441,52 @@ mm_area_add_flag:
 
   pop r5
   pop r4
+  ret
+
+mm_area_alloc:
+  ; r0 - pages count
+  push r1
+  push r2
+
+  mov r2, r0 ; save pages count
+  ; call alloc
+  mov r1, r0
+  li r0, $MM_OP_ALLOC
+  int $INT_MM
+
+  cmp r0, 0xFFFF
+  be &halt
+
+  ; call mprotect
+  push r0 ; save area address
+  mul r2, $PAGE_SIZE
+  add r2, r0
+  mov r1, r2
+  li r2, $MM_FLAG_DS
+  li r3, $MM_FLAG_READ
+  or r3, $MM_FLAG_WRITE
+  call &mm_area_add_flag
+
+  pop r0 ; pop area address
+  pop r2
+  pop r1
+  ret
+
+
+mm_area_free:
+  ; r0 - address
+  ; r1 - pages count
+  push r2
+
+  mov r2, r1
+  mov r1, r0
+  li r0, $MM_OP_FREE
+  int $INT_MM
+
+  cmp r0, 0
+  bne &halt
+
+  pop r2
   ret
 
 

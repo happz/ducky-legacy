@@ -35,6 +35,8 @@ SEGMENT_PROTECTED = 0  # first segment is already allocated
 class MMOperationList(enum.IntEnum):
   MPROTECT = 1
   MTELL    = 2
+  ALLOC    = 3
+  FREE     = 4
 
 MM_FLAG_READ    = 0x0001
 MM_FLAG_WRITE   = 0x0002
@@ -1364,6 +1366,41 @@ class MMInterrupt(IVirtualInterrupt):
 
       if flags & MM_FLAG_DIRTY:
         core.cpu.machine.memory.update_area_flags(start, size, 'dirty', True)
+
+      core.REG(Registers.R00).value = 0
+
+    elif op == MMOperationList.ALLOC:
+      core.REG(Registers.R00).value = 0xFFFF
+
+      pages_cnt = core.REG(Registers.R01).value
+      segment = core.REG(Registers.DS).value
+
+      core.DEBUG('alloc: pages_cnt=%s, segment=%s', pages_cnt, segment)
+
+      pages = core.cpu.machine.memory.alloc_pages(segment = segment, count = pages_cnt)
+
+      for pg in pages:
+        pg.flags_reset()
+
+      core.REG(Registers.R00).value = pages[0].base_address
+
+      core.DEBUG('alloc: address=%s', ADDR_FMT(pg[0].base_address))
+
+    elif op == MMOperationList.FREE:
+      core.REG(Registers.R00).value = 0xFFFF
+
+      address = core.REG(Registers.R01).value
+      pages_start = addr_to_page(address)
+      pages_cnt = core.REG(Registers.R02).value
+      size = pages_cnt * PAGE_SIZE
+
+      core.DEBUG('alloc: address=%s, pages_start=%s, pages_cnt=%s', ADDR_FMT(address), pages_start, pages_cnt)
+
+      core.cache_controller.release_area_references(None, address, size)
+      core.cpu.machine.memory.reset_area_flags(address, size)
+
+      pg = core.cpu.machine.memory.get_page(pages_start)
+      core.cpu.machine.memory.free_pages(pg, pages_cnt)
 
       core.REG(Registers.R00).value = 0
 

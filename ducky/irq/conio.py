@@ -1,5 +1,4 @@
 from .. import irq
-from .. import reactor
 
 from ..interfaces import IReactorTask
 
@@ -22,7 +21,7 @@ class ConsoleIRQ(irq.IRQSource):
     self.conio_task = ConioIRQTask(machine, conio_io, self)
 
   def boot(self):
-    reactor.reactor.add_task(self.conio_task)
+    self.machine.reactor.add_task(self.conio_task)
 
   def halt(self):
-    reactor.reactor.remove_task(self.conio_task)
+    self.machine.reactor.remove_task(self.conio_task)

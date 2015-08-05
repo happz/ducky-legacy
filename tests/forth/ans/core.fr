@@ -989,11 +989,9 @@ TESTING OUTPUT: . ." CR EMIT SPACE SPACES TYPE U.
 
 T{ OUTPUT-TEST -> }T
 
-BYE
-
 \ ------------------------------------------------------------------------
 TESTING INPUT: ACCEPT
-
+(
 CREATE ABUF 80 CHARS ALLOT
 
 : ACCEPT-TEST
@@ -1004,7 +1002,7 @@ CREATE ABUF 80 CHARS ALLOT
 ;
 
 T{ ACCEPT-TEST -> }T
-
+)
 \ ------------------------------------------------------------------------
 TESTING DICTIONARY SEARCH RULES
 

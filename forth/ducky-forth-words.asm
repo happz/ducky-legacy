@@ -111,6 +111,14 @@ $ENV_ENTRY MAX_U, "MAX-U", 5
   push 0xFFFF
   j &.__ENVIRONMENT_QUERY_next
 
+$ENV_ENTRY ENV_MEMORY_ALLOC, "MEMORY-ALLOC", 12
+  push $FORTH_TRUE
+  j &.__ENVIRONMENT_QUERY_next
+
+$ENV_ENTRY ENV_MEMORY_ALLOC_EXT, "MEMORY-ALLOC-EXT", 16
+  push $FORTH_TRUE
+  j &.__ENVIRONMENT_QUERY_next
+
 $DEFCODE "ENVIRONMENT?", 12, 0, ENVIRONMENT_QUERY
   ; ( c-addr u -- false | i*x true )
   pop r1 ; u
@@ -128,6 +136,8 @@ $DEFCODE "ENVIRONMENT?", 12, 0, ENVIRONMENT_QUERY
   $ENV_ENTRY_CHECK STACK_CELLS
   $ENV_ENTRY_CHECK FLOORED
   $ENV_ENTRY_CHECK MAX_CHAR
+  $ENV_ENTRY_CHECK ENV_MEMORY_ALLOC
+  $ENV_ENTRY_CHECK ENV_MEMORY_ALLOC_EXT
 
   push $FORTH_FALSE
   j &.__ENVIRONMENT_QUERY_next
@@ -641,6 +651,17 @@ $DEFCODE "COUNT", 5, 0, COUNT
   $NEXT
 
 
+$DEFCODE ".(", 2, $F_IMMED, DOT_PAREN
+.__DOT_PAREN_loop:
+  call &.__KEY
+  cmp r0, 41 ; cmp with ')'
+  be &.__DOT_PAREN_quit
+  call &.__EMIT
+  j &.__DOT_PAREN_loop
+.__DOT_PAREN_quit:
+  $NEXT
+
+
 ; - Memory ------------------------------------------------------------------------------
 
 
@@ -776,7 +797,7 @@ memmove:
   ; r3 - tmp ptr
 
   push r3
-  li r3, &var_UP
+  li r3, &var_DP
   lw r3, r3
 
   push r0
@@ -807,6 +828,32 @@ $DEFCODE "MOVE", 4, 0, MOVE
   pop r0 ; addr1
 
   call &memmove
+  $NEXT
+
+
+$DEFCODE "ALLOCATE", 8, 0, ALLOCATE
+  ; ( u -- a-addr ior )
+  pop r0
+  ; convert number of bytes to number of pages, add 2 bytes for pages count
+  add r0, $CELL
+  div r0, $PAGE_SIZE
+  $align_page r0
+  mov r1, r0 ; save pages count
+  call &mm_area_alloc
+  stw r0, r1 ; save pages count at the beggining of the area
+  add r0, $CELL ; and return the rest of the area to the caller
+  push r0
+  push 0
+  $NEXT
+
+
+$DEFCODE "FREE", 4, 0, FREE
+  ; ( a-addr - ior )
+  pop r0 ; address
+  sub r0, $CELL
+  lw r1, r0 ; load stored number of pages
+  call &mm_area_free
+  push 0
   $NEXT
 
 

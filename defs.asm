@@ -14,6 +14,8 @@
 
 .def MM_OP_MPROTECT: 1
 .def MM_OP_MTELL:    2
+.def MM_OP_ALLOC:    3
+.def MM_OP_FREE:     4
 
 .def MM_FLAG_READ:    0x0001
 .def MM_FLAG_WRITE:   0x0002

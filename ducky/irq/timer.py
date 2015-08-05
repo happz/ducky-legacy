@@ -1,27 +1,51 @@
-import threading
 import time
 
 from .. import irq
-from .. import profiler
 
-class Timer(irq.IRQSource):
-  def __init__(self, *args, **kwargs):
-    super(Timer, self).__init__(*args, **kwargs)
+from ..interfaces import IReactorTask
 
-    self.thread = None
-    self.profiler = profiler.STORE.get_machine_profiler()
+TIMER_FREQ = 100.0
+
+class TimerIRQTask(IReactorTask):
+  def __init__(self, machine, timer_irq):
+    self.machine = machine
+    self.timer_irq = timer_irq
+
+    self.stamp = 0
+    self.counter = 0
+    self.round = 0
+
+    self.tick = 1.0 / TIMER_FREQ
+
+  def runnable(self):
+    return True
+
+  def run(self):
+    self.counter += 1
+
+    if self.counter < 100:
+      return
+
+    self.counter = 0
+
+    stamp = time.time()
+    diff = stamp - self.stamp
+    if diff < self.tick:
+      return
+
+    self.stamp = stamp
+    self.round += 1
+
+    self.machine.trigger_irq(self.timer_irq)
+
+class TimerIRQ(irq.IRQSource):
+  def __init__(self, machine, *args, **kwargs):
+    super(TimerIRQ, self).__init__(machine, *args, **kwargs)
+
+    self.timer_task = TimerIRQTask(machine, self)
 
   def boot(self):
-    super(Timer, self).boot()
+    self.machine.reactor.add_task(self.timer_task)
 
-    self.thread = threading.Thread(name = 'timer-irq', target = self.loop, daemon = True, priority = 0.0)
-    self.thread.start()
-
-  def loop(self):
-    self.profiler.enable()
-
-    while True:
-      time.sleep(1)
-      self.machine.self.machine.trigger_irq(self)
-
-    self.profiler.disable()
+  def halt(self):
+    self.machine.reactor.remove_task(self.timer_task)

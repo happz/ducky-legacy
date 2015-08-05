@@ -45,23 +45,9 @@ class Reactor(object):
   >>> reactor = Reactor.reactor()
   """
 
-  _reactor = None
-
   def __init__(self):
     self.tasks = []
     self.events = Queue.Queue()
-
-  @staticmethod
-  def reactor():
-    """
-    Return reactor. Reactor is a singleton, if there is an existing reactor
-    object, it is returned, otherwise a new one is created.
-    """
-
-    if Reactor._reactor is None:
-      Reactor._reactor = Reactor()
-
-    return Reactor._reactor
 
   def add_task(self, task):
     """
@@ -120,5 +106,3 @@ class Reactor(object):
       else:
         e = self.events.get()
         e.run()
-
-reactor = Reactor.reactor()

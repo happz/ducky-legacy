@@ -40,11 +40,19 @@ class Registers(enum.IntEnum):
   # How many registers do we have? This many...
   REGISTER_COUNT = 20
 
-PROTECTED_REGISTERS = [13, 15, 16, 17, 18, 19]
+PROTECTED_REGISTERS = [
+  Registers.FP,
+  Registers.DS,
+  Registers.CS,
+  Registers.IP,
+  Registers.FLAGS,
+  Registers.CNT
+]
 
-RESETABLE_REGISTERS = [i for i in range(0, Registers.REGISTER_COUNT) if i != Registers.FLAGS]
+GENERAL_REGISTERS   = [r for r in Registers if r.value < Registers.REGISTER_SPECIAL.value]
+RESETABLE_REGISTERS = [r for r in Registers if r not in (Registers.FLAGS, Registers.REGISTER_SPECIAL, Registers.REGISTER_COUNT)]
 
-REGISTER_NAMES = ['r{}'.format(i) for i in range(0, Registers.REGISTER_SPECIAL)] + ['fp', 'sp', 'ds', 'cs', 'ip', 'flags', 'cnt']
+REGISTER_NAMES = ['r{}'.format(r.value) for r in Registers if r.value < Registers.REGISTER_SPECIAL.value] + ['fp', 'sp', 'ds', 'cs', 'ip', 'flags', 'cnt']
 
 class FlagsRegister(object):
   def __init__(self):
@@ -65,6 +73,16 @@ class FlagsRegister(object):
     self.z = 1 if u & Flags.ZERO else 0
     self.o = 1 if u & Flags.OVERFLOW else 0
     self.s = 1 if u & Flags.SIGNED else 0
+
+  def to_string(self):
+    return ''.join([
+      'P' if self.privileged == 1 else '-',
+      'H' if self.hwint == 1 else '-',
+      'E' if self.e == 1 else '-',
+      'Z' if self.z == 1 else '-',
+      'O' if self.o == 1 else '-',
+      'S' if self.s == 1 else '-'
+    ])
 
   def __repr__(self):
     return '<FlagsRegister: privileged={}, hwint={}, e={}, z={}, o={}, s={}>'.format(self.privileged, self.hwint, self.e, self.z, self.o, self.s)

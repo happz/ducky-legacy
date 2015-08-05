@@ -8,6 +8,8 @@ CC_END=$(shell echo -e "\033[0m")
 SOURCES  := $(shell find $(CURDIR) -name '*.asm')
 BINARIES := $(SOURCES:%.asm=%.bin)
 
+INSTALLED_EGG := $(VIRTUAL_ENV)/lib/python2.7/site-packages/ducky-1.0-py2.7.egg
+
 FORTH_KERNEL := forth/ducky-forth.bin
 
 forth/ducky-forth.bin: forth/ducky-forth.asm forth/ducky-forth-words.asm
@@ -21,7 +23,9 @@ forth/ducky-forth.bin: forth/ducky-forth.asm forth/ducky-forth-words.asm
 FORTH_TESTS_IN  := $(shell find $(CURDIR) -name 'test-*.f' | sort)
 FORTH_TESTS_OUT := $(FORTH_TESTS_IN:%.f=%.f.out)
 
-INSTALLED_EGG := $(VIRTUAL_ENV)/lib/python2.7/site-packages/ducky-1.0-py2.7.egg
+# See tests/forth/ans/runtest.fth for full list
+FORTH_ANS_TESTS := core.fr # coreplustest.fth coreexttest.fth memorytest.fth toolstest.fth stringtest.fth
+
 
 #
 # Control variables
@@ -187,7 +191,7 @@ else
 	$(eval VMCOVERAGE_FILE := )
 	$(eval VMCOVERAGE_BIN  := )
 endif
-	-$(Q) $(VMCOVERAGE_FILE) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) $(VMCOVERAGE_BIN) tools/vm $(VMPROFILE) $(BINPROFILE) --machine-config=$(CURDIR)/tests/forth/test-machine.conf --machine-in=tests/forth/enable-test-mode.f --machine-in=forth/ducky-forth.f --machine-in=tests/forth/ans/tester.fr --machine-in=tests/forth/ans/core.fr --machine-out=$(tc_out) -g --conio-echo=$(CONIO_ECHO) --conio-console=no --conio-highlight=$(CONIO_HIGHLIGHT) --conio-stdout-echo=yes $(VMDEBUG) 2>&1 | stdbuf -oL -eL tee $(tc_machine) | grep -v -e '\[INFO\] ' -e '#> '
+	-$(Q) $(VMCOVERAGE_FILE) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) $(VMCOVERAGE_BIN) tools/vm $(VMPROFILE) $(BINPROFILE) --machine-config=$(CURDIR)/tests/forth/test-machine.conf --machine-in=tests/forth/enable-test-mode.f --machine-in=forth/ducky-forth.f --machine-in=tests/forth/ans/tester.fr $(foreach testfile,$(FORTH_ANS_TESTS),--machine-in=tests/forth/ans/$(testfile)) --machine-out=$(tc_out) -g --conio-echo=$(CONIO_ECHO) --conio-console=no --conio-highlight=$(CONIO_HIGHLIGHT) --conio-stdout-echo=yes $(VMDEBUG) 2>&1 | stdbuf -oL -eL tee $(tc_machine) | grep -v -e '\[INFO\] ' -e '#> '
 	-$(Q) grep -e 'INCORRECT RESULT' -e 'WRONG NUMBER OF RESULTS' $(tc_out) | cat > $(tc_filtered);
 	-$(Q) if [ ! -s $(tc_filtered) ]; then \
 				  $(CURDIR)/tests/xunit-record --add --file=$(TESTSETDIR)/results/forth.xml --ts=forth-$(TESTSET) --name="ANS test suite"; \

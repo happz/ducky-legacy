@@ -2,7 +2,6 @@ import functools
 import os
 
 from . import mm
-from . import reactor
 from . import snapshot
 from . import util
 
@@ -12,6 +11,7 @@ from .console import Console
 from .errors import InvalidResourceError
 from .util import debug, info, error, str2int, LRUCache, warn, print_table, exception
 from .mm import addr_to_segment, ADDR_FMT, segment_addr_to_addr, UInt16
+from .reactor import Reactor
 from .snapshot import SnapshotNode
 
 class MachineState(SnapshotNode):
@@ -130,7 +130,7 @@ class CheckLivingCoresTask(IReactorTask):
 
 class Machine(ISnapshotable, IMachineWorker):
   def __init__(self):
-    self.reactor = reactor.reactor
+    self.reactor = Reactor()
 
     self.irq_router_task = IRQRouterTask(self)
     self.reactor.add_task(self.irq_router_task)
@@ -146,11 +146,11 @@ class Machine(ISnapshotable, IMachineWorker):
     self.cpus = []
     self.memory = None
 
-    import io_handlers
-    self.ports = io_handlers.IOPortSet()
+    from .io_handlers import IOPortSet
+    self.ports = IOPortSet()
 
-    import irq
-    self.irq_sources = irq.IRQSourceSet()
+    from .irq import IRQSourceSet
+    self.irq_sources = IRQSourceSet()
 
     self.virtual_interrupts = {}
     self.storages = {}
@@ -204,12 +204,6 @@ class Machine(ISnapshotable, IMachineWorker):
     self.memory.load_state(state.get_children()['memory'])
 
   def hw_setup(self, machine_config, machine_in = None, machine_out = None):
-    import irq
-    import irq.conio
-
-    import io_handlers
-    import io_handlers.conio
-
     def __print_regions(regions):
       table = [
         ['Section', 'Address', 'Size', 'Flags', 'First page', 'Last page']
@@ -227,25 +221,34 @@ class Machine(ISnapshotable, IMachineWorker):
 
     self.memory = mm.MemoryController(self)
 
-    import cpu
+    from .cpu import CPUCacheController
+    self.cpu_cache_controller = CPUCacheController()
 
-    self.cpu_cache_controller = cpu.CPUCacheController()
-
+    from .cpu import CPU
     for cpuid in range(0, self.nr_cpus):
-      self.cpus.append(cpu.CPU(self, cpuid, self.memory, self.cpu_cache_controller, cores = self.nr_cores))
+      self.cpus.append(CPU(self, cpuid, self.memory, self.cpu_cache_controller, cores = self.nr_cores))
 
-    self.conio = io_handlers.conio.ConsoleIOHandler(machine_in, machine_out, self)
+    from .irq import IRQList
+
+    # timer
+    # from .irq.timer import TimerIRQ
+    # self.register_irq_source(IRQList.TIMER, TimerIRQ(self))
+
+    # console
+    from .io_handlers.conio import ConsoleIOHandler
+    from .irq.conio import ConsoleIRQ
+    self.conio = ConsoleIOHandler(machine_in, machine_out, self)
     self.conio.echo = True
 
     self.register_port(0x100, self.conio)
     self.register_port(0x101, self.conio)
 
-    self.register_irq_source(irq.IRQList.CONIO, irq.conio.ConsoleIRQ(self, self.conio))
+    self.register_irq_source(IRQList.CONIO, ConsoleIRQ(self, self.conio))
 
     self.memory.boot()
 
-    import irq
-    for index, cls in irq.VIRTUAL_INTERRUPTS.iteritems():
+    from .irq import VIRTUAL_INTERRUPTS
+    for index, cls in VIRTUAL_INTERRUPTS.iteritems():
       self.virtual_interrupts[index] = cls(self)
 
     if self.config.has_option('machine', 'interrupt-routines'):
@@ -257,7 +260,8 @@ class Machine(ISnapshotable, IMachineWorker):
       binary.cs, binary.ds, binary.sp, binary.ip, binary.symbols, binary.regions, binary.raw_binary = self.memory.load_file(binary.path)
       binary.load_symbols()
 
-      desc = cpu.InterruptVector()
+      from .cpu import InterruptVector
+      desc = InterruptVector()
       desc.cs = binary.cs
       desc.ds = binary.ds
 
@@ -269,10 +273,11 @@ class Machine(ISnapshotable, IMachineWorker):
         desc.ip = binary.symbols[name].u16
         self.memory.save_interrupt_vector(table, index, desc)
 
-      for i in range(0, irq.IRQList.IRQ_COUNT):
+      for i in range(0, IRQList.IRQ_COUNT):
         __save_iv('irq_routine_{}'.format(i), self.memory.irq_table_address, i)
 
-      for i in range(0, irq.InterruptList.INT_COUNT):
+      from .irq import InterruptList
+      for i in range(0, InterruptList.INT_COUNT):
         __save_iv('int_routine_{}'.format(i), self.memory.int_table_address, i)
 
       __print_regions(binary.regions)
@@ -314,7 +319,7 @@ class Machine(ISnapshotable, IMachineWorker):
                             shared = _getbool('shared', False))
 
     # Breakpoints
-    from debugging import add_breakpoint
+    from .debugging import add_breakpoint
 
     for bp_section in self.config.iter_breakpoints():
       _get     = functools.partial(self.config.get, bp_section)
@@ -339,7 +344,7 @@ class Machine(ISnapshotable, IMachineWorker):
       add_breakpoint(core, address, ephemeral = _getbool('ephemeral', False), countdown = _getint('countdown', 0))
 
     # Storage
-    from blockio import STORAGES
+    from .blockio import STORAGES
 
     for st_section in self.config.iter_storages():
       _get     = functools.partial(self.config.get, st_section)
