@@ -2,8 +2,6 @@
 This module provides simple reactor core that runs each of registered tasks at
 least once during one iteration of its internal loop.
 
-Reactor is a singleton, there should be no need to create Reactor instance.
-
 There are two different kinds of objects that reactor manages:
 
 - task - it's called periodicaly, at least once in each reactor loop iteration
@@ -34,15 +32,7 @@ class CallInReactorTask(IReactorTask):
 
 class Reactor(object):
   """
-  Main reactor class. Never to be instantiated by application code, always
-  import ``reactor`` from this module:
-
-  >>> from reactor import reactor
-
-  Or:
-
-  >>> from reactor import Reactor
-  >>> reactor = Reactor.reactor()
+  Main reactor class.
   """
 
   def __init__(self):
