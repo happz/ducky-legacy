@@ -10,7 +10,7 @@ import optparse
 import string
 
 import ducky.patch
-import ducky.console
+import ducky.log
 import ducky.mm
 import ducky.mm.binary
 import ducky.snapshot
@@ -19,24 +19,23 @@ import ducky.util
 from ducky.mm import ADDR_FMT, UINT16_FMT, UINT8_FMT, PAGE_SIZE
 from ducky.mm.binary import SectionFlags
 from ducky.cpu.registers import Flags, Registers
-from ducky.util import info, print_table
 
-def show_header(state):
+def show_header(logger, state):
   state = state.get_child('machine')
 
-  info('=== Coredump header ===')
-  info('  # of CPUs:      %i', state.nr_cpus)
-  info('  # of CPU cores: %i', state.nr_cores)
-  info('  # of binaries:  %i', len(state.get_binary_states()))
-  info('')
+  logger.info('=== Coredump header ===')
+  logger.info('  # of CPUs:      %i', state.nr_cpus)
+  logger.info('  # of CPU cores: %i', state.nr_cores)
+  logger.info('  # of binaries:  %i', len(state.get_binary_states()))
+  logger.info('')
 
-def show_binaries(state):
-  info('=== Binaries ===')
+def show_binaries(logger, state):
+  logger.info('=== Binaries ===')
 
   for bs in state.get_child('machine').get_binary_states():
-    info('Path: %s', bs.path)
-    info('CS: %s DS: %s', UINT8_FMT(bs.cs), UINT8_FMT(bs.ds))
-    info('')
+    logger.info('Path: %s', bs.path)
+    logger.info('CS: %s DS: %s', UINT8_FMT(bs.cs), UINT8_FMT(bs.ds))
+    logger.info('')
 
     table = [
       ['Section', 'Address', 'Size', 'Flags', 'First page', 'Last page']
@@ -47,11 +46,11 @@ def show_binaries(state):
 
       table.append([rs.name, ADDR_FMT(rs.address), rs.size, flags.to_string(), rs.pages_start, rs.pages_start + rs.pages_cnt - 1])
 
-    print_table(table)
-    info('')
+    logger.table(table)
+    logger.info('')
 
-def show_cores(state):
-  info('=== Cores ===')
+def show_cores(logger, state):
+  logger.info('=== Cores ===')
 
   def __reg(index):
     return UINT16_FMT(cs.registers[index])
@@ -60,34 +59,34 @@ def show_cores(state):
     return (cs.registers[Registers.FLAGS] & mask) != 0
 
   for cs in state.get_child('machine').get_core_states():
-    info('Core #%i:#%i', cs.cpuid, cs.coreid)
+    logger.info('Core #%i:#%i', cs.cpuid, cs.coreid)
 
     for i in range(0, Registers.REGISTER_SPECIAL, 4):
       regs = [(i + j) for j in range(0, 4) if (i + j) < Registers.REGISTER_SPECIAL]
       s = ['reg%02i=%s' % (reg, __reg(reg)) for reg in regs]
-      info('  %s', ' '.join(s))
+      logger.info('  %s', ' '.join(s))
 
-    info('  cs=%s    ds=%s', __reg(Registers.CS), __reg(Registers.DS))
-    info('  fp=%s    sp=%s    ip=%s', __reg(Registers.FP), __reg(Registers.SP), __reg(Registers.IP))
-    info('  priv=%i, hwint=%i, e=%i, z=%i, o=%i, s=%i', __flag(Flags.PRIVILEGED), __flag(Flags.HWINT), __flag(Flags.EQUAL), __flag(Flags.ZERO), __flag(Flags.OVERFLOW), __flag(Flags.SIGNED))
-    info('  alive=%s, running=%s, idle=%s, exit=%i', cs.alive, cs.running, cs.idle, cs.exit_code)
+    logger.info('  cs=%s    ds=%s', __reg(Registers.CS), __reg(Registers.DS))
+    logger.info('  fp=%s    sp=%s    ip=%s', __reg(Registers.FP), __reg(Registers.SP), __reg(Registers.IP))
+    logger.info('  priv=%i, hwint=%i, e=%i, z=%i, o=%i, s=%i', __flag(Flags.PRIVILEGED), __flag(Flags.HWINT), __flag(Flags.EQUAL), __flag(Flags.ZERO), __flag(Flags.OVERFLOW), __flag(Flags.SIGNED))
+    logger.info('  alive=%s, running=%s, idle=%s, exit=%i', cs.alive, cs.running, cs.idle, cs.exit_code)
 
-    info('')
+    logger.info('')
 
-def show_memory(state):
-  info('=== Memory ===')
+def show_memory(logger, state):
+  logger.info('=== Memory ===')
 
   state = state.get_child('machine').get_child('memory')
 
-  info('  Size:          %s', state.size)
-  info('  IRQ table:     %s', ADDR_FMT(state.irq_table_address))
-  info('  Int table:     %s', ADDR_FMT(state.int_table_address))
-  info('  # of segments: %s', len(state.segments))
-  info('  # of pages:    %s', len(state.get_page_states()))
-  info('')
+  logger.info('  Size:          %s', state.size)
+  logger.info('  IRQ table:     %s', ADDR_FMT(state.irq_table_address))
+  logger.info('  Int table:     %s', ADDR_FMT(state.int_table_address))
+  logger.info('  # of segments: %s', len(state.segments))
+  logger.info('  # of pages:    %s', len(state.get_page_states()))
+  logger.info('')
 
-def show_stack(state):
-  info('=== Stack ===')
+def show_stack(logger, state):
+  logger.info('=== Stack ===')
 
   stacks = [pg for pg in state.get_child('machine').get_child('memory').get_page_states() if pg.stack == 1]
 
@@ -99,7 +98,7 @@ def show_stack(state):
     pg_address = pg.index * PAGE_SIZE
     pg_segment = ducky.mm.addr_to_segment(pg_address)
 
-    info('=== Page %s - %s %s ===', pg.index, UINT8_FMT(pg_segment), ADDR_FMT(pg_address))
+    logger.info('=== Page %s - %s %s ===', pg.index, UINT8_FMT(pg_segment), ADDR_FMT(pg_address))
 
     for ri in range(0, 16):
       row = []
@@ -110,26 +109,26 @@ def show_stack(state):
         v = pg.content[offset] | (pg.content[offset + 1] << 8)
         row.append((sps.get(segment_offset, None), v))
 
-      info('  ' + '  '.join(['%s %s' % (' ' if sp is None else '*', ducky.console.WHITE(UINT16_FMT(value)) if value != 0 else ducky.console.GREEN(UINT16_FMT(value))) for sp, value in row]))
+      logger.info('  ' + '  '.join(['%s %s' % (' ' if sp is None else '*', ducky.log.WHITE(UINT16_FMT(value)) if value != 0 else ducky.log.GREEN(UINT16_FMT(value))) for sp, value in row]))
 
-    info('')
+    logger.info('')
 
-def show_segments(state):
-  info('=== Memory segments ===')
+def show_segments(logger, state):
+  logger.info('=== Memory segments ===')
 
   for s in state.get_child('machine').get_child('memory').segments:
-    info('  Segment: %s', UINT8_FMT(s))
+    logger.info('  Segment: %s', UINT8_FMT(s))
 
     for bs in state.get_child('machine').get_binary_states():
       if s == bs.cs:
-        info('    CS of %s', bs.path)
+        logger.info('    CS of %s', bs.path)
       if s == bs.ds:
-        info('    DS of %s', bs.path)
+        logger.info('    DS of %s', bs.path)
 
-  info('')
+  logger.info('')
 
-def show_pages(state):
-  info('=== Memory pages ===')
+def show_pages(logger, state):
+  logger.info('=== Memory pages ===')
 
   for pg in sorted(state.get_child('machine').get_child('memory').get_page_states(), key = lambda x: x.index):
     pg_addr = pg.index * PAGE_SIZE
@@ -141,8 +140,8 @@ def show_pages(state):
       if pg_segment == bs.ds:
         break
 
-    info('  Page #%i (segment %s)', pg.index, UINT8_FMT(pg_segment))
-    info('    Flags: %s%s%s%s', 'r' if pg.read == 1 else '-', 'w' if pg.write == 1 else '-', 'x' if pg.execute == 1 else '-', 'd' if pg.dirty == 1 else '-')
+    logger.info('  Page #%i (segment %s)', pg.index, UINT8_FMT(pg_segment))
+    logger.info('    Flags: %s%s%s%s', 'r' if pg.read == 1 else '-', 'w' if pg.write == 1 else '-', 'x' if pg.execute == 1 else '-', 'd' if pg.dirty == 1 else '-')
 
     CPR = 32
 
@@ -152,7 +151,7 @@ def show_pages(state):
 
       for b in pg.content[CPR * i:CPR * (i + 1)]:
         c = '%02X' % b
-        s.append(ducky.console.GREEN(c) if b == 0 else ducky.console.WHITE(c))
+        s.append(ducky.log.GREEN(c) if b == 0 else ducky.log.WHITE(c))
 
         c = chr(b)
         if c in string.printable[0:-5]:
@@ -168,8 +167,8 @@ def show_pages(state):
         else:
           t.append('  ')
 
-      info('    ' + ADDR_FMT(pg_addr + i * CPR) + ': ' + ' '.join(s))
-      info('              ' + ' '.join(t))
+      logger.info('    ' + ADDR_FMT(pg_addr + i * CPR) + ': ' + ' '.join(s))
+      logger.info('              ' + ' '.join(t))
 
       row_symbols = []
       for j in range(pg_addr + i * CPR, pg_addr + i * CPR + CPR):
@@ -179,12 +178,12 @@ def show_pages(state):
         row_symbols.append((j - (pg_addr + i * CPR)) * 3 * ' ' + '^' + ', '.join(bs.symbols[j]))
 
       for symbol in row_symbols:
-        info('              ' + symbol)
+        logger.info('              ' + symbol)
 
-    info('')
+    logger.info('')
 
-def load_binary_symbols(vs, bs):
-  bs.raw_binary = ducky.mm.binary.File(bs.path, 'r')
+def load_binary_symbols(logger, vs, bs):
+  bs.raw_binary = ducky.mm.binary.File(logger, bs.path, 'r')
   bs.raw_binary.load()
 
   bs.symbols = {}
@@ -209,7 +208,7 @@ def load_binary_symbols(vs, bs):
 def main():
   parser = optparse.OptionParser()
 
-  parser.add_option('-d', dest = 'debug', action = 'store_true', default = False, help = 'Debug mode')
+  ducky.util.add_common_options(parser)
 
   parser.add_option('-i', dest = 'file_in', default = None, help = 'Input file')
 
@@ -222,10 +221,7 @@ def main():
   parser.add_option('-s',         dest = 'stack',    default = False, action = 'store_true', help = 'Show stack content')
   parser.add_option('-a',         dest = 'all',      default = False, action = 'store_true', help = 'All of above')
 
-  options, args = parser.parse_args()
-
-  ducky.util.CONSOLE = ducky.console.Console(None, sys.stdin, sys.stdout)
-  ducky.util.CONSOLE.set_quiet_mode(not options.debug)
+  options, logger = ducky.util.parse_options(parser)
 
   if not options.file_in:
     parser.print_help()
@@ -234,36 +230,36 @@ def main():
   if options.all:
     options.header = options.cores = options.memory = options.segments = options.pages = options.binaries = options.stack = True
 
-  info('Input file: %s', options.file_in)
+  logger.info('Input file: %s', options.file_in)
 
-  with ducky.snapshot.CoreDumpFile(options.file_in, 'r') as f_in:
+  with ducky.snapshot.CoreDumpFile(logger, options.file_in, 'r') as f_in:
     state = f_in.load()
 
     for bs in state.get_child('machine').get_binary_states():
-      load_binary_symbols(state, bs)
+      load_binary_symbols(logger, state, bs)
 
-    info('')
+    logger.info('')
 
     if options.header:
-      show_header(state)
+      show_header(logger, state)
 
     if options.binaries:
-      show_binaries(state)
+      show_binaries(logger, state)
 
     if options.cores:
-      show_cores(state)
+      show_cores(logger, state)
 
     if options.memory:
-      show_memory(state)
+      show_memory(logger, state)
 
     if options.segments:
-      show_segments(state)
+      show_segments(logger, state)
 
     if options.stack:
-      show_stack(state)
+      show_stack(logger, state)
 
     if options.pages:
-      show_pages(state)
+      show_pages(logger, state)
 
 if __name__ == '__main__':
   main()

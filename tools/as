@@ -11,68 +11,29 @@ import optparse
 import ducky.patch
 import ducky.console
 import ducky.cpu
+import ducky.log
 import ducky.mm
 import ducky.mm.binary
 import ducky.cpu.assemble
 import ducky.util
 
-from ducky.util import error, exception
-
-def parse_options():
-  parser = optparse.OptionParser()
-
-  parser.add_option('-d', dest = 'debug', action = 'store_true', default = False, help = 'Debug mode')
-
-  parser.add_option('-i', dest = 'file_in', default = None, help = 'Input file')
-  parser.add_option('-o', dest = 'file_out', default = None, help = 'Output file')
-  parser.add_option('-f', dest = 'force', default = False, action = 'store_true', help = 'Force overwrite of the output file')
-
-  group = optparse.OptionGroup(parser, 'Translation options')
-  parser.add_option_group(group)
-  group.add_option('-D', dest = 'defines', action = 'append', default = [], help = 'Define variable', metavar = 'VAR')
-
-  group = optparse.OptionGroup(parser, 'Binary options')
-  parser.add_option_group(group)
-  group.add_option('-m', '--mmapable-sections', dest = 'mmapable_sections', action = 'store_true', default = False, help = 'Create mmap\'able sections')
-  group.add_option('-w', '--writable-sections', dest = 'writable_sections', action = 'store_true', default = False, help = '.text and other read-only sections will be marked as writable too')
-
-  options, args = parser.parse_args()
-
-  if not options.file_in:
-    parser.print_help()
-    sys.exit(1)
-
-  return options
-
-def main():
-  options = parse_options()
-
-  ducky.util.CONSOLE = ducky.console.Console(None, sys.stdin, sys.stdout)
-  ducky.util.CONSOLE.set_quiet_mode(not options.debug)
-
-  with open(options.file_in, 'r') as f_in:
-    buffer = f_in.read()
-
+def translate_buffer(logger, buffer, file_in, file_out, options):
   try:
-    sections = ducky.cpu.assemble.translate_buffer(buffer, mmapable_sections = options.mmapable_sections, writable_sections = options.writable_sections, filename = options.file_in, defines = options.defines)
+    sections = ducky.cpu.assemble.translate_buffer(logger, buffer, mmapable_sections = options.mmapable_sections, writable_sections = options.writable_sections, filename = file_in, defines = options.defines)
 
   except ducky.cpu.assemble.AssemblerError, exc:
-    exception(exc)
+    logger.exception(exc)
     sys.exit(1)
 
-  if os.path.exists(options.file_out) and not options.force:
-    error('Output file %s already exists, use -f to force overwrite' % options.file_out)
-    sys.exit(1)
-
-  if not options.file_out.endswith('.bin') and not options.force:
-    error('Output file %s has strange extension, use -f to force write' % options.file_out)
+  if os.path.exists(file_out) and not options.force:
+    logger.error('Output file %s already exists, use -f to force overwrite' % options.file_out)
     sys.exit(1)
 
   section_name_to_index = {}
 
   i = 0
   for s_name, section in sections.items():
-    if section.type == ducky.mm.binary.SectionTypes.SYMBOLS:
+    if section.type in (ducky.mm.binary.SectionTypes.SYMBOLS, ducky.mm.binary.SectionTypes.RELOC):
       continue
 
     if section.flags.bss and section.data_size > 0:
@@ -86,7 +47,7 @@ def main():
     section_name_to_index[s_name] = i
     i += 1
 
-  with ducky.mm.binary.File(options.file_out, 'w') as f_out:
+  with ducky.mm.binary.File(logger, file_out, 'w') as f_out:
     h_file = f_out.create_header()
     h_file.flags.mmapable = 1 if options.mmapable_sections else 0
 
@@ -112,6 +73,7 @@ def main():
           entry = ducky.mm.binary.SymbolEntry()
           symbol_entries.append(entry)
 
+          entry.flags = se.flags
           entry.name = f_out.string_table.put_string(se.name.name)
           entry.address = se.section_ptr.u16
           entry.size = se.size.u16
@@ -130,6 +92,23 @@ def main():
         f_out.set_content(h_section, symbol_entries)
         h_section.data_size = h_section.file_size = ducky.cpu.assemble.sizeof(ducky.mm.binary.SymbolEntry()) * len(symbol_entries)
 
+      elif section.type == ducky.mm.binary.SectionTypes.RELOC:
+        reloc_entries = []
+
+        for rs in section.content:
+          entry = ducky.mm.binary.RelocEntry()
+          reloc_entries.append(entry)
+
+          entry.name = f_out.string_table.put_string(rs.name)
+          entry.flags = rs.flags
+          entry.patch_section = section_name_to_index[rs.patch_section.name]
+          entry.patch_address = rs.patch_address
+          entry.patch_offset = rs.patch_offset or 0
+          entry.patch_size = rs.patch_size
+
+        f_out.set_content(h_section, reloc_entries)
+        h_section.data_size = h_section.file_size = ducky.cpu.assemble.sizeof(ducky.mm.binary.RelocEntry()) * len(reloc_entries)
+
       else:
         h_section.flags = section.flags
         f_out.set_content(h_section, section.content)
@@ -139,6 +118,48 @@ def main():
     h_section.name = f_out.string_table.put_string('.strings')
 
     f_out.save()
+
+def main():
+  parser = optparse.OptionParser()
+
+  ducky.util.add_common_options(parser)
+
+  group = optparse.OptionGroup(parser, 'File options')
+  parser.add_option_group(group)
+  group.add_option('-i', dest = 'file_in', action = 'append', default = [], help = 'Input file')
+  group.add_option('-o', dest = 'file_out', action = 'append', default = [], help = 'Output file')
+  group.add_option('-f', dest = 'force', default = False, action = 'store_true', help = 'Force overwrite of the output file')
+
+  group = optparse.OptionGroup(parser, 'Translation options')
+  parser.add_option_group(group)
+  group.add_option('-D', dest = 'defines', action = 'append', default = [], help = 'Define variable', metavar = 'VAR')
+
+  group = optparse.OptionGroup(parser, 'Binary options')
+  parser.add_option_group(group)
+  group.add_option('-m', '--mmapable-sections', dest = 'mmapable_sections', action = 'store_true', default = False, help = 'Create mmap\'able sections')
+  group.add_option('-w', '--writable-sections', dest = 'writable_sections', action = 'store_true', default = False, help = '.text and other read-only sections will be marked as writable too')
+
+  options, logger = ducky.util.parse_options(parser)
+
+  if not options.file_in:
+    parser.print_help()
+    sys.exit(1)
+
+  if len(options.file_out) and len(options.file_out) != len(options.file_in):
+    logger.error('If specified, number of output files must be equal to number of input files')
+    sys.exit(1)
+
+  for file_in in options.file_in:
+    with open(file_in, 'r') as f_in:
+      buffer = f_in.read()
+
+    if options.file_out:
+      file_out = options.file_out.pop(0)
+
+    else:
+      file_out = os.path.splitext(file_in)[0] + '.o'
+
+    translate_buffer(logger, buffer, file_in, file_out, options)
 
 if __name__ == '__main__':
   main()

@@ -7,9 +7,10 @@ from . import util
 
 from .interfaces import IMachineWorker, ISnapshotable, IReactorTask
 
-from .console import Console
+from .console import ConsoleMaster
 from .errors import InvalidResourceError
-from .util import debug, info, error, str2int, LRUCache, warn, print_table, exception
+from .log import create_logger
+from .util import str2int, LRUCache
 from .mm import addr_to_segment, ADDR_FMT, segment_addr_to_addr, UInt16
 from .reactor import Reactor
 from .snapshot import SnapshotNode
@@ -25,16 +26,16 @@ class MachineState(SnapshotNode):
     return [__state for __name, __state in self.get_children().iteritems() if __name.startswith('core')]
 
 class SymbolCache(LRUCache):
-  def __init__(self, _machine, size, *args, **kwargs):
-    super(SymbolCache, self).__init__(size, *args, **kwargs)
+  def __init__(self, machine, size, *args, **kwargs):
+    super(SymbolCache, self).__init__(machine.LOGGER, size, *args, **kwargs)
 
-    self.machine = _machine
+    self.machine = machine
 
   def get_object(self, address):
     cs = addr_to_segment(address)
     address = address & 0xFFFF
 
-    debug('SymbolCache.get_object: cs=%s, address=%s', cs, address)
+    self.machine.DEBUG('SymbolCache.get_object: cs=%s, address=%s', cs, address)
 
     for binary in self.machine.binaries:
       if binary.cs != cs:
@@ -46,12 +47,12 @@ class SymbolCache(LRUCache):
 
 class AddressCache(LRUCache):
   def __init__(self, machine, size, *args, **kwargs):
-    super(AddressCache, self).__init__(size, *args, **kwargs)
+    super(AddressCache, self).__init__(machine.LOGGER, size, *args, **kwargs)
 
     self.machine = machine
 
   def get_object(self, symbol):
-    debug('AddressCache.get_object: symbol=%s', symbol)
+    self.machine.DEBUG('AddressCache.get_object: symbol=%s', symbol)
 
     for csr, dsr, sp, ip, symbols in self.machine.binaries:
       if symbol not in symbols:
@@ -129,8 +130,31 @@ class CheckLivingCoresTask(IReactorTask):
     self.machine.halt()
 
 class Machine(ISnapshotable, IMachineWorker):
-  def __init__(self):
+  def core(self, cid):
+    for _cpu in self.cpus:
+      for _core in _cpu.cores:
+        if '#%i:#%i' % (_cpu.id, _core.id) == cid:
+          return _core
+    else:
+      self.ERROR('Unknown core: cid=%s', cid)
+      return None
+
+  def __init__(self, log_handler = None):
     self.reactor = Reactor()
+
+    # Setup logging
+    self.LOGGER = create_logger(handler = log_handler)
+    self.DEBUG = self.LOGGER.debug
+    self.INFO = self.LOGGER.info
+    self.WARN = self.LOGGER.warning
+    self.ERROR = self.LOGGER.error
+    self.EXCEPTION = self.LOGGER.exception
+
+    self.console = ConsoleMaster(self)
+    self.console.register_command('halt', cmd_halt)
+    self.console.register_command('boot', cmd_boot)
+    self.console.register_command('run', cmd_run)
+    self.console.register_command('snap', cmd_snapshot)
 
     self.irq_router_task = IRQRouterTask(self)
     self.reactor.add_task(self.irq_router_task)
@@ -166,8 +190,8 @@ class Machine(ISnapshotable, IMachineWorker):
     return __cores
 
   def get_storage_by_id(self, id):
-    debug('get_storage_by_id: id=%s', id)
-    debug('storages: %s', str(self.storages))
+    self.DEBUG('get_storage_by_id: id=%s', id)
+    self.DEBUG('storages: %s', str(self.storages))
 
     return self.storages.get(id, None)
 
@@ -196,7 +220,7 @@ class Machine(ISnapshotable, IMachineWorker):
     for __cpu in self.cpus:
       cpu_state = state.get_children().get('cpu{}'.format(__cpu.id), None)
       if cpu_state is None:
-        warn('State of CPU #%i not found!', __cpu.id)
+        self.WARN('State of CPU #%i not found!', __cpu.id)
         continue
 
       __cpu.load_state(cpu_state)
@@ -212,7 +236,7 @@ class Machine(ISnapshotable, IMachineWorker):
       for r in regions:
         table.append([r.name, ADDR_FMT(r.address), r.size, r.flags, r.pages_start, r.pages_start + r.pages_cnt - 1])
 
-      print_table(table)
+      self.LOGGER.table(table)
 
     self.config = machine_config
 
@@ -222,7 +246,7 @@ class Machine(ISnapshotable, IMachineWorker):
     self.memory = mm.MemoryController(self)
 
     from .cpu import CPUCacheController
-    self.cpu_cache_controller = CPUCacheController()
+    self.cpu_cache_controller = CPUCacheController(self)
 
     from .cpu import CPU
     for cpuid in range(0, self.nr_cpus):
@@ -255,7 +279,7 @@ class Machine(ISnapshotable, IMachineWorker):
       binary = Binary(self.config.get('machine', 'interrupt-routines'), run = False)
       self.binaries.append(binary)
 
-      info('Loading IRQ routines from file %s', binary.path)
+      self.INFO('Loading IRQ routines from file %s', binary.path)
 
       binary.cs, binary.ds, binary.sp, binary.ip, binary.symbols, binary.regions, binary.raw_binary = self.memory.load_file(binary.path)
       binary.load_symbols()
@@ -267,7 +291,7 @@ class Machine(ISnapshotable, IMachineWorker):
 
       def __save_iv(name, table, index):
         if name not in binary.symbols:
-          debug('Interrupt routine %s not found', name)
+          self.DEBUG('Interrupt routine %s not found', name)
           return
 
         desc.ip = binary.symbols[name].u16
@@ -282,13 +306,13 @@ class Machine(ISnapshotable, IMachineWorker):
 
       __print_regions(binary.regions)
 
-      info('')
+      self.INFO('')
 
     for binary_section in self.config.iter_binaries():
       binary = Binary(self.config.get(binary_section, 'file'))
       self.binaries.append(binary)
 
-      info('Loading binary from file %s', binary.path)
+      self.INFO('Loading binary from file %s', binary.path)
 
       binary.cs, binary.ds, binary.sp, binary.ip, binary.symbols, binary.regions, binary.raw_binary = self.memory.load_file(binary.path)
       binary.load_symbols()
@@ -297,14 +321,14 @@ class Machine(ISnapshotable, IMachineWorker):
       entry_addr = binary.symbols.get(entry_label, None)
 
       if entry_addr is None:
-        warn('Entry point "%s" of binary %s not found', entry_label, binary.path)
+        self.WARN('Entry point "%s" of binary %s not found', entry_label, binary.path)
         entry_addr = UInt16(0)
 
       binary.ip = entry_addr.u16
 
       __print_regions(binary.regions)
 
-      info('')
+      self.INFO('')
 
     for mmap_section in self.config.iter_mmaps():
       _get     = functools.partial(self.config.get, mmap_section)
@@ -330,18 +354,20 @@ class Machine(ISnapshotable, IMachineWorker):
 
       address = _get('address', '0x000000')
       if address[0].isdigit():
-        address = str2int(address)
+        address = UInt16(str2int(address))
 
       else:
-        address = self.get_addr_by_symbol(address)
-        if address:
-          address = address[1]
+        for binary in self.binaries:
+          symbol_address = binary.symbols.get(address, None)
+          if symbol_address is not None:
+            address = symbol_address
+            break
 
-      if not address:
-        error('Unknown breakpoint address: %s on %s', _get('address', '0x000000'), _get('core', '#0:#0'))
+      if address is None:
+        self.ERROR('Unknown breakpoint address: %s on %s', _get('address', '0x000000'), _get('core', '#0:#0'))
         continue
 
-      add_breakpoint(core, address, ephemeral = _getbool('ephemeral', False), countdown = _getint('countdown', 0))
+      add_breakpoint(core, address.u16, ephemeral = _getbool('ephemeral', False), countdown = _getint('countdown', 0))
 
     # Storage
     from .blockio import STORAGES
@@ -396,7 +422,7 @@ class Machine(ISnapshotable, IMachineWorker):
     self.irq_router_task.queue.append(handler)
 
   def boot(self):
-    debug('Machine.boot')
+    self.DEBUG('Machine.boot')
 
     map(lambda __port: __port.boot(), self.ports)
     map(lambda __irq: __irq.boot(), [irq_source for irq_source in self.irq_sources if irq_source is not None])
@@ -405,10 +431,10 @@ class Machine(ISnapshotable, IMachineWorker):
     init_states = [binary.get_init_state() for binary in self.binaries if binary.run]
     map(lambda __cpu: __cpu.boot(init_states), self.cpus)
 
-    info('Guest terminal available at %s', self.conio.get_terminal_dev())
+    self.INFO('Guest terminal available at %s', self.conio.get_terminal_dev())
 
   def run(self):
-    debug('Machine.run')
+    self.DEBUG('Machine.run')
 
     map(lambda __port: __port.run(), self.ports)
     map(lambda __irq: __irq.run(), [irq_source for irq_source in self.irq_sources if irq_source is not None])
@@ -419,24 +445,24 @@ class Machine(ISnapshotable, IMachineWorker):
     self.reactor.run()
 
   def suspend(self):
-    debug('Machine.suspend')
+    self.DEBUG('Machine.suspend')
 
     map(lambda __cpu: __cpu.suspend(), self.cpus)
 
   def wake_up(self):
-    debug('Machine.wake_up')
+    self.DEBUG('Machine.wake_up')
 
     map(lambda __cpu: __cpu.wake_up(), self.cpus)
 
   def die(self, exc):
-    debug('Machine.die: exc=%s', exc)
+    self.DEBUG('Machine.die: exc=%s', exc)
 
-    exception(exc)
+    self.EXCEPTION(exc)
 
     self.halt()
 
   def halt(self):
-    debug('Machine.halt')
+    self.DEBUG('Machine.halt')
 
     map(lambda __irq: __irq.halt(),         [irq_source for irq_source in self.irq_sources if irq_source is not None])
     map(lambda __port: __port.halt(),       self.ports)
@@ -449,47 +475,50 @@ class Machine(ISnapshotable, IMachineWorker):
   def snapshot(self, path):
     state = snapshot.VMState.capture_vm_state(self, suspend = False)
     state.save(path)
-    info('VM snapshot save in %s', path)
+    self.INFO('VM snapshot save in %s', path)
 
 def cmd_boot(console, cmd):
   """
   Setup HW, load binaries, init everything
   """
 
-  console.machine.boot()
-  console.Console.unregister_command('boot')
+  M = console.master.machine
+
+  M.boot()
+  M.console.unregister_command('boot')
 
 def cmd_run(console, cmd):
   """
   Start execution of loaded binaries
   """
 
-  console.machine.run()
-  console.Console.unregister_command('run')
+  M = console.master.machine
+
+  M.run()
+  M.console.unregister_command('run')
 
 def cmd_halt(console, cmd):
   """
   Halt execution
   """
 
-  console.info('VM halted by user')
+  M = console.master.machine
 
-  console.machine.halt()
-  console.halt()
+  M.halt()
+
+  M.INFO('VM halted by user')
 
 def cmd_snapshot(console, cmd):
   """
   Create snapshot
   """
 
-  state = snapshot.VMState.capture_vm_state(console.machine)
+  M = console.master.machine
+
+  state = snapshot.VMState.capture_vm_state(M)
 
   filename = 'ducky-core.{}'.format(os.getpid())
   state.save(filename)
 
-  console.info('Snapshot saved as %s', filename)
-
-Console.register_command('halt', cmd_halt)
-Console.register_command('boot', cmd_boot)
-Console.register_command('run', cmd_run)
-Console.register_command('snap', cmd_snapshot)
+  M.INFO('Snapshot saved as %s', filename)
+  console.writeln('Snapshot saved as %s', filename)

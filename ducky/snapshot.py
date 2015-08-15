@@ -4,7 +4,7 @@ try:
 except ImportError:
   import pickle
 
-from .util import BinaryFile, debug
+from .util import BinaryFile
 
 class SnapshotNode(object):
   def __init__(self, *fields):
@@ -44,40 +44,47 @@ class SnapshotNode(object):
           print offset, '    ', '{}: {}'.format(name, value)
 
 class VMState(SnapshotNode):
+  def __init__(self, logger):
+    super(VMState, self).__init__()
+
+    self.logger = logger
+
   @staticmethod
-  def capture_vm_state(vm, suspend = True):
-    debug('capture_vm_state')
+  def capture_vm_state(machine, suspend = True):
+    machine.DEBUG('capture_vm_state')
 
-    state = VMState()
-
-    if suspend:
-      debug('suspend vm...')
-      vm.suspend()
-
-    debug('capture state...')
-    vm.save_state(state)
+    state = VMState(machine.LOGGER)
 
     if suspend:
-      debug('wake vm up...')
-      vm.wake_up()
+      machine.DEBUG('suspend vm...')
+      machine.suspend()
+
+    machine.DEBUG('capture state...')
+    machine.save_state(state)
+
+    if suspend:
+      machine.DEBUG('wake vm up...')
+      machine.wake_up()
 
     return state
 
   @staticmethod
-  def load_vm_state(filename):
-    return CoreDumpFile(filename, 'r').load()
+  def load_vm_state(logger, filename):
+    return CoreDumpFile(logger, filename, 'r').load()
 
   def save(self, filename):
-    f_out = CoreDumpFile(filename, 'w')
+    f_out = CoreDumpFile(self.logger, filename, 'w')
     f_out.save(self)
 
 class CoreDumpFile(BinaryFile):
   def load(self):
-    debug('CoreDumpFile.load')
+    self.DEBUG('CoreDumpFile.load')
 
     return pickle.load(self)
 
   def save(self, state):
-    debug('CoreDumpFile.save: state=%s', state)
+    self.DEBUG('CoreDumpFile.save: state=%s', state)
 
+    logger, state.logger = state.logger, None
     pickle.dump(state, self)
+    state.logger = logger

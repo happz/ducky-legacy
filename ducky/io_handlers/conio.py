@@ -7,12 +7,10 @@ import sys
 import types
 
 from .. import io_handlers
-from .. import util
 
 from ..interfaces import IVirtualInterrupt
 from ..cpu.registers import Registers
-from ..util import debug, info, warn, error, exception
-from ..console import WHITE
+from ..log import WHITE
 from ..irq import InterruptList, VIRTUAL_INTERRUPTS
 
 CR = ord('\r')
@@ -65,10 +63,10 @@ class ConsoleIOHandler(io_handlers.IOHandler):
     return self.terminal_device
 
   def __open_input_stream(self):
-    debug('conio.__open_input_stream')
+    self.machine.DEBUG('conio.__open_input_stream')
 
     if self.input:
-      debug('conio.__open_input_stream: closing existing input stream')
+      self.machine.DEBUG('conio.__open_input_stream: closing existing input stream')
 
       self.input.close()
 
@@ -78,16 +76,16 @@ class ConsoleIOHandler(io_handlers.IOHandler):
     # In case input_streams are empty, there is no ptty console,
     # just halt VM - no other input wil ever come
     if not self.input_streams:
-      debug('conio.__open_input_stream: no additional input streams')
+      self.machine.DEBUG('conio.__open_input_stream: no additional input streams')
       if self.queue[-1] != ConsoleIOHandler.CTRL_HALT:
-        debug('conio.__open_input_stream: plan halt')
+        self.machine.DEBUG('conio.__open_input_stream: plan halt')
         self.queue.append(ConsoleIOHandler.CTRL_HALT)
       return
 
     stream = self.input_streams.pop(0)
 
     if type(stream) == pytty.TTY:
-      debug('conio.__open_input_stream: console attached')
+      self.machine.DEBUG('conio.__open_input_stream: console attached')
 
       self.input = stream
       self.input_fd = self.pttys[0]
@@ -97,7 +95,7 @@ class ConsoleIOHandler(io_handlers.IOHandler):
         self.queue += l
 
     elif isinstance(stream, types.StringType):
-      debug('conio.__open_input_stream: input file attached')
+      self.machine.DEBUG('conio.__open_input_stream: input file attached')
 
       self.input = open(stream, 'rb')
       self.input_fd = self.input.fileno()
@@ -107,12 +105,12 @@ class ConsoleIOHandler(io_handlers.IOHandler):
         self.queue += l
 
     else:
-      warn('__open_input_stream: Unknown input stream type: %s of type %s', stream, type(stream))
+      self.machine.WARN('__open_input_stream: Unknown input stream type: %s of type %s', stream, type(stream))
       self.__open_input_stream()
 
     self.flush_output()
 
-    debug('conio.__open_input_stream: stream=%s, input_fd=%s', self.input, self.input_fd)
+    self.machine.DEBUG('conio.__open_input_stream: stream=%s, input_fd=%s', self.input, self.input_fd)
 
   def do_flush_output(self):
     if not self.output or not hasattr(self.output, 'flush') or (hasattr(self.output, 'closed') and self.output.closed is not False):
@@ -145,7 +143,7 @@ class ConsoleIOHandler(io_handlers.IOHandler):
 
     else:
       if not self.open_console:
-        warn('conio: you have no access to VM output')
+        self.machine.WARN('conio: you have no access to VM output')
 
       else:
         self.output = pytty.TTY(self.pttys[0])
@@ -159,9 +157,9 @@ class ConsoleIOHandler(io_handlers.IOHandler):
       Print path to guest terminal pty
       """
 
-      info('Guest terminal available at %s', self.get_terminal_dev())
+      self.machine.INFO('Guest terminal available at %s', self.get_terminal_dev())
 
-    util.CONSOLE.__class__.register_command('conio_pty', cmd_conio_pty)
+    self.machine.console.register_command('conio_pty', cmd_conio_pty)
 
     self.booted = True
 
@@ -181,8 +179,8 @@ class ConsoleIOHandler(io_handlers.IOHandler):
       except Exception as e:
         e.exc_stack = sys.exc_info()
 
-        warn('Exception raised while closing PTY')
-        exception(e)
+        self.machine.WARN('Exception raised while closing PTY')
+        self.machine.EXCEPTION(e)
 
       self.input = self.output = None
 
@@ -198,7 +196,7 @@ class ConsoleIOHandler(io_handlers.IOHandler):
     if not self.input_fd:
       self.__open_input_stream()
 
-    debug('conio: input stream=%s', self.input)
+    self.machine.DEBUG('conio: input stream=%s', self.input)
 
     if not self.input_fd:
       return False
@@ -210,17 +208,17 @@ class ConsoleIOHandler(io_handlers.IOHandler):
 
     except Exception, e:
       e.exc_stack = sys.exc_info()
-      error('conio.check_available_input: exception happened: e=%s', type(e))
-      exception(e, logger = error)
+      self.machine.ERROR('conio.check_available_input: exception happened: e=%s', type(e))
+      self.machine.EXCEPTION(e)
       return False
 
   def read_raw_input(self, conio_irq):
     while True:
       if not self.check_available_input():
-        debug('conio.read_input: no input available')
+        self.machine.DEBUG('conio.read_input: no input available')
         return False
 
-      debug('conio.read_input: reading available data from input')
+      self.machine.DEBUG('conio.read_input: reading available data from input')
 
       try:
         if not self.input:
@@ -240,8 +238,8 @@ class ConsoleIOHandler(io_handlers.IOHandler):
 
       except IOError, e:
         e.exc_stack = sys.exc_info()
-        error('conio.read_raw_input: failed to read from input: input=%s', repr(self.input))
-        exception(e, logger = error)
+        self.machine.ERROR('conio.read_raw_input: failed to read from input: input=%s', repr(self.input))
+        self.machine.EXCEPTION(e)
         return False
 
       return True
@@ -255,28 +253,28 @@ class ConsoleIOHandler(io_handlers.IOHandler):
         c = self.queue.pop(0)
 
       except IndexError:
-        debug('conio.__read_char: select claims no input available')
+        self.machine.DEBUG('conio.__read_char: select claims no input available')
         return None
 
       if type(c) == ControlMessages:
         if c == ControlMessages.CRLF_ON:
-          debug('conio: CRLF on')
+          self.machine.DEBUG('conio: CRLF on')
           self.crlf = True
 
         elif c == ControlMessages.CRLF_OFF:
-          debug('conio: CRLF off')
+          self.machine.DEBUG('conio: CRLF off')
           self.crlf = False
 
         elif c == ControlMessages.ECHO_ON:
-          debug('conio: echo on')
+          self.machine.DEBUG('conio: echo on')
           self.echo = True
 
         elif c == ControlMessages.ECHO_OFF:
-          debug('conio: echo off')
+          self.machine.DEBUG('conio: echo off')
           self.echo = False
 
         elif c == ControlMessages.HALT:
-          debug('conio: planned halt, execute')
+          self.machine.DEBUG('conio: planned halt, execute')
           self.machine.halt()
 
           return None
@@ -287,12 +285,12 @@ class ConsoleIOHandler(io_handlers.IOHandler):
 
     c = ord(c)
 
-    debug('conio.__read_char: c=%s (%s)', c, self.__escape_char(c))
+    self.machine.DEBUG('conio.__read_char: c=%s (%s)', c, self.__escape_char(c))
 
     return c
 
   def __write_char(self, c, vm_output = True):
-    debug('conio.__write_char: c=%s (%s)', c, self.__escape_char(c))
+    self.machine.DEBUG('conio.__write_char: c=%s (%s)', c, self.__escape_char(c))
 
     try:
       s = chr(c)
@@ -308,18 +306,18 @@ class ConsoleIOHandler(io_handlers.IOHandler):
 
     except IOError, e:
       e.exc_stack = sys.exc_info()
-      error('Exception raised during console write')
-      exception(e, logger = error)
+      self.machine.ERROR('Exception raised during console write')
+      self.machine.EXCEPTION(e)
 
   def read_u8_256(self):
-    debug('conio.read_u8_256')
+    self.machine.DEBUG('conio.read_u8_256')
 
     c = self.__read_char()
     if not c:
-      debug('conio.read_u8_256: empty input, signal it downstream')
+      self.machine.DEBUG('conio.read_u8_256: empty input, signal it downstream')
       return 0xFF
 
-    debug('conio.read_u8_256: input byte is %s', c)
+    self.machine.DEBUG('conio.read_u8_256: input byte is %s', c)
 
     if self.echo:
       self.__write_char(c, vm_output = False)
@@ -330,17 +328,17 @@ class ConsoleIOHandler(io_handlers.IOHandler):
     return c
 
   def write_u8_256(self, value):
-    debug('conio.write_u8_256: value=%s', value)
+    self.machine.DEBUG('conio.write_u8_256: value=%s', value)
 
     self.__write_char(value)
 
   def write_u8_257(self, value):
-    debug('conio.write_u8_257: value=%s', value)
+    self.machine.DEBUG('conio.write_u8_257: value=%s', value)
 
     self.__write_char(value)
 
   def writeln(self, line):
-    debug('conio.writeln: line=%s', line)
+    self.machine.DEBUG('conio.writeln: line=%s', line)
 
     for c in line:
       self.__write_char(ord(c))

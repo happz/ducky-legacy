@@ -18,7 +18,6 @@ from .interfaces import IMachineWorker, IVirtualInterrupt
 from .cpu.registers import Registers
 from .irq import InterruptList, VIRTUAL_INTERRUPTS
 from .mm import segment_addr_to_addr
-from .util import debug
 
 #: Size of block, in bytes.
 BLOCK_SIZE = 1024
@@ -84,7 +83,7 @@ class Storage(IMachineWorker):
     :param int cnt: number of blocks to read
     """
 
-    debug('read_block: id=%s, src=%s, dst=%s, cnt=%s', self.id, src, dst, cnt)
+    self.machine.DEBUG('read_block: id=%s, src=%s, dst=%s, cnt=%s', self.id, src, dst, cnt)
 
     if (src + cnt) * BLOCK_SIZE > self.size:
       raise StorageAccessError('Out of bounds access: storage size {} is too small'.format(self.size))
@@ -103,7 +102,7 @@ class Storage(IMachineWorker):
     :param int cnt: number of blocks to write
     """
 
-    debug('write_block: id=%s, src=%s, dst=%s, cnt=%s', self.id, src, dst, cnt)
+    self.machine.DEBUG('write_block: id=%s, src=%s, dst=%s, cnt=%s', self.id, src, dst, cnt)
 
     if (dst + cnt) * BLOCK_SIZE > self.size:
       raise StorageAccessError('Out of bounds access: storage size {} is too small'.format(self.size))
@@ -133,13 +132,13 @@ class FileBackedStorage(Storage):
     self.file = open(self.path, 'r+b')
 
   def halt(self):
-    debug('BIO: halt')
+    self.machine.DEBUG('BIO: halt')
 
     self.file.flush()
     self.file.close()
 
   def do_read_block(self, src, dst, cnt):
-    debug('do_read_block: src=%s, dst=%s, cnt=%s', src, dst, cnt)
+    self.machine.DEBUG('do_read_block: src=%s, dst=%s, cnt=%s', src, dst, cnt)
 
     self.file.seek(src * BLOCK_SIZE)
     buff = self.file.read(cnt * BLOCK_SIZE)
@@ -148,7 +147,7 @@ class FileBackedStorage(Storage):
       self.machine.memory.write_u8(dst, ord(c))
       dst += 1
 
-    debug('BIO: %s bytes read from %s:%s', cnt * BLOCK_SIZE, self.file.name, dst * BLOCK_SIZE)
+    self.machine.DEBUG('BIO: %s bytes read from %s:%s', cnt * BLOCK_SIZE, self.file.name, dst * BLOCK_SIZE)
 
   def do_write_block(self, src, dst, cnt):
     buff = []
@@ -163,7 +162,7 @@ class FileBackedStorage(Storage):
     self.file.write(buff)
     self.file.flush()
 
-    debug('BIO: %s bytes written at %s:%s', cnt * BLOCK_SIZE, self.file.name, dst * BLOCK_SIZE)
+    self.machine.DEBUG('BIO: %s bytes written at %s:%s', cnt * BLOCK_SIZE, self.file.name, dst * BLOCK_SIZE)
 
 #: List of known storage classes and their names.
 STORAGES = {

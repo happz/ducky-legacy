@@ -2,7 +2,6 @@ import enum
 
 from .. import cpu
 
-from ..util import debug
 from ..mm import UINT16_FMT
 
 class IOPorts(enum.IntEnum):
@@ -35,7 +34,7 @@ class IOHandler(object):
   def read_u16(self, port):
     handler_name = 'read_u16_{}'.format(port)
 
-    debug('read_u16: port=%s', port)
+    self.machine.DEBUG('read_u16: port=%s', port)
 
     if not hasattr(self, handler_name):
       raise cpu.AccessViolationError('Unable to read from port: port={}'.format(port))
@@ -45,7 +44,7 @@ class IOHandler(object):
   def write_u8(self, port, value):
     handler_name = 'write_u8_{}'.format(port)
 
-    debug('write_u8: port=%s, value=%s', port, value)
+    self.machine.DEBUG('write_u8: port=%s, value=%s', port, value)
 
     if not hasattr(self, handler_name):
       raise cpu.AccessViolationError('Unable to write to port: port={}'.format(UINT16_FMT(port)))
@@ -55,7 +54,7 @@ class IOHandler(object):
   def write_u16(self, port, value):
     handler_name = 'write_u16_{}'.format(port)
 
-    debug('write_u16: port=%s, value=%s', port, value)
+    self.machine.DEBUG('write_u16: port=%s, value=%s', port, value)
 
     if not hasattr(self, handler_name):
       raise cpu.AccessViolationError('Unable to write to port: port={}'.format(UINT16_FMT(port)))

@@ -5,17 +5,9 @@ CC_GREEN=$(shell echo -e "\033[0;32m")
 CC_YELLOW=$(shell echo -e "\033[0;33m")
 CC_END=$(shell echo -e "\033[0m")
 
-SOURCES  := $(shell find $(CURDIR) -name '*.asm')
-BINARIES := $(SOURCES:%.asm=%.bin)
-
 INSTALLED_EGG := $(VIRTUAL_ENV)/lib/python2.7/site-packages/ducky-1.0-py2.7.egg
 
-FORTH_KERNEL := forth/ducky-forth.bin
-
-forth/ducky-forth.bin: forth/ducky-forth.asm forth/ducky-forth-words.asm
-
 .PHONY: tests-pre tests-engine tests-post test-submit-results tests docs cloc flake
-
 
 #
 # Tests
@@ -24,7 +16,7 @@ FORTH_TESTS_IN  := $(shell find $(CURDIR) -name 'test-*.f' | sort)
 FORTH_TESTS_OUT := $(FORTH_TESTS_IN:%.f=%.f.out)
 
 # See tests/forth/ans/runtest.fth for full list
-FORTH_ANS_TESTS := core.fr # coreplustest.fth coreexttest.fth memorytest.fth toolstest.fth stringtest.fth
+FORTH_ANS_TESTS := core.fr memorytest.fth # coreplustest.fth coreexttest.fth memorytest.fth toolstest.fth stringtest.fth
 
 
 #
@@ -122,6 +114,42 @@ endif
 ifndef FORTH_WELCOME
   FORTH_WELCOME := no
 endif
+
+
+#
+# FORTH
+#
+FORTH_KERNEL := forth/ducky-forth
+FORTH_LD_OPTIONS := --section-base=.text=0x0000 --section-base=.userspace=0x5000
+
+forth/ducky-forth.o: forth/ducky-forth.asm forth/ducky-forth-words.asm
+$(FORTH_KERNEL): forth/ducky-forth.o
+	$(Q) echo -n "[LINK] $^ => $@ ... "
+	$(Q) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) tools/ld -o $@ $(foreach objfile,$^,-i $(objfile)) $(FORTH_LD_OPTIONS) $(VMDEBUG); if [ "$$?" -eq 0 ]; then echo "$(CC_GREEN)PASS$(CC_END)"; else echo "$(CC_RED)FAIL$(CC_END)"; fi
+
+forth: $(FORTH_KERNEL)
+
+#
+# Examples
+#
+
+examples/hello-world/hello-world: examples/hello-world/hello-world.o
+	$(Q) echo -n "[LINK] $^ => $@ ... "
+	$(Q) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) tools/ld -o $@ $(foreach objfile,$^,-i $(objfile)) $(VMDEBUG); if [ "$$?" -eq 0 ]; then echo "$(CC_GREEN)PASS$(CC_END)"; else echo "$(CC_RED)FAIL$(CC_END)"; fi
+
+hello-world: examples/hello-world/hello-world
+
+run-hello-world: hello-world
+	$(Q) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) tools/vm --machine-config=examples/hello-world/hello-world.conf -g --conio-stdout-echo=yes
+
+examples/hello-world-lib/hello-world: examples/hello-world-lib/lib.o examples/hello-world-lib/main.o
+	$(Q) echo -n "[LINK] $^ => $@ ... "
+	$(Q) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) tools/ld -o $@ $(foreach objfile,$^,-i $(objfile)) $(VMDEBUG); if [ "$$?" -eq 0 ]; then echo "$(CC_GREEN)PASS$(CC_END)"; else echo "$(CC_RED)FAIL$(CC_END)"; fi
+
+hello-world-lib: examples/hello-world-lib/hello-world
+
+run-hello-world-lib: hello-world-lib
+	$(Q) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) tools/vm --machine-config=examples/hello-world-lib/hello-world.conf -g --conio-stdout-echo=yes
 
 
 run: interrupts.bin $(FORTH_KERNEL)
@@ -236,7 +264,7 @@ cloc:
 	cloc --skip-uniqueness ducky/ forth/ examples/
 
 flake:
-	-$(Q) flake8 --config=$(CURDIR)/flake8.cfg $(shell find $(CURDIR)/ducky $(CURDIR)/tests -name '*.py') $(shell find $(CURDIR)/tools) | sort | grep -v -e "'patch' imported but unused" -e tools/cc -e duckyfs
+	$(Q) ! flake8 --config=$(CURDIR)/flake8.cfg $(shell find $(CURDIR)/ducky $(CURDIR)/tests -name '*.py') $(shell find $(CURDIR)/tools) | sort | grep -v -e "'patch' imported but unused" -e tools/cc -e duckyfs -e '\.swp'
 
 docs:
 	sphinx-apidoc -T -e -o docs/ ducky/
@@ -247,14 +275,16 @@ install:
 	python setup.py install
 
 clean:
-	$(Q) rm -f $(BINARIES)
-	$(!) rm -rf ducky-snapshot.bin build dist ducky.egg-info tests-python-egg-mmap tests-python-egg-read tests-python-devel-mmap tests-python-devel-read tests-pypy-devel-mmap tests-pypy-devel-mmap tests-pypy-devel-read tests-pypy-egg-mmap tests-pypy-egg-read
+	$(Q) rm -f examples/hello-world/hello-world examples/hello-world-lib/hello-world $(FORTH_KERNEL)
+	$(Q) rm -f `find $(CURDIR) -name '*.o'`
+	$(Q) rm -rf ducky-snapshot.bin build dist ducky.egg-info tests-python-egg-mmap tests-python-egg-read tests-python-devel-mmap tests-python-devel-read tests-pypy-devel-mmap tests-pypy-devel-mmap tests-pypy-devel-read tests-pypy-egg-mmap tests-pypy-egg-read
 
 
 #
 # Wildcard targets
 #
-%.bin: %.asm
+
+%.o: %.asm
 ifeq ($(MMAPABLE_SECTIONS),yes)
 	$(eval mmapable_sections := --mmapable-sections)
 else
@@ -277,6 +307,7 @@ else
 endif
 	$(Q) echo -n "[COMPILE] $< => $@ ... "
 	$(Q) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) tools/as -i $< -o $@ -f $(mmapable_sections) $(forth_debug_find) $(forth_text_writable) $(forth_welcome) $(VMDEBUG); if [ "$$?" -eq 0 ]; then echo "$(CC_GREEN)PASS$(CC_END)"; else echo "$(CC_RED)FAIL$(CC_END)"; fi
+
 
 %.f.out: %.f interrupts.bin $(FORTH_KERNEL)
 	$(eval tc_name     := $(notdir $(<:%.f=%)))

@@ -10,6 +10,7 @@ There are two different kinds of objects that reactor manages:
 """
 
 import Queue
+import select
 
 from .interfaces import IReactorTask
 
@@ -30,6 +31,44 @@ class CallInReactorTask(IReactorTask):
   def run(self):
     self.fn(*self.args, **self.kwargs)
 
+class SelectTask(IReactorTask):
+  def __init__(self, fds, *args, **kwargs):
+    super(SelectTask, self).__init__(*args, **kwargs)
+
+    self.fds = fds
+
+  def runnable(self):
+    return True
+
+  def run(self):
+    fds = [fd for fd in self.fds.iterkeys()]
+
+    f_read, f_write, f_err = select.select(fds, fds, fds, 0)
+
+    for fd in f_err:
+      if not self.fds[fd][2]:
+        continue
+
+      self.fds[fd][2]()
+
+    for fd in f_read:
+      if fd in f_err:
+        continue
+
+      if not self.fds[fd][0]:
+        continue
+
+      self.fds[fd][0]()
+
+    for fd in f_write:
+      if fd in f_err:
+        continue
+
+      if not self.fds[fd][1]:
+        continue
+
+      self.fds[fd][1]()
+
 class Reactor(object):
   """
   Main reactor class.
@@ -38,6 +77,9 @@ class Reactor(object):
   def __init__(self):
     self.tasks = []
     self.events = Queue.Queue()
+
+    self.fds = {}
+    self.fds_task = None
 
   def add_task(self, task):
     """
@@ -66,6 +108,24 @@ class Reactor(object):
     """
 
     self.add_event(CallInReactorTask(fn, *args, **kwargs))
+
+  def add_fd(self, fd, on_read = None, on_write = None, on_error = None):
+    assert fd not in self.fds
+
+    self.fds[fd] = (on_read, on_write, on_error)
+
+    if len(self.fds) == 1:
+      self.fds_task = SelectTask(self.fds)
+      self.add_task(self.fds_task)
+
+  def remove_fd(self, fd):
+    assert fd in self.fds
+
+    del self.fds[fd]
+
+    if not len(self.fds):
+      self.remove_task(self.fds_task)
+      self.fds_task = None
 
   def run(self):
     """

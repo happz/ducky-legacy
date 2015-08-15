@@ -1,6 +1,6 @@
+import functools
 import sys
 
-from .. import console
 from . import registers
 from .. import mm
 from .. import profiler
@@ -10,7 +10,7 @@ from ..mm import ADDR_FMT, UINT8_FMT, UINT16_FMT, UINT32_FMT, SEGMENT_SIZE, PAGE
 from .registers import Registers, REGISTER_NAMES, FlagsRegister, GENERAL_REGISTERS
 from .instructions import DuckyInstructionSet
 from ..errors import AccessViolationError, InvalidResourceError
-from ..util import debug, info, warn, error, print_table, LRUCache, exception
+from ..util import LRUCache
 from ..snapshot import SnapshotNode
 
 from ctypes import LittleEndianStructure, c_ubyte, c_ushort
@@ -153,7 +153,7 @@ class InstructionCache(LRUCache):
   """
 
   def __init__(self, core, size, *args, **kwargs):
-    super(InstructionCache, self).__init__(size, *args, **kwargs)
+    super(InstructionCache, self).__init__(core.cpu.machine.LOGGER, size, *args, **kwargs)
 
     self.core = core
 
@@ -191,7 +191,7 @@ class CPUDataCache(LRUCache):
   """
 
   def __init__(self, controller, core, size, *args, **kwargs):
-    super(CPUDataCache, self).__init__(size, *args, **kwargs)
+    super(CPUDataCache, self).__init__(core.cpu.machine.LOGGER, size, *args, **kwargs)
 
     self.controller = controller
     self.core = core
@@ -325,7 +325,9 @@ class CPUDataCache(LRUCache):
       self.release_entry_references(addr, writeback = writeback, remove = remove)
 
 class CPUCacheController(object):
-  def __init__(self):
+  def __init__(self, machine):
+    self.machine = machine
+
     self.cores = []
 
   def register_core(self, core):
@@ -335,25 +337,25 @@ class CPUCacheController(object):
     self.cores.remove(core)
 
   def release_entry_references(self, caller, address):
-    debug('CPUCacheController.release_entry_references: caller=%s, addresss=%s', str(caller), ADDR_FMT(address))
+    self.machine.DEBUG('CPUCacheController.release_entry_references: caller=%s, addresss=%s', str(caller), ADDR_FMT(address))
 
     writeback = True if caller is None else False
     map(lambda core: core.data_cache.release_entry_references(address, writeback = writeback, remove = True), [core for core in self.cores if core is not caller])
 
   def release_page_references(self, caller, pg):
-    debug('CPUCacheController.release_page_references: caller=%s, pg=%s', str(caller), pg)
+    self.machine.DEBUG('CPUCacheController.release_page_references: caller=%s, pg=%s', str(caller), pg)
 
     writeback = True if caller is None else False
     map(lambda core: core.data_cache.release_page_references(pg, writeback = writeback, remove = True), [core for core in self.cores if core is not caller])
 
   def release_area_references(self, caller, address, size):
-    debug('CPUCacheController.release_area_references: caller=%s, address=%s, size=%s', str(caller), ADDR_FMT(address), UINT24_FMT(size))
+    self.machine.DEBUG('CPUCacheController.release_area_references: caller=%s, address=%s, size=%s', str(caller), ADDR_FMT(address), UINT24_FMT(size))
 
     writeback = True if caller is None else False
     map(lambda core: core.data_cache.release_area_references(address, size, writeback = writeback, remove = True), [core for core in self.cores if core is not caller])
 
   def release_references(self, caller):
-    debug('CPUCacheController.release_references: caller=%s', str(caller))
+    self.machine.DEBUG('CPUCacheController.release_references: caller=%s', str(caller))
 
     writeback = True if caller is None else False
     map(lambda core: core.data_cache.release_references(writeback = writeback, remove = True), [core for core in self.cores if core is not caller])
@@ -375,6 +377,21 @@ class CPUCore(ISnapshotable, IMachineWorker):
     super(CPUCore, self).__init__()
 
     self.cpuid_prefix = '#{}:#{}: '.format(cpu.id, coreid)
+
+    def __log(logger, *args):
+      args = ('%s ' + args[0],) + (self.cpuid_prefix,) + args[1:]
+      logger(*args)
+
+    def __log_exception(exc):
+      self.cpu.machine.EXCEPTION(exc)
+      do_log_cpu_core_state(self, logger = self.ERROR, disassemble = False if isinstance(exc, InvalidOpcodeError) else True)
+
+    self.LOGGER = cpu.machine.LOGGER
+    self.DEBUG = lambda *args: __log(self.cpu.machine.DEBUG, *args)
+    self.INFO  = lambda *args: __log(self.cpu.machine.INFO, *args)
+    self.WARN  = lambda *args: __log(self.cpu.machine.WARN, *args)
+    self.ERROR = lambda *args: __log(self.cpu.machine.ERROR, *args)
+    self.EXCEPTION = __log_exception
 
     self.id = coreid
     self.cpu = cpu
@@ -414,27 +431,6 @@ class CPUCore(ISnapshotable, IMachineWorker):
 
   def has_coprocessor(self, name):
     return hasattr(self, '{}_coprocessor'.format(name))
-
-  def LOG(self, logger, *args):
-    args = ('%s ' + args[0],) + (self.cpuid_prefix,) + args[1:]
-    logger(*args)
-
-  def DEBUG(self, *args):
-    self.LOG(debug, *args)
-
-  def INFO(self, *args):
-    self.LOG(info, *args)
-
-  def WARN(self, *args):
-    self.LOG(warn, *args)
-
-  def ERROR(self, *args):
-    self.LOG(error, *args)
-
-  def EXCEPTION(self, exc):
-    exception(exc, logger = self.ERROR)
-
-    do_log_cpu_core_state(self, logger = self.ERROR, disassemble = False if isinstance(exc, InvalidOpcodeError) else True)
 
   def __repr__(self):
     return '#{}:#{}'.format(self.cpu.id, self.id)
@@ -917,6 +913,8 @@ class CPUCore(ISnapshotable, IMachineWorker):
 
     self.DEBUG('----- * ----- * ----- * ----- * ----- * ----- * ----- * -----')
 
+    self.debug.check()
+
     # Read next instruction
     self.DEBUG('"FETCH" phase')
 
@@ -1023,6 +1021,16 @@ class CPU(ISnapshotable, IMachineWorker):
 
     self.cpuid_prefix = '#{}:'.format(cpuid)
 
+    def __log(logger, *args):
+      args = ('%s ' + args[0],) + (self.cpuid_prefix,) + args[1:]
+      logger(*args)
+
+    self.DEBUG = lambda *args: __log(self.machine.DEBUG, *args)
+    self.INFO  = lambda *args: __log(self.machine.INFO, *args)
+    self.WARN  = lambda *args: __log(self.machine.WARN, *args)
+    self.ERROR = lambda *args: __log(self.machine.ERROR, *args)
+    self.EXCEPTION = lambda *args: __log(self.machine.EXCEPTION, *args)
+
     self.machine = machine
     self.id = cpuid
 
@@ -1034,6 +1042,20 @@ class CPU(ISnapshotable, IMachineWorker):
       __core = CPUCore(i, self, self.memory, self.cache_controller)
       self.cores.append(__core)
 
+    C = self.machine.console
+    if not C.is_registered_command('sc'):
+      C.register_command('sc', cmd_set_core)
+    if not C.is_registered_command('cont'):
+      C.register_command('cont', cmd_cont)
+    if not C.is_registered_command('step'):
+      C.register_command('step', cmd_step)
+    if not C.is_registered_command('next'):
+      C.register_command('next', cmd_next)
+    if not C.is_registered_command('st'):
+      C.register_command('st', cmd_core_state)
+    if not C.is_registered_command('bt'):
+      C.register_command('bt', cmd_bt)
+
   def save_state(self, parent):
     state = parent.add_child('cpu{}'.format(self.id), CPUState())
 
@@ -1042,25 +1064,6 @@ class CPU(ISnapshotable, IMachineWorker):
   def load_state(self, state):
     for core_state in state.get_children().itervalues():
       self.cores[core_state.coreid].load_state(core_state)
-
-  def __LOG(self, logger, *args):
-    args = ('%s ' + args[0],) + (self.cpuid_prefix,) + args[1:]
-    logger(*args)
-
-  def DEBUG(self, *args):
-    self.__LOG(debug, *args)
-
-  def INFO(self, *args):
-    self.__LOG(info, *args)
-
-  def WARN(self, *args):
-    self.__LOG(warn, *args)
-
-  def ERROR(self, *args):
-    self.__LOG(error, *args)
-
-  def EXCEPTION(self, exc):
-    exception(exc, logger = self.ERROR)
 
   def living_cores(self):
     return (__core for __core in self.cores if __core.alive is True)
@@ -1110,14 +1113,24 @@ def cmd_set_core(console, cmd):
   Set core address of default core used by control commands
   """
 
-  console.default_core = console.machine.core(cmd[1])
+  M = console.master.machine
+
+  core = M.core(cmd[1])
+  if core is None:
+    console.log(M.WARN, 'Unknown core: cpuid="%s"', cmd[1])
+    return
+
+  console.default_core = core
+
+  console.log(M.INFO, 'New default core is %s', '#{}:#{}'.format(core.cpu.id, core.id))
 
 def cmd_cont(console, cmd):
   """
   Continue execution until next breakpoint is reached
   """
 
-  core = console.default_core if hasattr(console, 'default_core') else console.machine.cpus[0].cores[0]
+  M = console.master.machine
+  core = console.default_core if console.default_core is not None else M.cpus[0].cores[0]
 
   core.wake_up()
 
@@ -1126,19 +1139,15 @@ def cmd_step(console, cmd):
   Step one instruction forward
   """
 
-  core = console.default_core if hasattr(console, 'default_core') else console.machine.cpus[0].cores[0]
+  M = console.master.machine
+  core = console.default_core if console.default_core is not None else M.cpus[0].cores[0]
 
   if not core.is_suspended():
     return
 
-  try:
-    core.step()
-    core.check_for_events()
+  core.run()
 
-    log_cpu_core_state(core, logger = core.INFO)
-
-  except CPUException, e:
-    core.die(e)
+  do_log_cpu_core_state(core, logger = functools.partial(console.log, core.INFO))
 
 def cmd_next(console, cmd):
   """
@@ -1177,12 +1186,18 @@ def cmd_core_state(console, cmd):
   Print core state
   """
 
-  core = console.default_core if hasattr(console, 'default_core') else console.machine.cpus[0].cores[0]
+  M = console.master.machine
+  core = console.default_core if console.default_core is not None else M.cpus[0].cores[0]
 
-  log_cpu_core_state(core, logger = core.INFO)
+  do_log_cpu_core_state(core, logger = functools.partial(console.log, core.INFO))
 
 def cmd_bt(console, cmd):
-  core = console.default_core if hasattr(console, 'default_core') else console.machine.cpus[0].cores[0]
+  """
+  Print current backtrace
+  """
+
+  M = console.master.machine
+  core = console.default_core if console.default_core is not None else M.cpus[0].cores[0]
 
   table = [
     ['Index', 'symbol', 'offset', 'ip']
@@ -1191,11 +1206,4 @@ def cmd_bt(console, cmd):
   for index, (ip, symbol, offset) in enumerate(core.backtrace()):
     table.append([index, symbol, UINT16_FMT(offset), ADDR_FMT(ip)])
 
-  print_table(table)
-
-console.Console.register_command('sc', cmd_set_core)
-console.Console.register_command('cont', cmd_cont)
-console.Console.register_command('step', cmd_step)
-console.Console.register_command('next', cmd_next)
-console.Console.register_command('st', cmd_core_state)
-console.Console.register_command('bt', cmd_bt)
+  console.table(table)

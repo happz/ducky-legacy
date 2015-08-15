@@ -1,13 +1,38 @@
 import collections
-import functools
-import tabulate
-import traceback
+import logging
+import optparse
+import sys
 import types
 
 from ctypes import sizeof
-from .console import VerbosityLevels, CONSOLE
 
-__all__ = ['debug', 'warn', 'error', 'info', 'quiet', 'exception', 'align']
+from .log import create_logger, StreamHandler
+
+#
+# Command-line options
+#
+def add_common_options(parser):
+  group = optparse.OptionGroup(parser, 'Tool verbosity')
+  parser.add_option_group(group)
+
+  group.add_option('-d', '--debug', dest = 'debug', action = 'store_true', default = False, help = 'Debug mode')
+  group.add_option('-q', '--quiet', dest = 'quiet', action = 'count', default = 0, help = 'Decrease verbosity. This option can be used multiple times')
+
+def parse_options(parser):
+  options, args = parser.parse_args()
+
+  logger = create_logger(handler = StreamHandler(stream = sys.stdout))
+  logger.setLevel(logging.INFO)
+
+  if options.debug:
+    logger.setLevel(logging.DEBUG)
+
+  else:
+    levels = [logging.INFO, logging.WARNING, logging.ERROR, logging.CRITICAL]
+
+    logger.setLevel(levels[min(options.quiet, len(levels))])
+
+  return options, logger
 
 def align(boundary, n):
   return (n + boundary - 1) & ~(boundary - 1)
@@ -24,42 +49,13 @@ def str2int(s):
 
   return int(s)
 
-def __log(level, *args):
-  CONSOLE.writeln(level, *args)
-
-debug = functools.partial(__log, VerbosityLevels.DEBUG)
-info  = functools.partial(__log, VerbosityLevels.INFO)
-warn  = functools.partial(__log, VerbosityLevels.WARNING)
-error = functools.partial(__log, VerbosityLevels.ERROR)
-quiet = functools.partial(__log, VerbosityLevels.QUIET)
-
-def exception(exc, logger = None):
-  logger = logger or error
-
-  logger(str(exc))
-  logger('')
-
-  if hasattr(exc, 'exc_stack'):
-    for line in traceback.format_exception(*exc.exc_stack):
-      line = line.rstrip()
-
-      for line in line.split('\n'):
-        line = line.replace('%', '%%')
-        logger(line)
-
-    logger('')
-
-def print_table(table, fn = info, **kwargs):
-  for line in tabulate.tabulate(table, headers = 'firstrow', tablefmt = 'simple', numalign = 'right', **kwargs).split('\n'):
-    fn(line)
-
 class BinaryFile(file):
   """
   Base class of all classes that represent "binary" files - binaries, core dumps.
   It provides basic methods for reading and writing structures.
   """
 
-  def __init__(self, *args, **kwargs):
+  def __init__(self, logger, *args, **kwargs):
     if args[1] == 'w':
       args = (args[0], 'wb')
 
@@ -67,6 +63,12 @@ class BinaryFile(file):
       args = (args[0], 'rb')
 
     super(BinaryFile, self).__init__(*args, **kwargs)
+
+    self.DEBUG = logger.debug
+    self.INFO = logger.info
+    self.WARN = logger.warning
+    self.ERROR = logger.error
+    self.EXCEPTION = logger.exception
 
   def read_struct(self, st_class):
     """
@@ -81,7 +83,7 @@ class BinaryFile(file):
     st = st_class()
     self.readinto(st)
 
-    debug('read_struct: %s: %s bytes: %s', pos, sizeof(st_class), st)
+    self.DEBUG('read_struct: %s: %s bytes: %s', pos, sizeof(st_class), st)
 
     return st
 
@@ -94,7 +96,7 @@ class BinaryFile(file):
 
     pos = self.tell()
 
-    debug('write_struct: %s: %s bytes: %s', pos, sizeof(st), st)
+    self.DEBUG('write_struct: %s: %s bytes: %s', pos, sizeof(st), st)
 
     self.write(st)
 
@@ -104,7 +106,7 @@ class LRUCache(collections.OrderedDict):
   is reached, the least recently inserted item is removed.
   """
 
-  def __init__(self, size, *args, **kwargs):
+  def __init__(self, logger, size, *args, **kwargs):
     super(LRUCache, self).__init__(*args, **kwargs)
 
     self.size = size
@@ -114,6 +116,13 @@ class LRUCache(collections.OrderedDict):
     self.hits    = 0
     self.misses  = 0
     self.prunes  = 0
+
+    self.LOGGER = logger
+    self.DEBUG = self.LOGGER.debug
+    self.INFO = self.LOGGER.info
+    self.WARN = self.LOGGER.warning
+    self.ERROR = self.LOGGER.error
+    self.EXCEPTION = self.LOGGER.exception
 
   def make_space(self):
     """
@@ -129,7 +138,7 @@ class LRUCache(collections.OrderedDict):
     Return entry with specified key.
     """
 
-    debug('LRUCache: get: key=%s', key)
+    self.DEBUG('LRUCache: get: key=%s', key)
 
     self.reads += 1
 
@@ -146,7 +155,7 @@ class LRUCache(collections.OrderedDict):
     space in cache, ``make_space`` method is called.
     """
 
-    debug('LRUCache: set: key=%s, value=%s', key, value)
+    self.DEBUG('LRUCache: set: key=%s, value=%s', key, value)
 
     if len(self) == self.size:
       self.make_space()
@@ -169,7 +178,7 @@ class LRUCache(collections.OrderedDict):
     and inserting it into cache. Returns new item.
     """
 
-    debug('LRUCache: missing: key=%s', key)
+    self.DEBUG('LRUCache: missing: key=%s', key)
 
     self[key] = value = self.get_object(key)
     return value

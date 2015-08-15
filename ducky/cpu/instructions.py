@@ -5,7 +5,6 @@ import types
 
 from ctypes import LittleEndianStructure, c_uint, c_int
 
-from ..util import debug
 from .registers import Registers, REGISTER_NAMES
 from ..mm import OFFSET_FMT, UINT16_FMT, i16, u16, UInt32
 
@@ -114,31 +113,37 @@ class InstDescriptor(object):
   def execute(core, inst):
     pass
 
-  def assemble_operands(self, inst, operands):
+  def assemble_operands(self, logger, inst, operands):
     pass
 
-  def fix_refers_to(self, inst, refers_to):
+  def fix_refers_to(self, logger, inst, refers_to):
+    pass
+
+  def fill_reloc_slot(self, logger, inst, slot):
+    assert False, 'not implemented in %s' % self.__class__
     pass
 
   def disassemble_operands(self, inst):
     # pylint: disable-msg=W0613
     return []
 
-  def emit_instruction(self, line):
-    debug('emit_instruction: input line: %s', line)
+  def emit_instruction(self, logger, line):
+    DEBUG = logger.debug
+
+    DEBUG('emit_instruction: input line: %s', line)
 
     master = self.instruction_set.binary_format_master()
     master.overall.u16 = 0
 
-    debug('emit_instruction: binary format is %s', self.binary_format_name)
-    debug('emit_instruction: desc is %s', self)
+    DEBUG('emit_instruction: binary format is %s', self.binary_format_name)
+    DEBUG('emit_instruction: desc is %s', self)
 
     real = getattr(master, self.binary_format_name)
     real.opcode = self.opcode
 
     raw_match = self.pattern.match(line)
     matches = raw_match.groupdict()
-    debug('emit_instruction: matches=%s', matches)
+    DEBUG('emit_instruction: matches=%s', matches)
 
     operands = []
 
@@ -197,7 +202,7 @@ class InstDescriptor(object):
     else:
       pass
 
-    self.assemble_operands(real, operands)
+    self.assemble_operands(logger, real, operands)
 
     for flag in [f for f in dir(self) if f.startswith('flag_')]:
       setattr(real, flag.split('_')[1], getattr(self, flag))
@@ -212,8 +217,8 @@ class InstDescriptor_Generic_Unary_R(InstDescriptor):
   operands = 'r'
   binary_format = [BF_REG()]
 
-  def assemble_operands(self, inst, operands):
-    debug('assemble_operands: inst=%s, operands=%s', inst, operands)
+  def assemble_operands(self, logger, inst, operands):
+    logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
     inst.reg = operands[0]
 
@@ -225,8 +230,8 @@ class InstDescriptor_Generic_Unary_I(InstDescriptor):
   operands      = 'i'
   binary_format = [BF_IMM()]
 
-  def assemble_operands(self, inst, operands):
-    debug('assemble_operands: inst=%s, operands=%s', inst, operands)
+  def assemble_operands(self, logger, inst, operands):
+    logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
     v = operands[0]
 
@@ -236,8 +241,8 @@ class InstDescriptor_Generic_Unary_I(InstDescriptor):
     elif isinstance(v, types.StringType):
       inst.refers_to = v
 
-  def fix_refers_to(self, inst, refers_to):
-    debug('fix_refers_to: inst=%s, refers_to=%s', inst, OFFSET_FMT(refers_to))
+  def fix_refers_to(self, logger, inst, refers_to):
+    logger.debug('fix_refers_to: inst=%s, refers_to=%s', inst, OFFSET_FMT(refers_to))
 
     inst.immediate = int(refers_to)
     inst.refers_to = None
@@ -249,8 +254,8 @@ class InstDescriptor_Generic_Unary_RI(InstDescriptor):
   operands      = 'ri'
   binary_format = [BF_FLG('is_reg'), BF_REG('ireg'), BF_IMM()]
 
-  def assemble_operands(self, inst, operands):
-    debug('assemble_operands: inst=%s, operands=%s', inst, operands)
+  def assemble_operands(self, logger, inst, operands):
+    logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
     v = operands[0]
 
@@ -266,11 +271,17 @@ class InstDescriptor_Generic_Unary_RI(InstDescriptor):
       inst.is_reg = 0
       inst.refers_to = v
 
-  def fix_refers_to(self, inst, refers_to):
-    debug('fix_refers_to: inst=%s, refers_to=%s', inst, OFFSET_FMT(refers_to))
+  def fix_refers_to(self, logger, inst, refers_to):
+    logger.debug('fix_refers_to: inst=%s, refers_to=%s', inst, OFFSET_FMT(refers_to))
 
     inst.immediate = int(refers_to)
     inst.refers_to = None
+
+  def fill_reloc_slot(self, logger, inst, slot):
+    logger.debug('fill_reloc_slot: inst=%s, slot=%s', inst, slot)
+
+    slot.patch_offset = 11
+    slot.patch_size = 17
 
   def disassemble_operands(self, inst):
     if inst.is_reg == 1:
@@ -282,8 +293,8 @@ class InstDescriptor_Generic_Binary_R_I(InstDescriptor):
   operands = 'r,i'
   binary_format = [BF_REG(), BF_IMM()]
 
-  def assemble_operands(self, inst, operands):
-    debug('assemble_operands: inst=%s, operands=%s', inst, operands)
+  def assemble_operands(self, logger, inst, operands):
+    logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
     inst.reg = operands[0]
 
@@ -295,11 +306,17 @@ class InstDescriptor_Generic_Binary_R_I(InstDescriptor):
     else:
       inst.refers_to = v
 
-  def fix_refers_to(self, inst, refers_to):
-    debug('fix_refers_to: inst=%s, refers_to=%s', inst, UINT16_FMT(refers_to))
+  def fix_refers_to(self, logger, inst, refers_to):
+    logger.debug('fix_refers_to: inst=%s, refers_to=%s', inst, UINT16_FMT(refers_to))
 
     inst.immediate = int(refers_to)
     inst.refers_to = None
+
+  def fill_reloc_slot(self, logger, inst, slot):
+    logger.debug('fill_reloc_slot: inst=%s, slot=%s', inst, slot)
+
+    slot.patch_offset = 10
+    slot.patch_size = 17
 
   def disassemble_operands(self, inst):
     return [REGISTER_NAMES[inst.reg], inst.refers_to] if hasattr(inst, 'refers_to') and inst.refers_to else [REGISTER_NAMES[inst.reg], OFFSET_FMT(inst.immediate)]
@@ -308,8 +325,8 @@ class InstDescriptor_Generic_Binary_R_RI(InstDescriptor):
   operands = 'r,ri'
   binary_format = [BF_FLG('is_reg'), BF_REG(), BF_REG('ireg'), BF_IMM()]
 
-  def assemble_operands(self, inst, operands):
-    debug('assemble_operands: inst=%s, operands=%s', inst, operands)
+  def assemble_operands(self, logger, inst, operands):
+    logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
     inst.reg = operands[0]
 
@@ -327,11 +344,17 @@ class InstDescriptor_Generic_Binary_R_RI(InstDescriptor):
       inst.is_reg = 0
       inst.refers_to = v
 
-  def fix_refers_to(self, inst, refers_to):
-    debug('fix_refers_to: inst=%s, refers_to=%s',  inst, UINT16_FMT(refers_to))
+  def fix_refers_to(self, logger, inst, refers_to):
+    logger.debug('fix_refers_to: inst=%s, refers_to=%s',  inst, UINT16_FMT(refers_to))
 
     inst.immediate = int(refers_to)
     inst.refers_to = None
+
+  def fill_reloc_slot(self, logger, inst, slot):
+    logger.debug('fill_reloc_slot: inst=%s, slot=%s', inst, slot)
+
+    slot.patch_offset = 15
+    slot.patch_size = 17
 
   def disassemble_operands(self, inst):
     if inst.is_reg == 1:
@@ -343,8 +366,8 @@ class InstDescriptor_Generic_Binary_RI_R(InstDescriptor):
   operands = 'ri,r'
   binary_format = [BF_FLG('is_reg'), BF_REG(), BF_REG('ireg'), BF_IMM()]
 
-  def assemble_operands(self, inst, operands):
-    debug('assemble_operands: inst=%s, operands=%s', inst, operands)
+  def assemble_operands(self, logger, inst, operands):
+    logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
     inst.reg = operands[1]
 
@@ -362,8 +385,8 @@ class InstDescriptor_Generic_Binary_RI_R(InstDescriptor):
       inst.is_reg = 0
       inst.refers_to = v
 
-  def fix_refers_to(self, inst, refers_to):
-    debug('fix_refers_to: inst=%s, refers_to=%s', inst, UINT16_FMT(refers_to))
+  def fix_refers_to(self, logger, inst, refers_to):
+    logger.debug('fix_refers_to: inst=%s, refers_to=%s', inst, UINT16_FMT(refers_to))
 
     inst.immediate = int(refers_to)
     inst.refers_to = None
@@ -378,8 +401,8 @@ class InstDescriptor_Generic_Binary_R_A(InstDescriptor):
   operands = 'r,a'
   binary_format = [BF_REG(), BF_REG('ireg'), BF_IMM()]
 
-  def assemble_operands(self, inst, operands):
-    debug('assemble_operands: inst=%s, operands=%s', inst, operands)
+  def assemble_operands(self, logger, inst, operands):
+    logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
     inst.reg = operands[0]
     inst.ireg = operands[1]
@@ -403,8 +426,8 @@ class InstDescriptor_Generic_Binary_A_R(InstDescriptor):
   operands = 'a,r'
   binary_format = [BF_REG(), BF_REG('ireg'), BF_IMM()]
 
-  def assemble_operands(self, inst, operands):
-    debug('assemble_operands: inst=%s, operands=%s', inst, operands)
+  def assemble_operands(self, logger, inst, operands):
+    logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
     inst.reg = operands[-1]
     inst.ireg = operands[0]
@@ -430,8 +453,8 @@ class InstDescriptor_Generic_Binary_R_R(InstDescriptor):
   operands = 'r,r'
   binary_format = [BF_REG('reg1'), BF_REG('reg2')]
 
-  def assemble_operands(self, inst, operands):
-    debug('assemble_operands: inst=%s, operands=%s', inst, operands)
+  def assemble_operands(self, logger, inst, operands):
+    logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
     inst.reg1 = operands[0]
     inst.reg2 = operands[1]
@@ -1007,8 +1030,8 @@ class Inst_CAS(InstDescriptor):
   operands = 'r,r,r'
   binary_format = [BF_REG('r_addr'), BF_REG('r_test'), BF_REG('r_rep')]
 
-  def assemble_operands(self, inst, operands):
-    debug('assemble_operands: inst=%s, operands=%s', inst, operands)
+  def assemble_operands(self, logger, inst, operands):
+    logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
     inst.r_addr = operands[0]
     inst.r_test = operands[1]

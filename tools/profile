@@ -16,19 +16,18 @@ import collections
 import optparse
 
 import ducky.patch
-import ducky.console
+import ducky.log
 import ducky.cpu
 import ducky.cpu.instructions
 import ducky.mm.binary
 import ducky.util
 
 from ducky.mm import ADDR_FMT
-from ducky.util import info
 
 def main():
   parser = optparse.OptionParser()
 
-  parser.add_option('-d', dest = 'debug', action = 'store_true', default = False, help = 'Debug mode')
+  ducky.util.add_common_options(parser)
 
   parser.add_option('-i', dest = 'files_in', action = 'append', default = [], help = 'Input file')
   parser.add_option('-b', dest = 'binary', action = 'store', default = None, help = 'Profiled binary')
@@ -37,10 +36,7 @@ def main():
   parser.add_option_group(group)
   group.add_option('-n', '--num-entries', dest = 'num_entries', action = 'store', type = int, default = 20, metavar = 'N', help = 'Display N entries in any listing')
 
-  options, args = parser.parse_args()
-
-  ducky.util.CONSOLE = ducky.console.Console(None, sys.stdin, sys.stdout)
-  ducky.util.CONSOLE.set_quiet_mode(not options.debug)
+  options, logger = ducky.util.parse_options(parser)
 
   if not options.files_in:
     parser.print_help()
@@ -53,7 +49,7 @@ def main():
   data = collections.defaultdict(int)
 
   for path in options.files_in:
-    info('Reading profile data from %s', path)
+    logger.info('Reading profile data from %s', path)
 
     with open(path, 'rb') as f:
       d = pickle.load(f)
@@ -85,7 +81,7 @@ def main():
 
       table.append([ADDR_FMT(addr), symbol_name, hits, '%.02f' % (float(hits) / float(all_hits) * 100.0), ducky.cpu.instructions.DuckyInstructionSet.decode_instruction(content[(symbol.address + offset - header.base) / 4])])
 
-    ducky.util.print_table(table)
+    logger.table(table)
 
   def print_symbol_hits(functions):
     table = [
@@ -96,7 +92,7 @@ def main():
       hits = symbol_hits[fn]
       table.append([fn, hits, '%.02f' % (float(hits) / float(all_hits) * 100.0)])
 
-    ducky.util.print_table(table)
+    logger.table(table)
 
   symbol_hits = collections.defaultdict(int)
 
@@ -106,12 +102,12 @@ def main():
 
     symbol_hits[symbol] += hits
 
-  info('')
+  logger.info('')
 
   keys = sorted(data.keys(), key = data.get, reverse = True)
   print_points(keys[0:options.num_entries])
 
-  info('')
+  logger.info('')
 
   keys = sorted(symbol_hits.keys(), key = symbol_hits.get, reverse = True)
   print_symbol_hits(keys[0:options.num_entries])

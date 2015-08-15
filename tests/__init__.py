@@ -112,11 +112,14 @@ def compile_code(code):
   f_asm.close()
   print f_asm
 
+  f_obj_name = os.path.splitext(f_asm.name)[0] + '.o'
   f_bin_name = os.path.splitext(f_asm.name)[0] + '.bin'
 
-  os.system('PYTHONPATH={} {} -f -i {} -o {}'.format(os.getenv('PYTHONPATH'), os.path.join(os.getenv('PWD'), 'tools', 'as'), f_asm.name, f_bin_name))
+  os.system('PYTHONPATH={} {} -f -i {} -o {}'.format(os.getenv('PYTHONPATH'), os.path.join(os.getenv('PWD'), 'tools', 'as'), f_asm.name, f_obj_name))
+  os.system('PYTHONPATH={} {} -f -i {} -o {} --section-base=.text=0x0000'.format(os.getenv('PYTHONPATH'), os.path.join(os.getenv('PWD'), 'tools', 'ld'), f_obj_name, f_bin_name))
 
   os.unlink(f_asm.name)
+  os.unlink(f_obj_name)
 
   return f_bin_name
 
@@ -125,12 +128,6 @@ def run_machine(code, machine_config = None, coredump_file = None, post_boot = N
   post_run = post_run or []
 
   M = ducky.machine.Machine()
-
-  if not hasattr(ducky.util, 'CONSOLE') or ducky.util.CONSOLE is None:
-    ducky.util.CONSOLE = ducky.console.Console(M, None, sys.stdout)
-    ducky.util.CONSOLE.boot()
-
-    ducky.util.CONSOLE.set_quiet_mode('VERBOSE' not in os.environ)
 
   binary_path = compile_code(code)
   machine_config.add_section('binary-0')

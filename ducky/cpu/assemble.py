@@ -13,8 +13,8 @@ from .. import mm
 from ..cpu.coprocessor.math_copro import MathCoprocessorInstructionSet  # noqa - it's not unused, SIS instruction may need it but that's hidden from flake
 
 from ..mm import UInt8, UInt16, ADDR_FMT, PAGE_SIZE
-from ..mm.binary import SectionTypes, SectionFlags
-from ..util import debug, align
+from ..mm.binary import SectionTypes, SectionFlags, SymbolFlags, RelocFlags
+from ..util import align
 
 align_to_next_page = functools.partial(align, PAGE_SIZE)
 align_to_next_mmap = functools.partial(align, mmap.PAGESIZE)
@@ -32,13 +32,14 @@ RE_ASCII = re.compile(r'^\s*\.ascii\s+"(?P<value>.*?)"\s*$', re.MULTILINE)
 RE_BYTE = re.compile(r'^\s*\.byte\s+(?:(?P<value_hex>-?0x[a-fA-F0-9]+)|(?P<value_dec>(?:0)|(?:-?[1-9][0-9]*))|(?P<value_var>[a-zA-Z][a-zA-Z0-9_]*))\s*$', re.MULTILINE)
 RE_DATA = re.compile(r'^\s*\.data(?:\s+(?P<name>\.[a-z][a-z0-9_]*))?\s*$', re.MULTILINE)
 RE_INT = re.compile(r'^\s*\.int\s+(?:(?P<value_hex>-?0x[a-fA-F0-9]+)|(?P<value_dec>0|(?:-?[1-9][0-9]*))|(?P<value_var>[a-zA-Z][a-zA-Z0-9_]*)|(?P<value_label>&[a-zA-Z_\.][a-zA-Z0-9_]*))\s*$', re.MULTILINE)
-RE_SECTION = re.compile(r'^\s*\.section\s+(?P<name>\.[a-zA-z0-9_]+)(?:,\s*(?P<flags>[rwxbm]*))?\s*$', re.MULTILINE)
+RE_SECTION = re.compile(r'^\s*\.section\s+(?P<name>\.[a-zA-z0-9_]+)(?:,\s*(?P<flags>[rwxbmg]*))?\s*$', re.MULTILINE)
 RE_SET = re.compile(r'^\s*\.set\s+(?P<name>[a-zA-Z_][a-zA-Z0-9_]*),\s*(?:(?P<current>\.)|(?P<value_hex>-?0x[a-fA-F0-9]+)|(?P<value_dec>0|(?:-?[1-9][0-9]*))|(?P<value_label>&[a-zA-Z][a-zA-Z0-9_]*))\s*$', re.MULTILINE)
 RE_SIZE = re.compile(r'^\s*\.size\s+(?P<size>[1-9][0-9]*)\s*$', re.MULTILINE)
 RE_SPACE = re.compile(r'^\s*\.space\s+(?P<size>[1-9][0-9]*)\s*$', re.MULTILINE)
 RE_STRING = re.compile(r'^\s*\.string\s+"(?P<value>.*?)"\s*$', re.MULTILINE)
 RE_TEXT = re.compile(r'^\s*\.text(?:\s+(?P<name>\.[a-z][a-z0-9_]*))?\s*$', re.MULTILINE)
 RE_TYPE = re.compile(r'^\s*\.type\s+(?P<name>[a-zA-Z_\.][a-zA-Z0-9_]*),\s*(?P<type>(?:char|byte|int|ascii|string|space))\s*$', re.MULTILINE)
+RE_GLOBAL = re.compile(r'^\s*.global\s+(?P<name>[a-zA-Z_][a-zA-Z0-9_]*)\s*$', re.MULTILINE)
 
 class AssemblerError(Exception):
   def __init__(self, filename, lineno, msg, line):
@@ -51,11 +52,18 @@ class AssemblerError(Exception):
 
 class IncompleteDirectiveError(AssemblerError):
   def __init__(self, filename, lineno, msg, line):
-    super(IncompleteDirectiveError, self).__init__(filename, lineno, 'Incomplete directive: {}'.format(msg, line))
+    super(IncompleteDirectiveError, self).__init__(filename, lineno, 'Incomplete directive: %s' % msg, line)
 
 class Buffer(object):
-  def __init__(self, filename, buff):
+  def __init__(self, logger, filename, buff):
     super(Buffer, self).__init__()
+
+    self.logger = logger
+    self.DEBUG = logger.debug
+    self.INFO = logger.info
+    self.WARN = logger.warning
+    self.ERROR = logger.error
+    self.EXCEPTION = logger.exception
 
     self.buff = buff
 
@@ -73,13 +81,13 @@ class Buffer(object):
         self.lineno = line[1]
         self.filename = line[0]
 
-        debug('buffer: file switch: filename=%s, lineno=%s', self.filename, self.lineno)
+        self.DEBUG('buffer: file switch: filename=%s, lineno=%s', self.filename, self.lineno)
         continue
 
       if not line:
         continue
 
-      debug('buffer: new line %s:%s: %s', self.filename, self.lineno, line)
+      self.DEBUG('buffer: new line %s:%s: %s', self.filename, self.lineno, line)
       self.last_line = line
       return line
 
@@ -151,6 +159,14 @@ class BssSection(Section):
   def __init__(self, s_name, flags = None, **kwargs):
     super(BssSection, self).__init__(s_name, SectionTypes.DATA, flags or SectionFlags.create(readable = True, writable = True, bss = True))
 
+class SymbolsSection(Section):
+  def __init__(self, s_name, flags = None, **kwargs):
+    super(SymbolsSection, self).__init__(s_name, SectionTypes.SYMBOLS, SectionFlags.create())
+
+class RelocSection(Section):
+  def __init__(self, s_name, flags = None, **kwargs):
+    super(RelocSection, self).__init__(s_name, SectionTypes.RELOC, SectionFlags.create())
+
 class Label(object):
   def __init__(self, name, section, filename, lineno):
     super(Label, self).__init__()
@@ -162,7 +178,23 @@ class Label(object):
     self.lineno = lineno
 
   def __repr__(self):
-    return '<label {} in section {} ({}:{})>'.format(self.name, self.section.name, self.filename, self.lineno)
+    return '<label {} in section {} ({}:{})>'.format(self.name, self.section.name if self.section else None, self.filename, self.lineno)
+
+class RelocSlot(object):
+  def __init__(self, name, flags = None, patch_section = None, patch_address = None, patch_offset = None, patch_size = None):
+    super(RelocSlot, self).__init__()
+
+    self.name = name
+    self.flags = flags or RelocFlags()
+    self.patch_section = patch_section
+    self.patch_address = patch_address
+    self.patch_offset = patch_offset
+    self.patch_size = patch_size
+
+    self.size = UInt16(0)
+
+  def __repr__(self):
+    return '<RelocSlot: name=%s, flags=%s, section=%s, address=%s, offset=%s, size=%s>' % (self.name, self.flags.to_string(), self.patch_section, ADDR_FMT(self.patch_address), self.patch_offset, self.patch_size)
 
 class DataSlot(object):
   def __init__(self):
@@ -172,6 +204,8 @@ class DataSlot(object):
     self.size  = None
     self.refers_to = None
     self.value = None
+
+    self.flags = SymbolFlags()
 
     self.section = None
     self.section_ptr = None
@@ -263,6 +297,9 @@ class FunctionSlot(DataSlot):
     return '<FunctionSlot: name={}, section={}>'.format(self.name, self.section.name if self.section else '')
 
 def sizeof(o):
+  if isinstance(o, RelocSlot):
+    return 0
+
   if isinstance(o, DataSlot):
     return o.size.u16
 
@@ -271,11 +308,13 @@ def sizeof(o):
 
   return None
 
-def translate_buffer(buff, base_address = None, mmapable_sections = False, writable_sections = False, filename = None, defines = None):
+def translate_buffer(logger, buff, base_address = None, mmapable_sections = False, writable_sections = False, filename = None, defines = None):
+  DEBUG = logger.debug
+
   filename = filename or '<unknown>'
   defines = defines or []
 
-  buff = Buffer(filename, buff.split('\n'))
+  buff = Buffer(logger, filename, buff.split('\n'))
 
   base_address = base_address or UInt16(0)
 
@@ -284,7 +323,8 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, writa
     ('.rodata', RODataSection('.rodata')),
     ('.data',   DataSection('.data')),
     ('.bss',    BssSection('.bss')),
-    ('.symtab', Section('.symtab', SectionTypes.SYMBOLS, SectionFlags.create()))
+    ('.symtab', SymbolsSection('.symtab')),
+    ('.reloc',  RelocSection('.reloc'))
   ])
 
   if mmapable_sections:
@@ -295,7 +335,7 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, writa
     for section in sections_pass1.itervalues():
       section.flags.writable = 1
 
-  debug('Pass #1')
+  DEBUG('Pass #1')
 
   labeled = []
 
@@ -309,7 +349,7 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, writa
       line = def_pattern.sub(def_value, line)
 
     if orig_line != line:
-      debug(msg_prefix + 'variables replaced: line="%s"', line)
+      DEBUG(msg_prefix + 'variables replaced: line="%s"', line)
 
     return line
 
@@ -319,7 +359,7 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, writa
       if not matches:
         continue
 
-      debug(msg_prefix + 'replacing macro: name=%s', m_desc['name'])
+      DEBUG(msg_prefix + 'replacing macro: name=%s', m_desc['name'])
 
       if m_desc['params']:
         matches = matches.groupdict()
@@ -328,7 +368,7 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, writa
         for i in range(0, len(m_desc['params'])):
           replace_map[re.compile(r'#{}'.format(m_desc['params'][i]))] = matches['arg{}'.format(i)]
 
-        debug(msg_prefix + 'macro args: %s', ', '.join(['{} => {}'.format(pattern.pattern, repl) for pattern, repl in replace_map.iteritems()]))
+        DEBUG(msg_prefix + 'macro args: %s', ', '.join(['{} => {}'.format(pattern.pattern, repl) for pattern, repl in replace_map.iteritems()]))
 
         body = []
         for line in m_desc['body']:
@@ -403,6 +443,9 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, writa
 
     v_value = matches.get('value_var', None)
     if v_value:
+      if matches['value_var'] not in variables:
+        raise buff.get_error(IncompleteDirectiveError, 'unknown variable named "%s"' % matches['value_var'])
+
       referred_var = variables[matches['value_var']]
 
       if isinstance(referred_var, types.IntType):
@@ -497,7 +540,7 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, writa
       line = __apply_defs(line)
 
       if not current_macro and __apply_macros(line):
-        debug(msg_prefix + 'macro replaced, get fresh line')
+        DEBUG(msg_prefix + 'macro replaced, get fresh line')
         continue
 
       matches = RE_TYPE.match(line)
@@ -556,17 +599,19 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, writa
   macros = collections.OrderedDict()
   current_macro = None
 
-  debug('Pass #1: text section is .text')
-  debug('Pass #1: data section is .data')
+  DEBUG('Pass #1: text section is .text')
+  DEBUG('Pass #1: data section is .data')
 
   text_section = sections_pass1['.text']
   data_section = sections_pass1['.data']
   curr_section = text_section
 
+  global_symbols = []
+
   ifs = []
 
   def __fast_forward():
-    debug(msg_prefix + 'fast forwarding')
+    DEBUG(msg_prefix + 'fast forwarding')
 
     depth = 1
 
@@ -617,7 +662,7 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, writa
     line = __apply_defs(line)
 
     if not current_macro and __apply_macros(line):
-      debug(msg_prefix + 'macro replaced, get fresh line')
+      DEBUG(msg_prefix + 'macro replaced, get fresh line')
       continue
 
     matches = RE_COMMENT.match(line)
@@ -630,12 +675,12 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, writa
     if matches:
       var = matches.groupdict()['var']
 
-      debug(msg_prefix + 'ifdef %s', var)
+      DEBUG(msg_prefix + 'ifdef %s', var)
 
       ifs.append((True, var))
 
       if var in defines:
-        debug(msg_prefix + 'defined, continue processing')
+        DEBUG(msg_prefix + 'defined, continue processing')
         continue
 
       __fast_forward()
@@ -645,12 +690,12 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, writa
     if matches:
       var = matches.groupdict()['var']
 
-      debug(msg_prefix + 'ifndef %s', var)
+      DEBUG(msg_prefix + 'ifndef %s', var)
 
       ifs.append((False, var))
 
       if var not in defines:
-        debug(msg_prefix + 'not defined, continue processing')
+        DEBUG(msg_prefix + 'not defined, continue processing')
         continue
 
       __fast_forward()
@@ -658,7 +703,7 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, writa
 
     matches = RE_ENDIF.match(line)
     if matches:
-      debug(msg_prefix + 'removing the last conditional from stack: %s', ifs[-1])
+      DEBUG(msg_prefix + 'removing the last conditional from stack: %s', ifs[-1])
 
       ifs.pop()
       continue
@@ -667,7 +712,7 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, writa
     if matches:
       defined, var = ifs.pop()
 
-      debug(msg_prefix + 'previous block was "%s %s"', 'ifdef' if defined is True else 'ifndef', var)
+      DEBUG(msg_prefix + 'previous block was "%s %s"', 'ifdef' if defined is True else 'ifndef', var)
 
       ifs.append((not defined, var))
 
@@ -675,7 +720,7 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, writa
         __fast_forward()
         continue
 
-      debug(msg_prefix + 'continue processing')
+      DEBUG(msg_prefix + 'continue processing')
       continue
 
     matches = RE_INCLUDE.match(line)
@@ -685,7 +730,7 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, writa
       if 'file' not in matches:
         raise buff.get_error(IncompleteDirectiveError, '.include directive without path')
 
-      debug(msg_prefix + 'include: file=%s', matches['file'])
+      DEBUG(msg_prefix + 'include: file=%s', matches['file'])
 
       with open(matches['file'], 'r') as f_in:
         replace = f_in.read()
@@ -704,7 +749,7 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, writa
       if not v_name or not v_body:
         raise buff.get_error(IncompleteDirectiveError, 'bad variable definition')
 
-      debug(msg_prefix + 'variable defined: name=%s, value=%s', v_name, v_body)
+      DEBUG(msg_prefix + 'variable defined: name=%s, value=%s', v_name, v_body)
 
       defs[re.compile(r'\${}'.format(v_name))] = v_body.strip()
 
@@ -720,7 +765,7 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, writa
       if not m_name:
         raise buff.get_error(IncompleteDirectiveError, 'bad macro definition')
 
-      debug(msg_prefix + 'macro defined: name=%s', m_name)
+      DEBUG(msg_prefix + 'macro defined: name=%s', m_name)
 
       if current_macro:
         raise buff.get_error(AssemblerError, 'overlapping macro definitions')
@@ -749,7 +794,7 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, writa
         raise buff.get_error(AssemblerError, 'closing non-existing macro')
 
       macros[current_macro['pattern']] = current_macro
-      debug(msg_prefix + 'macro definition closed: name=%s', current_macro['name'])
+      DEBUG(msg_prefix + 'macro definition closed: name=%s', current_macro['name'])
       current_macro = None
       continue
 
@@ -771,16 +816,16 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, writa
         section_type = SectionTypes.TEXT if section_flags.executable == 1 else SectionTypes.DATA
 
         section = sections_pass1[s_name] = Section(s_name, section_type, section_flags)
-        debug(msg_prefix + 'section %s created', s_name)
+        DEBUG(msg_prefix + 'section %s created', s_name)
 
       curr_section = sections_pass1[s_name]
 
       if curr_section.type == SectionTypes.TEXT:
         text_section = curr_section
-        debug(msg_prefix + 'text section changed to %s', s_name)
+        DEBUG(msg_prefix + 'text section changed to %s', s_name)
       else:
         data_section = curr_section
-        debug(msg_prefix + 'data section changed to %s', s_name)
+        DEBUG(msg_prefix + 'data section changed to %s', s_name)
 
       continue
 
@@ -789,7 +834,7 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, writa
       matches = matches.groupdict()
 
       curr_section = data_section = sections_pass1[matches['name'] if 'name' in matches and matches['name'] else '.data']
-      debug(msg_prefix + 'data section is %s', data_section.name)
+      DEBUG(msg_prefix + 'data section is %s', data_section.name)
       continue
 
     matches = RE_TEXT.match(line)
@@ -797,7 +842,7 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, writa
       matches = matches.groupdict()
 
       curr_section = text_section = sections_pass1[matches['name'] if 'name' in matches and matches['name'] else '.text']
-      debug(msg_prefix + 'text section is %s', text_section.name)
+      DEBUG(msg_prefix + 'text section is %s', text_section.name)
       continue
 
     matches = RE_TYPE.match(line)
@@ -825,7 +870,7 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, writa
       var.name = labels[0] if labels else None
       var.close()
 
-      debug(msg_prefix + 'record byte value: name=%s, value=%s', var.name, var.value)
+      DEBUG(msg_prefix + 'record byte value: name=%s, value=%s', var.name, var.value)
       data_section.content.append(var)
 
       labels = []
@@ -842,7 +887,7 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, writa
       var.name = labels[0] if labels else None
       var.close()
 
-      debug(msg_prefix + 'record int value: name=%s, value=%s, refers_to=%s', var.name, var.value, var.refers_to)
+      DEBUG(msg_prefix + 'record int value: name=%s, value=%s, refers_to=%s', var.name, var.value, var.refers_to)
       data_section.content.append(var)
 
       labels = []
@@ -859,7 +904,7 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, writa
       var.name = labels[0] if labels else None
       var.close()
 
-      debug(msg_prefix + 'record ascii value: name=%s, value=%s', var.name, var.value)
+      DEBUG(msg_prefix + 'record ascii value: name=%s, value=%s', var.name, var.value)
       data_section.content.append(var)
 
       labels = []
@@ -876,7 +921,7 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, writa
       var.name = labels[0] if labels else None
       var.close()
 
-      debug(msg_prefix + 'record string value: name=%s, value=%s', var.name, var.value)
+      DEBUG(msg_prefix + 'record string value: name=%s, value=%s', var.name, var.value)
       data_section.content.append(var)
 
       labels = []
@@ -893,10 +938,22 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, writa
       var.name = labels[0] if labels else None
       var.close()
 
-      debug(msg_prefix + 'record space: name=%s, value=%s', var.name, var.size)
+      DEBUG(msg_prefix + 'record space: name=%s, value=%s', var.name, var.size)
       data_section.content.append(var)
 
       labels = []
+      continue
+
+    matches = RE_GLOBAL.match(line)
+    if matches:
+      matches = matches.groupdict()
+
+      if 'name' not in matches:
+        raise buff.get_error(IncompleteDirectiveError, '.global directive without variable')
+
+      name = matches['name']
+
+      global_symbols.append(name)
       continue
 
     matches = RE_SET.match(line)
@@ -923,7 +980,7 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, writa
       else:
         raise buff.get_error(IncompleteDirectiveError, '.set directive with unknown value')
 
-      debug(msg_prefix + 'set variable: name=%s, value=%s', name, value)
+      DEBUG(msg_prefix + 'set variable: name=%s, value=%s', name, value)
       variables[name] = value
 
       continue
@@ -932,10 +989,10 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, writa
       label = Label(line.strip()[:-1], curr_section, buff.filename, buff.lineno)
       labels.append(label)
 
-      debug(msg_prefix + 'record label: name=%s', label.name)
+      DEBUG(msg_prefix + 'record label: name=%s', label.name)
       continue
 
-    debug(msg_prefix + 'line: %s', line)
+    DEBUG(msg_prefix + 'line: %s', line)
 
     # label, instruction, 2nd pass flags
     emited_inst = None
@@ -944,7 +1001,7 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, writa
     line = line.strip()
 
     for desc in instruction_set.instructions:
-      debug(msg_prefix + 'pattern: %s', desc.pattern.pattern)
+      DEBUG(msg_prefix + 'pattern: %s', desc.pattern.pattern)
       if not desc.pattern.match(line):
         continue
       break
@@ -953,7 +1010,7 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, writa
       raise buff.get_error(AssemblerError, 'Unknown pattern: line="{}"'.format(line))
 
     # pylint: disable-msg=W0631
-    emited_inst = desc.emit_instruction(line)
+    emited_inst = desc.emit_instruction(logger, line)
     emited_inst.desc = desc
 
     if labels:
@@ -964,25 +1021,25 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, writa
 
     labels = []
 
-    debug(msg_prefix + 'emitted instruction: %s', emited_inst.desc.instruction_set.disassemble_instruction(emited_inst))
+    DEBUG(msg_prefix + 'emitted instruction: %s', emited_inst.desc.instruction_set.disassemble_instruction(emited_inst))
 
     if isinstance(desc, cpu.instructions.Inst_SIS):
-      debug(msg_prefix + 'switching istruction set: inst_set=%s', emited_inst.immediate)
+      DEBUG(msg_prefix + 'switching istruction set: inst_set=%s', emited_inst.immediate)
 
       instruction_set = cpu.instructions.get_instruction_set(emited_inst.immediate)
 
   for s_name, section in sections_pass1.items():
-    debug('pass #1: section %s', s_name)
+    DEBUG('pass #1: section %s', s_name)
 
     if section.type == SectionTypes.TEXT:
       for labeled, inst in section.content:
-        debug('pass #1: inst=%s, labeled=%s', inst, labeled)
+        DEBUG('pass #1: inst=%s, labeled=%s', inst, labeled)
 
     else:
       for var in section.content:
-        debug('pass #1: %s', var)
+        DEBUG('pass #1: %s', var)
 
-  debug('Pass #2')
+  DEBUG('Pass #2')
 
   sections_pass2 = collections.OrderedDict()
   references = {}
@@ -992,6 +1049,7 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, writa
     section = sections_pass2[s_name] = Section(s_name, p1_section.type, p1_section.flags)
 
   symtab = sections_pass2['.symtab']
+  reloctab = sections_pass2['.reloc']
 
   for s_name, section in sections_pass2.items():
     p1_section = sections_pass1[s_name]
@@ -1001,16 +1059,16 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, writa
     section.base = UInt16(base_ptr.u16)
     section.ptr  = UInt16(base_ptr.u16)
 
-    debug('pass #2: section %s - base=%s', section.name, ADDR_FMT(section.base.u16))
+    DEBUG('pass #2: section %s - base=%s', section.name, ADDR_FMT(section.base.u16))
 
-    if section.type == SectionTypes.SYMBOLS:
+    if section.type == SectionTypes.SYMBOLS or section.type == SectionTypes.RELOC:
       continue
 
     if section.type == SectionTypes.DATA:
       for var in p1_section.content:
         ptr_prefix = 'pass #2: ' + ADDR_FMT(section.ptr.u16) + ': '
 
-        debug(ptr_prefix + str(var))
+        DEBUG(ptr_prefix + str(var))
 
         if var.name:
           var.section = section
@@ -1023,46 +1081,32 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, writa
           refers_to = var.refers_to
 
           if isinstance(refers_to, types.TupleType):
-            referred_section = sections_pass2[refers_to[0]]
-
-            if referred_section.base is None:
-              debug('reference "%s" cannot be resolved, referred section has no base address yet', refers_to)
-
-            else:
-              var.value = referred_section.base.u16 + refers_to[1].u16
-              var.refers_to = None
-              var.close()
-
-              debug(ptr_prefix + 'reference "%s" replaced with %s', refers_to, ADDR_FMT(var.value))
-
-          elif refers_to not in references:
-            debug(ptr_prefix  + 'unresolved reference to %s', refers_to)
+            reloc = RelocSlot(refers_to[0], patch_section = section, patch_address = section.ptr.u16, patch_offset = 0, patch_size = 16)
+            DEBUG(ptr_prefix + 'reloc slot created: %s', reloc)
 
           else:
-            refers_to_addr = references[refers_to].section_ptr.u16
+            reloc = RelocSlot(refers_to[1:], patch_section = section, patch_address = section.ptr.u16, patch_offset = 0, patch_size = 16)
+            DEBUG(ptr_prefix + 'reloc slot created: %s', reloc)
 
-            var.value = refers_to_addr
-            var.refers_to = None
-            var.close()
-
-            debug(ptr_prefix + 'reference "%s" replaced with %s', refers_to, ADDR_FMT(refers_to_addr))
+          reloctab.content.append(reloc)
+          var.refers_to = None
 
         if type(var) == IntSlot:
           if var.value:
             section.content.append(UInt8(var.value.u16 & 0x00FF))
             section.content.append(UInt8((var.value.u16 & 0xFF00) >> 8))
-            debug(ptr_prefix + 'value stored')
+            DEBUG(ptr_prefix + 'value stored')
 
           else:
             section.content.append(var)
-            debug(ptr_prefix + 'value missing - reserve space, fix in next pass')
+            DEBUG(ptr_prefix + 'value missing - reserve space, fix in next pass')
 
           section.ptr.u16 += 2
 
         elif type(var) == ByteSlot:
           section.content.append(UInt8(var.value.u8))
           section.ptr.u16 += var.size.u16
-          debug(ptr_prefix + 'value stored')
+          DEBUG(ptr_prefix + 'value stored')
 
         elif type(var) == AsciiSlot or type(var) == StringSlot:
           for i in range(0, var.size.u16):
@@ -1073,12 +1117,12 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, writa
             section.content.append(UInt8(0))
             section.ptr.u16 += 1
 
-          debug(ptr_prefix + 'value stored')
+          DEBUG(ptr_prefix + 'value stored')
 
         elif type(var) == SpaceSlot:
           section.content.append(var)
           section.ptr.u16 += var.size.u16
-          debug(ptr_prefix + 'value stored')
+          DEBUG(ptr_prefix + 'value stored')
 
     if section.type == SectionTypes.TEXT:
       for labeled, inst in p1_section.content:
@@ -1101,87 +1145,88 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, writa
             symtab.content.append(var)
 
             references['&' + label.name] = var
-            debug(ptr_prefix + 'label entry "%s" created', label)
+            DEBUG(ptr_prefix + 'label entry "%s" created', label)
 
         if inst.desc.operands and ('i' in inst.desc.operands or 'j' in inst.desc.operands) and hasattr(inst, 'refers_to') and inst.refers_to:
+          reloc = RelocSlot(inst.refers_to[1:], flags = RelocFlags(relative = inst.desc.relative_address), patch_section = section, patch_address = section.ptr.u16)
+          inst.desc.fill_reloc_slot(logger, inst, reloc)
+          sections_pass2['.reloc'].content.append(reloc)
+
           if inst.refers_to in references:
-            refers_to_var = references[inst.refers_to]
-            refers_to_addr = refers_to_var.section_ptr.u16
-            if refers_to_var.section.type == SectionTypes.TEXT:
-              refers_to_addr -= (inst.address.u16 + 4)
+            reloc.patch_section = references[inst.refers_to].section
 
-            inst.desc.fix_refers_to(inst, refers_to_addr)
-            debug(ptr_prefix + 'reference "%s" replaced with %s', refers_to_var.name, ADDR_FMT(refers_to_addr))
-
-          else:
-            debug(ptr_prefix + 'reference "%s" unknown, fix in the next pass', inst.refers_to)
+          DEBUG(ptr_prefix + 'reloc slot created: %s', reloc)
+          inst.refers_to = None
 
         section.content.append(inst)
-        debug(ptr_prefix + inst.desc.instruction_set.disassemble_instruction(inst))
+        DEBUG(ptr_prefix + inst.desc.instruction_set.disassemble_instruction(inst))
         section.ptr.u16 += 4
 
     base_ptr.u16 = align_to_next_mmap(section.ptr.u16) if mmapable_sections else align_to_next_page(section.ptr.u16)
 
-  debug('Pass #3')
+  DEBUG('Pass #3')
 
   sections_pass3 = {}
 
   for s_name, p2_section in sections_pass2.items():
-    debug('pass #3: section %s', p2_section.name)
-
     section = Section(s_name, p2_section.type, p2_section.flags)
     sections_pass3[s_name] = section
-
     section.base = UInt16(p2_section.base.u16)
     section.ptr  = UInt16(section.base.u16)
+
+  symtab = sections_pass3['.symtab']
+  reloctab = sections_pass3['.reloc']
+
+  for s_name, section in sections_pass3.items():
+    DEBUG('pass #3: section %s', section.name)
+
+    p2_section = sections_pass2[s_name]
+
+    if section.type == SectionTypes.SYMBOLS:
+      symtab = section
+
+    elif section.type == SectionTypes.RELOC:
+      reloctab = section
 
     for item in p2_section.content:
       ptr_prefix = 'pass #3: ' + ADDR_FMT(section.ptr.u16) + ': '
 
       if section.type == SectionTypes.SYMBOLS:
-        pass
+        if (type(item.name) is Label and item.name.name in global_symbols) or item.name in global_symbols:
+          item.flags.globally_visible = 1
 
-      elif type(item) == IntSlot and item.refers_to:
-        debug(ptr_prefix + 'fix reference: %s', item)
+      elif type(item) == IntSlot:
+        if item.refers_to:
+          refers_to = item.refers_to
 
-        if isinstance(item.refers_to, types.TupleType):
-          referred_section = sections_pass2[item.refers_to[0]]
+          if isinstance(refers_to, types.TupleType):
+            referred_section = sections_pass2[item.refers_to[0]]
 
-          if referred_section.base is None:
-            raise buff.get_error(AssemblerError, 'Referred section has no base address set: name={}'.format(item.refers_to))
+            reloc = RelocSlot(refers_to[0], patch_section = referred_section, patch_address = section.ptr.u16, patch_offset = 0, patch_size = 16)
+            DEBUG(ptr_prefix + 'reloc slot created: %s', reloc)
 
-          item.value = referred_section.base.u16 + item.refers_to[1].u16
+          else:
+            reloc = RelocSlot(refers_to[1:], patch_section = references[item.refers_to].section, patch_address = section.ptr.u16, patch_offset = 0, patch_size = 16)
+            DEBUG(ptr_prefix + 'reloc slot created: %s', reloc)
 
-        else:
-          if item.refers_to not in references:
-            raise buff.get_error(AssemblerError, 'Unknown reference: name={}'.format(item.refers_to))
+          reloctab.content.append(reloc)
 
-          item.value = references[item.refers_to].section_ptr.u16
+          item.value = 0x7979
+          item.refers_to = None
 
-        debug(ptr_prefix + 'reference "%s" replaced with %s', item.refers_to, ADDR_FMT(item.value))
-        item.refers_to = None
         item.close()
 
         item = [UInt8(item.value.u16 & 0x00FF), UInt8((item.value.u16 & 0xFF00) >> 8)]
 
       elif hasattr(item, 'refers_to') and item.refers_to:
-        debug(ptr_prefix + 'fix reference: %s', item)
+        DEBUG(ptr_prefix + 'fix reference: %s', item)
 
-        if item.refers_to not in references:
-          raise buff.get_error(AssemblerError, 'No such label: name={}'.format(item.refers_to))
+        reloc = RelocSlot(item.refers_to[1:], flags = RelocFlags(relative = item.desc.relative_address), patch_section = section, patch_address = section.ptr.u16)
+        item.desc.fill_reloc_slot(logger, item, reloc)
+        DEBUG(ptr_prefix + 'reloc slot created: %s', reloc)
+        reloctab.content.append(reloc)
 
-        refers_to_var = references[item.refers_to]
-        refers_to_addr = refers_to_var.section_ptr.u16
-        debug(ptr_prefix + 'raw addr: %s', ADDR_FMT(refers_to_addr))
-        if item.desc.relative_address is True:
-          debug(ptr_prefix + 'convert to relative address')
-          refers_to_addr -= (item.address.u16 + 4)
-
-        item.desc.fix_refers_to(item, refers_to_addr)
-        debug(ptr_prefix + 'referred addr %s', ADDR_FMT(refers_to_var.section_ptr.u16))
-        debug(ptr_prefix + 'reference "%s" replaced with %s', refers_to_var.name, ADDR_FMT(refers_to_addr))
-
-      debug(ptr_prefix + str(item))
+      DEBUG(ptr_prefix + str(item))
 
       if not isinstance(item, types.ListType):
         item = [item]
@@ -1190,12 +1235,12 @@ def translate_buffer(buff, base_address = None, mmapable_sections = False, writa
         section.content.append(i)
         section.ptr.u16 += sizeof(i)
 
-    debug('pass #3: section %s finished: %s', section.name, section)
+    DEBUG('pass #3: section %s finished: %s', section.name, section)
 
-  debug('Bytecode sections:')
+  DEBUG('Bytecode sections:')
   for s_name, section in sections_pass3.items():
-    debug(str(section))
+    DEBUG(str(section))
 
-  debug('Bytecode translation completed')
+  DEBUG('Bytecode translation completed')
 
   return sections_pass3

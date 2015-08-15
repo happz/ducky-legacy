@@ -4,8 +4,71 @@ import mmap
 from .. import cpu
 
 from ..mm import UInt8, UInt32, ADDR_FMT
-from ..util import debug, error, BinaryFile, StringTable, align
+from ..util import BinaryFile, StringTable, align
 from ctypes import LittleEndianStructure, c_uint, c_ushort, c_ubyte, sizeof
+
+class Flags(LittleEndianStructure):
+  _pack_ = 0
+  flag_labels = []
+
+  @classmethod
+  def create(cls, **kwargs):
+    flags = cls()
+
+    for name, _type, _size in cls._fields_:
+      setattr(flags, name, 1 if kwargs.get(name, False) is True else 0)
+
+    return flags
+
+  def to_uint16(self):
+    u = 0
+
+    for i, (name, _type, _size) in enumerate(self._fields_):
+      u |= (getattr(self, name) << i)
+
+    return u
+
+  def load_uint16(self, u):
+    for i, (name, _type, _size) in enumerate(self._fields_):
+      setattr(self, name, 1 if u & (1 << i) else 0)
+
+  @classmethod
+  def from_uint16(cls, u):
+    flags = cls()
+    flags.load_uint16(u)
+    return flags
+
+  def to_string(self):
+    return ''.join([
+      self.flag_labels[i] if getattr(self, name) == 1 else '-' for i, (name, _type, _size) in enumerate(self._fields_)
+    ])
+
+  def load_string(self, s):
+    s = s.upper()
+
+    for i, (name, _type, _size) in enumerate(self._fields_):
+      setattr(self, name, 1 if self.flag_labels[i] in s else 0)
+
+  @classmethod
+  def from_string(cls, s):
+    flags = cls()
+    flags.load_string(s)
+    return flags
+
+  def __repr__(self):
+    return '<{}: {}>'.format(self.__class__.__name__, self.to_string())
+
+class SectionFlags(Flags):
+  _fields_ = [
+    ('readable',   c_ubyte, 1),
+    ('writable',   c_ubyte, 1),
+    ('executable', c_ubyte, 1),
+    ('bss',        c_ubyte, 1),
+    ('mmapable',   c_ubyte, 1),
+    ('globally_visible', c_ubyte, 1)
+  ]
+
+  flag_labels = 'RWEBMG'
 
 class SectionTypes(enum.IntEnum):
   UNKNOWN = 0
@@ -13,9 +76,10 @@ class SectionTypes(enum.IntEnum):
   DATA    = 2
   SYMBOLS = 3
   STRINGS = 4
+  RELOC   = 5
 
 SECTION_TYPES = [
-  'UNKNOWN', 'TEXT', 'DATA', 'SYMBOLS', 'STRINGS'
+  'UNKNOWN', 'TEXT', 'DATA', 'SYMBOLS', 'STRINGS', 'RELOC'
 ]
 
 class SymbolDataTypes(enum.IntEnum):
@@ -25,16 +89,16 @@ class SymbolDataTypes(enum.IntEnum):
   FUNCTION = 3
   ASCII  = 4
   BYTE   = 5
+  UNKNOWN = 6
 
-SYMBOL_DATA_TYPES = [
-  'int', 'char', 'string', 'function', 'ascii', 'byte'
-]
+SYMBOL_DATA_TYPES = 'ICSFABU'
 
-class FileFlags(LittleEndianStructure):
-  _pack_ = 0
+class FileFlags(Flags):
   _fields_ = [
     ('mmapable', c_ushort, 1)
   ]
+
+  flag_labels = 'M'
 
 class FileHeader(LittleEndianStructure):
   _pack_ = 0
@@ -44,69 +108,6 @@ class FileHeader(LittleEndianStructure):
     ('flags',    FileFlags),
     ('sections', c_ushort)
   ]
-
-class SectionFlags(LittleEndianStructure):
-  _pack_ = 0
-  _fields_ = [
-    ('readable',   c_ubyte, 1),
-    ('writable',   c_ubyte, 1),
-    ('executable', c_ubyte, 1),
-    ('bss',        c_ubyte, 1),
-    ('mmapable',   c_ubyte, 1)
-  ]
-
-  @staticmethod
-  def create(readable = False, writable = False, executable = False, bss = False, mmapable = False):
-    flags = SectionFlags()
-    flags.readable = 1 if readable else 0
-    flags.writable = 1 if writable else 0
-    flags.executable = 1 if executable else 0
-    flags.bss = 1 if bss else 0
-    flags.mmapable = 1 if mmapable else 0
-
-    return flags
-
-  def to_uint16(self):
-    return self.readable | self.writable << 1 | self.executable << 2 | self.bss << 3 | self.mmapable << 4
-
-  def load_uint16(self, u):
-    self.readable = 1 if u & 0x01 else 0
-    self.writable = 1 if u & 0x02 else 0
-    self.executable = 1 if u & 0x04 else 0
-    self.bss = 1 if u & 0x08 else 0
-    self.mmapable = 1 if u & 0x10 else 0
-
-  @staticmethod
-  def from_uint16(u):
-    flags = SectionFlags()
-    flags.load_uint16(u)
-    return flags
-
-  def to_string(self):
-    return ''.join([
-      'R' if self.readable == 1 else '-',
-      'W' if self.writable == 1 else '-',
-      'X' if self.executable == 1 else '-',
-      'B' if self.bss == 1 else '-',
-      'M' if self.mmapable == 1 else '-'
-    ])
-
-  def load_string(self, s):
-    s = s.lower()
-    self.readable = 1 if 'r' in s else 0
-    self.writable = 1 if 'w' in s else 0
-    self.executable = 1 if 'x' in s else 0
-    self.bss = 1 if 'b' in s else 0
-    self.mmapable = 1 if 'm' in s else 0
-
-  @staticmethod
-  def from_string(s):
-    flags = SectionFlags()
-    flags.load_string(s)
-    return flags
-
-  def __repr__(self):
-    return '<SectionFlags: r={}, w={}, x={}, b={}, m={}>'.format(self.readable, self.writable, self.executable, self.bss, self.mmapable)
 
 class SectionHeader(LittleEndianStructure):
   _pack_ = 0
@@ -124,22 +125,51 @@ class SectionHeader(LittleEndianStructure):
   ]
 
   def __repr__(self):
-    return '<SectionHeader: index={}, name={}, type={}, flags={}, base={}, items={}, data_size={}, file_size={}, offset={}>'.format(self.index, self.name, self.type, self.flags, self.base, self.items, self.data_size, self.file_size, self.offset)
+    return '<SectionHeader: index={}, name={}, type={}, flags={}, base={}, items={}, data_size={}, file_size={}, offset={}>'.format(self.index, self.name, self.type, self.flags.to_string(), ADDR_FMT(self.base), self.items, self.data_size, self.file_size, self.offset)
+
+class SymbolFlags(Flags):
+  _fields_ = [
+    ('globally_visible', c_ushort, 1)
+  ]
+
+  flag_labels = 'G'
 
 class SymbolEntry(LittleEndianStructure):
   _pack_ = 0
   _fields_ = [
-    ('name',    c_uint),
-    ('address', c_ushort),
-    ('size',    c_ushort),
-    ('section', c_ubyte),
-    ('type',    c_ubyte),
-    ('filename', c_uint),
-    ('lineno',  c_uint)
+    ('flags',        SymbolFlags),
+    ('name',         c_uint),
+    ('address',      c_ushort),
+    ('size',         c_ushort),
+    ('section',      c_ubyte),
+    ('type',         c_ubyte),
+    ('filename',     c_uint),
+    ('lineno',       c_uint)
   ]
 
   def __repr__(self):
-    return '<SymbolEntry: section={}, name={}, type={}, addr={}>'.format(self.section, self.name, SYMBOL_DATA_TYPES[self.type], ADDR_FMT(self.address))
+    return '<SymbolEntry: section={}, name={}, type={}, addr={}, flags={}>'.format(self.section, self.name, SYMBOL_DATA_TYPES[self.type], ADDR_FMT(self.address), self.flags.to_string())
+
+class RelocFlags(Flags):
+  _fields_ = [
+    ('relative', c_ushort, 1)
+  ]
+
+  flag_labels = 'R'
+
+class RelocEntry(LittleEndianStructure):
+  _pack_ = 0
+  _fields_ = [
+    ('flags',         RelocFlags),
+    ('name',          c_uint),
+    ('patch_section', c_ubyte),
+    ('patch_address', c_ushort),
+    ('patch_offset',  c_ubyte),
+    ('patch_size',    c_ubyte),
+  ]
+
+  def __repr__(self):
+    return '<RelocEntry: flags=%s, name=%s, section=%s, address=%s, offset=%s, size=%s>' % (self.flags.to_string(), self.name, self.patch_section, ADDR_FMT(self.patch_address), self.patch_offset, self.patch_size)
 
 SECTION_ITEM_SIZE = [
   0, 4, sizeof(UInt8), sizeof(SymbolEntry)
@@ -180,8 +210,22 @@ class File(BinaryFile):
   def get_header(self):
     return self.__header
 
+  def sections(self):
+    return (self.get_section(i) for i in xrange(0, self.get_header().sections))
+
   def get_section(self, i):
     return self.__sections[i]
+
+  def get_section_by_name(self, name):
+    for i in range(0, self.get_header().sections):
+      header, content = self.get_section(i)
+
+      if self.string_table.get_string(header.name) == name:
+        return header, content
+
+    else:
+      from ..mm import MalformedBinaryError
+      raise MalformedBinaryError('Unknown section named "{}"'.format(name))
 
   def load_symbols(self):
     self.symbols = {}
@@ -196,12 +240,12 @@ class File(BinaryFile):
   def load(self):
     self.seek(0)
 
-    debug('load: loading headers')
+    self.DEBUG('load: loading headers')
 
     self.__header = self.read_struct(FileHeader)
 
     if self.__header.magic != self.MAGIC:
-      error('load: magic cookie not recognized!')
+      self.ERROR('load: magic cookie not recognized!')
       from ..mm import MalformedBinaryError
       raise MalformedBinaryError('Magic cookie not recognized!')
 
@@ -211,7 +255,7 @@ class File(BinaryFile):
     for i in range(0, self.__header.sections):
       header, content = self.__sections[i]
 
-      debug('load: loading section #%i', header.index)
+      self.DEBUG('load: loading section #%i', header.index)
 
       self.seek(header.offset)
 
@@ -230,6 +274,10 @@ class File(BinaryFile):
         elif header.type == SectionTypes.TEXT:
           count = header.items
           st_class = UInt32
+
+        elif header.type == SectionTypes.RELOC:
+          count = header.items
+          st_class = RelocEntry
 
         else:
           from ..mm import MalformedBinaryError
@@ -252,23 +300,23 @@ class File(BinaryFile):
       header, content = self.__sections[i]
 
       header.offset = offset
-      debug('set section %s offset to %s', self.string_table.get_string(header.name), offset)
+      self.DEBUG('set section %s offset to %s', self.string_table.get_string(header.name), offset)
 
       if header.type == SectionTypes.STRINGS:
         header.data_size = header.file_size = len(self.string_table.buff)
 
       if header.flags.bss != 1:
         offset += header.file_size
-        debug('extending offset by %s to %s', header.file_size, offset)
+        self.DEBUG('extending offset by %s to %s', header.file_size, offset)
 
         if self.__header.flags.mmapable == 1:
           offset = align(mmap.PAGESIZE, offset)
-          debug('offset aligned to %s', offset)
+          self.DEBUG('offset aligned to %s', offset)
 
-      debug(str(header))
-      debug('')
+      self.DEBUG(str(header))
+      self.DEBUG('')
 
-    debug('save: saving headers')
+    self.DEBUG('save: saving headers')
 
     self.write_struct(self.__header)
 
@@ -278,26 +326,26 @@ class File(BinaryFile):
     for i in range(0, len(self.__sections)):
       header, content = self.__sections[i]
 
-      debug('save: saving section %s: %s', self.string_table.get_string(header.name), header)
+      self.DEBUG('save: saving section %s: %s', self.string_table.get_string(header.name), header)
 
       self.seek(header.offset)
 
       if header.type == SectionTypes.STRINGS:
-        debug('write: %s', self.string_table.buff)
+        self.DEBUG('write: %s', self.string_table.buff)
         self.write(self.string_table.buff)
 
       elif header.flags.bss == 1:
-        debug('BSS section - dont write out any slots')
+        self.DEBUG('BSS section - dont write out any slots')
 
       else:
         for item in content:
           if type(item) == cpu.assemble.SpaceSlot:
-            debug('write_space: %s bytes', item.size.u16)
+            self.DEBUG('write_space: %s bytes', item.size.u16)
             self.write('\x00' * item.size.u16)
 
           else:
             self.write_struct(item)
 
         if header.data_size != header.file_size:
-          debug('write after-section padding of %s bytes', header.file_size - header.data_size)
+          self.DEBUG('write after-section padding of %s bytes', header.file_size - header.data_size)
           self.write('\x00' * (header.file_size - header.data_size))

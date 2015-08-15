@@ -1,277 +1,170 @@
-import colorama
-import enum
-import select
+import tabulate
 import types
 
-from . import profiler
+class ConsoleConnection(object):
+  def __init__(self, cid, master, stream):
+    super(ConsoleConnection, self).__init__()
 
-from threading import Thread, Lock, Event
+    self.cid = cid
 
-CONSOLE_ID = 0
-
-if 'CONSOLE' not in globals():
-  CONSOLE = None
-
-class VerbosityLevels(enum.IntEnum):
-  QUIET   = 0
-  ERROR   = 1
-  WARNING = 2
-  INFO    = 3
-  DEBUG   = 4
-
-LEVELS = [
-  '',
-  'ERRR',
-  'WARN',
-  'INFO',
-  'DEBG'
-]
-
-COLORS = [
-  None,
-  colorama.Fore.RED,
-  colorama.Fore.YELLOW,
-  colorama.Fore.GREEN,
-  colorama.Fore.WHITE
-]
-
-__COLOR_RESET = colorama.Fore.RESET + colorama.Back.RESET + colorama.Style.RESET_ALL
-
-def RED(s):
-  return colorama.Fore.RED + s + __COLOR_RESET
-
-def GREEN(s):
-  return colorama.Fore.GREEN + s + __COLOR_RESET
-
-def BLUE(s):
-  return colorama.Fore.BLUE + s + __COLOR_RESET
-
-def WHITE(s):
-  return colorama.Fore.WHITE + s + __COLOR_RESET
-
-def format(level, *args):
-  fmt = args[0]
-  args = tuple(args[1:]) if len(args) > 1 else ()
-
-  msg = fmt % args if len(args) else fmt
-
-  return '{color_start}[{level}] {msgs}{color_stop}\n'.format(**{
-    'color_start': COLORS[level],
-    'color_stop':  colorama.Fore.RESET + colorama.Back.RESET + colorama.Style.RESET_ALL,
-    'level':       LEVELS[level],
-    'msgs':        msg
-  })
-
-class Console(object):
-  console_id = 0
-  commands = {}
-
-  def __init__(self, machine, f_in, f_out):
-    super(Console, self).__init__()
-
-    self.machine = machine
-
-    self.f_in = f_in
-    self.f_out = f_out
-    self.logfile = None
-
-    self.quiet_mode = False
-
-    self.lock = Lock()
-
-    self.new_line_event = Event()
-
-    self.keep_running = True
-    self.thread = None
-
-    self.profiler = profiler.STORE.get_machine_profiler()
+    self.master = master
+    self.stream = stream
 
     self.history = []
     self.history_index = 0
 
-  def set_quiet_mode(self, b):
-    self.quiet_mode = b
+    self.buff = []
+    self.history.insert(0, self.buff)
 
-  @classmethod
-  def register_command(cls, name, callback, *args, **kwargs):
-    cls.commands[name] = (callback, args, kwargs)
+    self.default_core = None
 
-  @classmethod
-  def unregister_command(cls, name):
-    if name in cls.commands:
-      del cls.commands[name]
+  def write(self, buff, *args):
+    if isinstance(buff, types.ListType):
+      buff = ''.join([chr(c) for c in buff])
 
-  def set_logfile(self, path):
-    self.logfile = open(path, 'wb')
+    if args:
+      buff = buff % args
 
-  def wait_on_line(self):
-    self.new_line_event.wait()
+    self.stream.write(buff)
+    self.stream.flush()
+
+  def writeln(self, buff, *args):
+    if isinstance(buff, types.ListType):
+      buff = ''.join([chr(c) for c in buff])
+
+    self.write(buff + '\n', *args)
 
   def prompt(self):
     self.write('#> ')
 
-  def write(self, buff, flush = True):
-    flush = False
+  def table(self, table, **kwargs):
+    for line in tabulate.tabulate(table, headers = 'firstrow', tablefmt = 'simple', numalign = 'right', **kwargs).split('\n'):
+      self.write(line + '\n')
 
-    if isinstance(buff, types.ListType):
-      buff = ''.join([chr(c) for c in buff])
-
-    with self.lock:
-      self.f_out.write(buff)
-
-      if flush:
-        self.f_out.flush()
-
-      if self.logfile:
-        self.logfile.write(buff)
-
-        if flush:
-          self.logfile.flush()
-
-  def writeln(self, level, *args):
-    if level == VerbosityLevels.DEBUG and self.quiet_mode:
-      return
-
-    self.write(format(level, *args))
-
-  def debug(self, *args):
-    self.writeln(VerbosityLevels.DEBUG, *args)
-
-  def info(self, *args):
-    self.writeln(VerbosityLevels.INFO, *args)
-
-  def warn(self, *args):
-    self.writeln(VerbosityLevels.WARNING, *args)
-
-  def error(self, *args):
-    self.writeln(VerbosityLevels.ERROR, *args)
-
-  def quiet(self, *args):
-    self.writeln(VerbosityLevels.QUIET, *args)
+  def log(self, logger, msg, *args):
+    self.writeln(msg, *args)
+    logger('[console %i] ' + msg, *((self.cid,) + args))
 
   def execute(self, cmd):
-    if cmd[0] not in self.commands:
-      self.error('Unknown command: %s', cmd)
+    if cmd[0] not in self.master.commands:
+      self.write('Unknown command: cmd="%s"', cmd)
       return
 
-    cmd_desc = self.commands[cmd[0]]
+    cmd_desc = self.master.commands[cmd[0]]
 
     try:
       cmd_desc[0](self, cmd, *cmd_desc[1], **cmd_desc[2])
 
     except Exception, exc:
-      from util import exception
+      self.master.machine.EXCEPTION(exc)
 
-      exception(exc)
+  def boot(self):
+    self.new_line_event.clear()
+    self.prompt()
 
-  def loop(self):
-    if not self.f_in:
-      return
+    self.master.machine.reactor.add_fd(self.stream.fd, on_read = self.read_input, on_error = self.halt)
 
-    self.profiler.enable()
+  def halt(self):
+    self.master.machine.reactor.remove_fd(self.stream.fd)
+    self.stream.close()
 
-    while self.keep_running:
-      self.new_line_event.clear()
+  def die(self, exc):
+    self.master.machine.EXCEPTION(exc)
+    self.halt()
 
-      def __clear_line():
-        self.write([27, 91, 50, 75, 13])
+  def read_input(self):
+    def __clear_line():
+      self.write([27, 91, 50, 75, 13])
 
-      def __clear_line_from_cursor():
-        self.write([27, 91, 75])
+    def __clear_line_from_cursor():
+      self.write([27, 91, 75])
 
-      def __move_backward(count = 1):
-        self.write([27, 91, count, 68])
+    def __move_backward(count = 1):
+      self.write([27, 91, count, 68])
 
-      self.prompt()
+    c = ord(self.stream.read(1))
 
-      line = None
+    if c == ord('\n'):
+      if self.history_index == 0:
+        self.history[0] = ''.join([chr(d) for d in self.buff])
 
-      buff = []
-      self.history.insert(0, buff)
-      self.history_index = 0
+      else:
+        self.history.pop(0)
+        self.history_index -= 1
 
-      while True:
-        select.select([self.f_in], [], [])
-
-        c = ord(self.f_in.read(1))
-
-        if c == ord('\n'):
-          if self.history_index == 0:
-            self.history[0] = ''.join([chr(d) for d in buff])
-
-          else:
-            self.history.pop(0)
-            self.history_index -= 1
-
-          line = self.history[self.history_index]
-          break
-
-        buff.append(c)
-
-        if c == 127:
-          buff[-1:] = []
-
-          if buff:
-            buff[-1:] = []
-
-            __clear_line()
-            self.prompt()
-            self.write(buff)
-            continue
-
-        if len(buff) >= 3:
-          # up arrow
-          if buff[-3:] == [27, 91, 65]:
-            if self.history_index < len(self.history) - 1:
-              self.history_index += 1
-
-            buff[-3:] = []
-            __clear_line()
-            self.prompt()
-            self.write(self.history[self.history_index])
-            continue
-
-          # down arrow
-          if buff[-3:] == [27, 91, 66]:
-            if self.history_index > 0:
-              self.history_index -= 1
-
-            buff[-3:] = []
-            __clear_line()
-            self.prompt()
-            self.write(self.history[self.history_index])
-            continue
-
-      self.new_line_event.set()
+      line = self.history[self.history_index]
+      self.buff = []
 
       if not line:
         self.history.pop(0)
-        continue
+        return
 
       cmd = [e.strip() for e in line.split(' ')]
-
       self.execute(cmd)
+      return
 
-    self.profiler.disable()
+    self.buff.append(c)
+
+    if c == 127:
+      self.buff[-1:] = []
+
+      if self.buff:
+        self.buff[-1:] = []
+
+        __clear_line()
+        self.prompt()
+        self.write(self.buff)
+        return
+
+    if len(self.buff) >= 3:
+      # up arrow
+      if self.buff[-3:] == [27, 91, 65]:
+        if self.history_index < len(self.history) - 1:
+          self.history_index += 1
+
+        self.buff[-3:] = []
+        __clear_line()
+        self.prompt()
+        self.write(self.history[self.history_index])
+        return
+
+      # down arrow
+      if self.buff[-3:] == [27, 91, 66]:
+        if self.history_index > 0:
+          self.history_index -= 1
+
+        self.buff[-3:] = []
+        __clear_line()
+        self.prompt()
+        self.write(self.history[self.history_index])
+        return
+
+class ConsoleMaster(object):
+  console_id = 0
+
+  def __init__(self, machine):
+    super(ConsoleMaster, self).__init__()
+
+    self.machine = machine
+
+    self.connections = []
+    self.commands = {}
+
+  def register_command(self, name, callback, *args, **kwargs):
+    self.commands[name] = (callback, args, kwargs)
+
+  def is_registered_command(self, name):
+    return name in self.commands
+
+  def unregister_command(self, name):
+    if name in self.commands:
+      del self.commands[name]
 
   def boot(self):
-    if self.f_in:
-      self.f_in.flush()
-
-    self.f_out.flush()
-
-    self.boot_thread()
+    self.register_command('?', cmd_help)
 
   def halt(self):
-    self.keep_running = False
-
-  def boot_thread(self):
-    cid = Console.console_id
-    Console.console_id += 1
-
-    self.thread = Thread(target = self.loop, name = 'Console #{}'.format(cid))
-    self.thread.daemon = True
-    self.thread.start()
+    self.unregister_command('?')
 
 def cmd_help(console, cmd):
   """
@@ -282,10 +175,7 @@ def cmd_help(console, cmd):
     ['Command', 'Description']
   ]
 
-  for cmd_name in sorted(Console.commands.keys()):
-    table.append([cmd_name, Console.commands[cmd_name][0].__doc__])
+  for cmd_name in sorted(console.server.commands.keys()):
+    table.append([cmd_name, console.server.commands[cmd_name][0].__doc__])
 
-  from util import print_table
-  print_table(table)
-
-Console.register_command('?', cmd_help)
+  console.table(table)

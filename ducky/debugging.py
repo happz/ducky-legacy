@@ -1,7 +1,7 @@
 import enum
+import logging
 
 from .interfaces import IVirtualInterrupt
-from .console import Console
 from .mm import ADDR_FMT
 from .irq import InterruptList, VIRTUAL_INTERRUPTS
 
@@ -36,7 +36,7 @@ class WatchPoint(Point):
 
 class BreakPoint(WatchPoint):
   def __init__(self, debugging_set, ip):
-    super(BreakPoint, self).__init__(debugging_set, lambda core: core.IP().u16 == self.ip)
+    super(BreakPoint, self).__init__(debugging_set, lambda core: core.IP().value == self.ip)
 
     self.ip = ip
 
@@ -50,6 +50,14 @@ class DebuggingSet(object):
     self.owner = owner
 
     self.points = {}
+
+    C = self.owner.cpu.machine.console
+    if not C.is_registered_command('bp_list'):
+      C.register_command('bp_list', cmd_bp_list)
+    if not C.is_registered_command('bp_add'):
+      C.register_command('bp_add', cmd_bp_add)
+    if not C.is_registered_command('bp_active'):
+      C.register_command('bp_active', cmd_bp_active)
 
   def add_point(self, p):
     self.points[p.id] = p
@@ -130,8 +138,7 @@ def cmd_bp_list(console, cmd):
       point.countdown
     ])
 
-  from util import print_table
-  print_table(bps)
+  console.table(bps)
 
 def cmd_bp_add(console, cmd):
   """
@@ -156,12 +163,21 @@ def cmd_bp_active(console, cmd):
   point = Point.points[int(cmd[1])]
   point.active = not point.active
 
-Console.register_command('bp_list', cmd_bp_list)
-Console.register_command('bp_add', cmd_bp_add)
-Console.register_command('bp_active', cmd_bp_active)
-
 class VMDebugOperationList(enum.Enum):
-  QUIET_MODE = 0
+  LOGGER_VERBOSITY = 0
+
+class VMVerbosityLevels(enum.Enum):
+  DEBUG = 0
+  INFO = 1
+  WARNING = 2
+  ERROR = 3
+
+VERBOSITY_LEVEL_MAP = {
+  VMVerbosityLevels.DEBUG.value:   logging.DEBUG,
+  VMVerbosityLevels.INFO.value:    logging.INFO,
+  VMVerbosityLevels.WARNING.value: logging.WARNING,
+  VMVerbosityLevels.ERROR.value:   logging.ERROR
+}
 
 class VMDebugInterrupt(IVirtualInterrupt):
   def run(self, core):
@@ -170,16 +186,19 @@ class VMDebugInterrupt(IVirtualInterrupt):
     core.DEBUG('VMDebugInterrupt: triggered')
 
     op = core.REG(Registers.R00).value
-    core.REG(Registers.R00).value = 0
+    core.REG(Registers.R00).value = 0xFFFF
 
-    if op == VMDebugOperationList.QUIET_MODE.value:
-      from .util import CONSOLE
+    if op == VMDebugOperationList.LOGGER_VERBOSITY.value:
+      verbosity = core.REG(Registers.R01).value
 
-      core.DEBUG('setting quiet mode to %s', core.REG(Registers.R01).value)
-      CONSOLE.set_quiet_mode(False if core.REG(Registers.R01).value == 0 else True)
+      if verbosity not in VERBOSITY_LEVEL_MAP:
+        core.WARN('VMDebugInterrupt: unknown verbosity level: %s', verbosity)
+        return
+
+      core.LOGGER.setLevel(VERBOSITY_LEVEL_MAP[verbosity])
+      core.DEBUG('VMDebugInterrupt: setting verbosity to %s', verbosity)
 
     else:
-      core.WARN('Unknown vmdebug operation requested: %s', op)
-      core.REG(Registers.R00).value = 0xFFFF
+      core.WARN('VMDebugInterrupt: unknown operation requested: %s', op)
 
 VIRTUAL_INTERRUPTS[InterruptList.VMDEBUG.value] = VMDebugInterrupt

@@ -17,6 +17,8 @@
 ; use DEFWORD for them...
 ;
 
+.include "forth/defs.asm"
+
 ;
 ; - Environment queries -----------------------------------------------------------------
 ;
@@ -831,17 +833,33 @@ $DEFCODE "MOVE", 4, 0, MOVE
   $NEXT
 
 
-$DEFCODE "ALLOCATE", 8, 0, ALLOCATE
-  ; ( u -- a-addr ior )
-  pop r0
+mm_alloc:
+  push r1
   ; convert number of bytes to number of pages, add 2 bytes for pages count
   add r0, $CELL
-  div r0, $PAGE_SIZE
   $align_page r0
+  div r0, $PAGE_SIZE
   mov r1, r0 ; save pages count
   call &mm_area_alloc
   stw r0, r1 ; save pages count at the beggining of the area
   add r0, $CELL ; and return the rest of the area to the caller
+  pop r1
+  ret
+
+
+mm_free:
+  push r1
+  sub r0, $CELL
+  lw r1, r0
+  call &mm_area_free
+  pop r1
+  ret
+
+
+$DEFCODE "ALLOCATE", 8, 0, ALLOCATE
+  ; ( u -- a-addr ior )
+  pop r0
+  call &mm_alloc
   push r0
   push 0
   $NEXT
@@ -850,12 +868,66 @@ $DEFCODE "ALLOCATE", 8, 0, ALLOCATE
 $DEFCODE "FREE", 4, 0, FREE
   ; ( a-addr - ior )
   pop r0 ; address
-  sub r0, $CELL
-  lw r1, r0 ; load stored number of pages
-  call &mm_area_free
+  call &mm_free
   push 0
   $NEXT
 
+
+$DEFCODE "RESIZE", 6, 0, RESIZE
+  ; ( a-addr1 u -- a-addr2 ior )
+  pop $W ; u
+  pop $X ; a-addr
+
+  li r0, $MM_OP_UNUSED
+  int $INT_MM
+  mul r0, $PAGE_SIZE
+  cmp $W, r0
+  bg &.__RESIZE_oom
+
+  ; allocate new area
+  mov r0, $W
+  call &mm_alloc
+  mov r5, r0 ; save new memory area
+
+  ; get size of the new area
+  sub r0, $CELL
+  lw r4, r0 ; save new memory area size
+
+  ; find size of the original area
+  mov r0, $X
+  sub r0, $CELL
+  lw r3, r0 ; save old memory area size
+
+  cmp r4, r3
+  ble &.__RESIZE_new_smaller
+
+  mov r2, r3
+  j &.__RESIZE_copy
+
+.__RESIZE_new_smaller:
+  mov r2, r4
+
+.__RESIZE_copy:
+  mul r2, $PAGE_SIZE
+  sub r2, $CELL
+
+  mov r0, $X
+  mov r1, r5
+  call &memcpy
+
+  mov r0, $X
+  call &mm_free
+
+  push r5
+  push 0
+  j &.__RESIZE_next
+
+.__RESIZE_oom:
+  push $X
+  push $FORTH_FALSE
+
+.__RESIZE_next:
+  $NEXT
 
 ; - Arithmetics -------------------------------------------------------------------------
 
