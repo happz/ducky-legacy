@@ -127,7 +127,8 @@ def fix_section_bases(logger, info, f_out, required_bases):
   fixed_sections = sorted(fixed_sections, key = lambda x: x.base)
   D('fixed sections, sorted: %s', fixed_sections)
 
-  from ducky.cpu.assemble import align_to_next_page
+  from ducky.cpu.assemble import align_to_next_page, align_to_next_mmap
+  align = align_to_next_mmap if f_out.get_header().flags.mmapable == 1 else align_to_next_page
 
   def overlap(a, b):
     return max(0, min(a[1], b[1]) - max(a[0], b[0]))
@@ -136,8 +137,8 @@ def fix_section_bases(logger, info, f_out, required_bases):
     base = UInt16(0)
 
     for i, f_header in enumerate(fixed_sections):
-      s_area = (base.u16, align_to_next_page(base.u16 + s_header.data_size))
-      f_area = (f_header.base, align_to_next_page(f_header.base + f_header.data_size))
+      s_area = (base.u16, align(base.u16 + s_header.data_size))
+      f_area = (f_header.base, align(f_header.base + f_header.data_size))
       D('s_area: from=%s to=%s' % (ADDR_FMT(s_area[0]), ADDR_FMT(s_area[1])))
       D('f_area: from=%s to=%s' % (ADDR_FMT(f_area[0]), ADDR_FMT(f_area[1])))
 
@@ -161,7 +162,7 @@ def fix_section_bases(logger, info, f_out, required_bases):
 
     else:
       if fixed_sections:
-        base.u16 = align_to_next_page(fixed_sections[-1].base + fixed_sections[-1].data_size)
+        base.u16 = align(fixed_sections[-1].base + fixed_sections[-1].data_size)
       else:
         base.u16 = 0
 
@@ -379,15 +380,15 @@ def main():
       f_in.load()
       files_in.append(f_in)
 
-  if any([f.get_header().flags.mmapable == 1 for f in files_in]):
-    logger.error('All input files must use non-mmapable sections')
-    sys.exit(0)
+  if not all([f.get_header().flags.mmapable == files_in[0].get_header().flags.mmapable for f in files_in]):
+    logger.error('All input files must have the same mmapable setting')
+    sys.exit(1)
 
   info = LinkerInfo()
 
   with ducky.mm.binary.File(logger, options.file_out, 'w') as f_out:
     h_file = f_out.create_header()
-    h_file.flags.mmapable = 0
+    h_file.flags.mmapable = files_in[0].get_header().flags.mmapable
 
     h_section = f_out.create_section()
     h_section.type = ducky.mm.binary.SectionTypes.STRINGS
