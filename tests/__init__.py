@@ -151,7 +151,7 @@ def run_machine(code, machine_config = None, coredump_file = None, post_boot = N
   for fn in post_run:
     fn(M, state)
 
-def common_run_machine(code, machine_config = None, cpus = 1, cores = 1, irq_routines = 'tests/instructions/interrupts-basic.bin', post_boot = None, post_run = None):
+def common_run_machine(code, machine_config = None, cpus = 1, cores = 1, irq_routines = 'tests/instructions/interrupts-basic', post_boot = None, post_run = None):
   if isinstance(code, types.ListType):
     code = '\n'.join(code)
 
