@@ -152,7 +152,15 @@ run-hello-world-lib: hello-world-lib
 	$(Q) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) tools/vm --machine-config=examples/hello-world-lib/hello-world.conf -g --conio-stdout-echo=yes
 
 
-run: interrupts.bin $(FORTH_KERNEL)
+interrupts: interrupts.o
+	$(Q) echo -n "[LINK] $^ => $@ ... "
+	$(Q) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) tools/ld -o $@ $(foreach objfile,$^,-i $(objfile)) $(VMDEBUG); if [ "$$?" -eq 0 ]; then echo "$(CC_GREEN)PASS$(CC_END)"; else echo "$(CC_RED)FAIL$(CC_END)"; fi
+
+tests/instructions/interrupts-basic: tests/instructions/interrupts-basic.o
+	$(Q) echo -n "[LINK] $^ => $@ ... "
+	$(Q) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) tools/ld -o $@ $(foreach objfile,$^,-i $(objfile)) $(VMDEBUG); if [ "$$?" -eq 0 ]; then echo "$(CC_GREEN)PASS$(CC_END)"; else echo "$(CC_RED)FAIL$(CC_END)"; fi
+
+run: interrupts $(FORTH_KERNEL)
 ifeq ($(VMCOVERAGE),yes)
 	$(eval VMCOVERAGE_FILE := COVERAGE_FILE="$(CURDIR)/.coverage.run")
 	$(eval VMCOVERAGE_BIN  := $(VIRTUAL_ENV)/bin/coverage run)
@@ -162,7 +170,7 @@ else
 endif
 	$(Q) $(VMCOVERAGE_FILE) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) PYTHONUNBUFFERED=yes $(PYTHON) $(VMCOVERAGE_BIN) tools/vm $(VMPROFILE) $(VMDEBUG) $(BINPROFILE) --conio-echo=no --conio-highlight=no --machine-config=tests/forth/test-machine.conf --machine-in=forth/ducky-forth.f
 
-run-binary: interrupts.bin
+run-binary: interrupts
 ifeq ($(VMCOVERAGE),yes)
 	$(eval VMCOVERAGE_FILE := COVERAGE_FILE="$(CURDIR)/.coverage.run")
 	$(eval VMCOVERAGE_BIN  := $(VIRTUAL_ENV)/bin/coverage run)
@@ -172,7 +180,7 @@ else
 endif
 	$(Q) $(VMCOVERAGE_FILE) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) PYTHONUNBUFFERED=yes $(PYTHON) $(VMCOVERAGE_BIN) tools/vm $(VMPROFILE) $(VMDEBUG) $(BINPROFILE) --conio-echo=$(CONIO_ECHO) --conio-stdout-echo=$(CONIO_STDOUT_ECHO) --conio-highlight=no --machine-config=$(MACHINE_CONFIG) -g
 
-run-forth-script: interrupts.bin $(FORTH_KERNEL)
+run-forth-script: interrupts $(FORTH_KERNEL)
 ifeq ($(VMCOVERAGE),yes)
 	$(eval VMCOVERAGE_FILE := COVERAGE_FILE="$(CURDIR)/.coverage.run")
 	$(eval VMCOVERAGE_BIN  := $(VIRTUAL_ENV)/bin/coverage run)
@@ -193,7 +201,7 @@ tests-pre:
 	$(Q) $(CURDIR)/tests/xunit-record --init --file=$(TESTSETDIR)/results/forth.xml --testsuite=forth-$(TESTSET)
 	$(Q) echo "$(CC_GREEN)PASS$(CC_END)"
 
-tests-engine: tests/instructions/interrupts-basic.bin
+tests-engine: tests/instructions/interrupts-basic
 	$(Q)  echo "[TEST] Engine unit tests"
 ifeq ($(VMCOVERAGE),yes)
 	$(eval VMCOVERAGE_FILE := COVERAGE_FILE="$(TESTSETDIR)/coverage/.coverage.engine")
@@ -205,9 +213,9 @@ endif
 	-$(Q) $(VMCOVERAGE_FILE) CURDIR=$(CURDIR) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) MMAPABLE_SECTIONS=$(MMAPABLE_SECTIONS) $(PYTHON) $(VIRTUAL_ENV)/bin/nosetests -v --all-modules $(COVERAGE_NOSE_FLAG) --with-xunit --xunit-file=$(TESTSETDIR)/results/nosetests.xml --no-path-adjustment -w $(CURDIR)/tests 2>&1 | stdbuf -oL -eL tee $(TESTSETDIR)/engine.out | grep -v -e '\[INFO\] ' -e '#> '
 	-$(Q) sed -i 's/<testsuite name="nosetests"/<testsuite name="nosetests-$(TESTSET)"/' $(TESTSETDIR)/results/nosetests.xml
 
-tests-forth-units: interrupts.bin $(FORTH_KERNEL) $(FORTH_TESTS_OUT)
+tests-forth-units: interrupts $(FORTH_KERNEL) $(FORTH_TESTS_OUT)
 
-tests-forth-ans: interrupts.bin $(FORTH_KERNEL)
+tests-forth-ans: interrupts $(FORTH_KERNEL)
 	$(Q) echo -n "[TEST] FORTH ANS testsuite ... "
 	$(eval tc_out      := $(TESTSETDIR)/forth-ans.out)
 	$(eval tc_machine  := $(TESTSETDIR)/forth-ans.machine)
@@ -275,7 +283,7 @@ install:
 	python setup.py install
 
 clean:
-	$(Q) rm -f examples/hello-world/hello-world examples/hello-world-lib/hello-world $(FORTH_KERNEL)
+	$(Q) rm -f examples/hello-world/hello-world examples/hello-world-lib/hello-world $(FORTH_KERNEL) interrupts
 	$(Q) rm -f `find $(CURDIR) -name '*.o'`
 	$(Q) rm -rf ducky-snapshot.bin build dist ducky.egg-info tests-python-egg-mmap tests-python-egg-read tests-python-devel-mmap tests-python-devel-read tests-pypy-devel-mmap tests-pypy-devel-mmap tests-pypy-devel-read tests-pypy-egg-mmap tests-pypy-egg-read
 
@@ -309,7 +317,7 @@ endif
 	$(Q) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) tools/as -i $< -o $@ -f $(mmapable_sections) $(forth_debug_find) $(forth_text_writable) $(forth_welcome) $(VMDEBUG); if [ "$$?" -eq 0 ]; then echo "$(CC_GREEN)PASS$(CC_END)"; else echo "$(CC_RED)FAIL$(CC_END)"; fi
 
 
-%.f.out: %.f interrupts.bin $(FORTH_KERNEL)
+%.f.out: %.f interrupts $(FORTH_KERNEL)
 	$(eval tc_name     := $(notdir $(<:%.f=%)))
 	$(eval tc_coverage := $(TESTSETDIR)/coverage/.coverage.forth-unit.$(tc_name))
 	$(eval tc_machine  := $(<:%.f=%.f.machine))

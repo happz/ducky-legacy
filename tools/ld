@@ -160,7 +160,11 @@ def fix_section_bases(logger, info, f_out, required_bases):
       break
 
     else:
-      base.u16 = align_to_next_page(fixed_sections[-1].base + fixed_sections[-1].data_size)
+      if fixed_sections:
+        base.u16 = align_to_next_page(fixed_sections[-1].base + fixed_sections[-1].data_size)
+      else:
+        base.u16 = 0
+
       if base.u16 + s_header.data_size >= 0xFFFF:
         logger.error('Cant fit %s into any space', s_name)
         logger.error('section: %s', s_header)
