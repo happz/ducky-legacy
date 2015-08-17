@@ -1,6 +1,7 @@
 import unittest
 import random
 import string
+import os
 
 import ducky.config
 import ducky.blockio
@@ -9,7 +10,9 @@ from ducky.mm import ADDR_FMT, segment_addr_to_addr
 from tests import common_run_machine, assert_registers, assert_flags, assert_mm, assert_file_content, prepare_file
 
 class Tests(unittest.TestCase):
-  def common_case(self, code, storages, mm, files, **kwargs):
+  def common_case(self, code = None, binary = None, storages = None, mm = None, files = None, **kwargs):
+    files = files or []
+
     machine_config = ducky.config.MachineConfig()
 
     for driver, id, path in storages:
@@ -25,46 +28,21 @@ class Tests(unittest.TestCase):
       for filename, cells in files:
         assert_file_content(filename, cells)
 
-    common_run_machine(code, machine_config = machine_config, post_run = [__assert_state])
+    common_run_machine(code = code, binary = binary, machine_config = machine_config, post_run = [__assert_state])
 
   def test_unknown_device(self):
     file_size = ducky.blockio.BLOCK_SIZE * 10
     f_tmp = prepare_file(file_size)
     storage_desc = ('block', 1, f_tmp.name)
 
-    code = """
-      .def INT_BLOCKIO: 1
-      .def BLOCKIO_READ: 0
-
-        .text
-
-      main:
-        li r0, 7 ; there's no device with id 7...
-        li r1, $BLOCKIO_READ
-        int $INT_BLOCKIO
-        int 0
-    """
-
-    self.common_case(code, [storage_desc], None, [], r0 = 0xFFFF, z = 1)
+    self.common_case(binary = os.path.join(os.getenv('CURDIR'), 'tests', 'storage', 'test_unknown_device_1.bin'), storages = [storage_desc], r0 = 0xFFFF, z = 1)
 
   def test_unknown_operation(self):
     file_size = ducky.blockio.BLOCK_SIZE * 10
     f_tmp = prepare_file(file_size)
     storage_desc = ('block', 1, f_tmp.name)
 
-    code = """
-      .def INT_BLOCKIO: 1
-
-        .text
-
-      main:
-        li r0, 1
-        li r1, 79
-        int $INT_BLOCKIO
-        int 0
-    """
-
-    self.common_case(code, [storage_desc], None, [], r0 = 0xFFFF, r1 = 79)
+    self.common_case(binary = os.path.join(os.getenv('CURDIR'), 'tests', 'storage', 'test_unknown_operation_1.bin'), storages = [storage_desc], r0 = 0xFFFF, r1 = 79)
 
   def test_block_read(self):
     # size of storage file
@@ -126,7 +104,7 @@ class Tests(unittest.TestCase):
         int 0
     """.format(**{'msg_block': msg_block, 'msg_length': msg_length, 'block_size': ducky.blockio.BLOCK_SIZE})
 
-    self.common_case(code, [storage_desc], mm_assert, file_assert,
+    self.common_case(code = code, storages = [storage_desc], mm = mm_assert, files = file_assert,
                      r0 = 0, r1 = 0, r2 = msg_block, r3 = 0x0102, r4 = 1)
 
   def test_block_write(self):
@@ -182,5 +160,5 @@ class Tests(unittest.TestCase):
         int 0
     """.format(**{'msg_block': msg_block, 'msg_length': msg_length, 'block_size': ducky.blockio.BLOCK_SIZE, 'msg': msg})
 
-    self.common_case(code, [storage_desc], mm_assert, file_assert,
+    self.common_case(code = code, storages = [storage_desc], mm = mm_assert, files = file_assert,
                      r0 = 0, r1 = 1, r2 = 0x0100, r3 = msg_block, r4 = 1)

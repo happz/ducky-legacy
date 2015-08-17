@@ -9,6 +9,8 @@ INSTALLED_EGG := $(VIRTUAL_ENV)/lib/python2.7/site-packages/ducky-1.0-py2.7.egg
 
 .PHONY: tests-pre tests-engine tests-post test-submit-results tests docs cloc flake
 
+.PRECIOUS: %.o %.bin
+
 #
 # Tests
 #
@@ -17,6 +19,7 @@ FORTH_TESTS_OUT := $(FORTH_TESTS_IN:%.f=%.f.out)
 
 # See tests/forth/ans/runtest.fth for full list
 FORTH_ANS_TESTS := core.fr memorytest.fth # coreplustest.fth coreexttest.fth memorytest.fth toolstest.fth stringtest.fth
+ENGINE_TESTS := $(shell find $(CURDIR)/tests/instructions/tests $(CURDIR)/tests/storage -name '*.asm')
 
 
 #
@@ -201,7 +204,7 @@ tests-pre:
 	$(Q) $(CURDIR)/tests/xunit-record --init --file=$(TESTSETDIR)/results/forth.xml --testsuite=forth-$(TESTSET)
 	$(Q) echo "$(CC_GREEN)PASS$(CC_END)"
 
-tests-engine: tests/instructions/interrupts-basic
+tests-engine: tests/instructions/interrupts-basic $(ENGINE_TESTS:%.asm=%.bin)
 	$(Q)  echo "[TEST] Engine unit tests"
 ifeq ($(VMCOVERAGE),yes)
 	$(eval VMCOVERAGE_FILE := COVERAGE_FILE="$(TESTSETDIR)/coverage/.coverage.engine")
@@ -210,7 +213,7 @@ else
 	$(eval VMCOVERAGE_FILE := )
 	$(eval COVERAGE_NOSE_FLAG := )
 endif
-	-$(Q) $(VMCOVERAGE_FILE) CURDIR=$(CURDIR) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) MMAPABLE_SECTIONS=$(MMAPABLE_SECTIONS) $(PYTHON) $(VIRTUAL_ENV)/bin/nosetests -v --all-modules $(COVERAGE_NOSE_FLAG) --with-xunit --xunit-file=$(TESTSETDIR)/results/nosetests.xml --no-path-adjustment -w $(CURDIR)/tests 2>&1 | stdbuf -oL -eL tee $(TESTSETDIR)/engine.out | grep -v -e '\[INFO\] ' -e '#> '
+	-$(Q) $(VMCOVERAGE_FILE) CURDIR=$(CURDIR) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) MMAPABLE_SECTIONS=$(MMAPABLE_SECTIONS) $(PYTHON) $(VIRTUAL_ENV)/bin/nosetests -v --with-timer --timer-top-n 10 --all-modules $(COVERAGE_NOSE_FLAG) --with-xunit --xunit-file=$(TESTSETDIR)/results/nosetests.xml --no-path-adjustment -w $(CURDIR)/tests 2>&1 | stdbuf -oL -eL tee $(TESTSETDIR)/engine.out | grep -v -e '\[INFO\] ' -e '#> '
 	-$(Q) sed -i 's/<testsuite name="nosetests"/<testsuite name="nosetests-$(TESTSET)"/' $(TESTSETDIR)/results/nosetests.xml
 
 tests-forth-units: interrupts $(FORTH_KERNEL) $(FORTH_TESTS_OUT)
@@ -284,7 +287,7 @@ install:
 
 clean:
 	$(Q) rm -f examples/hello-world/hello-world examples/hello-world-lib/hello-world $(FORTH_KERNEL) interrupts
-	$(Q) rm -f `find $(CURDIR) -name '*.o'`
+	$(Q) rm -f `find $(CURDIR) -name '*.o'` `find $(CURDIR) -name '*.bin'` tests/instructions/interrupts-basic
 	$(Q) rm -rf ducky-snapshot.bin build dist ducky.egg-info tests-python-egg-mmap tests-python-egg-read tests-python-devel-mmap tests-python-devel-read tests-pypy-devel-mmap tests-pypy-devel-mmap tests-pypy-devel-read tests-pypy-egg-mmap tests-pypy-egg-read
 
 
@@ -315,6 +318,13 @@ else
 endif
 	$(Q) echo -n "[COMPILE] $< => $@ ... "
 	$(Q) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) tools/as -i $< -o $@ -f $(mmapable_sections) $(forth_debug_find) $(forth_text_writable) $(forth_welcome) $(VMDEBUG); if [ "$$?" -eq 0 ]; then echo "$(CC_GREEN)PASS$(CC_END)"; else echo "$(CC_RED)FAIL$(CC_END)"; fi
+
+
+%.bin: %.o
+	$(eval ld_flags := )
+	$(if $(findstring tests,$^), $(eval ld_flags := --section-base=.text=0x0000))
+	$(Q) echo -n "[LINK] $^ => $@ ... "
+	$(Q) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) tools/ld -o $@ $(foreach objfile,$^,-i $(objfile)) $(ld_flags) $(VMDEBUG); if [ "$$?" -eq 0 ]; then echo "$(CC_GREEN)PASS$(CC_END)"; else echo "$(CC_RED)FAIL$(CC_END)"; fi
 
 
 %.f.out: %.f interrupts $(FORTH_KERNEL)

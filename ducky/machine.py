@@ -469,6 +469,8 @@ class Machine(ISnapshotable, IMachineWorker):
     map(lambda __storage: __storage.halt(), self.storages.itervalues())
     map(lambda __cpu: __cpu.halt(),         self.cpus)
 
+    # self.memory.halt()
+
     self.reactor.remove_task(self.irq_router_task)
     self.reactor.remove_task(self.check_living_cores_task)
 

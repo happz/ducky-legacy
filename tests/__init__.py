@@ -123,13 +123,18 @@ def compile_code(code):
 
   return f_bin_name
 
-def run_machine(code, machine_config = None, coredump_file = None, post_boot = None, post_run = None):
+def run_machine(code = None, binary = None, machine_config = None, coredump_file = None, post_boot = None, post_run = None):
   post_boot = post_boot or []
   post_run = post_run or []
 
   M = ducky.machine.Machine()
 
-  binary_path = compile_code(code)
+  if code is not None:
+    binary_path = compile_code(code)
+
+  else:
+    binary_path = binary
+
   machine_config.add_section('binary-0')
   machine_config.set('binary-0', 'file', binary_path)
 
@@ -141,18 +146,19 @@ def run_machine(code, machine_config = None, coredump_file = None, post_boot = N
 
   M.run()
 
+  if code is not None:
+    os.unlink(binary_path)
+
   state = ducky.snapshot.VMState.capture_vm_state(M, suspend = False)
 
   if coredump_file:
     state.save(coredump_file)
 
-  os.unlink(machine_config.get('binary-0', 'file'))
-
   for fn in post_run:
     fn(M, state)
 
-def common_run_machine(code, machine_config = None, cpus = 1, cores = 1, irq_routines = 'tests/instructions/interrupts-basic', post_boot = None, post_run = None):
-  if isinstance(code, types.ListType):
+def common_run_machine(code = None, binary = None, machine_config = None, cpus = 1, cores = 1, irq_routines = 'tests/instructions/interrupts-basic', post_boot = None, post_run = None):
+  if code is not None and isinstance(code, types.ListType):
     code = '\n'.join(code)
 
   if machine_config is None:
@@ -165,4 +171,4 @@ def common_run_machine(code, machine_config = None, cpus = 1, cores = 1, irq_rou
   machine_config.add_section('cpu')
   machine_config.set('cpu', 'math-coprocessor', 'yes')
 
-  run_machine(code, machine_config = machine_config, post_boot = post_boot, post_run = post_run)
+  run_machine(code = code, binary = binary, machine_config = machine_config, post_boot = post_boot, post_run = post_run)

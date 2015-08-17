@@ -74,7 +74,7 @@ class BinaryFile(file):
     """
     Read structure from current position in file.
 
-    :returns: instance of class ``st_class` with content read from file
+    :returns: instance of class ``st_class`` with content read from file
     :rtype: ``st_class``
     """
 
@@ -222,17 +222,17 @@ class StringTable(object):
     :rtype: ``string``
     """
 
-    s = ''
+    s = []
 
-    for i in range(offset, len(self.buff)):
+    for i in xrange(offset, len(self.buff)):
       c = self.buff[i]
 
       if c == '\x00':
         break
 
-      s += c
+      s.append(c)
 
-    return s
+    return ''.join(s)
 
 class SymbolTable(dict):
   def __init__(self, binary):

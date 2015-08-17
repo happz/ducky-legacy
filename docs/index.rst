@@ -30,6 +30,8 @@ Code Documentation
 
    ducky.reactor
    ducky.machine
+   ducky.interfaces
+   ducky.log
    ducky.cpu
    ducky.cpu.coprocessor
    ducky.mm

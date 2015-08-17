@@ -24,6 +24,7 @@ setup(name = 'ducky',
         'pytty',
         'coverage',
         'lxml',
-        'beautifulsoup4'
+        'beautifulsoup4',
+        'nose-timer'
       ],
      )

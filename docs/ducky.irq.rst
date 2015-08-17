@@ -8,7 +8,6 @@ Submodules
 
    ducky.irq.conio
    ducky.irq.timer
-   ducky.irq.virtual
 
 Module contents
 ---------------

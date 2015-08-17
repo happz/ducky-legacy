@@ -601,9 +601,10 @@ class MMapAreaState(SnapshotNode):
     super(MMapAreaState, self).__init__('address', 'size', 'path', 'offset')
 
 class MMapArea(object):
-  def __init__(self, address, size, file_path, offset, pages_start, pages_cnt):
+  def __init__(self, ptr, address, size, file_path, offset, pages_start, pages_cnt):
     super(MMapArea, self).__init__()
 
+    self.ptr = ptr
     self.address = address
     self.size = size
     self.file_path = file_path
@@ -947,6 +948,10 @@ class MemoryController(object):
     # INT table
     self.__alloc_page(addr_to_page(self.int_table_address), None).read = True
 
+  def halt(self):
+    for area in self.mmap_areas.values()[:]:
+      self.unmmap_area(area)
+
   def update_area_flags(self, address, size, flag, value):
     self.DEBUG('mc.update_area_flags: address=%s, size=%s, flag=%s, value=%i', address, size, flag, value)
 
@@ -1177,7 +1182,10 @@ class MemoryController(object):
     if 'x' in access:
       self.update_pages_flags(pages_start, pages_cnt, 'execute', True)
 
-    return MMapArea(address, size, file_path, ptr, pages_start, pages_cnt)
+    area = MMapArea(ptr, address, size, file_path, ptr, pages_start, pages_cnt)
+    self.mmap_areas[area.address] = area
+
+    return area
 
   def unmmap_area(self, mmap_area):
     self.reset_pages_flags(mmap_area.pages_start, mmap_area.pages_cnt)
