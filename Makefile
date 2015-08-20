@@ -213,6 +213,7 @@ tests-pre:
 	$(Q) mkdir -p $(TESTSETDIR)/tmp
 	$(Q) $(CURDIR)/tests/xunit-record --init --file=$(TESTSETDIR)/results/forth.xml --testsuite=forth-$(TESTSET)
 	$(Q) echo "$(CC_GREEN)PASS$(CC_END)"
+	$(Q) echo "Using python: $(CC_GREEN)$(PYTHON)$(CC_END)"
 
 tests-engine: tests/instructions/interrupts-basic $(ENGINE_TESTS:%.asm=%.bin)
 	$(Q)  echo "[TEST] Engine unit tests"
