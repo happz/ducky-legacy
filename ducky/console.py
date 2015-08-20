@@ -2,13 +2,14 @@ import tabulate
 import types
 
 class ConsoleConnection(object):
-  def __init__(self, cid, master, stream):
+  def __init__(self, cid, master, stream_in, stream_out):
     super(ConsoleConnection, self).__init__()
 
     self.cid = cid
 
     self.master = master
-    self.stream = stream
+    self.stream_in = stream_in
+    self.stream_out = stream_out
 
     self.history = []
     self.history_index = 0
@@ -25,8 +26,8 @@ class ConsoleConnection(object):
     if args:
       buff = buff % args
 
-    self.stream.write(buff)
-    self.stream.flush()
+    self.stream_out.write(buff)
+    self.stream_out.flush()
 
   def writeln(self, buff, *args):
     if isinstance(buff, types.ListType):
@@ -47,7 +48,7 @@ class ConsoleConnection(object):
 
   def execute(self, cmd):
     if cmd[0] not in self.master.commands:
-      self.write('Unknown command: cmd="%s"', cmd)
+      self.writeln('Unknown command: cmd="%s"', cmd)
       return
 
     cmd_desc = self.master.commands[cmd[0]]
@@ -59,14 +60,12 @@ class ConsoleConnection(object):
       self.master.machine.EXCEPTION(exc)
 
   def boot(self):
-    self.new_line_event.clear()
     self.prompt()
 
-    self.master.machine.reactor.add_fd(self.stream.fd, on_read = self.read_input, on_error = self.halt)
+    self.master.machine.reactor.add_fd(self.stream_in.fileno(), on_read = self.read_input, on_error = self.halt)
 
   def halt(self):
-    self.master.machine.reactor.remove_fd(self.stream.fd)
-    self.stream.close()
+    self.master.machine.reactor.remove_fd(self.stream_in.fileno())
 
   def die(self, exc):
     self.master.machine.EXCEPTION(exc)
@@ -82,7 +81,7 @@ class ConsoleConnection(object):
     def __move_backward(count = 1):
       self.write([27, 91, count, 68])
 
-    c = ord(self.stream.read(1))
+    c = ord(self.stream_in.read(1))
 
     if c == ord('\n'):
       if self.history_index == 0:
@@ -95,12 +94,17 @@ class ConsoleConnection(object):
       line = self.history[self.history_index]
       self.buff = []
 
+      self.writeln('')
+
       if not line:
         self.history.pop(0)
+        self.history = [self.buff] + self.history
+        self.prompt()
         return
 
       cmd = [e.strip() for e in line.split(' ')]
       self.execute(cmd)
+      self.prompt()
       return
 
     self.buff.append(c)
@@ -139,6 +143,25 @@ class ConsoleConnection(object):
         self.write(self.history[self.history_index])
         return
 
+    self.write(chr(c))
+
+class TerminalConsoleConnection(ConsoleConnection):
+  def __init__(self, cid, master):
+    import sys
+    import termios
+    import tty
+
+    self.old_term_settings = termios.tcgetattr(sys.stdin)
+    tty.setcbreak(sys.stdin.fileno())
+
+    super(TerminalConsoleConnection, self).__init__(cid, master, sys.stdin, sys.stdout)
+
+  def halt(self):
+    super(TerminalConsoleConnection, self).halt()
+
+    import termios
+    termios.tcsetattr(self.stream_in, termios.TCSADRAIN, self.old_term_settings)
+
 class ConsoleMaster(object):
   console_id = 0
 
@@ -160,11 +183,17 @@ class ConsoleMaster(object):
     if name in self.commands:
       del self.commands[name]
 
+  def connect(self, slave):
+    self.connections.append(slave)
+
   def boot(self):
     self.register_command('?', cmd_help)
 
   def halt(self):
     self.unregister_command('?')
+
+    for slave in self.connections:
+      slave.halt()
 
 def cmd_help(console, cmd):
   """
@@ -175,7 +204,7 @@ def cmd_help(console, cmd):
     ['Command', 'Description']
   ]
 
-  for cmd_name in sorted(console.server.commands.keys()):
-    table.append([cmd_name, console.server.commands[cmd_name][0].__doc__])
+  for cmd_name in sorted(console.master.commands.keys()):
+    table.append([cmd_name, console.master.commands[cmd_name][0].__doc__])
 
   console.table(table)

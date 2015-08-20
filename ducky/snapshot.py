@@ -73,8 +73,8 @@ class VMState(SnapshotNode):
     return CoreDumpFile(logger, filename, 'r').load()
 
   def save(self, filename):
-    f_out = CoreDumpFile(self.logger, filename, 'w')
-    f_out.save(self)
+    with CoreDumpFile(self.logger, filename, 'w') as f_out:
+      f_out.save(self)
 
 class CoreDumpFile(BinaryFile):
   def load(self):

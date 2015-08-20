@@ -332,7 +332,7 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
       section.flags.mmapable = 1
 
   if writable_sections:
-    for section in sections_pass1.itervalues():
+    for section in [_section for _section in sections_pass1.itervalues() if _section.name in ('.text', '.rodata', '.data', '.bss')]:
       section.flags.writable = 1
 
   DEBUG('Pass #1')

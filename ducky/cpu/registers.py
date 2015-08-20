@@ -1,13 +1,7 @@
-import ctypes
 import enum
 
-class Flags(enum.IntEnum):
-  PRIVILEGED = 0x01
-  HWINT      = 0x02
-  EQUAL      = 0x04
-  ZERO       = 0x08
-  OVERFLOW   = 0x10
-  SIGNED     = 0x20
+from ctypes import c_ushort
+from ..util import Flags
 
 class Registers(enum.IntEnum):
   # 16 16bit registers available
@@ -54,38 +48,17 @@ RESETABLE_REGISTERS = [r for r in Registers if r not in (Registers.FLAGS, Regist
 
 REGISTER_NAMES = ['r{}'.format(r.value) for r in Registers if r.value < Registers.REGISTER_SPECIAL.value] + ['fp', 'sp', 'ds', 'cs', 'ip', 'flags', 'cnt']
 
-class FlagsRegister(object):
-  def __init__(self):
-    self.privileged = 0
-    self.hwint = 1
-    self.e = 0
-    self.z = 0
-    self.o = 0
-    self.s = 0
+class FlagsRegister(Flags):
+  _fields_ = [
+    ('privileged', c_ushort, 1),
+    ('hwint',      c_ushort, 1),
+    ('e',          c_ushort, 1),
+    ('z',          c_ushort, 1),
+    ('o',          c_ushort, 1),
+    ('s',          c_ushort, 1)
+  ]
 
-  def to_uint16(self):
-    return self.privileged | self.hwint << 1 | self.e << 2 | self.z << 3 | self.o << 4 | self.s << 5
-
-  def from_uint16(self, u):
-    self.privileged = 1 if u & Flags.PRIVILEGED else 0
-    self.hwint = 1 if u & Flags.HWINT else 0
-    self.e = 1 if u & Flags.EQUAL else 0
-    self.z = 1 if u & Flags.ZERO else 0
-    self.o = 1 if u & Flags.OVERFLOW else 0
-    self.s = 1 if u & Flags.SIGNED else 0
-
-  def to_string(self):
-    return ''.join([
-      'P' if self.privileged == 1 else '-',
-      'H' if self.hwint == 1 else '-',
-      'E' if self.e == 1 else '-',
-      'Z' if self.z == 1 else '-',
-      'O' if self.o == 1 else '-',
-      'S' if self.s == 1 else '-'
-    ])
-
-  def __repr__(self):
-    return '<FlagsRegister: privileged={}, hwint={}, e={}, z={}, o={}, s={}>'.format(self.privileged, self.hwint, self.e, self.z, self.o, self.s)
+  flag_labels = 'PHEZOS'
 
 class RegisterSet(object):
   def __init__(self):
@@ -97,7 +70,7 @@ class RegisterSet(object):
       if not register_name:
         break
 
-      register_class = ctypes.c_ushort if register_name != 'flags' else FlagsRegister
+      register_class = c_ushort if register_name != 'flags' else FlagsRegister
 
       register = register_class()
 

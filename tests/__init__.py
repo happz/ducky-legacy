@@ -59,8 +59,7 @@ def assert_registers(state, **regs):
     assert reg_value == val, 'Register {} expected to have value {} ({}), {} ({}) found instead'.format(reg, ducky.mm.UINT16_FMT(val), val, ducky.mm.UINT16_FMT(reg_value), reg_value)
 
 def assert_flags(state, **flags):
-  real_flags = ducky.cpu.registers.FlagsRegister()
-  real_flags.from_uint16(state.registers[ducky.cpu.registers.Registers.FLAGS])
+  real_flags = ducky.cpu.registers.FlagsRegister.from_uint16(state.registers[ducky.cpu.registers.Registers.FLAGS])
 
   assert real_flags.privileged == flags.get('privileged', 1), 'PRIV flag expected to be {}'.format(flags.get('privileged', 1))
   assert real_flags.hwint == flags.get('hwint', 1), 'HWINT flag expected to be {}'.format(flags.get('hwint', 1))
@@ -129,6 +128,10 @@ def run_machine(code = None, binary = None, machine_config = None, coredump_file
 
   M = ducky.machine.Machine()
 
+  if os.getenv('DEBUG_OPEN_FILES') == 'yes':
+    file_open_patcher = ducky.util.FileOpenPatcher(M.LOGGER)
+    file_open_patcher.patch()
+
   if code is not None:
     binary_path = compile_code(code)
 
@@ -138,7 +141,7 @@ def run_machine(code = None, binary = None, machine_config = None, coredump_file
   machine_config.add_section('binary-0')
   machine_config.set('binary-0', 'file', binary_path)
 
-  M.hw_setup(machine_config)
+  M.hw_setup(machine_config, snapshot_file = coredump_file)
   M.boot()
 
   for fn in post_boot:
@@ -146,16 +149,18 @@ def run_machine(code = None, binary = None, machine_config = None, coredump_file
 
   M.run()
 
+  if os.getenv('DEBUG_OPEN_FILES') == 'yes':
+    if file_open_patcher.has_open_files():
+      file_open_patcher.log_open_files()
+      assert False
+
+    file_open_patcher.restore()
+
   if code is not None:
     os.unlink(binary_path)
 
-  state = ducky.snapshot.VMState.capture_vm_state(M, suspend = False)
-
-  if coredump_file:
-    state.save(coredump_file)
-
   for fn in post_run:
-    fn(M, state)
+    fn(M, M.last_state)
 
 def common_run_machine(code = None, binary = None, machine_config = None, cpus = 1, cores = 1, irq_routines = 'tests/instructions/interrupts-basic', post_boot = None, post_run = None):
   if code is not None and isinstance(code, types.ListType):

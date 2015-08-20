@@ -55,7 +55,7 @@ class SelectTask(IReactorTask):
       if fd in f_err:
         continue
 
-      if not self.fds[fd][0]:
+      if fd not in self.fds or not self.fds[fd][0]:
         continue
 
       self.fds[fd][0]()
@@ -64,7 +64,7 @@ class SelectTask(IReactorTask):
       if fd in f_err:
         continue
 
-      if not self.fds[fd][1]:
+      if fd not in self.fds or not self.fds[fd][1]:
         continue
 
       self.fds[fd][1]()

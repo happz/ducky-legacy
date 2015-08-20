@@ -4,59 +4,8 @@ import mmap
 from .. import cpu
 
 from ..mm import UInt8, UInt32, ADDR_FMT
-from ..util import BinaryFile, StringTable, align
+from ..util import BinaryFile, StringTable, align, Flags
 from ctypes import LittleEndianStructure, c_uint, c_ushort, c_ubyte, sizeof
-
-class Flags(LittleEndianStructure):
-  _pack_ = 0
-  flag_labels = []
-
-  @classmethod
-  def create(cls, **kwargs):
-    flags = cls()
-
-    for name, _type, _size in cls._fields_:
-      setattr(flags, name, 1 if kwargs.get(name, False) is True else 0)
-
-    return flags
-
-  def to_uint16(self):
-    u = 0
-
-    for i, (name, _type, _size) in enumerate(self._fields_):
-      u |= (getattr(self, name) << i)
-
-    return u
-
-  def load_uint16(self, u):
-    for i, (name, _type, _size) in enumerate(self._fields_):
-      setattr(self, name, 1 if u & (1 << i) else 0)
-
-  @classmethod
-  def from_uint16(cls, u):
-    flags = cls()
-    flags.load_uint16(u)
-    return flags
-
-  def to_string(self):
-    return ''.join([
-      self.flag_labels[i] if getattr(self, name) == 1 else '-' for i, (name, _type, _size) in enumerate(self._fields_)
-    ])
-
-  def load_string(self, s):
-    s = s.upper()
-
-    for i, (name, _type, _size) in enumerate(self._fields_):
-      setattr(self, name, 1 if self.flag_labels[i] in s else 0)
-
-  @classmethod
-  def from_string(cls, s):
-    flags = cls()
-    flags.load_string(s)
-    return flags
-
-  def __repr__(self):
-    return '<{}: {}>'.format(self.__class__.__name__, self.to_string())
 
 class SectionFlags(Flags):
   _fields_ = [

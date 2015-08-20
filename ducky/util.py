@@ -4,7 +4,7 @@ import optparse
 import sys
 import types
 
-from ctypes import sizeof
+from ctypes import sizeof, LittleEndianStructure
 
 from .log import create_logger, StreamHandler
 
@@ -49,11 +49,65 @@ def str2int(s):
 
   return int(s)
 
+class FileOpenPatcher(object):
+  def __init__(self, logger):
+    self.logger = logger
+
+    self.old_file = None
+    self.old_open = None
+    self.open_files = None
+
+  def patch(self):
+    import __builtin__
+
+    logger = self.logger
+
+    self.open_files = open_files = set()
+
+    self.old_file = old_file = __builtin__.file
+    self.old_open = __builtin__.open
+
+    class NewFile(old_file):
+      def __init__(self, *args):
+        old_file.__init__(self, *args)
+
+        open_files.add(self)
+        logger.debug('Opening file: %s', args[0])
+
+      def close(self):
+        old_file.close(self)
+
+        open_files.remove(self)
+        logger.debug('Closing file: %s', self)
+
+    def new_open(*args):
+      return NewFile(*args)
+
+    __builtin__.file = NewFile
+    __builtin__.open = new_open
+
+  def restore(self):
+    import __builtin__
+
+    __builtin__.file = self.old_file
+    __builtin__.open = self.old_open
+
+  def has_open_files(self):
+    return len(self.open_files) > 0
+
+  def log_open_files(self):
+    self.logger.warn('Opened files: %i files were not closed', len(self.open_files))
+
+    for f in self.open_files:
+      self.logger.warn('  %s', repr(f))
+
 class BinaryFile(file):
   """
   Base class of all classes that represent "binary" files - binaries, core dumps.
   It provides basic methods for reading and writing structures.
   """
+
+  open_files = set()
 
   def __init__(self, logger, *args, **kwargs):
     if args[1] == 'w':
@@ -69,6 +123,15 @@ class BinaryFile(file):
     self.WARN = logger.warning
     self.ERROR = logger.error
     self.EXCEPTION = logger.exception
+
+    self.DEBUG('Opening file: %s', args[0])
+    BinaryFile.open_files.add(self)
+
+  def close(self):
+    super(BinaryFile, self).close()
+
+    self.DEBUG('Closing file: %s', repr(self))
+    BinaryFile.open_files.remove(self)
 
   def read_struct(self, st_class):
     """
@@ -258,3 +321,54 @@ class SymbolTable(dict):
 
   def get_symbol(self, name):
     return self.binary.symbols[name]
+
+class Flags(LittleEndianStructure):
+  _pack_ = 0
+  flag_labels = []
+
+  @classmethod
+  def create(cls, **kwargs):
+    flags = cls()
+
+    for name, _type, _size in cls._fields_:
+      setattr(flags, name, 1 if kwargs.get(name, False) is True else 0)
+
+    return flags
+
+  def to_uint16(self):
+    u = 0
+
+    for i, (name, _type, _size) in enumerate(self._fields_):
+      u |= (getattr(self, name) << i)
+
+    return u
+
+  def load_uint16(self, u):
+    for i, (name, _type, _size) in enumerate(self._fields_):
+      setattr(self, name, 1 if u & (1 << i) else 0)
+
+  @classmethod
+  def from_uint16(cls, u):
+    flags = cls()
+    flags.load_uint16(u)
+    return flags
+
+  def to_string(self):
+    return ''.join([
+      self.flag_labels[i] if getattr(self, name) == 1 else '-' for i, (name, _type, _size) in enumerate(self._fields_)
+    ])
+
+  def load_string(self, s):
+    s = s.upper()
+
+    for i, (name, _type, _size) in enumerate(self._fields_):
+      setattr(self, name, 1 if self.flag_labels[i] in s else 0)
+
+  @classmethod
+  def from_string(cls, s):
+    flags = cls()
+    flags.load_string(s)
+    return flags
+
+  def __repr__(self):
+    return '<{}: {}>'.format(self.__class__.__name__, self.to_string())

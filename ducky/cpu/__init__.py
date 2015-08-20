@@ -465,7 +465,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
   def load_state(self, state):
     for i, reg in enumerate(REGISTER_NAMES):
       if reg == 'flags':
-        self.registers.flags.from_uint16(state.registers[i])
+        self.registers.flags.load_uint16(state.registers[i])
 
       else:
         self.registers.map[reg].value = state.registers[i]
@@ -628,7 +628,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
     for reg_id in regs:
       if reg_id == Registers.FLAGS:
         reg = self.registers.flags
-        reg.from_uint16(self.raw_pop())
+        reg.load_uint16(self.raw_pop())
       else:
         reg = self.registers.map[reg_id]
         reg.value = self.raw_pop()

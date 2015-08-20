@@ -18,6 +18,9 @@ from .interfaces import IMachineWorker, IVirtualInterrupt
 from .cpu.registers import Registers
 from .irq import InterruptList, VIRTUAL_INTERRUPTS
 from .mm import segment_addr_to_addr
+from .util import Flags
+
+from ctypes import c_ushort
 
 #: Size of block, in bytes.
 BLOCK_SIZE = 1024
@@ -169,6 +172,12 @@ STORAGES = {
   'block': FileBackedStorage,
 }
 
+class BlockIOFlags(Flags):
+  _fields_ = [
+    ('direction', c_ushort, 1),
+    ('async',     c_ushort, 1)
+  ]
+
 class BlockIOInterrupt(IVirtualInterrupt):
   """
   Virtual interrupt handler of block IO.
@@ -179,7 +188,7 @@ class BlockIOInterrupt(IVirtualInterrupt):
     Execute requested IO operation. Arguments are passed in registers:
 
     - ``r0`` - device id
-    - ``r1`` - ``0`` for read, ``1`` for write
+    - ``r1`` - flags
     - ``r2`` - read: block id, write: src memory address
     - ``r3`` - read: dst memory address, write: block id
     - ``r4`` - number of blocks
@@ -205,20 +214,18 @@ class BlockIOInterrupt(IVirtualInterrupt):
     r4 = core.REG(Registers.R04)
     DS = core.REG(Registers.DS)
 
-    if r1.value == 0:
+    flags = BlockIOFlags()
+    flags.load_uint16(r1.value)
+
+    if flags.direction == 0:
       handler = device.read_block
       src = r2.value
       dst = segment_addr_to_addr(DS.value & 0xFF, r3.value)
 
-    elif r1.value == 1:
+    else:
       handler = device.write_block
       src = segment_addr_to_addr(DS.value & 0xFF, r2.value)
       dst = r3.value
-
-    else:
-      core.WARN('BIO: unknown operation: op=%s', r1.value)
-      r0.value = 0xFFFF
-      return
 
     cnt = r4.value & 0x00FF
 

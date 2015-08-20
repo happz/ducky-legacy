@@ -179,6 +179,9 @@ class Machine(ISnapshotable, IMachineWorker):
     self.virtual_interrupts = {}
     self.storages = {}
 
+    self.last_state = None
+    self.snapshot_file = None
+
   def cores(self):
     __cores = []
     map(lambda __cpu: __cores.extend(__cpu.cores), self.cpus)
@@ -227,7 +230,7 @@ class Machine(ISnapshotable, IMachineWorker):
 
     self.memory.load_state(state.get_children()['memory'])
 
-  def hw_setup(self, machine_config, machine_in = None, machine_out = None):
+  def hw_setup(self, machine_config, machine_in = None, machine_out = None, snapshot_file = None):
     def __print_regions(regions):
       table = [
         ['Section', 'Address', 'Size', 'Flags', 'First page', 'Last page']
@@ -239,6 +242,8 @@ class Machine(ISnapshotable, IMachineWorker):
       self.LOGGER.table(table)
 
     self.config = machine_config
+
+    self.snapshot_file = snapshot_file
 
     self.nr_cpus = self.config.getint('machine', 'cpus')
     self.nr_cores = self.config.getint('machine', 'cores')
@@ -424,6 +429,8 @@ class Machine(ISnapshotable, IMachineWorker):
   def boot(self):
     self.DEBUG('Machine.boot')
 
+    self.console.boot()
+
     map(lambda __port: __port.boot(), self.ports)
     map(lambda __irq: __irq.boot(), [irq_source for irq_source in self.irq_sources if irq_source is not None])
     map(lambda __storage: __storage.boot(), self.storages.itervalues())
@@ -464,19 +471,30 @@ class Machine(ISnapshotable, IMachineWorker):
   def halt(self):
     self.DEBUG('Machine.halt')
 
+    if self.snapshot_file is not None:
+      self.snapshot(self.snapshot_file)
+
+    else:
+      self.capture_state()
+
     map(lambda __irq: __irq.halt(),         [irq_source for irq_source in self.irq_sources if irq_source is not None])
     map(lambda __port: __port.halt(),       self.ports)
     map(lambda __storage: __storage.halt(), self.storages.itervalues())
     map(lambda __cpu: __cpu.halt(),         self.cpus)
 
-    # self.memory.halt()
+    self.memory.halt()
+
+    self.console.halt()
 
     self.reactor.remove_task(self.irq_router_task)
     self.reactor.remove_task(self.check_living_cores_task)
 
+  def capture_state(self, suspend = False):
+    self.last_state = snapshot.VMState.capture_vm_state(self, suspend = suspend)
+
   def snapshot(self, path):
-    state = snapshot.VMState.capture_vm_state(self, suspend = False)
-    state.save(path)
+    self.capture_state()
+    self.last_state.save(path)
     self.INFO('VM snapshot save in %s', path)
 
 def cmd_boot(console, cmd):

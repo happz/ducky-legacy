@@ -91,8 +91,13 @@ def main():
                        action = 'store',
                        default = None,
                        help = 'Store profiling data in this directory')
+  opt_group.add_option('--debug-open-files', dest = 'debug_open_files', action = 'store_true', default = False, help = 'List all open - not closed cleanly - files when VM quits')
 
   options, logger = ducky.util.parse_options(parser)
+
+  if options.debug_open_files:
+    file_open_patcher = ducky.util.FileOpenPatcher(logger)
+    file_open_patcher.patch()
 
   if options.profile:
     ducky.profiler.STORE.enable_machine()
@@ -105,12 +110,17 @@ def main():
 
   M = ducky.machine.Machine()
 
+  console_slave = ducky.console.TerminalConsoleConnection(0, M.console)
+  console_slave.boot()
+  M.console.connect(console_slave)
+
   machine_config = ducky.config.MachineConfig()
   machine_config.read(options.machine_config)
 
   M.hw_setup(machine_config,
              machine_in = options.machine_in,
-             machine_out = options.machine_out)
+             machine_out = options.machine_out,
+             snapshot_file = 'ducky-snapshot.bin')
 
   M.conio.stdout_echo = True if options.conio_stdout_echo == 'yes' else False
   M.conio.echo = True if options.conio_echo == 'yes' else False
@@ -146,10 +156,6 @@ def main():
     input()
 
   M.run()  # reactor loop!
-
-  state = ducky.snapshot.VMState.capture_vm_state(M, suspend = False)
-  state.save('ducky-snapshot.bin')
-  logger.info('VM snapshot save in ducky-snapshot.bin')
 
   table_exits = [
     ['Core', 'Exit code']
@@ -200,6 +206,15 @@ def main():
   if options.profile or options.machine_profile:
     logger.info('Saving profiling data into %s' % options.profile_dir)
     ducky.profiler.STORE.save(options.profile_dir)
+
+  if options.debug_open_files:
+    if file_open_patcher.has_open_files() or len(ducky.util.BinaryFile.open_files):
+      file_open_patcher.log_open_files()
+
+      for f in ducky.util.BinaryFile.open_files:
+        logger.warn('  %s', repr(f))
+
+    file_open_patcher.restore()
 
   sys.exit(M.exit_code)
 

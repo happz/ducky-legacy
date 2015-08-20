@@ -37,13 +37,6 @@ class Tests(unittest.TestCase):
 
     self.common_case(binary = os.path.join(os.getenv('CURDIR'), 'tests', 'storage', 'test_unknown_device_1.bin'), storages = [storage_desc], r0 = 0xFFFF, z = 1)
 
-  def test_unknown_operation(self):
-    file_size = ducky.blockio.BLOCK_SIZE * 10
-    f_tmp = prepare_file(file_size)
-    storage_desc = ('block', 1, f_tmp.name)
-
-    self.common_case(binary = os.path.join(os.getenv('CURDIR'), 'tests', 'storage', 'test_unknown_operation_1.bin'), storages = [storage_desc], r0 = 0xFFFF, r1 = 79)
-
   def test_block_read(self):
     # size of storage file
     file_size   = ducky.blockio.BLOCK_SIZE * 10
