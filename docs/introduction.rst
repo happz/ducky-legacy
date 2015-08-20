@@ -1,11 +1,16 @@
-Introduction
-============
+ducky
+=====
 
-Ducky is a simple virtual 16bit CPU/machine simulator, with modular design and many interesting features.
+Ducky is a simple virtual CPU/machine simulator, with modular design and interesting features.
 
+.. image:: https://circleci.com/gh/happz/ducky.svg?style=svg
+  :target: https://circleci.com/gh/happz/ducky
 
-About Ducky
------------
+.. image:: https://readthedocs.org/projects/ducky/badge/?version=latest
+  :target: http://ducky.readthedocs.org/en/latest/
+
+.. image:: http://www.quantifiedcode.com/api/v1/project/e7859c764ad2426fae178204016ba5b4/badge.svg
+  :target: http://www.quantifiedcode.com/app/project/e7859c764ad2426fae178204016ba5b4
 
 Ducky was created for learning purposes, no bigger ambitions. The goal was to experiment with
 CPU and virtual machine simulation, different instruction sets, and later working FORTH kernel
@@ -18,7 +23,7 @@ Features
 Modular architecture
 ^^^^^^^^^^^^^^^^^^^^
 
-Virtual machine consists of several modules of different classes, and only few ow them are necessary (e.g. CPU). Various peripherals are available, and it's extremely easy to develop your own and plug them in.
+Virtual machine consists of several modules of different classes, and only few of them are necessary (e.g. CPU). Various peripherals are available, and it's extremely easy to develop your own and plug them in.
 
 
 SMP support
@@ -48,7 +53,7 @@ Modular persistent storages are available, and accessible by block IO operations
 Bytecode files
 ^^^^^^^^^^^^^^
 
-Compiled programs are stored in bytecode files that are inspired by ELF executable format. These files consist of common sections (``.text``, ``.data``, ...), symbols, and their content.
+Compiled programs are stored in bytecode files that are inspired by ELF executable format. These files consist of common sections (``.text``, ``.data``, ...), symbols, and their content. Assembler (``tools/as``) translates assembler sources into object files, and these are then processed by a linker (``tools/ld``) into the final executable. Both object and executable files use the same format and bytecode for instructions and data.
 
 
 Snapshots
@@ -67,6 +72,7 @@ Tools
 ^^^^^
 
 - ``as`` for translating assembler sources to bytecode files
+- ``ld`` for linking bytecode files into the final executable
 - ``objdump`` for inspection of bytecode files
 - ``coredump`` for inspection of snapshots
 - ``vm`` for running virtual machine itself
@@ -78,8 +84,8 @@ Planned features
 
 - ``FORTH`` kernel - basic functionality but at least ANS compliant
 - network support - it would be awesome to have a network stack available for running programs
-- more freedom for bytecode - relocation support, dynamic load/unload of bytecode in runtime
-- functional C compiler, with simple C library
+- more freedom for bytecode - dynamic load/unload of bytecode in runtime, ...
+- functioning C compiler, with simple C library
 - and few others...
 
 Need help?

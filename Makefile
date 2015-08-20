@@ -293,6 +293,7 @@ flake:
 	$(Q) ! flake8 --config=$(CURDIR)/flake8.cfg $(shell find $(CURDIR)/ducky $(CURDIR)/tests -name '*.py') $(shell find $(CURDIR)/tools) | sort | grep -v -e "'patch' imported but unused" -e tools/cc -e duckyfs -e '\.swp'
 
 docs:
+	cp README.rst docs/introduction.rst
 	sphinx-apidoc -T -e -o docs/ ducky/
 	make -C docs clean
 	make -C docs html
