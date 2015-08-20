@@ -68,7 +68,7 @@ class IOPortSet(object):
     self.__ports = {}
 
   def __getitem__(self, port):
-    return self.__ports.get(port, None)
+    return self.__ports.get(port)
 
   def __setitem__(self, port, handler):
     self.__ports[port] = handler

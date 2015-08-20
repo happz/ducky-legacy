@@ -123,7 +123,7 @@ class Reactor(object):
 
     del self.fds[fd]
 
-    if not len(self.fds):
+    if not self.fds:
       self.remove_task(self.fds_task)
       self.fds_task = None
 

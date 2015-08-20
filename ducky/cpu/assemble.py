@@ -72,7 +72,7 @@ class Buffer(object):
     self.last_line = None
 
   def get_line(self):
-    while len(self.buff):
+    while self.buff:
       self.lineno += 1
 
       line = self.buff.pop(0)
@@ -401,17 +401,17 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
 
     matches = matches.groupdict()
 
-    v_value = matches.get('value_dec', None)
+    v_value = matches.get('value_dec')
     if v_value:
       var.value = int(v_value)
       return
 
-    v_value = matches.get('value_hex', None)
+    v_value = matches.get('value_hex')
     if v_value:
       var.value = int(v_value, base = 16)
       return
 
-    v_value = matches.get('value_var', None)
+    v_value = matches.get('value_var')
     if v_value:
       referred_var = variables[matches['value_var']]
 
@@ -431,17 +431,17 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
 
     matches = matches.groupdict()
 
-    v_value = matches.get('value_dec', None)
+    v_value = matches.get('value_dec')
     if v_value:
       var.value = int(v_value)
       return
 
-    v_value = matches.get('value_hex', None)
+    v_value = matches.get('value_hex')
     if v_value:
       var.value = int(v_value, base = 16)
       return
 
-    v_value = matches.get('value_var', None)
+    v_value = matches.get('value_var')
     if v_value:
       if matches['value_var'] not in variables:
         raise buff.get_error(IncompleteDirectiveError, 'unknown variable named "%s"' % matches['value_var'])
@@ -469,7 +469,7 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
 
     matches = matches.groupdict()
 
-    v_value = matches.get('value', None)
+    v_value = matches.get('value')
     if not v_value:
       raise buff.get_error(IncompleteDirectiveError, '.ascii directive without a string')
 
@@ -482,7 +482,7 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
 
     matches = matches.groupdict()
 
-    v_value = matches.get('value', None)
+    v_value = matches.get('value')
     if not v_value:
       raise buff.get_error(IncompleteDirectiveError, '.string directive without a string')
 
@@ -743,8 +743,8 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
     if matches:
       matches = matches.groupdict()
 
-      v_name = matches.get('var_name', None)
-      v_body = matches.get('var_body', None)
+      v_name = matches.get('var_name')
+      v_body = matches.get('var_body')
 
       if not v_name or not v_body:
         raise buff.get_error(IncompleteDirectiveError, 'bad variable definition')
@@ -759,8 +759,8 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
     if matches:
       matches = matches.groupdict()
 
-      m_name = matches.get('macro_name', None)
-      m_params = matches.get('macro_params', None)
+      m_name = matches.get('macro_name')
+      m_params = matches.get('macro_params')
 
       if not m_name:
         raise buff.get_error(IncompleteDirectiveError, 'bad macro definition')
@@ -812,7 +812,7 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
       s_name = matches['name']
 
       if s_name not in sections_pass1:
-        section_flags = SectionFlags.from_string(matches.get('flags', None) or '')
+        section_flags = SectionFlags.from_string(matches.get('flags') or '')
         section_type = SectionTypes.TEXT if section_flags.executable == 1 else SectionTypes.DATA
 
         section = sections_pass1[s_name] = Section(s_name, section_type, section_flags)
@@ -965,16 +965,16 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
 
       name = matches['name']
 
-      if matches.get('current', None):
+      if matches.get('current'):
         value = (curr_section.name, UInt16(curr_section.ptr.u16))
 
-      elif matches.get('value_dec', None):
+      elif matches.get('value_dec'):
         value = int(matches['value_dec'])
 
-      elif matches.get('value_hex', None):
+      elif matches.get('value_hex'):
         value = int(matches['value_hex'], base = 16)
 
-      elif matches.get('value_label', None):
+      elif matches.get('value_label'):
         value = matches['value_label']
 
       else:
