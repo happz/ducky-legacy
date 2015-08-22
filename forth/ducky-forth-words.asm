@@ -308,10 +308,26 @@ $DEFCODE "WITHIN", 6, 0, WITHIN
   pop $W ; b
   pop $X ; a
   pop $Y ; c
-  cmp $X, $Y
+
+  cmp $X, $W
+  bl &.__WITHIN_L_LOWER_R
+  bg &.__WITHIN_R_LOWER_L
+  j &.__CMP_false
+
+.__WITHIN_L_LOWER_R:
+  cmp $Y, $X
   bl &.__CMP_false
   cmp $Y, $W
   bge &.__CMP_false
+  j &.__CMP_true
+
+.__WITHIN_R_LOWER_L:
+  cmp $Y, $W
+  bl &.__CMP_false
+  cmp $Y, $X
+  bge &.__CMP_false
+  j &.__CMP_true
+
   j &.__CMP_true
 
 
@@ -379,6 +395,53 @@ $DEFCODE "?IMMEDIATE", 10, 0, ISIMMEDIATE
   bz &.__CMP_false
   j &.__CMP_true
 
+
+$DEFCODE "ROLL", 4, 0, ROLL
+  ; ( xu xu-1 ... x0 u -- xu-1 ... x0 xu )
+  pop $W ; u
+  mul $W, $CELL
+
+  mov r0, sp
+  add r0, $W
+  lw $X, r0 ; xu
+
+  mov r0, sp
+  mov r1, sp
+  add r1, $CELL
+  mov r2, $W
+
+  call &memmove
+
+  stw sp, $X
+
+  $NEXT
+
+
+$DEFCODE "2>R", 3, 0, TWOTOR
+  ; ( x1 x2 -- ) ( R:  -- x1 x2 )
+  pop $W
+  pop $X
+  $pushrsp $X
+  $pushrsp $W
+  $NEXT
+
+
+$DEFCODE "2R@", 3, 0, TWORFETCH
+  ; ( -- x1 x2 ) ( R:  x1 x2 -- x1 x2 )
+  lw $W, $RSP
+  lw $X, $RSP[2]
+  push $X
+  push $W
+  $NEXT
+
+
+$DEFCODE "2R>", 3, 0, TWORFROM
+  ; ( -- x1 x2 ) ( R:  x1 x2 -- )
+  $poprsp $W
+  $poprsp $X
+  push $X
+  push $W
+  $NEXT
 
 ; - Conditions --------------------------------------------------------------------------
 
@@ -858,10 +921,23 @@ mm_free:
 
 $DEFCODE "ALLOCATE", 8, 0, ALLOCATE
   ; ( u -- a-addr ior )
-  pop r0
+  pop $W
+
+  li r0, $MM_OP_UNUSED
+  int $INT_MM
+  mul r0, $PAGE_SIZE
+  cmpu $W, r0
+  bg &.__ALLOCATE_oom
+
+  mov r0, $W
   call &mm_alloc
   push r0
   push 0
+  $NEXT
+
+.__ALLOCATE_oom:
+  push 0xFFFF ; address
+  push 0xFFFF ; 'failed' IOR
   $NEXT
 
 
@@ -881,7 +957,7 @@ $DEFCODE "RESIZE", 6, 0, RESIZE
   li r0, $MM_OP_UNUSED
   int $INT_MM
   mul r0, $PAGE_SIZE
-  cmp $W, r0
+  cmpu $W, r0
   bg &.__RESIZE_oom
 
   ; allocate new area
@@ -924,7 +1000,7 @@ $DEFCODE "RESIZE", 6, 0, RESIZE
 
 .__RESIZE_oom:
   push $X
-  push $FORTH_FALSE
+  push 0xFFFF
 
 .__RESIZE_next:
   $NEXT
