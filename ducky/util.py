@@ -32,6 +32,9 @@ def parse_options(parser):
 
     logger.setLevel(levels[min(options.quiet, len(levels))])
 
+  from signal import signal, SIGPIPE, SIG_DFL
+  signal(SIGPIPE, SIG_DFL)
+
   return options, logger
 
 def align(boundary, n):
