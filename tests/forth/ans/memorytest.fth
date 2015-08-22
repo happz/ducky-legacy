@@ -80,11 +80,8 @@ T{ addr1 @ 200 RESIZE SWAP addr1 ! -> 0 }T
 addr1 @ 28 checkmem
 )
 
-BYE
-
 \ ------------------------------------------------------------------------------
 TESTING failure of RESIZE and ALLOCATE (unlikely to be enough memory)
-VMDEBUGON
 T{ addr1 @ -1 RESIZE 0= -> addr1 @ FALSE }T
 
 T{ addr1 @ FREE -> 0 }T
