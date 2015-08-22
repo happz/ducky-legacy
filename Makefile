@@ -150,7 +150,7 @@ examples/hello-world/hello-world: examples/hello-world/hello-world.o
 	$(Q) echo -n "[LINK] $^ => $@ ... "
 	$(Q) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) tools/ld -o $@ $(foreach objfile,$^,-i $(objfile)) $(VMDEBUG); if [ "$$?" -eq 0 ]; then echo "$(CC_GREEN)PASS$(CC_END)"; else echo "$(CC_RED)FAIL$(CC_END)"; fi
 
-hello-world: examples/hello-world/hello-world
+hello-world: interrupts examples/hello-world/hello-world
 
 run-hello-world: hello-world
 	$(Q) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) tools/vm $(VMDEBUG_OPEN_FILES) --machine-config=examples/hello-world/hello-world.conf -g --conio-stdout-echo=yes
@@ -159,7 +159,7 @@ examples/hello-world-lib/hello-world: examples/hello-world-lib/lib.o examples/he
 	$(Q) echo -n "[LINK] $^ => $@ ... "
 	$(Q) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) tools/ld -o $@ $(foreach objfile,$^,-i $(objfile)) $(VMDEBUG); if [ "$$?" -eq 0 ]; then echo "$(CC_GREEN)PASS$(CC_END)"; else echo "$(CC_RED)FAIL$(CC_END)"; fi
 
-hello-world-lib: examples/hello-world-lib/hello-world
+hello-world-lib: interrupts examples/hello-world-lib/hello-world
 
 run-hello-world-lib: hello-world-lib
 	$(Q) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) tools/vm $(VMDEBUG_OPEN_FILES) --machine-config=examples/hello-world-lib/hello-world.conf -g --conio-stdout-echo=yes
