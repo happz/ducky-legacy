@@ -18,7 +18,7 @@ import ducky.util
 
 from ducky.mm import ADDR_FMT, UINT16_FMT, UINT8_FMT, PAGE_SIZE
 from ducky.mm.binary import SectionFlags
-from ducky.cpu.registers import Flags, Registers
+from ducky.cpu.registers import FlagsRegister, Registers
 
 def show_header(logger, state):
   state = state.get_child('machine')
@@ -55,9 +55,6 @@ def show_cores(logger, state):
   def __reg(index):
     return UINT16_FMT(cs.registers[index])
 
-  def __flag(mask):
-    return (cs.registers[Registers.FLAGS] & mask) != 0
-
   for cs in state.get_child('machine').get_core_states():
     logger.info('Core #%i:#%i', cs.cpuid, cs.coreid)
 
@@ -66,9 +63,11 @@ def show_cores(logger, state):
       s = ['reg%02i=%s' % (reg, __reg(reg)) for reg in regs]
       logger.info('  %s', ' '.join(s))
 
+    flags = FlagsRegister.from_uint16(cs.registers[Registers.FLAGS])
+
     logger.info('  cs=%s    ds=%s', __reg(Registers.CS), __reg(Registers.DS))
     logger.info('  fp=%s    sp=%s    ip=%s', __reg(Registers.FP), __reg(Registers.SP), __reg(Registers.IP))
-    logger.info('  priv=%i, hwint=%i, e=%i, z=%i, o=%i, s=%i', __flag(Flags.PRIVILEGED), __flag(Flags.HWINT), __flag(Flags.EQUAL), __flag(Flags.ZERO), __flag(Flags.OVERFLOW), __flag(Flags.SIGNED))
+    logger.info('  priv=%i, hwint=%i, e=%i, z=%i, o=%i, s=%i', flags.privileged, flags.hwint, flags.e, flags.z, flags.o, flags.s)
     logger.info('  alive=%s, running=%s, idle=%s, exit=%i', cs.alive, cs.running, cs.idle, cs.exit_code)
 
     logger.info('')
