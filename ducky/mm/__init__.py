@@ -181,7 +181,7 @@ class MemoryPage(object):
     self.stack   = False
 
   def __repr__(self):
-    return '<%s index=%i, base=%s, segment=%s, flags=%s>' % (self.__class__.__name__, self.index, ADDR_FMT(self.base_address), ADDR_FMT(self.segment_address), self.flags_str())
+    return '<%s index=%i, base=%s, segment_addr=%s, flags=%s>' % (self.__class__.__name__, self.index, ADDR_FMT(self.base_address), ADDR_FMT(self.segment_address), self.flags_str())
 
   def save_state(self, parent):
     """
@@ -1440,11 +1440,11 @@ class MMInterrupt(IVirtualInterrupt):
       pages = [pg for pg in core.cpu.machine.memory.pages(pages_start = addr_to_page(segment_addr_to_addr(core.REG(Registers.DS).value, 0)), pages_cnt = SEGMENT_SIZE, ignore_missing = True)]
 
       for pg in pages:
-        core.DEBUG('unused: pg=%s', pg)
+        core.DEBUG('used page: pg=%s', pg)
 
       core.DEBUG('unused: allocated_pages=%i', len(pages))
 
-      core.REG(Registers.R00).value = len(pages)
+      core.REG(Registers.R00).value = SEGMENT_SIZE - len(pages)
 
     else:
       core.WARN('Unknown mm operation requested: %s', op)
