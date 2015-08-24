@@ -78,7 +78,10 @@ class FileOpenPatcher(object):
         logger.debug('Opening file: %s', args[0])
 
       def close(self):
-        old_file.close(self)
+        try:
+          old_file.close(self)
+        except IOError:
+          logger.exception('Exception raised when closing a file: %s', self)
 
         open_files.remove(self)
         logger.debug('Closing file: %s', self)
