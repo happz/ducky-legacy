@@ -223,7 +223,27 @@ class CPUDataCache(LRUCache):
 
     self.core.DEBUG('CPUDataCache.get_object: address=%s', ADDR_FMT(addr))
 
+    self.controller.flush_entry_references(self.core, addr)
+
     return [False, self.core.memory.read_u16(addr)]
+
+  def read_u8(self, addr):
+    word_addr = addr & ~1
+    word = self.read_u16(word_addr)
+
+    self.core.DEBUG('CPUDataCache.read_u8: addr=%s, word_addr=%s, word=%s', ADDR_FMT(addr), ADDR_FMT(word_addr), UINT16_FMT(word))
+
+    return (word & 0xFF) if addr == word_addr else (word & 0xFF00) >> 8
+
+  def write_u8(self, addr, value):
+    word_addr = addr & ~1
+    self.core.DEBUG('CPUDataCache.write_u8: addr=%s, word_addr=%s, vaue=%s', ADDR_FMT(addr), ADDR_FMT(word_addr), UINT16_FMT(value))
+    word = self.read_u16(word_addr)
+
+    if addr == word_addr:
+      self.write_u16(word_addr, (word & 0xFF00) | (value & 0xFF))
+    else:
+      self.write_u16(word_addr, (word & 0x00FF) | (value & 0xFF) << 8)
 
   def read_u16(self, addr):
     """
@@ -335,6 +355,11 @@ class CPUCacheController(object):
 
   def unregister_core(self, core):
     self.cores.remove(core)
+
+  def flush_entry_references(self, caller, address):
+    self.machine.DEBUG('CPUCacheController.flush_entry_references: caller%s, address=%s', str(caller), ADDR_FMT(address))
+
+    map(lambda core: core.data_cache.release_entry_references(address, writeback = True, remove = False), [core for core in self.cores if core is not caller])
 
   def release_entry_references(self, caller, address):
     self.machine.DEBUG('CPUCacheController.release_entry_references: caller=%s, addresss=%s', str(caller), ADDR_FMT(address))
@@ -485,7 +510,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
     return self.registers.map[reg]
 
   def MEM_IN8(self, addr):
-    return self.memory.read_u8(addr)
+    return self.data_cache.read_u8(addr)
 
   def MEM_IN16(self, addr):
     return self.data_cache.read_u16(addr)
@@ -494,7 +519,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
     return self.memory.read_u32(addr)
 
   def MEM_OUT8(self, addr, value):
-    self.memory.write_u8(addr, value)
+    self.data_cache.write_u8(addr, value)
 
   def MEM_OUT16(self, addr, value):
     self.data_cache.write_u16(addr, value)

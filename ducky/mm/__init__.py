@@ -259,13 +259,13 @@ class MemoryPage(object):
     self.DEBUG('mp.check_access: page=%s, offset=%s, access=%s, %s', self.index, offset, access, self.flags_str())
 
     if access == 'read' and not self.read:
-      raise AccessViolationError('Not allowed to read from memory: page={}, offset={}'.format(self.index, offset))
+      raise AccessViolationError('Not allowed to read from memory: page={}, offset={}, addr={}'.format(self.index, offset, ADDR_FMT(self.base_address + offset)))
 
     if access == 'write' and not self.write:
-      raise AccessViolationError('Not allowed to write to memory: page={}, offset={}'.format(self.index, offset))
+      raise AccessViolationError('Not allowed to write to memory: page={}, offset={}, addr={}'.format(self.index, offset, ADDR_FMT(self.base_address + offset)))
 
     if access == 'execute' and not self.execute:
-      raise AccessViolationError('Not allowed to execute from memory: page={}, offset={}'.format(self.index, offset))
+      raise AccessViolationError('Not allowed to execute from memory: page={}, offset={}, addr={}'.format(self.index, offset, ADDR_FMT(self.base_address + offset)))
 
     return True
 
@@ -1157,9 +1157,7 @@ class MemoryController(object):
 
     mmap_flags = mmap.MAP_SHARED if shared else mmap.MAP_PRIVATE
 
-    mmap_prot = 0
-    if 'r' in access or 'x' in access:
-      mmap_prot |= mmap.PROT_READ
+    mmap_prot = mmap.PROT_READ
     if 'w' in access:
       mmap_prot |= mmap.PROT_WRITE
 
@@ -1175,8 +1173,7 @@ class MemoryController(object):
 
     self.reset_pages_flags(pages_start, pages_cnt)
 
-    if 'r' in access:
-      self.update_pages_flags(pages_start, pages_cnt, 'read', True)
+    self.update_pages_flags(pages_start, pages_cnt, 'read', True)
     if 'w' in access:
       self.update_pages_flags(pages_start, pages_cnt, 'write', True)
     if 'x' in access:

@@ -184,6 +184,7 @@ class Tests(unittest.TestCase):
   def test_lb(self):
     data_base = 0x1000 if os.getenv('MMAPABLE_SECTIONS')  == 'yes' else 0x0100
     self.common_case(binary = 'lb_1', r0 = data_base + 2, r1 = 0xAD)
+    self.common_case(binary = 'lb_2', r0 = data_base + 3, r1 = 0xDE)
 
   def test_stw(self):
     data_base = 0x1000 if os.getenv('MMAPABLE_SECTIONS')  == 'yes' else 0x0100
@@ -192,6 +193,7 @@ class Tests(unittest.TestCase):
   def test_stb(self):
     data_base = 0x1000 if os.getenv('MMAPABLE_SECTIONS')  == 'yes' else 0x0100
     self.common_case(binary = 'stb_1', r0 = data_base, r2 = 0xDEAD, s = 1, mm = {'0x02%04X' % data_base: 0xAD, '0x02%04X' % (data_base + 2): 0})
+    self.common_case(binary = 'stb_2', r0 = data_base + 1, r2 = 0xDE,      mm = {'0x02%04X' % data_base: 0xDE00})
 
   def test_cli(self):
     fp = 0x1100 if os.getenv('MMAPABLE_SECTIONS')  == 'yes' else 0x0200

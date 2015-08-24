@@ -1075,7 +1075,7 @@ class Inst_LB(InstDescriptor_Generic_Binary_R_A):
   @staticmethod
   def execute(core, inst):
     core.check_protected_reg(inst.reg)
-    core.registers.map[inst.reg].value = core.memory.read_u8(core.OFFSET_ADDR(inst))
+    core.registers.map[inst.reg].value = core.data_cache.read_u8(core.OFFSET_ADDR(inst))
     core.update_arith_flags(core.registers.map[inst.reg])
 
 class Inst_LI(InstDescriptor_Generic_Binary_R_I):
@@ -1102,10 +1102,7 @@ class Inst_STB(InstDescriptor_Generic_Binary_A_R):
 
   @staticmethod
   def execute(core, inst):
-    addr = core.OFFSET_ADDR(inst)
-
-    core.cache_controller.release_entry_references(None, (addr + 1) & (~1))
-    core.memory.write_u8(core.OFFSET_ADDR(inst), core.registers.map[inst.reg].value & 0xFF)
+    core.data_cache.write_u8(core.OFFSET_ADDR(inst), core.registers.map[inst.reg].value & 0xFF)
 
 class Inst_MOV(InstDescriptor_Generic_Binary_R_R):
   mnemonic = 'mov'
