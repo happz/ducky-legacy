@@ -4,6 +4,7 @@ import sys
 if os.environ.get('DUCKY_IMPORT_DEVEL', 'no') == 'yes':
   sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 
+import logging
 import tempfile
 import types
 
@@ -127,6 +128,9 @@ def run_machine(code = None, binary = None, machine_config = None, coredump_file
   post_run = post_run or []
 
   M = ducky.machine.Machine()
+
+  if os.getenv('VMDEBUG') == 'yes':
+    M.LOGGER.setLevel(logging.DEBUG)
 
   if os.getenv('DEBUG_OPEN_FILES') == 'yes':
     file_open_patcher = ducky.util.FileOpenPatcher(M.LOGGER)
