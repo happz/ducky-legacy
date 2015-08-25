@@ -67,8 +67,8 @@ def show_cores(logger, state):
 
     logger.info('  cs=%s    ds=%s', __reg(Registers.CS), __reg(Registers.DS))
     logger.info('  fp=%s    sp=%s    ip=%s', __reg(Registers.FP), __reg(Registers.SP), __reg(Registers.IP))
-    logger.info('  priv=%i, hwint=%i, e=%i, z=%i, o=%i, s=%i', flags.privileged, flags.hwint, flags.e, flags.z, flags.o, flags.s)
-    logger.info('  alive=%s, running=%s, idle=%s, exit=%i', cs.alive, cs.running, cs.idle, cs.exit_code)
+    logger.info('  flags=%s', flags.to_string())
+    logger.info('  cnt=%i, alive=%s, running=%s, idle=%s, exit=%i', cs.registers[Registers.CNT], cs.alive, cs.running, cs.idle, cs.exit_code)
 
     logger.info('')
 
