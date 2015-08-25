@@ -35,7 +35,7 @@ def WHITE(s):
 class LogFormatter(logging.Formatter):
   def format(self, record):
     try:
-      return '{color_start}[{level}] {fn_name}: {msg}{color_stop}'.format(**{
+      return '{color_start}[{level}] {msg}{color_stop}'.format(**{
         'color_start': COLORS[record.levelno],
         'color_stop':  COLOR_RESET,
         'level':       LEVELS[record.levelno],
