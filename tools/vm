@@ -167,6 +167,9 @@ def main():
   table_data_caches = [
     ['Core', 'Reads', 'Inserts', 'Hits', 'Misses', 'Prunes']
   ]
+  table_cnts = [
+    ['Core', 'Ticks']
+  ]
 
   def __check_stats(core):
     table_exits.append([str(core), core.exit_code])
@@ -189,6 +192,11 @@ def main():
       core.data_cache.prunes
     ])
 
+    table_cnts.append([
+      str(core),
+      core.registers.cnt.value
+    ])
+
   map(__check_stats, M.cores())
 
   logger.info('Exit codes')
@@ -199,6 +207,8 @@ def main():
   logger.info('')
   logger.info('Data caches')
   logger.table(table_data_caches)
+  logger.info('')
+  logger.table(table_cnts)
   logger.info('')
 
   main_profiler.disable()
