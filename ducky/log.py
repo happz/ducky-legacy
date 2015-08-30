@@ -35,7 +35,14 @@ def WHITE(s):
 class LogFormatter(logging.Formatter):
   def format(self, record):
     try:
-      return '{color_start}[{level}] {msg}{color_stop}'.format(**{
+      prefix = '{color_start}[{level}] '
+      postfix = '{color_stop}'
+      msg = ['{msg}']
+
+      if record.exc_info is not None:
+        msg += self.formatException(record.exc_info).split('\n')
+
+      return '\n'.join([prefix + l + postfix for l in msg]).format(**{
         'color_start': COLORS[record.levelno],
         'color_stop':  COLOR_RESET,
         'level':       LEVELS[record.levelno],
