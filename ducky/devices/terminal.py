@@ -21,9 +21,11 @@ class StreamIOTerminal(Terminal):
     self.output.set_master(self)
 
     streams_in = streams_in or []
-    stream_out = stream_out or []
 
     def get_stream(stream, flags):
+      if stream is None:
+        return None
+
       if isinstance(stream, str):
         return open(stream, flags)
 
@@ -33,6 +35,7 @@ class StreamIOTerminal(Terminal):
       self.machine.WARN('Unhandled stream type: stream=%s, type=%s', stream, type(stream))
       return None
 
+    self.machine.DEBUG('streams_in=%s', streams_in)
     for stream in streams_in:
       self.input.enqueue_input(get_stream(stream, 'rb'))
 
@@ -89,8 +92,10 @@ class StandardIOTerminal(StreamIOTerminal):
     return StandardIOTerminal(machine, section, input = input_device, output = output_device, streams_in = [sys.stdin], stream_out = sys.stdout)
 
 
-class StandalonePTYTerminal(Terminal):
+class StandalonePTYTerminal(StreamIOTerminal):
   def __init__(self, *args, **kwargs):
+    super(StandalonePTYTerminal, self).__init__(*args, **kwargs)
+
     self.pttys = None
 
   @classmethod
@@ -102,26 +107,24 @@ class StandalonePTYTerminal(Terminal):
   def boot(self):
     self.machine.DEBUG('StandalonePTYTerminal.boot')
 
-    super(StandalonePTYTerminal, self).boot()
+    Terminal.boot(self)
 
-    if self.pttys is None:
+    if self.pttys is not None:
       return
 
-    self.input.boot()
-    self.output.boot()
-
     import pty
-    import pytty
 
     pttys = pty.openpty()
 
-    ptty = pytty.TTY(self.pttys[0])
-    ptty.baud = 115200
+    self.machine.DEBUG('  set I/O stream: pttys=%s', pttys)
 
-    self.input.enqueue_input(ptty)
-    self.output.set_output(ptty)
+    self.input.enqueue_input(pttys[0])
+    self.output.set_output(pttys[0])
 
     self.terminal_device = os.ttyname(pttys[1]) if pttys else '/dev/unknown'
+
+    self.input.boot()
+    self.output.boot()
 
     self.pttys = pttys
 
@@ -130,7 +133,7 @@ class StandalonePTYTerminal(Terminal):
   def halt(self):
     self.machine.DEBUG('StandalonePTYTerminal.halt')
 
-    super(StandalonePTYTerminal, self).halt()
+    Terminal.halt(self)
 
     if self.pttys is None:
       return

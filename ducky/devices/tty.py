@@ -1,3 +1,4 @@
+import os
 import sys
 
 from . import IOProvider, Device
@@ -7,13 +8,13 @@ from ..mm import UINT16_FMT
 DEFAULT_PORT_RANGE = 0x200
 
 class TTY(IOProvider, Device):
-  def __init__(self, machine, name, stream = None, stream_fd = None, port = None, *args, **kwargs):
+  def __init__(self, machine, name, stream = None, port = None, *args, **kwargs):
     super(TTY, self).__init__(machine, 'output', name, *args, **kwargs)
 
     self.port = port or DEFAULT_PORT_RANGE
     self.ports = range(port, port + 0x0001)
 
-    self.set_output(stream, stream_fd = stream_fd)
+    self.set_output(stream)
 
   @classmethod
   def create_from_config(self, machine, config, section):
@@ -24,11 +25,38 @@ class TTY(IOProvider, Device):
   def __repr__(self):
     return 'basic tty on [%s] as %s' % (', '.join([UINT16_FMT(port) for port in self.ports]), self.name)
 
-  def set_output(self, stream, stream_fd = None):
-    self.machine.DEBUG('TTY.set_output: stream=%s, stream_fd=%s', stream, stream_fd)
+  def set_output(self, stream):
+    self.machine.DEBUG('TTY.set_output: stream=%s', stream)
 
-    self.output = stream
-    self.output_fd = stream_fd or (stream.fileno() if stream else None)
+    if isinstance(stream, file) or isinstance(stream, orig_file):  # noqa
+      self.machine.DEBUG('  stream is opened file')
+
+      self.output = stream
+      self.output_fd = stream.fileno()
+
+    elif hasattr(stream, 'fileno'):
+      self.machine.DEBUG('  stream has fileno()')
+
+      self.output = stream
+      self.output_fd = stream.fileno()
+
+    elif isinstance(stream, int):
+      self.machine.DEBUG('  stream is raw file descriptor')
+
+      self.output = None
+      self.output_fd = stream
+
+    elif stream is None:
+      self.machine.DEBUG('  stream is dummy, none')
+
+      self.output = None
+      self.output_fd = None
+
+    else:
+      self.machine.WARN('Unknown output stream type: stream=%s, class=%s', stream, type(stream))
+
+      self.output = None
+      self.output_fd = None
 
   def __escape_char(self, c):
     return chr(c).replace(chr(10), '\\n').replace(chr(13), '\\r')
@@ -39,7 +67,7 @@ class TTY(IOProvider, Device):
     try:
       s = chr(c)
 
-      self.output.write(s)
+      os.write(self.output_fd, s)
 
     except IOError:
       self.machine.EXCEPTION('Exception raised during terminal output')

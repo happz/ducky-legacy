@@ -3,7 +3,8 @@ Keyboard controller - provides events for pressed and released keys.
 """
 
 import enum
-import pytty
+import io
+import os
 import sys
 import types
 
@@ -77,13 +78,7 @@ class KeyboardController(IRQProvider, IOProvider, Device):
 
     stream = self.streams.pop(0)
 
-    if type(stream) == pytty.TTY:
-      self.machine.DEBUG('  tty console')
-
-      self.input = stream
-      self.input_fd = stream.fileno()
-
-    elif isinstance(stream, types.StringType):
+    if isinstance(stream, types.StringType):
       self.machine.DEBUG('  input file attached')
 
       self.input = open(stream, 'rb')
@@ -94,6 +89,18 @@ class KeyboardController(IRQProvider, IOProvider, Device):
 
       self.input = stream
       self.input_fd = self.input.fileno()
+
+    elif hasattr(stream, 'fileno'):
+      self.machine.DEBUG('  object with fileno() method')
+
+      self.input = stream
+      self.input_fd = stream.fileno()
+
+    elif isinstance(stream, int):
+      self.machine.DEBUG('  raw descriptor')
+
+      self.input = None
+      self.input_fd = stream
 
     else:
       self.machine.WARN('Unknown input stream type: stream=%s, class=%s', stream, type(stream))
@@ -132,7 +139,7 @@ class KeyboardController(IRQProvider, IOProvider, Device):
     assert self.input is not False
 
     try:
-      s = self.input.read()
+      s = os.read(self.input_fd, io.DEFAULT_BUFFER_SIZE)
 
     except IOError, e:
       e.exc_stack = sys.exc_info()
