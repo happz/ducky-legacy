@@ -3,7 +3,7 @@ import logging
 
 from .interfaces import IVirtualInterrupt
 from .mm import ADDR_FMT
-from .irq import InterruptList, VIRTUAL_INTERRUPTS
+from .devices import InterruptList, VIRTUAL_INTERRUPTS
 
 class Point(object):
   point_index = 0

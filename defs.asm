@@ -32,7 +32,6 @@
 .def INT_HALT:    0
 .def INT_BLOCKIO: 1
 .def INT_VMDEBUG: 2
-.def INT_CONIO:   3
 .def INT_MM:      4
 .def INT_MATH:    5
 
@@ -46,12 +45,6 @@
 .def VMDEBUG_VERBOSITY_INFO:    1
 .def VMDEBUG_VERBOSITY_WARNING: 2
 .def VMDEBUG_VERBOSITY_ERROR:   3
-
-
-;
-; ConsoleIO Operations
-;
-.def CONIO_ECHO:    0
 
 
 ;

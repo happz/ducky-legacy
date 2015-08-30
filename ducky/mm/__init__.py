@@ -1282,7 +1282,7 @@ class MemoryController(object):
     return desc
 
 from ..interfaces import IVirtualInterrupt
-from ..irq import VIRTUAL_INTERRUPTS, InterruptList
+from ..devices import VIRTUAL_INTERRUPTS, InterruptList
 
 class MMInterrupt(IVirtualInterrupt):
   def run(self, core):

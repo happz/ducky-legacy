@@ -11,7 +11,7 @@ class IRQList(enum.IntEnum):
   """
 
   TIMER = 0
-  CONIO = 1
+  KEYBOARD = 1
 
   IRQ_COUNT = 64
 
@@ -24,7 +24,6 @@ class InterruptList(enum.IntEnum):
   HALT    = 0
   BLOCKIO = 1
   VMDEBUG = 2
-  CONIO   = 3
   MM      = 4
   MATH    = 5
 

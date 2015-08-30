@@ -27,7 +27,7 @@ class KeyboardController(IRQProvider, IOProvider, Device):
     self.streams = streams[:] if streams else []
     self.port = port or DEFAULT_PORT_RANGE
     self.ports = range(port, port + 0x0001)
-    self.irq = irq or IRQList.CONIO
+    self.irq = irq or IRQList.KEYBOARD
 
     self.input = None
     self.input_fd = None
@@ -40,7 +40,7 @@ class KeyboardController(IRQProvider, IOProvider, Device):
                               section,
                               streams = None,
                               port = config.getint(section, 'port', DEFAULT_PORT_RANGE),
-                              irq = config.getint(section, 'irq', IRQList.CONIO))
+                              irq = config.getint(section, 'irq', IRQList.KEYBOARD))
 
   def __repr__(self):
     return 'basic keyboard controller on [%s] as %s' % (', '.join([UINT16_FMT(port) for port in self.ports]), self.name)

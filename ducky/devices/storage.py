@@ -16,7 +16,7 @@ import os
 
 from ..interfaces import IVirtualInterrupt
 from ..cpu.registers import Registers
-from ..irq import InterruptList, VIRTUAL_INTERRUPTS
+from . import InterruptList, VIRTUAL_INTERRUPTS
 from ..mm import segment_addr_to_addr
 from ..util import Flags
 from . import Device
