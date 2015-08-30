@@ -158,8 +158,7 @@ def main():
   M.boot()
 
   if not options.go_on:
-    logger.info('Press Enter to start execution of loaded binaries')
-    input()
+    raw_input('Press Enter to start execution of loaded binaries')
 
   M.run()  # reactor loop!
 
