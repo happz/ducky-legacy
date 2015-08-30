@@ -408,7 +408,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
       logger(*args)
 
     def __log_exception(exc):
-      self.cpu.machine.EXCEPTION(exc)
+      self.cpu.machine.LOGGER.exception('Exception raised in CPU core')
       do_log_cpu_core_state(self, logger = self.ERROR, disassemble = False if isinstance(exc, InvalidOpcodeError) else True)
 
     self.LOGGER = cpu.machine.LOGGER
