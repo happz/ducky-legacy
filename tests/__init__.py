@@ -145,7 +145,7 @@ def run_machine(code = None, binary = None, machine_config = None, coredump_file
   machine_config.add_section('binary-0')
   machine_config.set('binary-0', 'file', binary_path)
 
-  M.hw_setup(machine_config, snapshot_file = coredump_file)
+  M.hw_setup(machine_config)
   M.boot()
 
   for fn in post_boot:

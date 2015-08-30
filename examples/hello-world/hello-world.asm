@@ -1,6 +1,8 @@
   .type message, string
   .string "Hello, world!"
 
+.include "defs.asm"
+
 main:
   li r0, &message
   call &writesn
@@ -23,7 +25,7 @@ writesn:
   push r2
   push r0
   pop r2
-  li r0, 0x100
+  li r0, $PORT_TTY_OUT
 .__fn_writesn_loop:
   lb r1, r2
   bz &.__fn_writesn_write_nl

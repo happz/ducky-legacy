@@ -67,8 +67,8 @@ class FileOpenPatcher(object):
 
     self.open_files = open_files = set()
 
-    self.old_file = old_file = __builtin__.file
-    self.old_open = __builtin__.open
+    self.old_file = old_file = __builtin__.orig_file = __builtin__.file
+    self.old_open = __builtin__.orig_open = __builtin__.open
 
     class NewFile(old_file):
       def __init__(self, *args):
@@ -97,6 +97,9 @@ class FileOpenPatcher(object):
 
     __builtin__.file = self.old_file
     __builtin__.open = self.old_open
+
+    __builtin__.orig_file = None
+    __builtin__.orig_open = None
 
   def has_open_files(self):
     return len(self.open_files) > 0
@@ -134,7 +137,10 @@ class BinaryFile(file):
     BinaryFile.open_files.add(self)
 
   def close(self):
-    super(BinaryFile, self).close()
+    try:
+      super(BinaryFile, self).close()
+    except IOError:
+      self.EXCEPTION('Exception raised when closing a file: %s', self)
 
     self.DEBUG('Closing file: %s', repr(self))
     BinaryFile.open_files.remove(self)

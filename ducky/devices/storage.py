@@ -1,5 +1,5 @@
 """
-Block IO - persistent storage support.
+Persistent storage support.
 
 Several different persistent storages can be attached to a virtual machine, each
 with its own id. This module provides methods for manipulating their content. By
@@ -14,11 +14,12 @@ set values in registers.
 
 import os
 
-from .interfaces import IMachineWorker, IVirtualInterrupt
-from .cpu.registers import Registers
-from .irq import InterruptList, VIRTUAL_INTERRUPTS
-from .mm import segment_addr_to_addr
-from .util import Flags
+from ..interfaces import IVirtualInterrupt
+from ..cpu.registers import Registers
+from ..irq import InterruptList, VIRTUAL_INTERRUPTS
+from ..mm import segment_addr_to_addr
+from ..util import Flags
+from . import Device
 
 from ctypes import c_ushort
 
@@ -32,7 +33,7 @@ class StorageAccessError(Exception):
 
   pass
 
-class Storage(IMachineWorker):
+class Storage(Device):
   """
   Base class for all block storages.
 
@@ -41,11 +42,10 @@ class Storage(IMachineWorker):
   :param int size: size of storage, in bytes.
   """
 
-  def __init__(self, machine, sid, size):
-    super(Storage, self).__init__()
+  def __init__(self, machine, name, sid = None, size = None, *args, **kwargs):
+    super(Storage, self).__init__(machine, 'storage', name, *args, **kwargs)
 
-    self.machine = machine
-    self.id = sid
+    self.sid = sid
     self.size = size
 
   def do_read_block(self, src, dst, cnt):
@@ -86,7 +86,7 @@ class Storage(IMachineWorker):
     :param int cnt: number of blocks to read
     """
 
-    self.machine.DEBUG('read_block: id=%s, src=%s, dst=%s, cnt=%s', self.id, src, dst, cnt)
+    self.machine.DEBUG('read_block: id=%s, src=%s, dst=%s, cnt=%s', self.sid, src, dst, cnt)
 
     if (src + cnt) * BLOCK_SIZE > self.size:
       raise StorageAccessError('Out of bounds access: storage size {} is too small'.format(self.size))
@@ -105,7 +105,7 @@ class Storage(IMachineWorker):
     :param int cnt: number of blocks to write
     """
 
-    self.machine.DEBUG('write_block: id=%s, src=%s, dst=%s, cnt=%s', self.id, src, dst, cnt)
+    self.machine.DEBUG('write_block: id=%s, src=%s, dst=%s, cnt=%s', self.sid, src, dst, cnt)
 
     if (dst + cnt) * BLOCK_SIZE > self.size:
       raise StorageAccessError('Out of bounds access: storage size {} is too small'.format(self.size))
@@ -117,25 +117,34 @@ class FileBackedStorage(Storage):
   Storage that saves its content into a regular file.
   """
 
-  def __init__(self, machine, sid, path):
+  def __init__(self, machine, name, filepath = None, *args, **kwargs):
     """
     :param machine.Machine machine: virtual machine this storage is attached to
     :param int sid: storage id
     :param path: path to a underlying file
     """
 
-    st = os.stat(path)
+    self.filepath = filepath
+    st = os.stat(filepath)
 
-    super(FileBackedStorage, self).__init__(machine, sid, st.st_size)
+    super(FileBackedStorage, self).__init__(machine, name, size = st.st_size, *args, **kwargs)
 
-    self.path = path
+    self.filepath = filepath
     self.file = None
 
+  @classmethod
+  def create_from_config(cls, machine, config, section):
+    return FileBackedStorage(machine, section, sid = config.getint(section, 'sid', None), filepath = config.get(section, 'filepath', None))
+
   def boot(self):
-    self.file = open(self.path, 'r+b')
+    self.machine.DEBUG('FileBackedStorage.boot')
+
+    self.file = open(self.filepath, 'r+b')
+
+    self.machine.INFO('storage: file %s as storage #%i (%s)', self.filepath, self.sid, self.name)
 
   def halt(self):
-    self.machine.DEBUG('BIO: halt')
+    self.machine.DEBUG('FileBackedStorage.halt')
 
     self.file.flush()
     self.file.close()
@@ -166,11 +175,6 @@ class FileBackedStorage(Storage):
     self.file.flush()
 
     self.machine.DEBUG('BIO: %s bytes written at %s:%s', cnt * BLOCK_SIZE, self.file.name, dst * BLOCK_SIZE)
-
-#: List of known storage classes and their names.
-STORAGES = {
-  'block': FileBackedStorage,
-}
 
 class BlockIOFlags(Flags):
   _fields_ = [

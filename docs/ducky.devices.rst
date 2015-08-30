@@ -1,0 +1,22 @@
+ducky.devices package
+=====================
+
+Submodules
+----------
+
+.. toctree::
+
+   ducky.devices.keyboard
+   ducky.devices.rtc
+   ducky.devices.snapshot
+   ducky.devices.storage
+   ducky.devices.terminal
+   ducky.devices.tty
+
+Module contents
+---------------
+
+.. automodule:: ducky.devices
+    :members:
+    :undoc-members:
+    :show-inheritance:

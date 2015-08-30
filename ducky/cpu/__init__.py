@@ -401,7 +401,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
   def __init__(self, coreid, cpu, memory_controller, cache_controller):
     super(CPUCore, self).__init__()
 
-    self.cpuid_prefix = '#{}:#{}: '.format(cpu.id, coreid)
+    self.cpuid_prefix = '#{}:#{}:'.format(cpu.id, coreid)
 
     def __log(logger, *args):
       args = ('%s ' + args[0],) + (self.cpuid_prefix,) + args[1:]
@@ -449,10 +449,11 @@ class CPUCore(ISnapshotable, IMachineWorker):
     self.data_cache = CPUDataCache(cache_controller, self, self.cpu.machine.config.getint('cpu', 'data-cache', default = DEFAULT_CORE_DATA_CACHE_SIZE))
     self.cache_controller.register_core(self)
 
+    self.coprocessors = {}
     if self.cpu.machine.config.getbool('cpu', 'math-coprocessor', False):
       from .coprocessor import math_copro
 
-      self.math_coprocessor = math_copro.MathCoprocessor(self)
+      self.math_coprocessor = self.coprocessors['math'] = math_copro.MathCoprocessor(self)
 
   def has_coprocessor(self, name):
     return hasattr(self, '{}_coprocessor'.format(name))
@@ -833,9 +834,9 @@ class CPUCore(ISnapshotable, IMachineWorker):
 
   def check_protected_port(self, port):
     if port not in self.cpu.machine.ports:
-      raise InvalidResourceError('Unhandled port: port={}'.format(port))
+      raise InvalidResourceError('Unhandled port: port={}'.format(UINT16_FMT(port)))
 
-    if self.cpu.machine.ports[port].is_protected and not self.privileged:
+    if self.cpu.machine.ports[port].is_port_protected(port) and not self.privileged:
       raise AccessViolationError('Access to port not allowed in unprivileged mode: opcode={}, port={}'.format(self.current_instruction.opcode, port))
 
   def update_arith_flags(self, *regs):
@@ -998,7 +999,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
 
     self.cpu.machine.reactor.remove_task(self)
 
-    self.INFO('Halted')
+    self.INFO('CPU core halted')
 
   def runnable(self):
     return self.alive and self.running
@@ -1016,7 +1017,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
       self.die(e)
 
   def boot(self, init_state):
-    self.DEBUG('Booting...')
+    self.DEBUG('CPUCore.boot')
 
     self.reset()
 
@@ -1038,7 +1039,11 @@ class CPUCore(ISnapshotable, IMachineWorker):
 
     self.core_profiler.enable()
 
-    self.INFO('Booted')
+    self.INFO('CPU core is up')
+    self.INFO('  cache: %i DC slots, %i IC slots', self.data_cache.size, self.instruction_cache.size)
+    self.INFO('  check-frames: %s', 'yes' if self.check_frames else 'no')
+    if self.coprocessors:
+      self.INFO('  coprocessor: %s', ' '.join(sorted(self.coprocessors.iterkeys())))
 
 class CPU(ISnapshotable, IMachineWorker):
   def __init__(self, machine, cpuid, memory_controller, cache_controller, cores = 1):
@@ -1124,14 +1129,16 @@ class CPU(ISnapshotable, IMachineWorker):
 
     map(lambda __core: __core.halt(), self.living_cores())
 
+    self.INFO('CPU halted')
+
   def boot(self, init_states):
-    self.INFO('Booting...')
+    self.DEBUG('CPU.boot')
 
     for core in self.cores:
       if init_states:
         core.boot(init_states.pop(0))
 
-    self.INFO('Booted')
+    self.INFO('CPU is up')
 
 def cmd_set_core(console, cmd):
   """

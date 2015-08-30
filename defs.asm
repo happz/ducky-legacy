@@ -85,7 +85,11 @@
 ; IO ports
 ;
 
-; Console IO
-.def PORT_CONIO_STDIN:  0x100
-.def PORT_CONIO_STDOUT: 0x100
-.def PORT_CONIO_STDERR: 0x101
+; Keyboard controller
+.def PORT_KEYBOARD_IN:      0x0100
+
+; TTY
+.def PORT_TTY_OUT:          0x0200
+
+; RTC
+.def PORT_RTC_SECOND:       0x0300

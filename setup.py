@@ -11,9 +11,8 @@ setup(name = 'ducky',
         'ducky',
         'ducky.cpu',
         'ducky.cpu.coprocessor',
-        'ducky.io_handlers',
-        'ducky.irq',
-        'ducky.mm'
+        'ducky.mm',
+        'ducky.devices'
       ],
       package_dir = {'ducky': 'ducky'},
       zip_safe = False,

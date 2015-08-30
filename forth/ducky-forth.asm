@@ -98,7 +98,7 @@ write:
 .__write_loop:
   lb r2, r0
   inc r0
-  outb $PORT_CONIO_STDOUT, r2
+  outb $PORT_TTY_OUT, r2
   dec r1
   bnz &.__write_loop
   pop r2
@@ -108,7 +108,7 @@ write:
 
 writec:
   ; r0 - char
-  outb $PORT_CONIO_STDOUT, r0
+  outb $PORT_TTY_OUT, r0
   ret
 
 
@@ -118,7 +118,7 @@ writes:
 .__writes_loop:
   lb r1, r0
   bz &.__writes_quit
-  outb $PORT_CONIO_STDOUT, r1
+  outb $PORT_TTY_OUT, r1
   inc r0
   j &.__writes_loop
 .__writes_quit:
@@ -142,9 +142,9 @@ writesln:
 write_new_line:
   push r0
   li r0, 0xD
-  outb $PORT_CONIO_STDOUT, r0
+  outb $PORT_TTY_OUT, r0
   li r0, 0xA
-  outb $PORT_CONIO_STDOUT, r0
+  outb $PORT_TTY_OUT, r0
   pop r0
   ret
 
@@ -159,7 +159,7 @@ write_word_name:
   add r2, $wr_name
 .__write_word_name_loop:
   lb r0, r2
-  outb $PORT_CONIO_STDOUT, r0
+  outb $PORT_TTY_OUT, r0
   inc r2
   dec r1
   bnz &.__write_word_name_loop
@@ -429,7 +429,7 @@ readline:
   li r2, &input_buffer_address
   lw r2, r2
 .__readline_loop:
-  inb r3, $PORT_CONIO_STDIN
+  inb r3, $PORT_KEYBOARD_IN
   cmp r3, 0xFF
   be &.__readline_wait_for_input
   stb r2, r3
@@ -874,7 +874,7 @@ $DEFCODE "EMIT", 4, 0, EMIT
   $NEXT
 
 .__EMIT:
-  outb $PORT_CONIO_STDOUT, r0
+  outb $PORT_TTY_OUT, r0
   ret
 
 

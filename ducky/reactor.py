@@ -32,9 +32,10 @@ class CallInReactorTask(IReactorTask):
     self.fn(*self.args, **self.kwargs)
 
 class SelectTask(IReactorTask):
-  def __init__(self, fds, *args, **kwargs):
+  def __init__(self, machine, fds, *args, **kwargs):
     super(SelectTask, self).__init__(*args, **kwargs)
 
+    self.machine = machine
     self.fds = fds
 
   def runnable(self):
@@ -42,13 +43,17 @@ class SelectTask(IReactorTask):
 
   def run(self):
     fds = [fd for fd in self.fds.iterkeys()]
+    self.machine.DEBUG('SelectTask: fds=%s', fds)
 
     f_read, f_write, f_err = select.select(fds, fds, fds, 0)
+
+    self.machine.DEBUG('  select: f_read=%s, f_write=%s, f_err=%s', f_read, f_write, f_err)
 
     for fd in f_err:
       if not self.fds[fd][2]:
         continue
 
+      self.machine.DEBUG('  trigger err: fd=%s, handler=%s', fd, self.fds[fd][2])
       self.fds[fd][2]()
 
     for fd in f_read:
@@ -58,6 +63,7 @@ class SelectTask(IReactorTask):
       if fd not in self.fds or not self.fds[fd][0]:
         continue
 
+      self.machine.DEBUG('  trigger read: fd=%s, handler=%s', fd, self.fds[fd][0])
       self.fds[fd][0]()
 
     for fd in f_write:
@@ -67,6 +73,7 @@ class SelectTask(IReactorTask):
       if fd not in self.fds or not self.fds[fd][1]:
         continue
 
+      self.machine.DEBUG('  trigger err: fd=%s, handler=%s', fd, self.fds[fd][1])
       self.fds[fd][1]()
 
 class Reactor(object):
@@ -74,7 +81,9 @@ class Reactor(object):
   Main reactor class.
   """
 
-  def __init__(self):
+  def __init__(self, machine):
+    self.machine = machine
+
     self.tasks = []
     self.events = Queue.Queue()
 
@@ -110,15 +119,19 @@ class Reactor(object):
     self.add_event(CallInReactorTask(fn, *args, **kwargs))
 
   def add_fd(self, fd, on_read = None, on_write = None, on_error = None):
+    self.machine.DEBUG('Reactor.add_fd: fd=%s, on_read=%s, on_write=%s, on_error=%s', fd, on_read, on_write, on_error)
+
     assert fd not in self.fds
 
     self.fds[fd] = (on_read, on_write, on_error)
 
     if len(self.fds) == 1:
-      self.fds_task = SelectTask(self.fds)
+      self.fds_task = SelectTask(self.machine, self.fds)
       self.add_task(self.fds_task)
 
   def remove_fd(self, fd):
+    self.machine.DEBUG('Reactor.remove_fd: fd=%s', fd)
+
     assert fd in self.fds
 
     del self.fds[fd]

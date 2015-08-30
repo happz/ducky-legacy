@@ -35,10 +35,8 @@ Code Documentation
    ducky.cpu
    ducky.cpu.coprocessor
    ducky.mm
-   ducky.io_handlers
-   ducky.irq
    ducky.console
-   ducky.blockio
+   ducky.devices
    ducky.snapshot
    ducky.debugging
    ducky.profiler

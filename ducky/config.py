@@ -14,7 +14,7 @@ class MachineConfig(ConfigParser):
     self.binaries_cnt    = 0
     self.breakpoints_cnt = 0
     self.mmaps_cnt       = 0
-    self.storages_cnt    = 0
+    self.devices_cnt = 0
 
   def get(self, section, option, default = None):
     try:
@@ -65,6 +65,7 @@ class MachineConfig(ConfigParser):
     self.__count_binaries()
     self.__count_breakpoints()
     self.__count_mmaps()
+    self.__count_devices()
 
   def dumps(self):
     s = StringIO.StringIO()
@@ -86,8 +87,8 @@ class MachineConfig(ConfigParser):
   def __count_mmaps(self):
     self.mmaps_cnt = self.__count('mmap-')
 
-  def __count_storages(self):
-    self.storages_cnt = self.__count('storage-')
+  def __count_devices(self):
+    self.devices_cnt = self.__count('device-')
 
   def iter_binaries(self):
     for s_name in self.__sections_with_prefix('binary-'):
@@ -101,8 +102,15 @@ class MachineConfig(ConfigParser):
     for s_name in self.__sections_with_prefix('mmap-'):
       yield s_name
 
+  def iter_devices(self):
+    for s_name in self.__sections_with_prefix('device-'):
+      yield s_name
+
   def iter_storages(self):
-    for s_name in self.__sections_with_prefix('storage-'):
+    for s_name in self.__sections_with_prefix('device-'):
+      if self.get(s_name, 'klass') != 'storage':
+        continue
+
       yield s_name
 
   def add_binary(self, filename, segment = None, core = None, entry = None):
@@ -159,13 +167,16 @@ class MachineConfig(ConfigParser):
     if shared is not None:
       self.set(mmap_section, 'shared', shared)
 
-  def add_storage(self, driver, id, filepath = None):
-    st_section = 'storage-{}'.format(self.storages_cnt)
-    self.storages_cnt += 1
+  def add_device(self, klass, driver, *args, **kwargs):
+    st_section = 'device-{}'.format(self.devices_cnt)
+    self.devices_cnt += 1
 
     self.add_section(st_section)
+    self.set(st_section, 'klass', klass)
     self.set(st_section, 'driver', driver)
-    self.set(st_section, 'id', id)
 
-    if filepath is not None:
-      self.set(st_section, 'file', filepath)
+    for name, value in kwargs.iteritems():
+      self.set(st_section, name, value)
+
+  def add_storage(self, driver, sid, filepath = None):
+    self.add_device('storage', driver, sid = sid, filepath = filepath)

@@ -31,47 +31,34 @@ def main():
                        action = 'store',
                        default = None,
                        help = 'Path to machine configuration file')
-  opt_group.add_option('--machine-out',
-                       dest = 'machine_out',
-                       action = 'store',
-                       default = None,
-                       metavar = 'FILE',
-                       help = 'Log machine output into FILE')
-  opt_group.add_option('--machine-in',
-                       dest = 'machine_in',
-                       action = 'append',
-                       default = [],
-                       metavar = 'FILE',
-                       help = 'Read machine input from FILE')
-  opt_group.add_option('--conio-echo',
-                       dest = 'conio_echo',
-                       action = 'store',
-                       type = 'choice',
-                       choices = ['yes', 'no'],
-                       default = 'yes')
-  opt_group.add_option('--conio-console',
-                       dest = 'conio_console',
-                       action = 'store',
-                       type = 'choice',
-                       choices = ['yes', 'no'],
-                       default = 'yes')
-  opt_group.add_option('--conio-highlight',
-                       dest = 'conio_highlight',
-                       action = 'store',
-                       type = 'choice',
-                       choices = ['yes', 'no'],
-                       default = 'no')
-  opt_group.add_option('--conio-stdout-echo',
-                       dest = 'conio_stdout_echo',
-                       action = 'store',
-                       type = 'choice',
-                       choices = ['yes', 'no'],
-                       default = 'no')
   opt_group.add_option('--machine-profile',
                        dest = 'machine_profile',
                        action = 'store_true',
                        default = False,
                        help = 'Enable profiling of running binaries')
+  opt_group.add_option('--set-device-option',
+                       dest = 'set_device_options',
+                       action = 'append',
+                       default = [],
+                       metavar = 'DEVICE:OPTION=VALUE',
+                       help = 'Set device options')
+  opt_group.add_option('--add-device-option',
+                       dest = 'add_device_options',
+                       action = 'append',
+                       default = [],
+                       metavar = 'DEVICE:OPTION=VALUE')
+  opt_group.add_option('--enable-device',
+                       dest = 'enable_devices',
+                       action = 'append',
+                       default = [],
+                       metavar = 'DEVICE',
+                       help = 'Enable device')
+  opt_group.add_option('--disable-device',
+                       dest = 'disable_devices',
+                       action = 'append',
+                       default = [],
+                       metavar = 'DEVICE',
+                       help = 'Disable device')
 
   # Debug options
   opt_group = optparse.OptionGroup(parser, 'Debug options')
@@ -110,22 +97,41 @@ def main():
 
   M = ducky.machine.Machine()
 
-  console_slave = ducky.console.TerminalConsoleConnection(0, M.console)
-  console_slave.boot()
-  M.console.connect(console_slave)
+  # console_slave = ducky.console.TerminalConsoleConnection(0, M.console)
+  # console_slave.boot()
+  # M.console.connect(console_slave)
 
   machine_config = ducky.config.MachineConfig()
   machine_config.read(options.machine_config)
 
-  M.hw_setup(machine_config,
-             machine_in = options.machine_in,
-             machine_out = options.machine_out,
-             snapshot_file = 'ducky-snapshot.bin')
+  for option in options.set_device_options:
+    dev, option = option.split(':')
 
-  M.conio.stdout_echo = True if options.conio_stdout_echo == 'yes' else False
-  M.conio.echo = True if options.conio_echo == 'yes' else False
-  M.conio.open_console = True if options.conio_console == 'yes' else False
-  M.conio.highlight = True if options.conio_highlight == 'yes' else False
+    if not machine_config.has_section(dev):
+      logger.error('Unknown device %s', dev)
+      continue
+
+    option, value = option.split('=')
+
+    machine_config.set(dev, option, value)
+
+  for option in options.add_device_options:
+    dev, option = option.split(':')
+
+    if not machine_config.has_section(dev):
+      logger.error('Unknown device %s', dev)
+      continue
+
+    option, value = option.split('=')
+    machine_config.set(dev, option, machine_config.get(dev, option) + ', ' + value)
+
+  for dev in options.enable_devices:
+    machine_config.set(dev, 'enabled', True)
+
+  for dev in options.disable_devices:
+    machine_config.set(dev, 'enabled', False)
+
+  M.hw_setup(machine_config)
 
   def signal_handler(sig, frame):
     if sig == signal.SIGUSR1:
@@ -199,6 +205,7 @@ def main():
 
   map(__check_stats, M.cores())
 
+  logger.info('')
   logger.info('Exit codes')
   logger.table(table_exits)
   logger.info('')

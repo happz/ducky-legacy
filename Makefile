@@ -83,19 +83,13 @@ else
   BINPROFILE :=
 endif
 
-# Repeat pressed keys
-ifndef CONIO_ECHO
-  CONIO_ECHO := no
+# Devices
+ifndef DUCKY_ENABLE_DEVICES
+	DUCKY_ENABLE_DEVICES :=
 endif
 
-# Highlight output of running binaries
-ifndef CONIO_HIGHLIGHT
-  CONIO_HIGHLIGHT := no
-endif
-
-# Copy VM output to its stdout
-ifndef CONIO_STDOUT_ECHO
-  CONIO_STDOUT_ECHO := no
+ifndef DUCKY_DISABLE_DEVICES
+	DUCKY_DISABLE_DEVICES :=
 endif
 
 # pypy selection
@@ -153,7 +147,7 @@ examples/hello-world/hello-world: examples/hello-world/hello-world.o
 hello-world: interrupts examples/hello-world/hello-world
 
 run-hello-world: hello-world
-	$(Q) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) tools/vm $(VMDEBUG_OPEN_FILES) --machine-config=examples/hello-world/hello-world.conf -g --conio-stdout-echo=yes
+	$(Q) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) tools/vm $(VMDEBUG) $(VMDEBUG_OPEN_FILES) --machine-config=examples/hello-world/hello-world.conf -g
 
 examples/hello-world-lib/hello-world: examples/hello-world-lib/lib.o examples/hello-world-lib/main.o
 	$(Q) echo -n "[LINK] $^ => $@ ... "
@@ -162,7 +156,7 @@ examples/hello-world-lib/hello-world: examples/hello-world-lib/lib.o examples/he
 hello-world-lib: interrupts examples/hello-world-lib/hello-world
 
 run-hello-world-lib: hello-world-lib
-	$(Q) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) tools/vm $(VMDEBUG_OPEN_FILES) --machine-config=examples/hello-world-lib/hello-world.conf -g --conio-stdout-echo=yes
+	$(Q) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) tools/vm $(VMDEBUG_OPEN_FILES) --machine-config=examples/hello-world-lib/hello-world.conf -g
 
 
 interrupts: interrupts.o
@@ -181,7 +175,7 @@ else
 	$(eval VMCOVERAGE_FILE := )
 	$(eval VMCOVERAGE_BIN  := )
 endif
-	$(Q) $(VMCOVERAGE_FILE) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) PYTHONUNBUFFERED=yes $(PYTHON) $(VMCOVERAGE_BIN) tools/vm $(VMPROFILE) $(VMDEBUG) $(VMDEBUG_OPEN_FILES) $(BINPROFILE) --conio-echo=no --conio-highlight=no --machine-config=tests/forth/test-machine.conf --machine-in=forth/ducky-forth.f
+	$(Q) $(VMCOVERAGE_FILE) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) PYTHONUNBUFFERED=yes $(PYTHON) $(VMCOVERAGE_BIN) tools/vm $(VMPROFILE) $(VMDEBUG) $(VMDEBUG_OPEN_FILES) $(BINPROFILE) --machine-config=tests/forth/test-machine.conf --machine-in=forth/ducky-forth.f
 
 run-binary: interrupts
 ifeq ($(VMCOVERAGE),yes)
@@ -191,7 +185,7 @@ else
 	$(eval VMCOVERAGE_FILE := )
 	$(eval VMCOVERAGE_BIN  := )
 endif
-	$(Q) $(VMCOVERAGE_FILE) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) PYTHONUNBUFFERED=yes $(PYTHON) $(VMCOVERAGE_BIN) tools/vm $(VMPROFILE) $(VMDEBUG) $(VMDEBUG_OPEN_FILES) $(BINPROFILE) --conio-echo=$(CONIO_ECHO) --conio-stdout-echo=$(CONIO_STDOUT_ECHO) --conio-highlight=no --machine-config=$(MACHINE_CONFIG) -g
+	$(Q) $(VMCOVERAGE_FILE) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) PYTHONUNBUFFERED=yes $(PYTHON) $(VMCOVERAGE_BIN) tools/vm $(VMPROFILE) $(VMDEBUG) $(VMDEBUG_OPEN_FILES) $(BINPROFILE) --machine-config=$(MACHINE_CONFIG) -g
 
 run-forth-script: interrupts $(FORTH_KERNEL)
 ifeq ($(VMCOVERAGE),yes)
@@ -201,7 +195,7 @@ else
 	$(eval VMCOVERAGE_FILE := )
 	$(eval VMCOVERAGE_BIN  := )
 endif
-	$(Q) $(VMCOVERAGE_FILE) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) PYTHONUNBUFFERED=yes $(PYTHON) $(VMCOVERAGE_BIN) tools/vm $(VMPROFILE) $(VMDEBUG) $(BINPROFILE) --conio-echo=$(CONIO_ECHO) --conio-stdout-echo=$(CONIO_STDOUT_ECHO) --conio-highlight=no --machine-config=tests/forth/test-machine.conf --machine-in=forth/ducky-forth.f --machine-in=$(FORTH_SCRIPT) -g
+	$(Q) $(VMCOVERAGE_FILE) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) PYTHONUNBUFFERED=yes $(PYTHON) $(VMCOVERAGE_BIN) tools/vm $(VMPROFILE) $(VMDEBUG) $(BINPROFILE) --machine-config=tests/forth/test-machine.conf --machine-in=forth/ducky-forth.f --machine-in=$(FORTH_SCRIPT) -g
 
 tests-pre:
 	$(Q) echo -n "[TEST] Create test set $(TESTSET) ... "
@@ -246,7 +240,17 @@ else
 	$(eval VMCOVERAGE_FILE := )
 	$(eval VMCOVERAGE_BIN  := )
 endif
-	-$(Q) $(VMCOVERAGE_FILE) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) $(VMCOVERAGE_BIN) tools/vm $(VMPROFILE) $(BINPROFILE) --machine-config=$(CURDIR)/tests/forth/test-machine.conf --machine-in=tests/forth/enable-test-mode.f --machine-in=forth/ducky-forth.f --machine-in=tests/forth/ans/tester.fr $(foreach testfile,$(FORTH_ANS_TESTS),--machine-in=tests/forth/ans/$(testfile)) --machine-out=$(tc_out) -g --conio-echo=$(CONIO_ECHO) --conio-console=no --conio-highlight=$(CONIO_HIGHLIGHT) --conio-stdout-echo=yes $(VMDEBUG) $(VMDEBUG_OPEN_FILES) 2>&1 | stdbuf -oL -eL tee $(tc_machine) | grep -v -e '\[INFO\] ' -e '#> '
+	-$(Q) $(VMCOVERAGE_FILE) \
+		    DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) \
+				$(PYTHON) $(VMCOVERAGE_BIN) tools/vm \
+				$(VMPROFILE) \
+				$(BINPROFILE) -g \
+				--machine-config=tests/forth/test-machine.conf \
+				$(foreach testfile,$(FORTH_ANS_TESTS),--add-device-option=device-3:streams_in=tests/forth/ans/$(testfile)) \
+				--set-device-option=device-3:stream_out=$(tc_out) \
+				$(foreach device,$(DUCKY_ENABLE_DEVICES),--enable-device=$(device)) \
+				$(foreach device,$(DUCKY_DISABLE_DEVICES),--disable-device=$(device)) \
+				$(VMDEBUG) $(VMDEBUG_OPEN_FILES) 2>&1 | stdbuf -oL -eL tee $(tc_machine) | grep -v -e '\[INFO\] ' -e '#> '
 	-$(Q) grep -e 'INCORRECT RESULT' -e 'WRONG NUMBER OF RESULTS' $(tc_out) | cat > $(tc_filtered);
 	-$(Q) if [ ! -s $(tc_filtered) ]; then \
 				  $(CURDIR)/tests/xunit-record --add --file=$(TESTSETDIR)/results/forth.xml --ts=forth-$(TESTSET) --name="ANS test suite"; \
@@ -304,7 +308,7 @@ install:
 
 clean:
 	$(Q) rm -f examples/hello-world/hello-world examples/hello-world-lib/hello-world $(FORTH_KERNEL) interrupts
-	$(Q) rm -f `find $(CURDIR) -name '*.o'` `find $(CURDIR) -name '*.bin'` tests/instructions/interrupts-basic
+	$(Q) rm -f `find $(CURDIR) -name '*.pyc'` `find $(CURDIR) -name '*.o'` `find $(CURDIR) -name '*.bin'` tests/instructions/interrupts-basic
 	$(Q) rm -rf ducky-snapshot.bin build dist ducky.egg-info tests-python-egg-mmap tests-python-egg-read tests-python-devel-mmap tests-python-devel-read tests-pypy-devel-mmap tests-pypy-devel-mmap tests-pypy-devel-read tests-pypy-egg-mmap tests-pypy-egg-read
 
 
@@ -360,7 +364,19 @@ else
 	$(eval VMCOVERAGE_BIN  := )
 endif
 	$(Q)  echo -n "[TEST] FORTH $(tc_name) ... "
-	-$(Q) $(VMCOVERAGE_FILE) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) PYTHONUNBUFFERED=yes $(PYTHON) $(VMCOVERAGE_BIN) tools/vm $(VMPROFILE) $(BINPROFILE) -g --conio-stdout-echo=$(CONIO_STDOUT_ECHO) --conio-echo=$(CONIO_ECHO) --conio-highlight=$(CONIO_HIGHLIGHT) --conio-console=no --machine-config=tests/forth/test-machine.conf --machine-in=tests/forth/enable-test-mode.f --machine-in=forth/ducky-forth.f --machine-in=tests/forth/ans/tester.fr --machine-in=$< --machine-in=tests/forth/run-test-word.f --machine-out=$@ $(VMDEBUG) $(VMDEBUG_OPEN_FILES) 2>&1 | stdbuf -oL -eL tee $(tc_machine) | grep -v -e '\[INFO\] ' -e '#> ' | cat
+	-$(Q) $(VMCOVERAGE_FILE) \
+		    DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) \
+				PYTHONUNBUFFERED=yes \
+				$(PYTHON) $(VMCOVERAGE_BIN) tools/vm \
+				$(VMPROFILE) \
+				$(BINPROFILE) -g \
+				--machine-config=tests/forth/test-machine.conf \
+				--add-device-option=device-3:streams_in=$< \
+				--add-device-option=device-3:streams_in=tests/forth/run-test-word.f \
+				--set-device-option=device-3:stream_out=$@ \
+				$(foreach device,$(DUCKY_ENABLE_DEVICES),--enable-device=$(device)) \
+				$(foreach device,$(DUCKY_DISABLE_DEVICES),--disable-device=$(device)) \
+				$(VMDEBUG) $(VMDEBUG_OPEN_FILES) 2>&1 | stdbuf -oL -eL tee $(tc_machine) | grep -v -e '\[INFO\] ' -e '#> ' | cat
 	-$(Q) grep -e 'INCORRECT RESULT' -e 'WRONG NUMBER OF RESULTS' $@ | cat > $(tc_filtered)
 	-$(Q) if [ -f $(tc_expected) ]; then diff -u $(tc_expected) $@ | cat &> $(tc_diff); fi
 	-$(Q) if [ ! -s $(tc_filtered) ] && ([ ! -f $(tc_diff) ] || [ ! -s $(tc_diff) ]); then \
