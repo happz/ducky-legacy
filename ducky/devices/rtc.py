@@ -1,46 +1,32 @@
 import time
 import datetime
 
-from ..interfaces import IReactorTask
 from . import Device, IRQProvider, IOProvider, IRQList
 from ..errors import InvalidResourceError
 from ..mm import UInt8, UINT16_FMT
+from ..reactor import RunInIntervalTask
 
 DEFAULT_FREQ = 100.0
 DEFAULT_PORT_RANGE = 0x300
 PORT_RANGE = 0x0006
 
-class RTCTask(IReactorTask):
+class RTCTask(RunInIntervalTask):
   def __init__(self, machine, rtc):
-    super(RTCTask, self).__init__()
+    super(RTCTask, self).__init__(100, self.on_tick)
 
     self.machine = machine
     self.rtc = rtc
 
     self.stamp = 0
-    self.counter = 0
-    self.round = 0
-
     self.tick = 1.0 / rtc.frequency
 
-  def runnable(self):
-    return True
-
-  def run(self):
-    self.counter += 1
-
-    if self.counter < 100:
-      return
-
-    self.counter = 0
-
+  def on_tick(self, task):
     stamp = time.time()
     diff = stamp - self.stamp
     if diff < self.tick:
       return
 
     self.stamp = stamp
-    self.round += 1
 
     self.machine.trigger_irq(self.rtc)
 
@@ -72,7 +58,7 @@ class RTC(IRQProvider, IOProvider, Device):
 
     now = datetime.datetime.now()
 
-    self.machine.INFO('RTC: time %02i:%02i:%02i, date: %02i/%02i/%04i', now.hour, now.minute, now.second, now.day, now.month, now.year - 2000)
+    self.machine.INFO('RTC: time %02i:%02i:%02i, date: %02i/%02i/%02i', now.hour, now.minute, now.second, now.day, now.month, now.year - 2000)
 
   def halt(self):
     for port in self.ports:
