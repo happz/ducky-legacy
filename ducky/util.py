@@ -52,6 +52,15 @@ def str2int(s):
 
   return int(s)
 
+def sizeof_fmt(n, suffix = 'B'):
+  for unit in ['', 'Ki', 'Mi', 'Gi', 'Ti', 'Pi', 'Ei', 'Zi']:
+    if abs(n) < 1024.0:
+      return "%3.1f%s%s" % (n, unit, suffix)
+
+    n /= 1024.0
+
+  return "%.1f%s%s" % (n, 'Yi', suffix)
+
 class FileOpenPatcher(object):
   def __init__(self, logger):
     self.logger = logger
