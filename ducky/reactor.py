@@ -31,6 +31,28 @@ class CallInReactorTask(IReactorTask):
   def run(self):
     self.fn(*self.args, **self.kwargs)
 
+class RunInIntervalTask(IReactorTask):
+  def __init__(self, ticks, fn, *args, **kwargs):
+    self.ticks = ticks
+    self.counter = 0
+
+    self.fn = fn
+    self.args = args
+    self.kwargs = kwargs
+
+  def runnable(self):
+    return True
+
+  def run(self):
+    self.counter += 1
+
+    if self.counter < self.ticks:
+      return
+
+    self.counter = 0
+
+    self.fn(self, *self.args, **self.kwargs)
+
 class SelectTask(IReactorTask):
   def __init__(self, machine, fds, *args, **kwargs):
     super(SelectTask, self).__init__(*args, **kwargs)
