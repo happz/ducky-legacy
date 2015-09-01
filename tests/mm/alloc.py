@@ -99,7 +99,7 @@ class Tests(unittest.TestCase):
       S = ducky.snapshot.VMState.capture_vm_state(M, suspend = False)
       assert_mm_pages(S.get_child('machine').get_child('memory'), *pages)
 
-      M.memory.free_pages(M.memory.get_page(start), count = cnt3)
+      M.memory.free_pages(M.memory.page(start), count = cnt3)
 
       for i in range(start, start + cnt3):
         pages.remove(i)
@@ -120,7 +120,7 @@ class Tests(unittest.TestCase):
       S = ducky.snapshot.VMState.capture_vm_state(M, suspend = False)
       assert_mm_pages(S.get_child('machine').get_child('memory'), *pages)
 
-      M.memory.free_pages(M.memory.get_page(2), 8)
+      M.memory.free_pages(M.memory.page(2), 8)
 
       for i in range(2, 10):
         pages.remove(i)

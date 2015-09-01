@@ -746,7 +746,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
     self.pop(*reversed(GENERAL_REGISTERS))
     self.pop(Registers.FLAGS, Registers.CS)
 
-    stack_page = self.memory.get_page(mm.addr_to_page(self.DS_ADDR(self.registers.sp.value)))
+    stack_page = self.memory.page(mm.addr_to_page(self.DS_ADDR(self.registers.sp.value)))
 
     old_SP = self.raw_pop()
     old_DS = self.raw_pop()

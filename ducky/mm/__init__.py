@@ -536,7 +536,66 @@ class AnonymousMemoryPage(MemoryPage):
     self.data[offset + 2] = (value &   0xFF0000) >> 16
     self.data[offset + 3] = (value & 0xFF000000) >> 24
 
-class MMapMemoryPage(MemoryPage):
+class ExternalMemoryPage(MemoryPage):
+  """
+  Memory page backed by an external source. Source is an array of bytes,
+  and can be provided by device driver, mmaped file, or by any other mean.
+  """
+
+  def __init__(self, controller, index, data, offset = 0):
+    super(ExternalMemoryPage, self).__init__(controller, index)
+
+    self.data = data
+    self.offset = offset
+
+  def __repr__(self):
+    return '<%s index=%i, base=%s, segment_addr=%s, flags=%s, offset=%s>' % (self.__class__.__name__, self.index, ADDR_FMT(self.base_address), ADDR_FMT(self.segment_address), self.flags_str(), ADDR_FMT(self.offset))
+
+  def do_clear(self):
+    for i in range(0, PAGE_SIZE):
+      self.data[i] = 0
+
+  def get(self, offset):
+    return self.data[self.offset + offset]
+
+  def put(self, offset, b):
+    self.data[self.offset + offset] = b
+
+  def do_read_u8(self, offset):
+    self.DEBUG('%s.do_read_u8: page=%s, offset=%s', self.__class__.__name__, self.index, offset)
+
+    return self.get(offset)
+
+  def do_read_u16(self, offset):
+    self.DEBUG('%s.do_read_u16: page=%s, offset=%s', self.__class__.__name__, self.index, offset)
+
+    return self.get(offset) | (self.get(offset + 1) << 8)
+
+  def do_read_u32(self, offset):
+    self.DEBUG('%s.do_read_u32: page=%s, offset=%s', self.__class__.__name__, self.index, offset)
+
+    return self.get(offset) | (self.get(offset + 1) << 8) | (self.get(offset + 2) << 16) | (self.get(offset + 3) << 24)
+
+  def do_write_u8(self, offset, value):
+    self.DEBUG('%s.do_write_u8: page=%s, offset=%s, value=%s', self.__class__.__name__, self.index, offset, value)
+
+    self.put(offset, value)
+
+  def do_write_u16(self, offset, value):
+    self.DEBUG('%s.do_write_u16: page=%s, offset=%s, value=%s', self.__class__.__name__, self.index, offset, value)
+
+    self.put(offset, value & 0x00FF)
+    self.put(offset + 1, (value & 0xFF00) >> 8)
+
+  def do_write_u32(self, offset, value):
+    self.DEBUG('%s.do_write_u32: page=%s, offset=%s, value=%s', self.__class__.__name__, self.index, offset, value)
+
+    self.put(offset, value & 0x00FF)
+    self.put(offset + 1, (value & 0xFF00) >> 8)
+    self.put(offset + 2, (value & 0xFF0000) >> 16)
+    self.put(offset + 3, (value & 0xFF000000) >> 24)
+
+class MMapMemoryPage(ExternalMemoryPage):
   """
   Memory page backed by an external file that is accessible via ``mmap()``
   call. It's a part of one of mm.MMapArea instances, and if such area was
@@ -546,55 +605,11 @@ class MMapMemoryPage(MemoryPage):
   area).
   """
 
-  def __init__(self, controller, index, data, offset):
-    super(MMapMemoryPage, self).__init__(controller, index)
+  def get(self, offset):
+    return ord(self.data[self.offset + offset])
 
-    self.data = data
-    self.__offset = offset
-
-  def do_clear(self):
-    for i in range(0, PAGE_SIZE):
-      self.data[i] = 0
-
-  def __get_byte(self, offset):
-    return ord(self.data[self.__offset + offset])
-
-  def __put_char(self, offset, b):
-    self.data[self.__offset + offset] = chr(b)
-
-  def do_read_u8(self, offset):
-    self.DEBUG('mp.do_read_u8: page=%s, offset=%s', self.index, offset)
-
-    return self.__get_byte(offset)
-
-  def do_read_u16(self, offset):
-    self.DEBUG('mp.do_read_u16: page=%s, offset=%s', self.index, offset)
-
-    return self.__get_byte(offset) | (self.__get_byte(offset + 1) << 8)
-
-  def do_read_u32(self, offset):
-    self.DEBUG('mp.do_read_u32: page=%s, offset=%s', self.index, offset)
-
-    return self.__get_byte(offset) | (self.__get_byte(offset + 1) << 8) | (self.__get_byte(offset + 2) << 16) | (self.__get_byte(offset + 3) << 24)
-
-  def do_write_u8(self, offset, value):
-    self.DEBUG('mp.do_write_u8: page=%s, offset=%s, value=%s', self.index, offset, value)
-
-    self.__put_char(offset, value)
-
-  def do_write_u16(self, offset, value):
-    self.DEBUG('mp.do_write_u16: page=%s, offset=%s, value=%s', self.index, offset, value)
-
-    self.__put_char(offset, value & 0x00FF)
-    self.__put_char(offset + 1, (value & 0xFF00) >> 8)
-
-  def do_write_u32(self, offset, value):
-    self.DEBUG('mp.do_write_u32: page=%s, offset=%s, value=%s', self.index, offset, value)
-
-    self.__put_char(offset, value & 0x00FF)
-    self.__put_char(offset + 1, (value & 0xFF00) >> 8)
-    self.__put_char(offset + 2, (value & 0xFF0000) >> 16)
-    self.__put_char(offset + 3, (value & 0xFF000000) >> 24)
+  def put(self, offset, b):
+    self.data[self.offset + offset] = chr(b)
 
 class MMapAreaState(SnapshotNode):
   def __init__(self):
@@ -732,7 +747,7 @@ class MemoryController(object):
       self.__segments[segment] = True
 
     for page_state in state.get_children():
-      page = self.get_page(page_state.index)
+      page = self.page(page_state.index)
       page.load_state(page_state)
 
   def alloc_segment(self):
@@ -758,21 +773,32 @@ class MemoryController(object):
 
     raise InvalidResourceError('No free segment available')
 
-  def get_page(self, index):
+  def __set_page(self, pg):
     """
-    Return memory page, specified by its index from the beginning of memory.
+    Install page object for a specific memory page.
 
-    :param int index: index of requested page.
+    :param ducky.mm.MemoryPage pg: page to be installed
+    :returns: installed page
     :rtype: :py:class:`ducky.mm.MemoryPage`
-    :raises ducky.errors.AccessViolationError: when requested page is not allocated.
     """
 
-    if index not in self.__pages:
-      raise AccessViolationError('Page {} not allocated yet'.format(index))
+    assert pg.index not in self.__pages
 
-    return self.__pages[index]
+    self.__pages[pg.index] = pg
+    return pg
 
-  def __alloc_page(self, index, area_index):
+  def __remove_page(self, pg):
+    """
+    Removes page object for a specific memory page.
+
+    :param ducky.mm.MemoryPage pg: page to be removed
+    """
+
+    assert pg.index in self.__pages
+
+    del self.__pages[pg.index]
+
+  def __alloc_page(self, index):
     """
     Allocate new anonymous page for usage. The first available index is used.
 
@@ -780,14 +806,11 @@ class MemoryController(object):
     it is, it is just overwritten by new anonymous page.
 
     :param int index: index of requested page.
-    :param int area_index: index of requested page in area, when the whole set
-      of pages is being allocated at once.
     :returns: newly reserved page.
     :rtype: :py:class:`ducky.mm.AnonymousMemoryPage`
     """
 
-    self.__pages[index] = AnonymousMemoryPage(self, index)
-    return self.__pages[index]
+    return self.__set_page(AnonymousMemoryPage(self, index))
 
   def alloc_specific_page(self, index):
     """
@@ -804,7 +827,7 @@ class MemoryController(object):
     if index in self.__pages:
       raise AccessViolationError('Page {} is already allocated'.format(index))
 
-    return self.__alloc_page(index, None)
+    return self.__alloc_page(index)
 
   def alloc_pages(self, segment = None, count = 1):
     """
@@ -836,7 +859,7 @@ class MemoryController(object):
           break
 
       else:
-        return [self.__alloc_page(j, None) for j in xrange(i, i + count)]
+        return [self.__alloc_page(j) for j in xrange(i, i + count)]
 
     else:
       raise InvalidResourceError('No sequence of free pages available')
@@ -866,9 +889,45 @@ class MemoryController(object):
     for i in range(pages_start, pages_start + pages_cnt):
       if i not in self.__pages:
         self.DEBUG('mc.alloc_page: page=%s', i)
-        return self.__alloc_page(i, None)
+        return self.__alloc_page(i)
 
     raise InvalidResourceError('No free page available')
+
+  def register_page(self, pg):
+    """
+    Install page object for a specific memory page. This method is intended
+    for external objects, e.g. device drivers to install their memory page
+    objects to handle memory-mapped IO.
+
+    :param ducky.mm.MemoryPage pg: page to be installed
+    :returns: installed page
+    :rtype: :py:class:`ducky.mm.AnonymousMemoryPage`
+    :raises ducky.errors.AccessViolationError: when there is already allocated page
+    """
+
+    self.DEBUG('mc.register_page: pg=%s', pg)
+
+    if pg.index in self.__pages:
+      raise AccessViolationError('Page {} is already allocated'.format(pg.index))
+
+    return self.__set_page(pg)
+
+  def unregister_page(self, pg):
+    """
+    Remove page object for a specific memory page. This method is intende
+    for external objects, e.g. device drivers to remove their memory page objects
+    handling memory-mapped IO.
+
+    :param ducky.mm.MemoryPage pg: page to be removed
+    :raises ducky.errors.AccessViolationError: when there is no allocated page
+    """
+
+    self.DEBUG('mc.unregister_page: pg=%s', pg)
+
+    if pg.index not in self.__pages:
+      raise AccessViolationError('Page {} is not allocated'.format(pg.index))
+
+    self.__remove_page(pg)
 
   def alloc_stack(self, segment = None):
     """
@@ -901,7 +960,7 @@ class MemoryController(object):
 
     self.DEBUG('mc.free_page: page=%i, base=%s, segment=%s', page.index, page.base_address, page.segment_address)
 
-    del self.__pages[page.index]
+    self.__remove_page(page)
 
   def free_pages(self, page, count = 1):
     """
@@ -916,8 +975,34 @@ class MemoryController(object):
     for i in range(page.index, page.index + count):
       self.free_page(self.__pages[i])
 
+  def page(self, index):
+    """
+    Return memory page, specified by its index from the beginning of memory.
+
+    :param int index: index of requested page.
+    :rtype: :py:class:`ducky.mm.MemoryPage`
+    :raises ducky.errors.AccessViolationError: when requested page is not allocated.
+    """
+
+    if index not in self.__pages:
+      raise AccessViolationError('Page {} not allocated yet'.format(index))
+
+    return self.__pages[index]
+
   def pages(self, pages_start = 0, pages_cnt = None, ignore_missing = False):
-    self.DEBUG('mc.pages: pages_start=%s, pages_cnt=%s', pages_start, pages_cnt)
+    """
+    Return list of memory pages.
+
+    :param int pages_start: index of the first page, 0 by default.
+    :param int pages_cnt: number of pages to get, number of all memory pages by default.
+    :param boolean ignore_missing: if ``True``, ignore missing pages, ``False`` by default.
+    :raises ducky.errors.AccessViolationError: when ``ignore_missing == False`` and there's
+      a missing page in requested range, this exception is rised.
+    :returns: list of pages in area
+    :rtype: `list` of :py:class:`ducky.mm.MemoryPage`
+    """
+
+    self.DEBUG('mc.pages: pages_start=%s, pages_cnt=%s, ignore_missing=%s', pages_start, pages_cnt, ignore_missing)
 
     pages_cnt = pages_cnt or self.__pages_cnt
 
@@ -927,6 +1012,18 @@ class MemoryController(object):
       return (self.__pages[i] for i in xrange(pages_start, pages_start + pages_cnt))
 
   def pages_in_area(self, address = 0, size = None, ignore_missing = False):
+    """
+    Return list of memory pages.
+
+    :param u24 address: beggining address of the area, by default 0.
+    :param u24 size: size of the area, by default the whole memory size.
+    :param boolean ignore_missing: if ``True``, ignore missing pages, ``False`` by default.
+    :raises ducky.errors.AccessViolationError: when ``ignore_missing == False`` and there's
+      a missing page in requested range, this exception is rised.
+    :returns: list of pages in area
+    :rtype: `list` of :py:class:`ducky.mm.MemoryPage`
+    """
+
     self.DEBUG('mc.pages_in_area: address=%s, size=%s', ADDR_FMT(address), size)
 
     size = size or self.__size
@@ -943,10 +1040,10 @@ class MemoryController(object):
     self.alloc_segment()
 
     # IRQ table
-    self.__alloc_page(addr_to_page(self.irq_table_address), None).read = True
+    self.__alloc_page(addr_to_page(self.irq_table_address)).read = True
 
     # INT table
-    self.__alloc_page(addr_to_page(self.int_table_address), None).read = True
+    self.__alloc_page(addr_to_page(self.int_table_address)).read = True
 
   def halt(self):
     for area in self.mmap_areas.values()[:]:
@@ -1078,7 +1175,7 @@ class MemoryController(object):
 
         else:
           for i in xrange(pages_start, pages_start + pages_cnt):
-            self.__alloc_page(i, 0)
+            self.__alloc_page(i)
 
           if s_header.type == binary.SectionTypes.TEXT:
             self.load_text(csr, s_header.base, s_content)
@@ -1169,7 +1266,7 @@ class MemoryController(object):
       offset = offset)
 
     for i in xrange(pages_start, pages_start + pages_cnt):
-      self.__pages[i] = MMapMemoryPage(self, i, ptr, (i - pages_start) * PAGE_SIZE)
+      self.register_page(MMapMemoryPage(self, i, ptr, offset = (i - pages_start) * PAGE_SIZE))
 
     self.reset_pages_flags(pages_start, pages_cnt)
 
@@ -1188,7 +1285,7 @@ class MemoryController(object):
     self.reset_pages_flags(mmap_area.pages_start, mmap_area.pages_cnt)
 
     for pg in self.pages(pages_start = mmap_area.pages_start, pages_cnt = mmap_area.pages_cnt):
-      del self.__pages[pg.index]
+      self.unregister_page(pg)
 
     del self.mmap_areas[mmap_area.address]
 
@@ -1197,7 +1294,7 @@ class MemoryController(object):
     self.__put_mmap_fileno(mmap_area.file_path)
 
   def cas_u16(self, addr, test, rep):
-    page = self.get_page((addr & PAGE_MASK) >> PAGE_SHIFT)
+    page = self.page((addr & PAGE_MASK) >> PAGE_SHIFT)
 
     v = page.read_u16(addr & (PAGE_SIZE - 1))
     if v == test.u16:
@@ -1208,7 +1305,7 @@ class MemoryController(object):
   def read_u8(self, addr, privileged = False):
     self.DEBUG('mc.read_u8: addr=%s, priv=%i', addr, privileged)
 
-    return self.get_page((addr & PAGE_MASK) >> PAGE_SHIFT).read_u8(addr & (PAGE_SIZE - 1), privileged = privileged)
+    return self.page((addr & PAGE_MASK) >> PAGE_SHIFT).read_u8(addr & (PAGE_SIZE - 1), privileged = privileged)
 
   def read_u16(self, addr, privileged = False):
     self.DEBUG('mc.read_u16: addr=%s, priv=%i', addr, privileged)
@@ -1216,7 +1313,7 @@ class MemoryController(object):
     if self.force_aligned_access and addr % 2:
       raise AccessViolationError('Unable to access unaligned address: addr={}'.format(ADDR_FMT(addr)))
 
-    return self.get_page((addr & PAGE_MASK) >> PAGE_SHIFT).read_u16(addr & (PAGE_SIZE - 1), privileged = privileged)
+    return self.page((addr & PAGE_MASK) >> PAGE_SHIFT).read_u16(addr & (PAGE_SIZE - 1), privileged = privileged)
 
   def read_u32(self, addr, privileged = False, not_execute = True):
     self.DEBUG('mc.read_u32: addr=%s, priv=%s, not_execute=%s', addr, privileged, not_execute)
@@ -1224,11 +1321,11 @@ class MemoryController(object):
     if self.force_aligned_access and addr % 4:
       raise AccessViolationError('Unable to access unaligned address: addr={}'.format(ADDR_FMT(addr)))
 
-    return self.get_page((addr & PAGE_MASK) >> PAGE_SHIFT).read_u32(addr & (PAGE_SIZE - 1), privileged = privileged, not_execute = not_execute)
+    return self.page((addr & PAGE_MASK) >> PAGE_SHIFT).read_u32(addr & (PAGE_SIZE - 1), privileged = privileged, not_execute = not_execute)
 
   def write_u8(self, addr, value, privileged = False, dirty = True):
     self.DEBUG('mc.write_u8: addr=%s, value=%s, priv=%i, dirty=%i', addr, value, privileged, dirty)
-    self.get_page((addr & PAGE_MASK) >> PAGE_SHIFT).write_u8(addr & (PAGE_SIZE - 1), value, privileged = privileged, dirty = dirty)
+    self.page((addr & PAGE_MASK) >> PAGE_SHIFT).write_u8(addr & (PAGE_SIZE - 1), value, privileged = privileged, dirty = dirty)
 
   def write_u16(self, addr, value, privileged = False, dirty = True):
     self.DEBUG('mc.write_u16: addr=%s, value=%s, priv=%i, dirty=%i', addr, value, privileged, dirty)
@@ -1236,7 +1333,7 @@ class MemoryController(object):
     if self.force_aligned_access and addr % 2:
       raise AccessViolationError('Unable to access unaligned address: addr={}'.format(ADDR_FMT(addr)))
 
-    self.get_page((addr & PAGE_MASK) >> PAGE_SHIFT).write_u16(addr & (PAGE_SIZE - 1), value, privileged = privileged, dirty = dirty)
+    self.page((addr & PAGE_MASK) >> PAGE_SHIFT).write_u16(addr & (PAGE_SIZE - 1), value, privileged = privileged, dirty = dirty)
 
   def write_u32(self, addr, value, privileged = False, dirty = True):
     self.DEBUG('mc.write_u32: addr=%s, value=%s, priv=%i, dirty=%i', addr, value, privileged, dirty)
@@ -1244,7 +1341,7 @@ class MemoryController(object):
     if self.force_aligned_access and addr % 4:
       raise AccessViolationError('Unable to access unaligned address: addr={}'.format(ADDR_FMT(addr)))
 
-    self.get_page((addr & PAGE_MASK) >> PAGE_SHIFT).write_u32(addr & (PAGE_SIZE - 1), value, privileged = privileged, dirty = dirty)
+    self.page((addr & PAGE_MASK) >> PAGE_SHIFT).write_u32(addr & (PAGE_SIZE - 1), value, privileged = privileged, dirty = dirty)
 
   def save_interrupt_vector(self, table, index, desc):
     """
@@ -1428,7 +1525,7 @@ class MMInterrupt(IVirtualInterrupt):
       core.cache_controller.release_area_references(None, address, size)
       core.cpu.machine.memory.reset_area_flags(address, size)
 
-      pg = core.cpu.machine.memory.get_page(pages_start)
+      pg = core.cpu.machine.memory.page(pages_start)
       core.cpu.machine.memory.free_pages(pg, pages_cnt)
 
       core.REG(Registers.R00).value = 0
