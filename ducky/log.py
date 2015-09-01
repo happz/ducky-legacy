@@ -35,27 +35,24 @@ def WHITE(s):
 class LogFormatter(logging.Formatter):
   def format(self, record):
     try:
-      prefix = '{color_start}[{level}] '
-      postfix = '{color_stop}'
-      msg = ['{msg}']
+      prefix = '{color_start}[{level}] '.format(color_start = COLORS[record.levelno], level = LEVELS[record.levelno])
+      postfix = COLOR_RESET
+
+      msg = [prefix + record.getMessage() + postfix]
 
       if record.exc_info is not None:
-        msg += self.formatException(record.exc_info).split('\n')
+        msg += [prefix + l + postfix for l in self.formatException(record.exc_info).split('\n')]
 
-      return '\n'.join([prefix + l + postfix for l in msg]).format(**{
-        'color_start': COLORS[record.levelno],
-        'color_stop':  COLOR_RESET,
-        'level':       LEVELS[record.levelno],
-        'fn_name':     record.funcName,
-        'msg':         record.getMessage()
-      })
+      return '\n'.join(msg)
 
     except Exception:
       import sys
+      import traceback
       print >> sys.stderr, 'Failure in formatter:'
       print >> sys.stderr, 'record: ' + str(record)
       print >> sys.stderr, 'message: ' + str(record.msg)
       print >> sys.stderr, 'args: ' + str(record.args)
+      traceback.print_exc(file = sys.stderr)
       sys.exit(1)
 
 class StreamHandler(logging.StreamHandler):
