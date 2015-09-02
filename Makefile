@@ -158,6 +158,12 @@ hello-world-lib: interrupts examples/hello-world-lib/hello-world
 run-hello-world-lib: hello-world-lib
 	$(Q) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) tools/vm $(VMDEBUG_OPEN_FILES) --machine-config=examples/hello-world-lib/hello-world.conf -g
 
+examples/vga/vga: examples/vga/vga.o
+	$(Q) echo -n "[LINK] $^ => $@ ... "
+	$(Q) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) tools/ld -o $@ $(foreach objfile,$^,-i $(objfile)) $(VMDEBUG); if [ "$$?" -eq 0 ]; then echo "$(CC_GREEN)PASS$(CC_END)"; else echo "$(CC_RED)FAIL$(CC_END)"; fi
+
+vga: interrupts examples/vga/vga
+
 
 interrupts: interrupts.o
 	$(Q) echo -n "[LINK] $^ => $@ ... "
