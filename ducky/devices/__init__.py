@@ -54,9 +54,6 @@ class Device(IMachineWorker):
   def get_master(self):
     return self.master
 
-  def set_master(self, master):
-    self.master = master
-
 
 class IRQProvider(object):
   pass

@@ -6,8 +6,8 @@ from ctypes import c_ushort, LittleEndianStructure
 
 from . import Device, IOProvider
 from ..errors import InvalidResourceError
-from ..mm import UINT16_FMT, ADDR_FMT, PAGE_SIZE, ExternalMemoryPage, addr_to_page, UInt8
-from ..util import sizeof_fmt
+from ..mm import PAGE_SIZE, ExternalMemoryPage, addr_to_page, UInt8
+from ..util import sizeof_fmt, F, UINT16_FMT, ADDR_FMT
 from ..reactor import RunInIntervalTask
 
 DEFAULT_PORT_RANGE = 0x3F0
@@ -34,14 +34,14 @@ class SimpleVGACommands(enum.IntEnum):
 
 
 def mode_to_pretty(m):
-  return '{type}, {cols}x{rows} {entities}, {memory_per_entity} {memory_label}'.format(**{
-    'type': 'text' if m[0] == 't' else 'graphic',
-    'cols': m[1],
-    'rows': m[2],
-    'entities': 'chars' if m[0] == 't' else 'pixels',
-    'memory_per_entity': m[3] if m[0] == 't' else m[3] * 8,
-    'memory_label': 'bytes per char' if m[0] == 't' else 'bits color depth'
-  })
+  return F('{type}, {cols}x{rows} {entities}, {memory_per_entity} {memory_label}',
+           type = 'text' if m[0] == 't' else 'graphic',
+           cols = m[1],
+           rows = m[2],
+           entities = 'chars' if m[0] == 't' else 'pixels',
+           memory_per_entity = m[3] if m[0] == 't' else m[3] * 8,
+           memory_label = 'bytes per char' if m[0] == 't' else 'bits color depth'
+           )
 
 class Char(LittleEndianStructure):
   _pack_ = 0
@@ -89,7 +89,7 @@ class DisplayRefreshTask(RunInIntervalTask):
       screen = []
 
       if depth not in (1, 2):
-        self.display.machine.WARN('Unhandled character depth: mode=%s', self.active_mode)
+        self.display.machine.WARN(F('Unhandled character depth: mode={mode}', mode = self.active_mode))
         return
 
       for row in range(0, rows):
@@ -104,7 +104,12 @@ class DisplayRefreshTask(RunInIntervalTask):
           else:
             c = Char.from_u8(gpu.memory[(row * cols + col) * 2], gpu.memory[(row * cols + col) * 2 + 1])
 
-          char = '\033[%i;%i;%im%s\033[0m' % (5 if c.blink == 1 else 0, palette_fg[c.fg], palette_bg[c.bg], ' ' if c.codepoint == 0 else chr(c.codepoint))
+          char = F('\033[{blink:d};{fg:d};{bg:d}m{char}\033[0m',
+                   blink = 5 if c.blink == 1 else 0,
+                   fg = palette_fg[c.fg],
+                   bg = palette_bg[c.bg],
+                   char = ' ' if c.codepoint == 0 else chr(c.codepoint)
+                   )
           line.append(char)
 
         screen.append(''.join(line))
@@ -112,7 +117,7 @@ class DisplayRefreshTask(RunInIntervalTask):
       if self.first_tick:
         self.first_tick = False
       else:
-        print '\033[%iF' % (rows + 3)
+        print F('\033[{rows:d}F', rows = rows + 3)
 
       print '-' * cols
       for line in screen:
@@ -120,7 +125,7 @@ class DisplayRefreshTask(RunInIntervalTask):
       print '-' * cols
 
     else:
-      self.display.machine.WARN('Unhandled gpu mode: mode=%s', gpu.active_mode)
+      self.display.machine.WARN(F('Unhandled gpu mode: mode={mode}', mode = gpu.active_mode))
 
 class Display(Device):
   def __init__(self, machine, name, gpu = None, *args, **kwargs):
@@ -128,7 +133,7 @@ class Display(Device):
 
     self.gpu = gpu
 
-    self.gpu.set_master(self)
+    self.gpu.master = self
 
     self.refresh_task = DisplayRefreshTask(self)
 
@@ -138,7 +143,7 @@ class Display(Device):
     gpu_device = machine.get_device_by_name(gpu_name)
 
     if not gpu_name or not gpu_device:
-      raise InvalidResourceError('Unknown GPU device: gpu=%s', gpu_name)
+      raise InvalidResourceError(F('Unknown GPU device: gpu={name}', name = gpu_name))
 
     return gpu_device
 
@@ -156,7 +161,7 @@ class Display(Device):
     self.gpu.boot()
     self.machine.reactor.add_task(self.refresh_task)
 
-    self.machine.INFO('display: generic %s connected to gpu %s', self.name, self.gpu.name)
+    self.machine.INFO(F('display: generic {name} connected to gpu {gpu}', name = self.name, gpu = self.gpu.name))
 
   def halt(self):
     self.machine.DEBUG('Display.halt')
@@ -209,18 +214,18 @@ class SimpleVGA(IOProvider, Device):
     self.boot_mode = boot_mode or DEFAULT_BOOT_MODE
 
     if self.boot_mode not in self.modes:
-      raise InvalidResourceError('Boot mode not available: boot_mode=%s, modes=%s' % (self.boot_mode, self.modes))
+      raise InvalidResourceError(F('Boot mode not available: boot_mode={mode}, modes={modes}', mode = self.boot_mode, modes = self.modes))
 
     for i, (_, cols, rows, bytes_per_entity) in enumerate(self.modes):
       size = rows * cols * bytes_per_entity
       if size > self.memory_size:
-        raise InvalidResourceError('Not enough memory for mode: mode=%s, required=%s bytes, available=%s bytes' % (self.modes[i], size, self.memory_size))
+        raise InvalidResourceError(F('Not enough memory for mode: mode={mode}, required={bytes_required:d} bytes, available={bytes_available:d} bytes', mode = self.modes[i], bytes_required = size, bytes_available = self.memory_size))
 
     self.memory = self.data = array.array('B', [0 for _ in range(0, self.memory_size)])
     self.bank_offsets = range(0, self.memory_size, self.memory_size / self.memory_banks)
     self.pages_per_bank = self.memory_size / PAGE_SIZE / self.memory_banks
 
-    self.machine.DEBUG('sVGA: memory-size=%i, memory-banks=%i, offsets=[%s], pages-per-bank=%i, address=%s', self.memory_size, self.memory_banks, ', '.join([ADDR_FMT(o) for o in self.bank_offsets]), self.pages_per_bank, ADDR_FMT(self.memory_address))
+    self.machine.DEBUG(F('sVGA: memory-size={memory_size:d}, memory-banks={memory_banks:d}, offsets=[{bank_offsets}], pages-per-bank={pages_per_bank:d}, address={address:A}', memory_size = self.memory_size, memory_banks = self.memory_banks, bank_offsets = ', '.join([ADDR_FMT(o) for o in self.bank_offsets]), pages_per_bank = self.pages_per_bank, address = self.memory_address))
 
   @classmethod
   def create_from_config(cls, machine, config, section):
@@ -247,7 +252,14 @@ class SimpleVGA(IOProvider, Device):
                      boot_mode = boot_mode)
 
   def __repr__(self):
-    return 'sVGA adapter %s (%s VRAM in %i banks at %s, control [%s]; %s mode)' % (self.name, sizeof_fmt(self.memory_size), self.memory_banks, ADDR_FMT(self.memory_address), ', '.join([UINT16_FMT(port) for port in self.ports]), mode_to_pretty(self.active_mode) if self.active_mode is not None else (mode_to_pretty(self.boot_mode) + ' boot'))
+    return F('sVGA adapter {name} ({memory_size} VRAM in {memory_banks:d} banks at {memory_address}, control [{ports}]; {mode} mode)',
+             name = self.name,
+             memory_size = sizeof_fmt(self.memory_size),
+             memory_banks = self.memory_banks,
+             memory_address = ADDR_FMT(self.memory_address),
+             ports = ', '.join([UINT16_FMT(port) for port in self.ports]),
+             mode = mode_to_pretty(self.active_mode) if self.active_mode is not None else (mode_to_pretty(self.boot_mode) + ' boot')
+             )
 
   def reset(self):
     self.state = None
@@ -282,7 +294,7 @@ class SimpleVGA(IOProvider, Device):
     self.reset()
     self.set_mode(self.boot_mode)
 
-    self.machine.INFO('gpu: %s', self)
+    self.machine.INFO(F('gpu: {gpu}', gpu = self))
 
   def halt(self):
     self.machine.DEBUG('SimpleVGA.halt')
@@ -298,7 +310,7 @@ class SimpleVGA(IOProvider, Device):
     self.machine.DEBUG('SimpleVGA: halted')
 
   def read_u16(self, port):
-    self.machine.DEBUG('%s.read_u16: port=%s', self.__class__.__name__, UINT16_FMT(port))
+    self.machine.DEBUG(F('{method}.read_u16: port={port:W}', method = self.__class__.__name__, port = port))
 
     if port != self.ports[1]:
       raise InvalidResourceError('Unable to read from command register')
@@ -323,13 +335,13 @@ class SimpleVGA(IOProvider, Device):
       self.state = None
       return self.active_bank
 
-    raise InvalidResourceError('invalid internal state: state=%s' % UINT16_FMT(self.state))
+    raise InvalidResourceError(F('Invalid internal state: state={state}', state = self.state))
 
   def write_u16(self, port, value):
-    self.machine.DEBUG('%s.write_u16: port=%s, value=%s', self.__class__.__name__, UINT16_FMT(port), UINT16_FMT(value))
+    self.machine.DEBUG(F('{method}.write_u16: port={port:W}, value={value:W}', method = self.__class__.__name__, port = port, value = value))
 
     if port not in self.ports:
-      raise InvalidResourceError('Unhandled port: port=%s' % UINT16_FMT(port))
+      raise InvalidResourceError(F('Unhandled port: port={port:W}', port = port))
 
     if self.ports.index(port) == 0:
       # command port
@@ -349,10 +361,10 @@ class SimpleVGA(IOProvider, Device):
 
       if self.state == SimpleVGACommands.MEMORY_BANK_ID:
         if not (0 <= value < self.memory_banks):
-          raise InvalidResourceError('Memory bank out of range: bank=%i' % value)
+          raise InvalidResourceError(F('Memory bank out of range: bank={bank:d}', bank = value))
 
         self.active_bank = value
         self.state = None
 
       else:
-        raise InvalidResourceError('Invalid internal state: state=%s' % UINT16_FMT(self.state))
+        raise InvalidResourceError(F('Invalid internal state: state={state}', state = self.state))

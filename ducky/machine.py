@@ -356,7 +356,7 @@ class Machine(ISnapshotable, IMachineWorker):
       self.devices[klass][st_section] = dev
 
       if _get('master', None) is not None:
-        dev.set_master(_get('master'))
+        dev.master = _get('master')
 
     from .devices import VIRTUAL_INTERRUPTS
     for index, cls in VIRTUAL_INTERRUPTS.iteritems():

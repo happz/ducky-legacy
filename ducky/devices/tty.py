@@ -17,7 +17,7 @@ class TTY(IOProvider, Device):
     self.set_output(stream)
 
   @classmethod
-  def create_from_config(self, machine, config, section):
+  def create_from_config(cls, machine, config, section):
     return TTY(machine,
                section,
                port = config.getint(section, 'port', DEFAULT_PORT_RANGE))

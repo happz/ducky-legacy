@@ -17,8 +17,8 @@ class StreamIOTerminal(Terminal):
     self.input = input
     self.output = output
 
-    self.input.set_master(self)
-    self.output.set_master(self)
+    self.input.master = self
+    self.output.master = self
 
     streams_in = streams_in or []
 
