@@ -35,7 +35,7 @@ def WHITE(s):
 class LogFormatter(logging.Formatter):
   def format(self, record):
     try:
-      prefix = '{color_start}[{level}] '.format(color_start = COLORS[record.levelno], level = LEVELS[record.levelno])
+      prefix = '{color_start}{stamp:.02f} [{level}] '.format(color_start = COLORS[record.levelno], level = LEVELS[record.levelno], stamp = record.created)
       postfix = COLOR_RESET
 
       msg = [prefix + record.getMessage() + postfix]
