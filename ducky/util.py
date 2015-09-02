@@ -103,14 +103,15 @@ class Formatter(string.Formatter):
 
     return '{:d}'.format(value)
 
-F = Formatter()
+_F = Formatter()
+F = _F.format
 
 UINT_FMT   = Formatter.uint_to_int
-UINT8_FMT  = functools.partial(F.format_int, 'B')
-UINT16_FMT = functools.partial(F.format_int, 'W')
-UINT24_FMT = functools.partial(F.format_int, 'A')
-UINT32_FMT = functools.partial(F.format_int, 'L')
-ADDR_FMT   = functools.partial(F.format_int, 'A')
+UINT8_FMT  = functools.partial(_F.format_int, 'B')
+UINT16_FMT = functools.partial(_F.format_int, 'W')
+UINT24_FMT = functools.partial(_F.format_int, 'A')
+UINT32_FMT = functools.partial(_F.format_int, 'L')
+ADDR_FMT   = functools.partial(_F.format_int, 'A')
 
 
 class FileOpenPatcher(object):
