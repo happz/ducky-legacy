@@ -12,7 +12,7 @@ Submodules
    ducky.devices.storage
    ducky.devices.terminal
    ducky.devices.tty
-   ducky.devices.vga
+   ducky.devices.svga
 
 Module contents
 ---------------
