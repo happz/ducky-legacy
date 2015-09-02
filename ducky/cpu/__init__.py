@@ -6,7 +6,7 @@ from .. import mm
 from .. import profiler
 
 from ..interfaces import IMachineWorker, ISnapshotable
-from ..mm import ADDR_FMT, UINT8_FMT, UINT16_FMT, UINT32_FMT, SEGMENT_SIZE, PAGE_SIZE, i16, UINT24_FMT
+from ..mm import ADDR_FMT, UINT8_FMT, UINT16_FMT, UINT32_FMT, SEGMENT_SIZE, PAGE_SIZE, i16, UINT24_FMT, addr_to_page
 from .registers import Registers, REGISTER_NAMES, FlagsRegister, GENERAL_REGISTERS
 from .instructions import DuckyInstructionSet
 from ..errors import AccessViolationError, InvalidResourceError
@@ -256,6 +256,10 @@ class CPUDataCache(LRUCache):
 
     self.core.DEBUG('CPUDataCache.read_u16: addr=%s', ADDR_FMT(addr))
 
+    if self.core.memory.page(addr_to_page(addr)).cache is False:
+      self.core.DEBUG('%s.read_u16: read directly from uncacheable page', self.__class__.__name__)
+      return self.core.memory.read_u16(addr)
+
     return self[addr][1]
 
   def write_u16(self, addr, value):
@@ -268,6 +272,11 @@ class CPUDataCache(LRUCache):
     """
 
     self.core.DEBUG('CPUDataCache.write_u16: addr=%s, value=%s', ADDR_FMT(addr), UINT16_FMT(value))
+
+    if self.core.memory.page(addr_to_page(addr)).cache is False:
+      self.core.DEBUG('%s.write_u16: write directly to uncacheable page', self.__class__.__name__)
+      self.core.memory.write_u16(addr, value)
+      return
 
     if addr not in self:
       self.__missing__(addr)

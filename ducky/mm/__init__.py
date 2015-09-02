@@ -149,7 +149,7 @@ def area_to_pages(addr, size):
 
 class MemoryPageState(SnapshotNode):
   def __init__(self, *args, **kwargs):
-    super(MemoryPageState, self).__init__('index', 'read', 'write', 'execute', 'dirty', 'stack', 'content')
+    super(MemoryPageState, self).__init__('index', 'read', 'write', 'execute', 'dirty', 'stack', 'cache', 'content')
 
 class MemoryPage(object):
   """
@@ -179,6 +179,7 @@ class MemoryPage(object):
     self.execute = False
     self.dirty   = False
     self.stack   = False
+    self.cache   = False
 
   def __repr__(self):
     return '<%s index=%i, base=%s, segment_addr=%s, flags=%s>' % (self.__class__.__name__, self.index, ADDR_FMT(self.base_address), ADDR_FMT(self.segment_address), self.flags_str())
@@ -201,6 +202,7 @@ class MemoryPage(object):
     state.execute = self.execute
     state.dirty = self.dirty
     state.stack = self.stack
+    state.cache = self.cache
 
   def load_state(self, state):
     """
@@ -215,6 +217,7 @@ class MemoryPage(object):
     self.execute = state.execute
     self.dirty = state.dirty
     self.stack = state.stack
+    self.cache = state.cache
 
   def flags_reset(self):
     """
@@ -225,6 +228,7 @@ class MemoryPage(object):
     self.write = False
     self.execute = False
     self.dirty = False
+    self.cache = True
 
   def flags_str(self):
     """
@@ -242,7 +246,8 @@ class MemoryPage(object):
       'R' if self.read else '-',
       'W' if self.write else '-',
       'X' if self.execute else '-',
-      'D' if self.dirty else '-'
+      'D' if self.dirty else '-',
+      'C' if self.cache else '-'
     ])
 
   def check_access(self, offset, access):
@@ -945,6 +950,7 @@ class MemoryController(object):
     """
 
     pg = self.alloc_page(segment)
+    pg.flags_reset()
     pg.read = True
     pg.write = True
     pg.stack = True
