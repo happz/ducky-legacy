@@ -46,38 +46,10 @@ MM_FLAG_DIRTY   = 0x0008
 
 MM_FLAG_CS      = 0x1000
 
-def __var_to_int(v):
-  if type(v) == UInt8:
-    return v.u8
-
-  if type(v) == UInt16:
-    return v.u16
-
-  if type(v) == UInt24:
-    return v.u24
-
-  if type(v) == UInt32:
-    return v.u32
-
-  return v
-
-def UINT8_FMT(v):
-  return '0x{:02X}'.format(__var_to_int(v) & 0xFF)
-
-def UINT16_FMT(v):
-  return '0x{:04X}'.format(__var_to_int(v) & 0xFFFF)
-
-def UINT24_FMT(v):
-  return '0x{:06X}'.format(__var_to_int(v) & 0xFFFFFF)
-
-def UINT32_FMT(v):
-  return '0x{:08X}'.format(__var_to_int(v))
+from ..util import UINT8_FMT, UINT16_FMT, UINT24_FMT, UINT32_FMT, ADDR_FMT  # noqa
 
 def SEGM_FMT(segment):
   return UINT8_FMT(segment)
-
-def ADDR_FMT(address):
-  return UINT24_FMT(address)
 
 def SIZE_FMT(size):
   return str(size)

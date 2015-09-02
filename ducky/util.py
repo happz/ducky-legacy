@@ -1,6 +1,8 @@
 import collections
+import functools
 import logging
 import optparse
+import string
 import sys
 import types
 
@@ -60,6 +62,56 @@ def sizeof_fmt(n, suffix = 'B'):
     n /= 1024.0
 
   return "%.1f%s%s" % (n, 'Yi', suffix)
+
+class Formatter(string.Formatter):
+  @staticmethod
+  def uint_to_int(u):
+    from .mm import UInt8, UInt16, UInt24, UInt32
+
+    if type(u) == UInt8:
+     return u.u8
+
+    if type(u) == UInt16:
+      return u.u16
+
+    if type(u) == UInt24:
+      return u.u24
+
+    if type(u) == UInt32:
+      return u.u32
+
+    return u
+
+  def format_field(self, value, format_spec):
+    if format_spec and format_spec[-1] in 'BWAL':
+      return self.format_int(format_spec, value)
+
+    return super(Formatter, self).format_field(value, format_spec)
+
+  def format_int(self, format_spec, value):
+    if format_spec.endswith('B'):
+      return '0x{:02X}'.format(Formatter.uint_to_int(value) & 0xFF)
+
+    if format_spec.endswith('W'):
+      return '0x{:04X}'.format(Formatter.uint_to_int(value) & 0xFFFF)
+
+    if format_spec.endswith('A'):
+      return '0x{:06X}'.format(Formatter.uint_to_int(value) & 0xFFFFFF)
+
+    if format_spec.endswith('L'):
+      return '0x{:08X}'.format(Formatter.uint_to_int(value))
+
+    return '{:d}'.format(value)
+
+F = Formatter()
+
+UINT_FMT   = Formatter.uint_to_int
+UINT8_FMT  = functools.partial(F.format_int, 'B')
+UINT16_FMT = functools.partial(F.format_int, 'W')
+UINT24_FMT = functools.partial(F.format_int, 'A')
+UINT32_FMT = functools.partial(F.format_int, 'L')
+ADDR_FMT   = functools.partial(F.format_int, 'A')
+
 
 class FileOpenPatcher(object):
   def __init__(self, logger):
