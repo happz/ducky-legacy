@@ -176,6 +176,8 @@ class MemoryPage(object):
     state.stack = self.stack
     state.cache = self.cache
 
+    return state
+
   def load_state(self, state):
     """
     Restore page from a snapshot.
@@ -527,6 +529,11 @@ class ExternalMemoryPage(MemoryPage):
 
   def __repr__(self):
     return '<%s index=%i, base=%s, segment_addr=%s, flags=%s, offset=%s>' % (self.__class__.__name__, self.index, ADDR_FMT(self.base_address), ADDR_FMT(self.segment_address), self.flags_str(), ADDR_FMT(self.offset))
+
+  def save_state(self, parent):
+    state = super(ExternalMemoryPage, self).save_state(parent)
+
+    state.content = [ord(i) if isinstance(i, str) else i for i in self.data[self.offset:self.offset + PAGE_SIZE]]
 
   def do_clear(self):
     for i in range(0, PAGE_SIZE):
@@ -973,7 +980,7 @@ class MemoryController(object):
 
     :param int pages_start: index of the first page, 0 by default.
     :param int pages_cnt: number of pages to get, number of all memory pages by default.
-    :param boolean ignore_missing: if ``True``, ignore missing pages, ``False`` by default.
+    :param bool ignore_missing: if ``True``, ignore missing pages, ``False`` by default.
     :raises ducky.errors.AccessViolationError: when ``ignore_missing == False`` and there's
       a missing page in requested range, this exception is rised.
     :returns: list of pages in area
@@ -995,7 +1002,7 @@ class MemoryController(object):
 
     :param u24 address: beggining address of the area, by default 0.
     :param u24 size: size of the area, by default the whole memory size.
-    :param boolean ignore_missing: if ``True``, ignore missing pages, ``False`` by default.
+    :param bool ignore_missing: if ``True``, ignore missing pages, ``False`` by default.
     :raises ducky.errors.AccessViolationError: when ``ignore_missing == False`` and there's
       a missing page in requested range, this exception is rised.
     :returns: list of pages in area
@@ -1260,6 +1267,7 @@ class MemoryController(object):
     return area
 
   def unmmap_area(self, mmap_area):
+    self.machine.cpu_cache_controller.release_area_references(self.page(mmap_area.pages_start).base_address, mmap_area.pages_cnt * PAGE_SIZE)
     self.reset_pages_flags(mmap_area.pages_start, mmap_area.pages_cnt)
 
     for pg in self.pages(pages_start = mmap_area.pages_start, pages_cnt = mmap_area.pages_cnt):
@@ -1453,7 +1461,7 @@ class MMInterrupt(IVirtualInterrupt):
       end   = segment_addr_to_addr(segment & 0xFF, end)
       size  = end - start
 
-      core.cache_controller.release_area_references(None, start, size)
+      core.cache_controller.release_area_references(start, size)
 
       core.cpu.machine.memory.reset_area_flags(start, size)
 
@@ -1500,7 +1508,7 @@ class MMInterrupt(IVirtualInterrupt):
 
       core.DEBUG('free: address=%s, pages_start=%s, pages_cnt=%s', ADDR_FMT(address), pages_start, pages_cnt)
 
-      core.cache_controller.release_area_references(None, address, size)
+      core.cache_controller.release_area_references(address, size)
       core.cpu.machine.memory.reset_area_flags(address, size)
 
       pg = core.cpu.machine.memory.page(pages_start)

@@ -241,6 +241,9 @@ class LRUCache(collections.OrderedDict):
   """
   Simple LRU cache, based on ``OrderedDict``, with limited size. When limit
   is reached, the least recently inserted item is removed.
+
+  :param logging.Logger logger: logger object instance should use for logging.
+  :param int size: maximal number of entries allowed.
   """
 
   def __init__(self, logger, size, *args, **kwargs):
@@ -254,18 +257,19 @@ class LRUCache(collections.OrderedDict):
     self.misses  = 0
     self.prunes  = 0
 
-    self.LOGGER = logger
-    self.DEBUG = self.LOGGER.debug
-    self.INFO = self.LOGGER.info
-    self.WARN = self.LOGGER.warning
-    self.ERROR = self.LOGGER.error
-    self.EXCEPTION = self.LOGGER.exception
+    self.DEBUG = logger.debug
+    self.INFO = logger.info
+    self.WARN = logger.warn
+    self.ERROR = logger.error
+    self.EXCEPTION = logger.exception
 
   def make_space(self):
     """
     This method is called when there is no free space in cache. It's responsible
     for freeing at least one slot, upper limit of removed entries is not enforced.
     """
+
+    self.DEBUG('%s.make_space', self.__class__.__name__)
 
     self.popitem(last = False)
     self.prunes += 1
@@ -275,7 +279,7 @@ class LRUCache(collections.OrderedDict):
     Return entry with specified key.
     """
 
-    self.DEBUG('LRUCache: get: key=%s', key)
+    self.DEBUG('%s.__getitem__: key=%s', self.__class__.__name__, key)
 
     self.reads += 1
 
@@ -292,7 +296,7 @@ class LRUCache(collections.OrderedDict):
     space in cache, ``make_space`` method is called.
     """
 
-    self.DEBUG('LRUCache: set: key=%s, value=%s', key, value)
+    self.DEBUG('%s.__setitem__: key=%s, value=%s', self.__class__.__name__, key, value)
 
     if len(self) == self.size:
       self.make_space()
@@ -315,7 +319,7 @@ class LRUCache(collections.OrderedDict):
     and inserting it into cache. Returns new item.
     """
 
-    self.DEBUG('LRUCache: missing: key=%s', key)
+    self.DEBUG('%s.__missing__: key=%s', self.__class__.__name__, key)
 
     self[key] = value = self.get_object(key)
     return value

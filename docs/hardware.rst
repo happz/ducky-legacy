@@ -82,6 +82,22 @@ Notes on documentation
   math_copro_instruction_set.rst
 
 
+Cache
+^^^^^
+
+Every memory access (fetching instructions, read/write of other data) goes through a cache. Separate instruction and data cache exist for each CPU core, both having a limited size and trackking access to support LRU replacement policy.
+
+Instruction cache
+"""""""""""""""""
+
+Since modification of running code is not supported yet, instruction cache does not care about synchronization or coherency, and simply reads data from main memory, and stores and provides already decoded instructions.
+
+Data cache
+""""""""""
+
+Data cache, on the other hand, have to guarantee cache consistency and coherency between all caches of all CPU cores, and all other devices attached to the VM a manipulating memory. So far, all CPU cores should share the consistent view of memory content, regardles on executed instructions, unless MMIO, devices with direct memory access or external write to a mmaped file are involved. Both MMIO and direct memory access devices can use uncacheable memory pages for their working buffers to overcome this limitation, or make use of :py:class:`ducky.cpu.CPUCacheController` and its ``release_*_references`` methods to flush all necessary caches. Solving external writes into a shared, mmaped file is not possible without additional signal mechanism.
+
+
 Memory
 ------
 

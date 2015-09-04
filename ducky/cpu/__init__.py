@@ -6,7 +6,7 @@ from .. import mm
 from .. import profiler
 
 from ..interfaces import IMachineWorker, ISnapshotable
-from ..mm import ADDR_FMT, UINT8_FMT, UINT16_FMT, UINT32_FMT, SEGMENT_SIZE, PAGE_SIZE, i16, UINT24_FMT, addr_to_page
+from ..mm import ADDR_FMT, UINT8_FMT, UINT16_FMT, UINT32_FMT, SEGMENT_SIZE, PAGE_SIZE, i16, addr_to_page
 from .registers import Registers, REGISTER_NAMES, FlagsRegister, GENERAL_REGISTERS
 from .instructions import DuckyInstructionSet
 from ..errors import AccessViolationError, InvalidResourceError
@@ -169,6 +169,7 @@ class InstructionCache(LRUCache):
 
     return self.core.instruction_set.decode_instruction(self.core.memory.read_u32(addr, not_execute = False))
 
+
 class CPUDataCache(LRUCache):
   """
   Simple data cache class, based on LRU dictionary, with a limited size.
@@ -186,6 +187,13 @@ class CPUDataCache(LRUCache):
   :py:meth:`ducky.cpu.DataCache.write_u16`, instead of accessing raw values
   using address as a dictionary key.
 
+  Cache "owns" its entries until someone else realizes it's time to give them
+  up. Then cache have to "release" entries in question - it does not have to
+  write remove such entries, but it has to make sure they are consistent with
+  the content of main memory.
+
+  :param ducky.cpu.CPUCacheController controller: cache controller that will
+    dispatch notifications to all caches that share this core's main memory.
   :param ducky.cpu.CPUCore core: CPU core that owns this cache.
   :param int size: maximal number of entries this cache can store.
   """
@@ -205,7 +213,7 @@ class CPUDataCache(LRUCache):
     addr, value = self.popitem(last = False)
     dirty, value = value
 
-    self.core.DEBUG('CPUDataCache.make_space: addr=%s, value=%s', ADDR_FMT(addr), UINT16_FMT(value))
+    self.core.DEBUG('%s.make_space: addr=%s, value=%s', self.__class__.__name__, ADDR_FMT(addr), UINT16_FMT(value))
 
     if dirty:
       self.core.memory.write_u16(addr, value)
@@ -218,26 +226,45 @@ class CPUDataCache(LRUCache):
     fetching data and filling the cache.
 
     :param u24 addr: absolute address to read from.
-    :rtype: u16
+    :returns: cache entry
+    :rtype: ``list``
     """
 
-    self.core.DEBUG('CPUDataCache.get_object: address=%s', ADDR_FMT(addr))
+    self.core.DEBUG('%s.get_object: address=%s', self.__class__.__name__, ADDR_FMT(addr))
 
     self.controller.flush_entry_references(self.core, addr)
 
     return [False, self.core.memory.read_u16(addr)]
 
   def read_u8(self, addr):
+    """
+    Read byte from cache. Value is read from memory if it is not yet present
+    in cache.
+
+    :param u24 addr: absolute address to read from.
+    :rtype: u8
+    """
+
     word_addr = addr & ~1
+
+    self.core.DEBUG('CPUDataCache.read_u8: addr=%s, word_addr=%s', self.__class__.__name__, ADDR_FMT(addr), ADDR_FMT(word_addr))
+
     word = self.read_u16(word_addr)
-
-    self.core.DEBUG('CPUDataCache.read_u8: addr=%s, word_addr=%s, word=%s', ADDR_FMT(addr), ADDR_FMT(word_addr), UINT16_FMT(word))
-
     return (word & 0xFF) if addr == word_addr else (word & 0xFF00) >> 8
 
   def write_u8(self, addr, value):
+    """
+    Write byte to cache. Value in cache is overwritten, and marked as dirty. It
+    is not written back to the memory yet.
+
+    :param u24 addr: absolute address to modify.
+    :param u8 value: new value to write.
+    """
+
     word_addr = addr & ~1
-    self.core.DEBUG('CPUDataCache.write_u8: addr=%s, word_addr=%s, vaue=%s', ADDR_FMT(addr), ADDR_FMT(word_addr), UINT16_FMT(value))
+
+    self.core.DEBUG('%s.write_u8: addr=%s, word_addr=%s, vaue=%s', self.__class__.__name__, ADDR_FMT(addr), ADDR_FMT(word_addr), UINT16_FMT(value))
+
     word = self.read_u16(word_addr)
 
     if addr == word_addr:
@@ -254,7 +281,7 @@ class CPUDataCache(LRUCache):
     :rtype: u16
     """
 
-    self.core.DEBUG('CPUDataCache.read_u16: addr=%s', ADDR_FMT(addr))
+    self.core.DEBUG('%s.read_u16: addr=%s', self.__class__.__name__, ADDR_FMT(addr))
 
     if self.core.memory.page(addr_to_page(addr)).cache is False:
       self.core.DEBUG('%s.read_u16: read directly from uncacheable page', self.__class__.__name__)
@@ -271,7 +298,7 @@ class CPUDataCache(LRUCache):
     :param u16 value: new value to write.
     """
 
-    self.core.DEBUG('CPUDataCache.write_u16: addr=%s, value=%s', ADDR_FMT(addr), UINT16_FMT(value))
+    self.core.DEBUG('%s.write_u16: addr=%s, value=%s', self.__class__.__name__, ADDR_FMT(addr), UINT16_FMT(value))
 
     if self.core.memory.page(addr_to_page(addr)).cache is False:
       self.core.DEBUG('%s.write_u16: write directly to uncacheable page', self.__class__.__name__)
@@ -283,46 +310,46 @@ class CPUDataCache(LRUCache):
 
     self[addr] = [True, value]
 
-    self.controller.release_entry_references(self.core, addr)
+    self.controller.release_entry_references(addr, caller = self.core)
 
   def release_entry_references(self, addr, writeback = True, remove = True):
     """
-    Remove entry that is located at specific address.
+    Give up cached entry.
 
-    :param u24 address: entry address
-    :param bool writeback: if ``True``, value is written back to memory
-      before it's removed from cache, otherwise it's just dropped.
+    :param u24 addr: entry address.
+    :param bool writeback: if ``True``, entries is written back to memory.
+    :param bool remove: if ``True``, entry is removed from cache.
     """
 
-    self.core.DEBUG('CPUDataCache.release_entry_references: address=%s, writeback=%s, remove=%s', ADDR_FMT(addr), writeback, remove)
+    self.core.DEBUG('%s.release_entry_references: address=%s, writeback=%s, remove=%s', self.__class__.__name__, ADDR_FMT(addr), writeback, remove)
 
     dirty, value = self.get(addr, (None, None))
 
     if dirty is None and value is None:
-      self.core.DEBUG('CPUDataCache.release_entry_references: not cached')
+      self.core.DEBUG('%s.release_entry_references: not cached', self.__class__.__name__,)
       return
 
     if dirty and writeback:
+      self.core.DEBUG('%s.release_entry_reference: write back', self.__class__.__name__)
       self.core.memory.write_u16(addr, value)
-      self.core.DEBUG('CPUDataCache.release_entry_references: written back')
 
     if remove:
+      self.core.DEBUG('%s.release_entry_reference: remove', self.__class__.__name__)
       del self[addr]
-      self.core.DEBUG('CPUDataCache.release_entry_references: removed')
 
     else:
       self[addr] = (False, value)
 
   def release_page_references(self, page, writeback = True, remove = True):
     """
-    Remove entries that are located on a specific memory page.
+    Give up cached entries located a specific memory page.
 
     :param ducky.mm.MemoryPage page: referenced page.
-    :param bool writeback: is ``True``, values are written back to memory
-      before they are removed from cache, otherwise they are just dropped.
+    :param bool writeback: if ``True``, entries are written back to memory.
+    :param bool remove: if ``True``, entries are removed from cache.
     """
 
-    self.core.DEBUG('data_cache.release_page_references: page=%s, writeback=%s, remove=%s', page.index, writeback, remove)
+    self.core.DEBUG('%s.release_page_references: page=%s, writeback=%s, remove=%s', self.__class__.__name__, page.index, writeback, remove)
 
     addresses = [i for i in range(page.base_address, page.base_address + PAGE_SIZE, 2)]
 
@@ -333,7 +360,16 @@ class CPUDataCache(LRUCache):
       self.release_entry_references(addr, writeback = writeback, remove = remove)
 
   def release_area_references(self, address, size, writeback = True, remove = True):
-    self.core.DEBUG('CPUDataCache.remove_area_references: address=%s, size=%s, writeback=%s, remove=%s', ADDR_FMT(address), UINT16_FMT(size), writeback, remove)
+    """
+    Give up cached entries located in a specific memory range.
+
+    :param u24 address: address of the first byte of area.
+    :param u24 size: length of the area in bytes.
+    :param bool writeback: if ``True``, entries are written back to memory.
+    :param bool remove: if ``True``, entries are removed from cache.
+    """
+
+    self.core.DEBUG('%s.remove_area_references: address=%s, size=%s, writeback=%s, remove=%s', self.__class__.__name__, ADDR_FMT(address), UINT16_FMT(size), writeback, remove)
 
     addresses = [i for i in range(address, address + size, 2)]
 
@@ -345,54 +381,131 @@ class CPUDataCache(LRUCache):
 
   def release_references(self, writeback = True, remove = True):
     """
-    Save all dirty entries back to memory.
+    Give up all cached entries.
+
+    :param boolean writeback: if ``True``, entries are written back to memory.
+    :param boolean remove: if ``True``, entries are removed from cache.
     """
 
-    self.core.DEBUG('CPUDataCache.release_references: writeback=%s, remove=%s', writeback, remove)
+    self.core.DEBUG('%s.release_references: writeback=%s, remove=%s', self.__class__.__name__, writeback, remove)
 
     for addr in self.keys():
       self.release_entry_references(addr, writeback = writeback, remove = remove)
 
 class CPUCacheController(object):
+  """
+  Cache controllers manages consistency and coherency of all CPU caches.
+  Provides methods that informs all involved parties about invalidation
+  of cache entries.
+
+  :param ducky.machine.Machine machine: VM this controller belongs to.
+  """
+
   def __init__(self, machine):
     self.machine = machine
 
     self.cores = []
 
   def register_core(self, core):
+    """
+    Register CPU core as a listener. Core's data cache will get all
+    notifications about invalidated cache entries.
+
+    :param ducky.cpu.CPUCore core: core to be registered.
+    """
+
+    self.machine.DEBUG('%s.register_core: core=%s', self.__class__.__name__, core)
+
     self.cores.append(core)
 
   def unregister_core(self, core):
+    """
+    Unregister CPU core. Core's data cache will no longer receive any
+    notifications about invalidated cache entries.
+    """
+
+    self.machine.DEBUG('%s.unregister_core: core=%s', self.__class__.__name__, core)
+
     self.cores.remove(core)
 
-  def flush_entry_references(self, caller, address):
-    self.machine.DEBUG('CPUCacheController.flush_entry_references: caller%s, address=%s', str(caller), ADDR_FMT(address))
+  def flush_entry_references(self, address, caller = None):
+    """
+    Instruct caches to save a single entry back to memory.
+
+    :param u24 address: entry address.
+    :param ducky.cpu.CPUCore caller: core requesting this action. If set, all
+      cores except this particular one will be instruct to save their cached
+      entry.
+    """
+
+    self.machine.DEBUG('%s.flush_entry_references: caller=%s, address=%s', self.__class__.__name__, caller, ADDR_FMT(address))
 
     map(lambda core: core.data_cache.release_entry_references(address, writeback = True, remove = False), [core for core in self.cores if core is not caller])
 
-  def release_entry_references(self, caller, address):
-    self.machine.DEBUG('CPUCacheController.release_entry_references: caller=%s, addresss=%s', str(caller), ADDR_FMT(address))
+  def release_entry_references(self, address, caller = None):
+    """
+    Instruct caches to give up one cached entry.
+
+    :param u24 address: entry address.
+    :caller ducky.cpu.CPUCore caller: core requesting this action. If set, all
+      cores except this particular one will be instruct to throw away cached
+      entry without saving it back to memory. Otherwise, caches will save their
+      version of entry before removing it.
+    """
+
+    self.machine.DEBUG('%s.release_entry_references: caller=%s, addresss=%s', self.__class__.__name__, caller, ADDR_FMT(address))
 
     writeback = True if caller is None else False
     map(lambda core: core.data_cache.release_entry_references(address, writeback = writeback, remove = True), [core for core in self.cores if core is not caller])
 
-  def release_page_references(self, caller, pg):
-    self.machine.DEBUG('CPUCacheController.release_page_references: caller=%s, pg=%s', str(caller), pg)
+  def release_page_references(self, pg, caller = None):
+    """
+    Instruct caches to give up entries located on one page.
+
+    :param ducky.mm.MemoryPage pg: referenced page.
+    :caller ducky.cpu.CPUCore caller: core requesting this action. If set, all
+      cores except this particular one will be instruct to throw away cached
+      entries without saving them back to memory. Otherwise, caches will save
+      their version of entries before removing it.
+    """
+
+    self.machine.DEBUG('%s.release_page_references: caller=%s, pg=%s', self.__class__.__name__, caller, pg)
 
     writeback = True if caller is None else False
     map(lambda core: core.data_cache.release_page_references(pg, writeback = writeback, remove = True), [core for core in self.cores if core is not caller])
 
-  def release_area_references(self, caller, address, size):
-    self.machine.DEBUG('CPUCacheController.release_area_references: caller=%s, address=%s, size=%s', str(caller), ADDR_FMT(address), UINT24_FMT(size))
+  def release_area_references(self, address, size, caller = None):
+    """
+    Instruct caches to give up entries in memory area.
+
+    :param u24 address: address of the first byte of area.
+    :param u24 size: length of the area in bytes.
+    :caller ducky.cpu.CPUCore caller: core requesting this action. If set, all
+      cores except this particular one will be instruct to throw away cached
+      entries without saving them back to memory. Otherwise, caches will save
+      their version of entries before removing it.
+    """
+
+    self.machine.DEBUG('%s.release_area_references: caller=%s, address=%s, size=%s', self.__class__.__name__, caller, ADDR_FMT(address), ADDR_FMT(size))
 
     writeback = True if caller is None else False
     map(lambda core: core.data_cache.release_area_references(address, size, writeback = writeback, remove = True), [core for core in self.cores if core is not caller])
 
-  def release_references(self, caller):
-    self.machine.DEBUG('CPUCacheController.release_references: caller=%s', str(caller))
+  def release_references(self, caller = None):
+    """
+    Instruct caches to give up all cached entries.
+
+    :param ducky.cpu.CPUCore caller: core requesting this action. If set, all
+      cores except this particular one will be instruct to throw away all their
+      entries without saving them back. Otherwise, caches will save their entries
+      before removing them.
+    """
+
+    self.machine.DEBUG('%s.release_references: caller=%s', self.__class__.__name__, caller)
 
     writeback = True if caller is None else False
     map(lambda core: core.data_cache.release_references(writeback = writeback, remove = True), [core for core in self.cores if core is not caller])
+
 
 class CPUCore(ISnapshotable, IMachineWorker):
   """
@@ -412,20 +525,20 @@ class CPUCore(ISnapshotable, IMachineWorker):
 
     self.cpuid_prefix = '#{}:#{}:'.format(cpu.id, coreid)
 
-    def __log(logger, *args):
+    def __log(logger, *args, **kwargs):
       args = ('%s ' + args[0],) + (self.cpuid_prefix,) + args[1:]
       logger(*args)
 
-    def __log_exception(exc):
+    def __log_exception(logger_fn, exc):
       self.cpu.machine.LOGGER.exception('Exception raised in CPU core')
-      do_log_cpu_core_state(self, logger = self.ERROR, disassemble = False if isinstance(exc, InvalidOpcodeError) else True)
+      do_log_cpu_core_state(self, logger = logger_fn, disassemble = False if isinstance(exc, InvalidOpcodeError) else True)
 
     self.LOGGER = cpu.machine.LOGGER
-    self.DEBUG = lambda *args: __log(self.cpu.machine.DEBUG, *args)
-    self.INFO  = lambda *args: __log(self.cpu.machine.INFO, *args)
-    self.WARN  = lambda *args: __log(self.cpu.machine.WARN, *args)
-    self.ERROR = lambda *args: __log(self.cpu.machine.ERROR, *args)
-    self.EXCEPTION = __log_exception
+    self.DEBUG = lambda *args, **kwargs: __log(self.cpu.machine.DEBUG, *args, **kwargs)
+    self.INFO  = lambda *args, **kwargs: __log(self.cpu.machine.INFO, *args, **kwargs)
+    self.WARN  = lambda *args, **kwargs: __log(self.cpu.machine.WARN, *args, **kwargs)
+    self.ERROR = lambda *args, **kwargs: __log(self.cpu.machine.ERROR, *args, **kwargs)
+    self.EXCEPTION = functools.partial(__log_exception, self.ERROR)
 
     self.id = coreid
     self.cpu = cpu
@@ -471,8 +584,6 @@ class CPUCore(ISnapshotable, IMachineWorker):
     return '#{}:#{}'.format(self.cpu.id, self.id)
 
   def save_state(self, parent):
-    self.DEBUG('core.save_state: parent=%s', parent)
-
     state = parent.add_child('core{}'.format(self.id), CPUCoreState())
 
     state.cpuid = self.cpu.id
@@ -999,10 +1110,12 @@ class CPUCore(ISnapshotable, IMachineWorker):
   def halt(self):
     self.DEBUG('CPUCore.halt')
 
+    self.cpu.machine.cpu_cache_controller.unregister_core(self)
+
     self.running = False
     self.alive = False
 
-    self.data_cache.release_references(writeback = True, remove = False)
+    self.data_cache.release_references()
 
     log_cpu_core_state(self)
 
