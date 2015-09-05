@@ -226,7 +226,7 @@ class Machine(ISnapshotable, IMachineWorker):
     :returns: `list` of :py:class:`ducky.cpu.CPUCore` instances
     """
 
-    return itertools.chain(*[__cpu.cores for __cpu in self.cpus])
+    return [c for c in itertools.chain(*[__cpu.cores for __cpu in self.cpus])]
 
   def living_cores(self):
     """
@@ -236,7 +236,7 @@ class Machine(ISnapshotable, IMachineWorker):
     :returns: `list` of :py:class:`ducky.cpu.CPUCore` instances
     """
 
-    return itertools.chain(*[__cpu.living_cores() for __cpu in self.cpus])
+    return [c for c in itertools.chain(*[__cpu.living_cores() for __cpu in self.cpus])]
 
   def get_device_by_name(self, name, klass = None):
     """
