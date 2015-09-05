@@ -1,4 +1,11 @@
+"""
+:py:class:`ducky.machine.Machine` is *the* virtual machine. Each instance
+represents self-contained virtual machine, with all its devices, memory, CPUs
+and other necessary properties.
+"""
+
 import functools
+import itertools
 import collections
 import importlib
 import os
@@ -14,7 +21,7 @@ from .interfaces import IMachineWorker, ISnapshotable, IReactorTask
 from .console import ConsoleMaster
 from .errors import InvalidResourceError
 from .log import create_logger
-from .util import str2int, LRUCache
+from .util import str2int, LRUCache, F
 from .mm import addr_to_segment, ADDR_FMT, segment_addr_to_addr, UInt16, UINT16_FMT
 from .reactor import Reactor
 from .snapshot import SnapshotNode
@@ -111,19 +118,37 @@ class Binary(ISnapshotable, object):
     return (self.cs, self.ds, self.sp, self.ip, False)
 
 class IRQRouterTask(IReactorTask):
+  """
+  This task is responsible for distributing triggered IRQs between CPU cores.
+  When IRQ is triggered, IRQ source (i.e. device that requires attention) is
+  appended to this tasks queue (:py:attr:`ducky.machine.IRQRouterTask.qeueu`).
+  As long as this queue is not empty, this task pops IRQ sources, selects
+  free CPU core, and by calling its :py:meth:`ducky.cpu.CPUCore.irq` method
+  core takes reponsibility for executing interrupt routine.
+
+  :param ducky.machine.Machine machine: machine this task belongs to.
+  """
+
   def __init__(self, machine):
     self.machine = machine
 
     self.queue = []
 
   def runnable(self):
-    return True
+    return self.queue
 
   def run(self):
     while self.queue:
       self.machine.cpus[0].cores[0].irq(self.queue.pop(0).irq)
 
 class CheckLivingCoresTask(IReactorTask):
+  """
+  This task checks number of living cores in the VM. If there are no living
+  cores, it's safe to halt the VM.
+
+  :param ducky.machine.Machine machine: machine this task belongs to.
+  """
+
   def __init__(self, machine):
     self.machine = machine
 
@@ -134,20 +159,32 @@ class CheckLivingCoresTask(IReactorTask):
     self.machine.halt()
 
 class Machine(ISnapshotable, IMachineWorker):
+  """
+  Virtual machine itself.
+  """
+
   def core(self, cid):
+    """
+    Find CPU core by its string id.
+
+    :param string cid: id of searched CPU core, in the form `#<cpuid>:#<coreid>`.
+    :rtype: :py:class:`ducky.cpu.CPUCore`
+    :returns: found core
+    :raises ducky.errors.InvalidResourceError: when no such core exists.
+    """
+
     for _cpu in self.cpus:
       for _core in _cpu.cores:
         if '#%i:#%i' % (_cpu.id, _core.id) == cid:
           return _core
-    else:
-      self.ERROR('Unknown core: cid=%s', cid)
-      return None
 
-  def __init__(self, log_handler = None):
+    raise InvalidResourceError(F('No such CPU core: cid={cid}', cid = cid))
+
+  def __init__(self):
     self.reactor = Reactor(self)
 
     # Setup logging
-    self.LOGGER = create_logger(handler = log_handler)
+    self.LOGGER = create_logger()
     self.DEBUG = self.LOGGER.debug
     self.INFO = self.LOGGER.info
     self.WARN = self.LOGGER.warning
@@ -182,16 +219,36 @@ class Machine(ISnapshotable, IMachineWorker):
     self.last_state = None
 
   def cores(self):
-    __cores = []
-    map(lambda __cpu: __cores.extend(__cpu.cores), self.cpus)
-    return __cores
+    """
+    Get list of all cores in the machine.
+
+    :rtype: list
+    :returns: `list` of :py:class:`ducky.cpu.CPUCore` instances
+    """
+
+    return itertools.chain(*[__cpu.cores for __cpu in self.cpus])
 
   def living_cores(self):
-    __cores = []
-    map(lambda __cpu: __cores.extend(__cpu.living_cores()), self.cpus)
-    return __cores
+    """
+    Get list of all living cores in the machine.
+
+    :rtype: list
+    :returns: `list` of :py:class:`ducky.cpu.CPUCore` instances
+    """
+
+    return itertools.chain(*[__cpu.living_cores() for __cpu in self.cpus])
 
   def get_device_by_name(self, name, klass = None):
+    """
+    Get device by its name and class.
+
+    :param string name: name of the device.
+    :param string klass: if set, search only devices with this class.
+    :rtype: :py:class:`ducky.devices.Device`
+    :returns: found device
+    :raises ducky.errors.InvalidResourceError: when no such device exists
+    """
+
     self.DEBUG('get_device_by_name: name=%s, klass=%s', name, klass)
 
     for dev_klass, devs in self.devices.iteritems():
@@ -204,10 +261,18 @@ class Machine(ISnapshotable, IMachineWorker):
 
         return dev
 
-    else:
-      return None
+    raise InvalidResourceError(F('No such device: name={name}, klass={klass}', name = name, klass = klass))
 
   def get_storage_by_id(self, sid):
+    """
+    Get storage by its id.
+
+    :param int sid: id of storage caller is looking for.
+    :rtype: :py:class:`ducky.devices.Device`
+    :returns: found device.
+    :raises ducky.errors.InvalidResourceError: when no such storage exists.
+    """
+
     self.DEBUG('get_storage_by_id: id=%s', sid)
     self.DEBUG('storages: %s', self.devices['storage'])
 
@@ -217,8 +282,7 @@ class Machine(ISnapshotable, IMachineWorker):
 
       return dev
 
-    else:
-      return None
+    raise InvalidResourceError(F('No such storage: sid={sid:d}', sid = sid))
 
   def get_addr_by_symbol(self, symbol):
     return self.address_cache[symbol]
@@ -412,25 +476,6 @@ class Machine(ISnapshotable, IMachineWorker):
 
     return self.__exit_code
 
-  def register_irq_source(self, index, src, reassign = False):
-    if self.irq_sources[index]:
-      if not reassign:
-        raise InvalidResourceError('IRQ already assigned: {}'.format(index))
-
-      for i in range(0, len(self.irq_sources)):
-        if not self.irq_sources[i]:
-          index = i
-          break
-      else:
-        raise InvalidResourceError('IRQ already assigned, no available free IRQ: {}'.format(index))
-
-    self.irq_sources[index] = src
-    src.irq = index
-    return index
-
-  def unregister_irq_source(self, index):
-    self.irq_sources[index] = None
-
   def register_port(self, port, handler):
     self.DEBUG('Machine.register_port: port=%s, handler=%s', UINT16_FMT(port), handler)
 
@@ -512,6 +557,12 @@ class Machine(ISnapshotable, IMachineWorker):
     self.INFO('Halted.')
 
   def capture_state(self, suspend = False):
+    """
+    Capture current state of the VM, and store it in it's `last_state` attribute.
+
+    :param bool suspend: if `True`, suspend VM before taking snapshot.
+    """
+
     self.last_state = snapshot.VMState.capture_vm_state(self, suspend = suspend)
 
 def cmd_boot(console, cmd):

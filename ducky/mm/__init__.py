@@ -127,6 +127,25 @@ class MemoryPage(object):
   """
   Base class for all memory pages of any kinds.
 
+  Memory page has a set of boolean flags that determine access to and behavior
+  of the page.
+
+  +-------------+-----------------------------------------------------------------------------+-----------+
+  | Flag        | Meaning                                                                     | Default   |
+  +-------------+-----------------------------------------------------------------------------+-----------+
+  | ``read``    | page is readable by executed instructions                                   | ``False`` |
+  +-------------+-----------------------------------------------------------------------------+-----------+
+  | ``write``   | page is writable by executed instructions                                   | ``False`` |
+  +-------------+-----------------------------------------------------------------------------+-----------+
+  | ``execute`` | content of the page can be used as executable instructions                  | ``False`` |
+  +-------------+-----------------------------------------------------------------------------+-----------+
+  | ``dirty``   | there have been write access to this page, its content has changed          | ``False`` |
+  +-------------+-----------------------------------------------------------------------------+-----------+
+  | ``stack``   | page is a stack                                                             | ``False`` |
+  +-------------+-----------------------------------------------------------------------------+-----------+
+  | ``cache``   | all RW accesses to this page made by CPU cores go through their data caches | ``True``  |
+  +-------------+-----------------------------------------------------------------------------+-----------+
+
   :param ducky.mm.MemoryController controller: Controller that owns this page.
   :param int index: Serial number of this page.
   """
@@ -1035,24 +1054,59 @@ class MemoryController(object):
       self.unmmap_area(area)
 
   def update_area_flags(self, address, size, flag, value):
+    """
+    Update flag of all pages in memory that are inside the specified area.
+
+    :param u24 address: address of the first byte of the area.
+    :param int size: number of bytes in the area.
+    :param string flag: flag to change. For list of available flags, see
+      :py:class:`ducky.mm.MemoryPage`.
+    :param bool value: new value of flag.
+    """
+
     self.DEBUG('mc.update_area_flags: address=%s, size=%s, flag=%s, value=%i', address, size, flag, value)
 
     for pg in self.pages_in_area(address = address, size = size):
       setattr(pg, flag, value)
 
   def update_pages_flags(self, pages_start, pages_cnt, flag, value):
+    """
+    Update flag of all pages in specified range.
+
+    :param int pages_start: index of the first page.
+    :param int pages_cnt: number of pages.
+    :param string flag: flag to change. For list of available flags, see
+      :py:class:`ducky.mm.MemoryPage`.
+    :param bool value: new value of flag.
+    """
+
     self.DEBUG('mc.update_pages_flags: page=%s, cnt=%s, flag=%s, value=%i', pages_start, pages_cnt, flag, value)
 
     for pg in self.pages(pages_start = pages_start, pages_cnt = pages_cnt):
       setattr(pg, flag, value)
 
   def reset_area_flags(self, address, size):
+    """
+    Reset page flags to default for all pages in memory that are inside
+    the specified area.
+
+    :param u24 address: address of the first byte of the area.
+    :param int size: number of bytes in the area.
+    """
+
     self.DEBUG('mc.reset_area_flags: address=%s, size=%s', address, size)
 
     for pg in self.pages_in_area(address = address, size = size):
       pg.flags_reset()
 
   def reset_pages_flags(self, pages_start, pages_cnt):
+    """
+    Reset page flags to default for all pages in specified range.
+
+    :param int pages_start: index of the first page.
+    :param int pages_cnt: number of pages.
+    """
+
     self.DEBUG('mc.reset_pages_flags: page=%s, size=%s', pages_start, pages_cnt)
 
     for pg in self.pages(pages_start = pages_start, pages_cnt = pages_cnt):
@@ -1278,15 +1332,6 @@ class MemoryController(object):
     mmap_area.ptr.close()
 
     self.__put_mmap_fileno(mmap_area.file_path)
-
-  def cas_u16(self, addr, test, rep):
-    page = self.page((addr & PAGE_MASK) >> PAGE_SHIFT)
-
-    v = page.read_u16(addr & (PAGE_SIZE - 1))
-    if v == test.u16:
-      v = rep.u16
-      return True
-    return v
 
   def read_u8(self, addr, privileged = False):
     self.DEBUG('mc.read_u8: addr=%s, priv=%i', addr, privileged)
