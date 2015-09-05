@@ -14,6 +14,7 @@ set values in registers.
 
 import os
 
+from ..errors import InvalidResourceError
 from ..interfaces import IVirtualInterrupt
 from ..cpu.registers import Registers
 from . import InterruptList, VIRTUAL_INTERRUPTS
@@ -206,8 +207,9 @@ class BlockIOInterrupt(IVirtualInterrupt):
 
     r0 = core.REG(Registers.R00)
 
-    device = self.machine.get_storage_by_id(r0.value)
-    if not device:
+    try:
+      device = self.machine.get_storage_by_id(r0.value)
+    except InvalidResourceError:
       core.WARN('BIO: unknown device: id=%s', r0.value)
       r0.value = 0xFFFF
       return
