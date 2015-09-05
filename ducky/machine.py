@@ -153,7 +153,7 @@ class CheckLivingCoresTask(IReactorTask):
     self.machine = machine
 
   def runnable(self):
-    return len(self.machine.living_cores()) == 0
+    return self.machine.cnt_living_cores == 0
 
   def run(self):
     self.machine.halt()
@@ -200,6 +200,8 @@ class Machine(ISnapshotable, IMachineWorker):
     self.irq_router_task = IRQRouterTask(self)
     self.reactor.add_task(self.irq_router_task)
 
+    self.cnt_living_cores = 0
+
     self.check_living_cores_task = CheckLivingCoresTask(self)
     self.reactor.add_task(self.check_living_cores_task)
 
@@ -228,15 +230,30 @@ class Machine(ISnapshotable, IMachineWorker):
 
     return [c for c in itertools.chain(*[__cpu.cores for __cpu in self.cpus])]
 
+  def core_alive(self):
+    """
+    Signal machine that one of CPU cores is now alive.
+    """
+
+    self.cnt_living_cores += 1
+
+  def core_halted(self):
+    """
+    Signal machine that one of CPU cores is no longer alive.
+    """
+
+    self.cnt_living_cores -= 1
+
+  @property
   def living_cores(self):
     """
-    Get list of all living cores in the machine.
+    List of all living cores in the machine.
 
     :rtype: list
     :returns: `list` of :py:class:`ducky.cpu.CPUCore` instances
     """
 
-    return [c for c in itertools.chain(*[__cpu.living_cores() for __cpu in self.cpus])]
+    return [c for c in itertools.chain(*[__cpu.living_cores for __cpu in self.cpus])]
 
   def get_device_by_name(self, name, klass = None):
     """

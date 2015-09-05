@@ -1092,11 +1092,13 @@ class CPUCore(ISnapshotable, IMachineWorker):
     self.DEBUG('CPUCore.suspend')
 
     self.running = False
+    self.cpu.core_suspended()
 
   def wake_up(self):
     self.DEBUG('CPUCore.wake_up')
 
     self.running = True
+    self.cpu.core_running()
 
   def die(self, exc):
     self.DEBUG('CPUCore.die')
@@ -1113,7 +1115,10 @@ class CPUCore(ISnapshotable, IMachineWorker):
     self.cpu.machine.cpu_cache_controller.unregister_core(self)
 
     self.running = False
+    self.cpu.core_suspended()
+
     self.alive = False
+    self.cpu.core_halted()
 
     self.data_cache.release_references()
 
@@ -1155,7 +1160,10 @@ class CPUCore(ISnapshotable, IMachineWorker):
     log_cpu_core_state(self)
 
     self.alive = True
+    self.cpu.core_alive()
+
     self.running = True
+    self.cpu.core_running()
 
     self.cpu.machine.reactor.add_task(self)
 
@@ -1194,6 +1202,9 @@ class CPU(ISnapshotable, IMachineWorker):
       __core = CPUCore(i, self, self.memory, self.cache_controller)
       self.cores.append(__core)
 
+    self.cnt_living_cores = 0
+    self.cnt_running_cores = 0
+
     C = self.machine.console
     if not C.is_registered_command('sc'):
       C.register_command('sc', cmd_set_core)
@@ -1217,27 +1228,61 @@ class CPU(ISnapshotable, IMachineWorker):
     for core_state in state.get_children().itervalues():
       self.cores[core_state.coreid].load_state(core_state)
 
+  def core_alive(self):
+    """
+    Signal CPU that one of cores is now alive.
+    """
+
+    self.cnt_living_cores += 1
+    self.machine.core_alive()
+
+  def core_halted(self):
+    """
+    Signal CPU that one of cores is no longer alive.
+    """
+
+    self.cnt_living_cores -= 1
+    self.machine.core_halted()
+
+  def core_running(self):
+    """
+    Signal CPU that one of cores is now running.
+    """
+
+    self.cnt_running_cores += 1
+
+  def core_suspended(self):
+    """
+    Signal CPU that one of cores is now suspended.
+    """
+
+    self.cnt_running_cores -= 1
+
+  @property
   def living_cores(self):
-    return (__core for __core in self.cores if __core.alive is True)
+    return [__core for __core in self.cores if __core.alive is True]
 
+  @property
   def halted_cores(self):
-    return (__core for __core in self.cores if __core.alive is not True)
+    return [__core for __core in self.cores if __core.alive is not True]
 
+  @property
   def running_cores(self):
-    return (__core for __core in self.cores if __core.running is True)
+    return [__core for __core in self.cores if __core.running is True]
 
+  @property
   def suspended_cores(self):
-    return (__core for __core in self.cores if __core.running is not True)
+    return [__core for __core in self.cores if __core.running is not True]
 
   def suspend(self):
     self.DEBUG('CPU.suspend')
 
-    map(lambda __core: __core.suspend(), self.running_cores())
+    map(lambda __core: __core.suspend(), self.running_cores)
 
   def wake_up(self):
     self.DEBUG('CPU.wake_up')
 
-    map(lambda __core: __core.wake_up(), self.suspended_cores())
+    map(lambda __core: __core.wake_up(), self.suspended_cores)
 
   def die(self, exc):
     self.DEBUG('CPU.die')
@@ -1249,7 +1294,7 @@ class CPU(ISnapshotable, IMachineWorker):
   def halt(self):
     self.DEBUG('CPU.halt')
 
-    map(lambda __core: __core.halt(), self.living_cores())
+    map(lambda __core: __core.halt(), self.living_cores)
 
     self.INFO('CPU halted')
 
