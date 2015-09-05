@@ -234,7 +234,7 @@ tests-engine: tests/instructions/interrupts-basic $(ENGINE_TESTS:%.asm=%.bin)
 	$(Q)  echo "[TEST] Engine unit tests"
 ifeq ($(VMCOVERAGE),yes)
 	$(eval VMCOVERAGE_FILE := COVERAGE_FILE="$(TESTSETDIR)/coverage/.coverage.engine.$(PID)")
-	$(eval COVERAGE_NOSE_FLAG := --with-coverage --cover-branches)
+	$(eval COVERAGE_NOSE_FLAG := --with-coverage --cover-branches --cover-package=ducky)
 else
 	$(eval VMCOVERAGE_FILE := )
 	$(eval COVERAGE_NOSE_FLAG := )
