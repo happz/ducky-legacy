@@ -11,6 +11,7 @@ INSTALLED_EGG := $(VIRTUAL_ENV)/lib/python2.7/site-packages/ducky-1.0-py2.7.egg
 
 .PRECIOUS: %.o %.bin
 
+PID := $(shell echo "$$$$")
 
 #
 # Tests
@@ -72,6 +73,11 @@ endif
 ifndef VMCOVERAGE
   VMCOVERAGE=no
 endif
+ifeq ($(VMCOVERAGE),yes)
+  VMCOVERAGE_BIN := $(VIRTUAL_ENV)/bin/coverage run --source=ducky
+else
+  VMCOVERAGE_BIN :=
+endif
 
 # Binary profiling
 ifndef BINPROFILE
@@ -131,8 +137,13 @@ FORTH_LD_OPTIONS := --section-base=.text=0x0000 --section-base=.userspace=0x5000
 
 forth/ducky-forth.o: forth/ducky-forth.asm forth/ducky-forth-words.asm
 $(FORTH_KERNEL): forth/ducky-forth.o
+ifeq ($(VMCOVERAGE),yes)
+	$(eval VMCOVERAGE_FILE := COVERAGE_FILE="$(TESTSETDIR)/coverage/.coverage.ld-$(subst /,-,$<)-to-$(subst /,-,$@).$(PID)")
+else
+	$(eval VMCOVERAGE_FILE := )
+endif
 	$(Q) echo -n "[LINK] $^ => $@ ... "
-	$(Q) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) tools/ld -o $@ $(foreach objfile,$^,-i $(objfile)) $(FORTH_LD_OPTIONS) $(VMDEBUG); if [ "$$?" -eq 0 ]; then echo "$(CC_GREEN)PASS$(CC_END)"; else echo "$(CC_RED)FAIL$(CC_END)"; fi
+	$(Q) $(VMCOVERAGE_FILE) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) $(VMCOVERAGE_BIN) tools/ld -o $@ $(foreach objfile,$^,-i $(objfile)) $(FORTH_LD_OPTIONS) $(VMDEBUG); if [ "$$?" -eq 0 ]; then echo "$(CC_GREEN)PASS$(CC_END)"; else echo "$(CC_RED)FAIL$(CC_END)"; fi
 
 forth: $(FORTH_KERNEL)
 
@@ -167,39 +178,43 @@ vga: interrupts examples/vga/vga
 
 interrupts: interrupts.o
 	$(Q) echo -n "[LINK] $^ => $@ ... "
-	$(Q) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) tools/ld -o $@ $(foreach objfile,$^,-i $(objfile)) $(VMDEBUG); if [ "$$?" -eq 0 ]; then echo "$(CC_GREEN)PASS$(CC_END)"; else echo "$(CC_RED)FAIL$(CC_END)"; fi
+ifeq ($(VMCOVERAGE),yes)
+	$(eval VMCOVERAGE_FILE := COVERAGE_FILE="$(TESTSETDIR)/coverage/.coverage.ld-$(subst /,-,$<)-to-$(subst /,-,$@).$(PID)")
+else
+	$(eval VMCOVERAGE_FILE := )
+endif
+	$(Q) $(VMCOVERAGE_FILE) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) $(VMCOVERAGE_BIN) tools/ld -o $@ $(foreach objfile,$^,-i $(objfile)) $(VMDEBUG); if [ "$$?" -eq 0 ]; then echo "$(CC_GREEN)PASS$(CC_END)"; else echo "$(CC_RED)FAIL$(CC_END)"; fi
 
 tests/instructions/interrupts-basic: tests/instructions/interrupts-basic.o
+ifeq ($(VMCOVERAGE),yes)
+	$(eval VMCOVERAGE_FILE := COVERAGE_FILE="$(TESTSETDIR)/coverage/.coverage.ld-$(subst /,-,$<)-to-$(subst /,-,$@).$(PID)")
+else
+	$(eval VMCOVERAGE_FILE := )
+endif
 	$(Q) echo -n "[LINK] $^ => $@ ... "
-	$(Q) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) tools/ld -o $@ $(foreach objfile,$^,-i $(objfile)) $(VMDEBUG); if [ "$$?" -eq 0 ]; then echo "$(CC_GREEN)PASS$(CC_END)"; else echo "$(CC_RED)FAIL$(CC_END)"; fi
+	$(Q) $(VMCOVERAGE_FILE) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) $(VMCOVERAGE_BIN) tools/ld -o $@ $(foreach objfile,$^,-i $(objfile)) $(VMDEBUG); if [ "$$?" -eq 0 ]; then echo "$(CC_GREEN)PASS$(CC_END)"; else echo "$(CC_RED)FAIL$(CC_END)"; fi
 
 run: interrupts $(FORTH_KERNEL)
 ifeq ($(VMCOVERAGE),yes)
-	$(eval VMCOVERAGE_FILE := COVERAGE_FILE="$(CURDIR)/.coverage.run")
-	$(eval VMCOVERAGE_BIN  := $(VIRTUAL_ENV)/bin/coverage run)
+	$(eval VMCOVERAGE_FILE := COVERAGE_FILE="$(CURDIR)/.coverage.run.$(PID)")
 else
 	$(eval VMCOVERAGE_FILE := )
-	$(eval VMCOVERAGE_BIN  := )
 endif
 	$(Q) $(VMCOVERAGE_FILE) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) PYTHONUNBUFFERED=yes $(PYTHON) $(VMCOVERAGE_BIN) tools/vm $(VMPROFILE) $(VMDEBUG) $(VMDEBUG_OPEN_FILES) $(BINPROFILE) --machine-config=tests/forth/test-machine.conf --machine-in=forth/ducky-forth.f
 
 run-binary: interrupts
 ifeq ($(VMCOVERAGE),yes)
-	$(eval VMCOVERAGE_FILE := COVERAGE_FILE="$(CURDIR)/.coverage.run")
-	$(eval VMCOVERAGE_BIN  := $(VIRTUAL_ENV)/bin/coverage run)
+	$(eval VMCOVERAGE_FILE := COVERAGE_FILE="$(CURDIR)/.coverage.run.$(PID)")
 else
 	$(eval VMCOVERAGE_FILE := )
-	$(eval VMCOVERAGE_BIN  := )
 endif
 	$(Q) $(VMCOVERAGE_FILE) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) PYTHONUNBUFFERED=yes $(PYTHON) $(VMCOVERAGE_BIN) tools/vm $(VMPROFILE) $(VMDEBUG) $(VMDEBUG_OPEN_FILES) $(BINPROFILE) --machine-config=$(MACHINE_CONFIG) -g
 
 run-forth-script: interrupts $(FORTH_KERNEL)
 ifeq ($(VMCOVERAGE),yes)
-	$(eval VMCOVERAGE_FILE := COVERAGE_FILE="$(CURDIR)/.coverage.run")
-	$(eval VMCOVERAGE_BIN  := $(VIRTUAL_ENV)/bin/coverage run)
+	$(eval VMCOVERAGE_FILE := COVERAGE_FILE="$(CURDIR)/.coverage.run.$(PID)")
 else
 	$(eval VMCOVERAGE_FILE := )
-	$(eval VMCOVERAGE_BIN  := )
 endif
 	$(Q) $(VMCOVERAGE_FILE) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) PYTHONUNBUFFERED=yes $(PYTHON) $(VMCOVERAGE_BIN) tools/vm $(VMPROFILE) $(VMDEBUG) $(BINPROFILE) --machine-config=tests/forth/test-machine.conf --machine-in=forth/ducky-forth.f --machine-in=$(FORTH_SCRIPT) -g
 
@@ -218,7 +233,7 @@ tests-pre:
 tests-engine: tests/instructions/interrupts-basic $(ENGINE_TESTS:%.asm=%.bin)
 	$(Q)  echo "[TEST] Engine unit tests"
 ifeq ($(VMCOVERAGE),yes)
-	$(eval VMCOVERAGE_FILE := COVERAGE_FILE="$(TESTSETDIR)/coverage/.coverage.engine")
+	$(eval VMCOVERAGE_FILE := COVERAGE_FILE="$(TESTSETDIR)/coverage/.coverage.engine.$(PID)")
 	$(eval COVERAGE_NOSE_FLAG := --with-coverage --cover-branches)
 else
 	$(eval VMCOVERAGE_FILE := )
@@ -240,11 +255,9 @@ tests-forth-ans: interrupts $(FORTH_KERNEL)
 	$(eval tc_machine  := $(TESTSETDIR)/forth-ans.machine)
 	$(eval tc_filtered := $(TESTSETDIR)/forth-ans.filtered)
 ifeq ($(VMCOVERAGE),yes)
-	$(eval VMCOVERAGE_FILE := COVERAGE_FILE="$(TESTSETDIR)/coverage/.coverage.forth-ans")
-	$(eval VMCOVERAGE_BIN  := $(VIRTUAL_ENV)/bin/coverage run)
+	$(eval VMCOVERAGE_FILE := COVERAGE_FILE="$(TESTSETDIR)/coverage/.coverage.forth-ans.$(PID)")
 else
 	$(eval VMCOVERAGE_FILE := )
-	$(eval VMCOVERAGE_BIN  := )
 endif
 	-$(Q) $(VMCOVERAGE_FILE) \
 		    DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) \
@@ -288,6 +301,9 @@ tests: tests-pre tests-engine tests-forth-units tests-forth-ans tests-post tests
 tests-engine-only: tests-pre tests-engine tests-post tests-submit-results
 
 tests-forth-only: tests-pre tests-forth-units tests-forth-ans tests-post tests-submit-results
+
+tests-interim-clean:
+	$(Q) rm -f $(FORTH_KERNEL) interrupts `find $(CURDIR) -name '*.pyc'` `find $(CURDIR) -name '*.o'` `find $(CURDIR) -name '*.bin'` tests/instructions/interrupts-basic ducky-snapshot.bin
 
 
 #
@@ -343,20 +359,30 @@ ifeq ($(FORTH_WELCOME),yes)
 else
 	$(eval forth_welcome := )
 endif
+ifeq ($(VMCOVERAGE),yes)
+	$(eval VMCOVERAGE_FILE := COVERAGE_FILE=$(TESTSETDIR)/coverage/.coverage.as-$(subst /,-,$<)-to-$(subst /,-,$@).$(PID))
+else
+	$(eval VMCOVERAGE_FILE := )
+endif
 	$(Q) echo -n "[COMPILE] $< => $@ ... "
-	$(Q) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) tools/as -i $< -o $@ -f $(mmapable_sections) $(forth_debug_find) $(forth_text_writable) $(forth_welcome) $(VMDEBUG); if [ "$$?" -eq 0 ]; then echo "$(CC_GREEN)PASS$(CC_END)"; else echo "$(CC_RED)FAIL$(CC_END)"; fi
+	$(Q) $(VMCOVERAGE_FILE) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) $(VMCOVERAGE_BIN) tools/as -i $< -o $@ -f $(mmapable_sections) $(forth_debug_find) $(forth_text_writable) $(forth_welcome) $(VMDEBUG); if [ "$$?" -eq 0 ]; then echo "$(CC_GREEN)PASS$(CC_END)"; else echo "$(CC_RED)FAIL$(CC_END)"; fi
 
 
 %.bin: %.o
+ifeq ($(VMCOVERAGE),yes)
+	$(eval VMCOVERAGE_FILE := COVERAGE_FILE="$(TESTSETDIR)/coverage/.coverage.ld-$(subst /,-,$<)-to-$(subst /,-,$@).$(PID)")
+else
+	$(eval VMCOVERAGE_FILE := )
+endif
 	$(eval ld_flags := )
 	$(if $(findstring tests,$^), $(eval ld_flags := --section-base=.text=0x0000))
 	$(Q) echo -n "[LINK] $^ => $@ ... "
-	$(Q) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) tools/ld -o $@ $(foreach objfile,$^,-i $(objfile)) $(ld_flags) $(VMDEBUG); if [ "$$?" -eq 0 ]; then echo "$(CC_GREEN)PASS$(CC_END)"; else echo "$(CC_RED)FAIL$(CC_END)"; fi
+	$(Q) $(VMCOVERAGE_FILE) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) $(VMCOVERAGE_BIN) tools/ld -o $@ $(foreach objfile,$^,-i $(objfile)) $(ld_flags) $(VMDEBUG); if [ "$$?" -eq 0 ]; then echo "$(CC_GREEN)PASS$(CC_END)"; else echo "$(CC_RED)FAIL$(CC_END)"; fi
 
 
 %.f.out: %.f interrupts $(FORTH_KERNEL)
 	$(eval tc_name     := $(notdir $(<:%.f=%)))
-	$(eval tc_coverage := $(TESTSETDIR)/coverage/.coverage.forth-unit.$(tc_name))
+	$(eval tc_coverage := $(TESTSETDIR)/coverage/.coverage.forth-unit.$(tc_name).$(PID))
 	$(eval tc_machine  := $(<:%.f=%.f.machine))
 	$(eval tc_filtered := $(<:%.f=%.f.filtered))
 	$(eval tc_expected := $(<:%.f=%.f.expected))
@@ -364,10 +390,8 @@ endif
 	$(eval tc_tmpfile  := $(shell mktemp))
 ifeq ($(VMCOVERAGE),yes)
 	$(eval VMCOVERAGE_FILE := COVERAGE_FILE="$(tc_coverage)")
-	$(eval VMCOVERAGE_BIN  := $(VIRTUAL_ENV)/bin/coverage run)
 else
 	$(eval VMCOVERAGE_FILE := )
-	$(eval VMCOVERAGE_BIN  := )
 endif
 	$(Q)  echo -n "[TEST] FORTH $(tc_name) ... "
 	-$(Q) $(VMCOVERAGE_FILE) \
