@@ -360,7 +360,7 @@ class SimpleVGA(IOProvider, Device):
       # data port
 
       if self.state == SimpleVGACommands.MEMORY_BANK_ID:
-        if not (0 <= value < self.memory_banks):
+        if not 0 <= value < self.memory_banks:
           raise InvalidResourceError(F('Memory bank out of range: bank={bank:d}', bank = value))
 
         self.active_bank = value

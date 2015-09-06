@@ -382,8 +382,7 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
 
       return True
 
-    else:
-      return False
+    return False
 
   def __get_refers_to_operand(inst):
     r_address = references[inst.refers_to].section_ptr.u16

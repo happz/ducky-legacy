@@ -440,7 +440,7 @@ class CPUCacheController(object):
 
     self.machine.DEBUG('%s.flush_entry_references: caller=%s, address=%s', self.__class__.__name__, caller, ADDR_FMT(address))
 
-    map(lambda core: core.data_cache.release_entry_references(address, writeback = True, remove = False), [core for core in self.cores if core is not caller])
+    [core.data_cache.release_entry_references(address, writeback = True, remove = False) for core in [core for core in self.cores if core is not caller]]
 
   def release_entry_references(self, address, caller = None):
     """
@@ -456,7 +456,7 @@ class CPUCacheController(object):
     self.machine.DEBUG('%s.release_entry_references: caller=%s, addresss=%s', self.__class__.__name__, caller, ADDR_FMT(address))
 
     writeback = True if caller is None else False
-    map(lambda core: core.data_cache.release_entry_references(address, writeback = writeback, remove = True), [core for core in self.cores if core is not caller])
+    [core.data_cache.release_entry_references(address, writeback = writeback, remove = True) for core in [core for core in self.cores if core is not caller]]
 
   def release_page_references(self, pg, caller = None):
     """
@@ -472,7 +472,7 @@ class CPUCacheController(object):
     self.machine.DEBUG('%s.release_page_references: caller=%s, pg=%s', self.__class__.__name__, caller, pg)
 
     writeback = True if caller is None else False
-    map(lambda core: core.data_cache.release_page_references(pg, writeback = writeback, remove = True), [core for core in self.cores if core is not caller])
+    [core.data_cache.release_page_references(pg, writeback = writeback, remove = True) for core in [core for core in self.cores if core is not caller]]
 
   def release_area_references(self, address, size, caller = None):
     """
@@ -489,7 +489,7 @@ class CPUCacheController(object):
     self.machine.DEBUG('%s.release_area_references: caller=%s, address=%s, size=%s', self.__class__.__name__, caller, ADDR_FMT(address), ADDR_FMT(size))
 
     writeback = True if caller is None else False
-    map(lambda core: core.data_cache.release_area_references(address, size, writeback = writeback, remove = True), [core for core in self.cores if core is not caller])
+    [core.data_cache.release_area_references(address, size, writeback = writeback, remove = True) for core in [core for core in self.cores if core is not caller]]
 
   def release_references(self, caller = None):
     """
@@ -504,7 +504,7 @@ class CPUCacheController(object):
     self.machine.DEBUG('%s.release_references: caller=%s', self.__class__.__name__, caller)
 
     writeback = True if caller is None else False
-    map(lambda core: core.data_cache.release_references(writeback = writeback, remove = True), [core for core in self.cores if core is not caller])
+    [core.data_cache.release_references(writeback = writeback, remove = True) for core in [core for core in self.cores if core is not caller]]
 
 
 class CPUCore(ISnapshotable, IMachineWorker):
@@ -1222,7 +1222,7 @@ class CPU(ISnapshotable, IMachineWorker):
   def save_state(self, parent):
     state = parent.add_child('cpu{}'.format(self.id), CPUState())
 
-    map(lambda __core: __core.save_state(state), self.cores)
+    [core.save_state(state) for core in self.cores]
 
   def load_state(self, state):
     for core_state in state.get_children().itervalues():
@@ -1277,12 +1277,12 @@ class CPU(ISnapshotable, IMachineWorker):
   def suspend(self):
     self.DEBUG('CPU.suspend')
 
-    map(lambda __core: __core.suspend(), self.running_cores)
+    [__core.suspend() for __core in self.running_cores]
 
   def wake_up(self):
     self.DEBUG('CPU.wake_up')
 
-    map(lambda __core: __core.wake_up(), self.suspended_cores)
+    [__core.wake_up() for __core in self.suspended_cories]
 
   def die(self, exc):
     self.DEBUG('CPU.die')
@@ -1294,7 +1294,7 @@ class CPU(ISnapshotable, IMachineWorker):
   def halt(self):
     self.DEBUG('CPU.halt')
 
-    map(lambda __core: __core.halt(), self.living_cores)
+    [__core.halt() for __core in self.living_cores]
 
     self.INFO('CPU halted')
 

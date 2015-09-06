@@ -108,7 +108,7 @@ class Binary(ISnapshotable, object):
     state.cs = self.cs
     state.ds = self.ds
 
-    map(lambda region: region.save_state(state), self.regions)
+    [region.save_state(state) for region in self.regions]
 
   def load_state(self, state):
     pass
@@ -312,8 +312,8 @@ class Machine(ISnapshotable, IMachineWorker):
     state.nr_cpus = self.nr_cpus
     state.nr_cores = self.nr_cores
 
-    map(lambda binary: binary.save_state(state), self.binaries)
-    map(lambda __core: __core.save_state(state), self.cores())
+    [binary.save_state(state) for binary in self.binaries]
+    [__core.save_state(state) for __core in self.cores()]
     self.memory.save_state(state)
 
   def load_state(self, state):
@@ -516,7 +516,7 @@ class Machine(ISnapshotable, IMachineWorker):
     self.console.boot()
 
     for devs in self.devices.itervalues():
-      map(lambda dev: dev.boot(), [dev for dev in devs.itervalues() if not dev.is_slave()])
+      [dev.boot() for dev in [dev for dev in devs.itervalues() if not dev.is_slave()]]
 
     if self.config.has_option('machine', 'interrupt-routines'):
       self.load_interrupt_routines()
@@ -524,27 +524,27 @@ class Machine(ISnapshotable, IMachineWorker):
     self.load_binaries()
 
     init_states = [binary.get_init_state() for binary in self.binaries if binary.run]
-    map(lambda __cpu: __cpu.boot(init_states), self.cpus)
+    [__cpu.boot(init_states) for __cpu in self.cpus]
 
   def run(self):
     self.DEBUG('Machine.run')
 
     for devs in self.devices.itervalues():
-      map(lambda dev: dev.run(), [dev for dev in devs.itervalues() if not dev.is_slave()])
+      [dev.run() for dev in [dev for dev in devs.itervalues() if not dev.is_slave()]]
 
-    map(lambda __cpu: __cpu.run(), self.cpus)
+    [__cpu.run() for __cpu in self.cpus]
 
     self.reactor.run()
 
   def suspend(self):
     self.DEBUG('Machine.suspend')
 
-    map(lambda __cpu: __cpu.suspend(), self.cpus)
+    [__cpu.suspend() for __cpu in self.cpus]
 
   def wake_up(self):
     self.DEBUG('Machine.wake_up')
 
-    map(lambda __cpu: __cpu.wake_up(), self.cpus)
+    [__cpu.wake_up() for __cpu in self.cpus]
 
   def die(self, exc):
     self.DEBUG('Machine.die: exc=%s', exc)
@@ -558,10 +558,10 @@ class Machine(ISnapshotable, IMachineWorker):
 
     self.capture_state()
 
-    map(lambda __cpu: __cpu.halt(), self.cpus)
+    [__cpu.halt() for __cpu in self.cpus]
 
     for devs in self.devices.itervalues():
-      map(lambda dev: dev.halt(), [dev for dev in devs.itervalues() if not dev.is_slave()])
+      [dev.halt() for dev in [dev for dev in devs.itervalues() if not dev.is_slave()]]
 
     self.memory.halt()
 

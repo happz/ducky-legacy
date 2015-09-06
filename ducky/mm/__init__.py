@@ -114,7 +114,7 @@ def addr_to_page(addr):
   return (addr & PAGE_MASK) >> PAGE_SHIFT
 
 def addr_to_offset(addr):
-  return (addr & (PAGE_SIZE - 1))
+  return addr & (PAGE_SIZE - 1)
 
 def area_to_pages(addr, size):
   return ((addr & PAGE_MASK) >> PAGE_SHIFT, align(PAGE_SIZE, size) / PAGE_SIZE)
