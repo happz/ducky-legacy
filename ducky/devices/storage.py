@@ -178,6 +178,10 @@ class FileBackedStorage(Storage):
     self.machine.DEBUG('BIO: %s bytes written at %s:%s', cnt * BLOCK_SIZE, self.file.name, dst * BLOCK_SIZE)
 
 class BlockIOFlags(Flags):
+  """
+  Flags accepted by block IO interrupt.
+  """
+
   _fields_ = [
     ('direction', c_ushort, 1),
     ('async',     c_ushort, 1)

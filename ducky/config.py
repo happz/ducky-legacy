@@ -1,3 +1,7 @@
+"""
+VM configuration management
+"""
+
 import StringIO
 
 from ConfigParser import ConfigParser, NoSectionError, NoOptionError
@@ -5,18 +9,41 @@ from ConfigParser import ConfigParser, NoSectionError, NoOptionError
 from .util import str2int
 
 def bool2option(b):
+  """
+  Get config-file-usable string representation of boolean value.
+
+  :param bool b: value to convert.
+  :rtype: string
+  :returns: ``yes`` if input is ``True``, ``no`` otherwise.
+  """
+
   return 'yes' if b else 'no'
 
 class MachineConfig(ConfigParser):
+  """
+  Contains configuration of the whole VM, and provides methods for parsing,
+  inspection and extending this configuration.
+  """
+
   def __init__(self, *args, **kwargs):
     ConfigParser.__init__(self, *args, **kwargs)
 
     self.binaries_cnt    = 0
     self.breakpoints_cnt = 0
     self.mmaps_cnt       = 0
-    self.devices_cnt = 0
+    self.devices_cnt     = 0
 
   def get(self, section, option, default = None):
+    """
+    Get value for an option.
+
+    :param string section: config section.
+    :param string option: option name,
+    :param default: this value will be returned, if no such option exists.
+    :rtype: string
+    :returns: value of config option.
+    """
+
     try:
       return ConfigParser.get(self, section, option)
 
@@ -114,6 +141,15 @@ class MachineConfig(ConfigParser):
       yield s_name
 
   def add_binary(self, filename, segment = None, core = None, entry = None):
+    """
+    Add another binary to configuration.
+
+    :param string filename: path to binary (``file`` option).
+    :param int segment: if set, assign specific segment to this binary's (``segment`` option).
+    :param string core: if set, assign specific core to this binary (``core`` option).
+    :param string entry: if set, set binary's entry point (``entry`` option).
+    """
+
     binary_section = 'binary-{}'.format(self.binaries_cnt)
     self.binaries_cnt += 1
 
@@ -167,7 +203,17 @@ class MachineConfig(ConfigParser):
     if shared is not None:
       self.set(mmap_section, 'shared', shared)
 
-  def add_device(self, klass, driver, *args, **kwargs):
+  def add_device(self, klass, driver, **kwargs):
+    """
+    Add another device to the configuration.
+
+    :param string klass: class of the device (``klass`` option).
+    :param string driver: device driver - dot-separated path to class (``driver``
+      option).
+    :param **kwargs: all keyword arguments will be added to the device's section
+      as its options.
+    """
+
     st_section = 'device-{}'.format(self.devices_cnt)
     self.devices_cnt += 1
 
@@ -179,4 +225,12 @@ class MachineConfig(ConfigParser):
       self.set(st_section, name, value)
 
   def add_storage(self, driver, sid, filepath = None):
+    """
+    Add another storage to the configuration.
+
+    :param string driver: storage's driver - dot-separated path to class (``driver`` option).
+    :param int sid: storage's SID (``sid`` options).
+    :param string filepath: path to backend file, if there's any (``filepath`` option).
+    """
+
     self.add_device('storage', driver, sid = sid, filepath = filepath)
