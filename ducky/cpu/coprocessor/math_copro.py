@@ -517,13 +517,13 @@ class MathCoprocessorInstructionSet(InstructionSet):
 
   opcodes = MathCoprocessorOpcodes
 
-class Inst_PUSH(Inst_PUSH):
+class Inst_Math_PUSH(Inst_PUSH):
   opcode = MathCoprocessorOpcodes.PUSH
 
-class Inst_POP(Inst_POP):
+class Inst_Math_POP(Inst_POP):
   opcode = MathCoprocessorOpcodes.POP
 
-class Inst_MOV(Inst_MOV):
+class Inst_Math_MOV(Inst_MOV):
   opcode = MathCoprocessorOpcodes.MOV
 
 class Inst_INCL(InstDescriptor_Generic):
@@ -661,9 +661,9 @@ Inst_DUPL(MathCoprocessorInstructionSet)
 Inst_UTOL(MathCoprocessorInstructionSet)
 Inst_SYMDIVL(MathCoprocessorInstructionSet)
 Inst_SYMMODL(MathCoprocessorInstructionSet)
-Inst_PUSH(MathCoprocessorInstructionSet)
-Inst_POP(MathCoprocessorInstructionSet)
-Inst_MOV(MathCoprocessorInstructionSet)
+Inst_Math_PUSH(MathCoprocessorInstructionSet)
+Inst_Math_POP(MathCoprocessorInstructionSet)
+Inst_Math_MOV(MathCoprocessorInstructionSet)
 Inst_SIS(MathCoprocessorInstructionSet)
 
 MathCoprocessorInstructionSet.init()

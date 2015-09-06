@@ -367,7 +367,8 @@ class MemoryPage(object):
 
     self.DEBUG('mp.clear: page=%s, priv=%s', self.index, privileged)
 
-    privileged or self.check_access(self.base_address, 'write')
+    if privileged is not True:
+      self.check_access(self.base_address, 'write')
 
     self.do_clear()
 
@@ -384,7 +385,8 @@ class MemoryPage(object):
 
     self.DEBUG('mp.read_u8: page=%s, offset=%s, priv=%s', self.index, offset, privileged)
 
-    privileged or self.check_access(offset, 'read')
+    if privileged is not True:
+      self.check_access(offset, 'read')
 
     return self.do_read_u8(offset)
 
@@ -400,7 +402,8 @@ class MemoryPage(object):
 
     self.DEBUG('mp.read_u16: page=%s, offset=%s, priv=%s', self.index, offset, privileged)
 
-    privileged or self.check_access(offset, 'read')
+    if privileged is not True:
+      self.check_access(offset, 'read')
 
     return self.do_read_u16(offset)
 
@@ -418,8 +421,11 @@ class MemoryPage(object):
 
     self.DEBUG('mp.read_u32: page=%s, offset=%s, priv=%s, not_execute=%s', self.index, offset, privileged, not_execute)
 
-    privileged or self.check_access(offset, 'read')
-    not_execute or self.check_access(offset, 'execute')
+    if privileged is not True:
+      self.check_access(offset, 'read')
+
+    if not_execute is not True:
+      self.check_access(offset, 'execute')
 
     return self.do_read_u32(offset)
 
@@ -437,7 +443,8 @@ class MemoryPage(object):
 
     self.DEBUG('mp.write_u8: page=%s, offset=%s, value=%s, priv=%s, dirty=%s', self.index, offset, value, privileged, dirty)
 
-    privileged or self.check_access(offset, 'write')
+    if privileged is not True:
+      self.check_access(offset, 'write')
 
     self.do_write_u8(offset, value)
     if dirty:
@@ -457,7 +464,8 @@ class MemoryPage(object):
 
     self.DEBUG('mp.write_u16: page=%s, offset=%s, value=%s, priv=%s, dirty=%s', self.index, offset, value, privileged, dirty)
 
-    privileged or self.check_access(offset, 'write')
+    if privileged is not True:
+      self.check_access(offset, 'write')
 
     self.do_write_u16(offset, value)
     if dirty:
@@ -477,7 +485,8 @@ class MemoryPage(object):
 
     self.DEBUG('mp.write_u32: page=%s, offset=%s, value=%s, priv=%s, dirty=%s', self.index, offset, value, privileged, dirty)
 
-    privileged or self.check_access(offset, 'write')
+    if privileged is not True:
+      self.check_access(offset, 'write')
 
     self.do_write_u32(offset, value)
     if dirty:
@@ -864,8 +873,7 @@ class MemoryController(object):
       else:
         return [self.__alloc_page(j) for j in xrange(i, i + count)]
 
-    else:
-      raise InvalidResourceError('No sequence of free pages available')
+    raise InvalidResourceError('No sequence of free pages available')
 
   def alloc_page(self, segment = None):
     """

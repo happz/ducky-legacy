@@ -121,7 +121,6 @@ class InstDescriptor(object):
 
   def fill_reloc_slot(self, logger, inst, slot):
     assert False, 'not implemented in %s' % self.__class__
-    pass
 
   def disassemble_operands(self, inst):
     # pylint: disable-msg=W0613

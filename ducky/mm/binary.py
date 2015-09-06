@@ -172,9 +172,8 @@ class File(BinaryFile):
       if self.string_table.get_string(header.name) == name:
         return header, content
 
-    else:
-      from ..mm import MalformedBinaryError
-      raise MalformedBinaryError('Unknown section named "{}"'.format(name))
+    from ..mm import MalformedBinaryError
+    raise MalformedBinaryError('Unknown section named "{}"'.format(name))
 
   def load_symbols(self):
     self.symbols = {}

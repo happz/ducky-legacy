@@ -71,8 +71,7 @@ class AddressCache(LRUCache):
 
       return (csr, symbols[symbol])
 
-    else:
-      return None
+    return None
 
 class BinaryState(SnapshotNode):
   def __init__(self):

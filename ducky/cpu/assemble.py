@@ -91,9 +91,8 @@ class Buffer(object):
       self.last_line = line
       return line
 
-    else:
-      self.last_line = None
-      return None
+    self.last_line = None
+    return None
 
   def put_line(self, line):
     self.buff.insert(0, line)
