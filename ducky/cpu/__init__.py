@@ -440,7 +440,8 @@ class CPUCacheController(object):
 
     self.machine.DEBUG('%s.flush_entry_references: caller=%s, address=%s', self.__class__.__name__, caller, ADDR_FMT(address))
 
-    [core.data_cache.release_entry_references(address, writeback = True, remove = False) for core in [core for core in self.cores if core is not caller]]
+    for core in [core for core in self.cores if core is not caller]:
+      core.data_cache.release_entry_references(address, writeback = True, remove = False)
 
   def release_entry_references(self, address, caller = None):
     """
@@ -456,7 +457,8 @@ class CPUCacheController(object):
     self.machine.DEBUG('%s.release_entry_references: caller=%s, addresss=%s', self.__class__.__name__, caller, ADDR_FMT(address))
 
     writeback = True if caller is None else False
-    [core.data_cache.release_entry_references(address, writeback = writeback, remove = True) for core in [core for core in self.cores if core is not caller]]
+    for core in [core for core in self.cores if core is not caller]:
+      core.data_cache.release_entry_references(address, writeback = writeback, remove = True)
 
   def release_page_references(self, pg, caller = None):
     """
@@ -472,7 +474,8 @@ class CPUCacheController(object):
     self.machine.DEBUG('%s.release_page_references: caller=%s, pg=%s', self.__class__.__name__, caller, pg)
 
     writeback = True if caller is None else False
-    [core.data_cache.release_page_references(pg, writeback = writeback, remove = True) for core in [core for core in self.cores if core is not caller]]
+    for core in [core for core in self.cores if core is not caller]:
+      core.data_cache.release_page_references(pg, writeback = writeback, remove = True)
 
   def release_area_references(self, address, size, caller = None):
     """
@@ -489,7 +492,8 @@ class CPUCacheController(object):
     self.machine.DEBUG('%s.release_area_references: caller=%s, address=%s, size=%s', self.__class__.__name__, caller, ADDR_FMT(address), ADDR_FMT(size))
 
     writeback = True if caller is None else False
-    [core.data_cache.release_area_references(address, size, writeback = writeback, remove = True) for core in [core for core in self.cores if core is not caller]]
+    for core in [core for core in self.cores if core is not caller]:
+      core.data_cache.release_area_references(address, size, writeback = writeback, remove = True)
 
   def release_references(self, caller = None):
     """
@@ -504,7 +508,8 @@ class CPUCacheController(object):
     self.machine.DEBUG('%s.release_references: caller=%s', self.__class__.__name__, caller)
 
     writeback = True if caller is None else False
-    [core.data_cache.release_references(writeback = writeback, remove = True) for core in [core for core in self.cores if core is not caller]]
+    for core in [core for core in self.cores if core is not caller]:
+      core.data_cache.release_references(writeback = writeback, remove = True)
 
 
 class CPUCore(ISnapshotable, IMachineWorker):
@@ -1222,7 +1227,8 @@ class CPU(ISnapshotable, IMachineWorker):
   def save_state(self, parent):
     state = parent.add_child('cpu{}'.format(self.id), CPUState())
 
-    [core.save_state(state) for core in self.cores]
+    for core in self.cores:
+      core.save_state(state)
 
   def load_state(self, state):
     for core_state in state.get_children().itervalues():
@@ -1277,12 +1283,14 @@ class CPU(ISnapshotable, IMachineWorker):
   def suspend(self):
     self.DEBUG('CPU.suspend')
 
-    [__core.suspend() for __core in self.running_cores]
+    for core in self.running_cores:
+      core.suspend()
 
   def wake_up(self):
     self.DEBUG('CPU.wake_up')
 
-    [__core.wake_up() for __core in self.suspended_cories]
+    for core in self.suspended_cores:
+      core.wake_up()
 
   def die(self, exc):
     self.DEBUG('CPU.die')
@@ -1294,7 +1302,8 @@ class CPU(ISnapshotable, IMachineWorker):
   def halt(self):
     self.DEBUG('CPU.halt')
 
-    [__core.halt() for __core in self.living_cores]
+    for core in self.living_cores:
+      core.halt()
 
     self.INFO('CPU halted')
 
