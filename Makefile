@@ -175,6 +175,9 @@ examples/vga/vga: examples/vga/vga.o
 
 vga: interrupts examples/vga/vga
 
+run-vga: vga
+	$(Q) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) tools/vm $(VMDEBUG) $(VMDEBUG_OPEN_FILES) --machine-config=examples/vga/vga.conf -g
+
 
 interrupts: interrupts.o
 	$(Q) echo -n "[LINK] $^ => $@ ... "
