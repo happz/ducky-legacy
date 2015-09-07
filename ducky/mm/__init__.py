@@ -5,7 +5,7 @@ from ctypes import LittleEndianStructure, c_ubyte, c_ushort, c_uint, sizeof
 
 from ..interfaces import ISnapshotable
 from ..errors import AccessViolationError, InvalidResourceError
-from ..util import align
+from ..util import align, sizeof_fmt
 from ..snapshot import SnapshotNode
 
 import enum
@@ -701,8 +701,6 @@ class MemoryController(object):
   """
 
   def __init__(self, machine, size = 0x1000000):
-    super(MemoryController, self).__init__()
-
     if size % PAGE_SIZE != 0:
       raise InvalidResourceError('Memory size must be multiple of PAGE_SIZE')
 
@@ -1056,6 +1054,8 @@ class MemoryController(object):
 
     # INT table
     self.__alloc_page(addr_to_page(self.int_table_address)).read = True
+
+    self.INFO('mm: %s, %s available', sizeof_fmt(self.__size, max_unit = 'Ki'), sizeof_fmt(self.__size - len(self.__pages) * PAGE_SIZE, max_unit = 'Ki'))
 
   def halt(self):
     for area in self.mmap_areas.values()[:]:

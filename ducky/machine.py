@@ -208,6 +208,9 @@ class Machine(ISnapshotable, IMachineWorker):
     self.symbol_cache = SymbolCache(self, 256)
     self.address_cache = AddressCache(self, 256)
 
+    from .cpu import CPUCacheController
+    self.cpu_cache_controller = CPUCacheController(self)
+
     self.binaries = []
 
     self.cpus = []
@@ -347,7 +350,10 @@ class Machine(ISnapshotable, IMachineWorker):
 
     self.LOGGER.table(table, fn = self.DEBUG)
 
-  def load_interrupt_routines(self):
+  def setup_interrupt_routines(self):
+    if not self.config.has_option('machine', 'interrupt-routines'):
+      return
+
     binary = Binary(self.config.get('machine', 'interrupt-routines'), run = False)
     self.binaries.append(binary)
 
@@ -379,7 +385,7 @@ class Machine(ISnapshotable, IMachineWorker):
 
     self.print_regions(binary.regions)
 
-  def load_binaries(self):
+  def setup_binaries(self):
     for binary_section in self.config.iter_binaries():
       binary = Binary(self.config.get(binary_section, 'file'))
       self.binaries.append(binary)
@@ -400,22 +406,30 @@ class Machine(ISnapshotable, IMachineWorker):
 
       self.print_regions(binary.regions)
 
+  def setup_mmaps(self):
+    for mmap_section in self.config.iter_mmaps():
+      _get     = functools.partial(self.config.get, mmap_section)
+      _getbool = functools.partial(self.config.getbool, mmap_section)
+      _getint  = functools.partial(self.config.getint, mmap_section)
+
+      self.memory.mmap_area(_get('file'),
+                            _getint('address'),
+                            _getint('size'),
+                            offset = _getint('offset', 0),
+                            access = _get('access', 'r'),
+                            shared = _getbool('shared', False))
+
   def hw_setup(self, machine_config):
     self.config = machine_config
 
     self.nr_cpus = self.config.getint('machine', 'cpus')
     self.nr_cores = self.config.getint('machine', 'cores')
 
-    self.memory = mm.MemoryController(self)
-
-    from .cpu import CPUCacheController
-    self.cpu_cache_controller = CPUCacheController(self)
+    self.memory = mm.MemoryController(self, size = machine_config.getint('memory', 'size', 0x1000000))
 
     from .cpu import CPU
     for cpuid in range(0, self.nr_cpus):
       self.cpus.append(CPU(self, cpuid, self.memory, self.cpu_cache_controller, cores = self.nr_cores))
-
-    self.memory.boot()
 
     # Devices
     for st_section in self.config.iter_devices():
@@ -446,18 +460,6 @@ class Machine(ISnapshotable, IMachineWorker):
     from .devices import VIRTUAL_INTERRUPTS
     for index, cls in VIRTUAL_INTERRUPTS.iteritems():
       self.virtual_interrupts[index] = cls(self)
-
-    for mmap_section in self.config.iter_mmaps():
-      _get     = functools.partial(self.config.get, mmap_section)
-      _getbool  = functools.partial(self.config.getbool, mmap_section)
-      _getint  = functools.partial(self.config.getint, mmap_section)
-
-      self.memory.mmap_area(_get('file'),
-                            _getint('address'),
-                            _getint('size'),
-                            offset = _getint('offset', 0),
-                            access = _get('access', 'r'),
-                            shared = _getbool('shared', False))
 
     # Breakpoints
     from .debugging import add_breakpoint
@@ -518,16 +520,16 @@ class Machine(ISnapshotable, IMachineWorker):
 
     self.DEBUG('Machine.boot')
 
+    self.memory.boot()
     self.console.boot()
 
     for devs in self.devices.itervalues():
       for dev in [dev for dev in devs.itervalues() if not dev.is_slave()]:
         dev.boot()
 
-    if self.config.has_option('machine', 'interrupt-routines'):
-      self.load_interrupt_routines()
-
-    self.load_binaries()
+    self.setup_interrupt_routines()
+    self.setup_binaries()
+    self.setup_mmaps()
 
     init_states = [binary.get_init_state() for binary in self.binaries if binary.run]
     for __cpu in self.cpus:
