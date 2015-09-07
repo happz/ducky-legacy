@@ -232,7 +232,7 @@ class CPUDataCache(LRUCache):
 
     self.core.DEBUG('%s.get_object: address=%s', self.__class__.__name__, ADDR_FMT(addr))
 
-    self.controller.flush_entry_references(self.core, addr)
+    self.controller.flush_entry_references(addr, caller = self.core)
 
     return [False, self.core.memory.read_u16(addr)]
 
@@ -247,7 +247,7 @@ class CPUDataCache(LRUCache):
 
     word_addr = addr & ~1
 
-    self.core.DEBUG('CPUDataCache.read_u8: addr=%s, word_addr=%s', self.__class__.__name__, ADDR_FMT(addr), ADDR_FMT(word_addr))
+    self.core.DEBUG('%s.read_u8: addr=%s, word_addr=%s', self.__class__.__name__, ADDR_FMT(addr), ADDR_FMT(word_addr))
 
     word = self.read_u16(word_addr)
     return (word & 0xFF) if addr == word_addr else (word & 0xFF00) >> 8
