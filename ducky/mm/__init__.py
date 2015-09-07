@@ -568,9 +568,26 @@ class ExternalMemoryPage(MemoryPage):
       self.data[i] = 0
 
   def get(self, offset):
+    """
+    Get one byte from page. Override this method in case you need a different
+    offset of requested byte.
+
+    :param int offset: offset of the requested byte.
+    :rtype: int
+    :returns: byte at position in page.
+    """
+
     return self.data[self.offset + offset]
 
   def put(self, offset, b):
+    """
+    Put one byte into page. Override this method in case you need a different
+    offset of requested byte.
+
+    :param int offset: offset of modified byte.
+    :param int b: new value.
+    """
+
     self.data[self.offset + offset] = b
 
   def do_read_u8(self, offset):
