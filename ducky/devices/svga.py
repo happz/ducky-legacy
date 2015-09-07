@@ -1,3 +1,8 @@
+"""
+SimpleVGA is very basic implementation of VGA-like device, with text
+and graphic modes.
+"""
+
 import array
 import enum
 import functools
@@ -10,15 +15,12 @@ from ..mm import PAGE_SIZE, ExternalMemoryPage, addr_to_page, UInt8
 from ..util import sizeof_fmt, F, UINT16_FMT, ADDR_FMT
 from ..reactor import RunInIntervalTask
 
+#: Default address of command port
 DEFAULT_PORT_RANGE = 0x3F0
+#: Default memory size, in bytes
 DEFAULT_MEMORY_SIZE = 64 * 1024
+#: Default number of memory banks
 DEFAULT_MEMORY_BANKS = 8
-DEFAULT_MODES = [
-  ('g', 320, 200, 1),
-  ('t', 80, 25, 2),
-  ('t', 80, 25, 1)
-]
-DEFAULT_BOOT_MODE = ('t', 80, 25, 1)
 
 
 class SimpleVGACommands(enum.IntEnum):
@@ -33,15 +35,60 @@ class SimpleVGACommands(enum.IntEnum):
   MEMORY_BANK_ID = 0x0030
 
 
-def mode_to_pretty(m):
-  return F('{type}, {cols}x{rows} {entities}, {memory_per_entity} {memory_label}',
-           type = 'text' if m[0] == 't' else 'graphic',
-           cols = m[1],
-           rows = m[2],
-           entities = 'chars' if m[0] == 't' else 'pixels',
-           memory_per_entity = m[3] if m[0] == 't' else m[3] * 8,
-           memory_label = 'bytes per char' if m[0] == 't' else 'bits color depth'
-           )
+class Mode(object):
+  def __init__(self, _type, width, height, depth):
+    self.type = _type
+    self.width = width
+    self.height = height
+    self.depth = depth
+
+    self.required_memory = self.width * self.height * (self.depth if self.type == 't' else self.depth / 8)
+
+  def __cmp__(self, other):
+    return self.type == other.type and self.width == other.width and self.height == other.height and self.depth == other.depth
+
+  def __repr__(self):
+    return self.to_string()
+
+  @classmethod
+  def from_string(cls, s):
+    """
+    Create ``Mode`` object from its string representation. It's a comma-separated
+    list of for items:
+
+    +--------------+----------+-----------------+-----------------------+-----------------+
+    |              | ``type`` | ``width``       | ``height``            | ``depth``       |
+    +--------------+----------+-----------------+-----------------------+-----------------+
+    | Text mode    | ``t``    | chars per line  | lines on screen       | bytes per char  |
+    +--------------+----------+-----------------+-----------------------+-----------------+
+    | Graphic mode | ``g``    | pixels per line | pixel lines on screen | bites per pixel |
+    +--------------+----------+-----------------+-----------------------+-----------------+
+    """
+
+    t, c, r, b = s.strip().split(',')
+    return cls(t, int(c.strip()), int(r.strip()), int(b.strip()))
+
+  def to_string(self):
+    return F('({type}, {width}, {height}, {depth})', type = self.type, width = self.width, height = self.height, depth = self.depth)
+
+  def to_pretty_string(self):
+    return F('{type}, {cols}x{rows} {entities}, {memory_per_entity} {memory_label}',
+             type = 'text' if self.type == 't' else 'graphic',
+             cols = self.width,
+             rows = self.height,
+             entities = 'chars' if self.type == 't' else 'pixels',
+             memory_per_entity = self.depth if self.type == 't' else self.depth * 8,
+             memory_label = 'bytes per char' if self.type == 't' else 'bits color depth'
+             )
+
+#: Default list of available modes
+DEFAULT_MODES = [
+  Mode('g', 320, 200, 1),
+  Mode('t', 80, 25, 2),
+  Mode('t', 80, 25, 1)
+]
+#: Default boot mode
+DEFAULT_BOOT_MODE = Mode('t', 80, 25, 1)
 
 class Char(LittleEndianStructure):
   _pack_ = 0
@@ -80,29 +127,29 @@ class DisplayRefreshTask(RunInIntervalTask):
     self.display.machine.DEBUG('Display: refresh display')
 
     gpu = self.display.gpu
-    mode, cols, rows, depth = gpu.active_mode
+    mode = gpu.active_mode
 
     palette_fg = [30, 34, 32, 36, 31, 35, 31, 37,  90,  94,  92,  96,  91,  95, 33,  97]
     palette_bg = [40, 44, 42, 46, 41, 45, 41, 47, 100, 104, 102, 106, 101, 105, 43, 107]
 
-    if mode == 't':
+    if mode.type == 't':
       screen = []
 
-      if depth not in (1, 2):
+      if mode.depth not in (1, 2):
         self.display.machine.WARN(F('Unhandled character depth: mode={mode}', mode = self.active_mode))
         return
 
-      for row in range(0, rows):
+      for row in range(0, mode.height):
         line = []
 
-        for col in range(0, cols):
-          if depth == 1:
-            c = Char.from_u8(gpu.memory[row * cols + col], 0)
+        for col in range(0, mode.width):
+          if mode.depth == 1:
+            c = Char.from_u8(gpu.memory[row * mode.width + col], 0)
             c.fg = 15
             c.bg = 0
 
           else:
-            c = Char.from_u8(gpu.memory[(row * cols + col) * 2], gpu.memory[(row * cols + col) * 2 + 1])
+            c = Char.from_u8(gpu.memory[(row * mode.width + col) * 2], gpu.memory[(row * mode.width + col) * 2 + 1])
 
           char = F('\033[{blink:d};{fg:d};{bg:d}m{char}\033[0m',
                    blink = 5 if c.blink == 1 else 0,
@@ -117,12 +164,12 @@ class DisplayRefreshTask(RunInIntervalTask):
       if self.first_tick:
         self.first_tick = False
       else:
-        print F('\033[{rows:d}F', rows = rows + 3)
+        print F('\033[{rows:d}F', rows = mode.height + 3)
 
-      print '-' * cols
+      print '-' * mode.width
       for line in screen:
         print line
-      print '-' * cols
+      print '-' * mode.width
 
     else:
       self.display.machine.WARN(F('Unhandled gpu mode: mode={mode}', mode = gpu.active_mode))
@@ -175,6 +222,12 @@ class Display(Device):
 
 
 class SimpleVGAMemoryPage(ExternalMemoryPage):
+  """
+  Memory page handling MMIO of sVGA device.
+
+  :param ducky.devices.svga.SimpleVGA dev: sVGA device this page belongs to.
+  """
+
   def __init__(self, dev, *args, **kwargs):
     super(SimpleVGAMemoryPage, self).__init__(*args, **kwargs)
 
@@ -187,6 +240,26 @@ class SimpleVGAMemoryPage(ExternalMemoryPage):
     self.data[self.dev.bank_offsets[self.dev.active_bank] + self.offset + offset] = b
 
 class SimpleVGA(IOProvider, Device):
+  """
+  SimpleVGA is very basic implementation of VGA-like device, with text
+  and graphic modes.
+
+  It has its own graphic memory ("buffer"), split into several banks of
+  the same size. Always only one bank can be directly accessed, by having
+  it mapped into CPU's address space.
+
+  :param ducky.machine.Machine machine: machine this device belongs to.
+  :param string name: name of this device.
+  :param u16 port: address of the command port.
+  :param int memory_size: size of graphic memory.
+  :param u24 memory_address: address of graphic memory - to this address is
+    graphic buffer mapped. Must be specified, there is no default value.
+  :param int memory_banks: number of memory banks.
+  :param list modes: list of :py:class:`ducky.devices.svga.Mode` objects,
+    list of supported modes.
+  :param tuple boot_mode: this mode will be set when device boots up.
+  """
+
   def __init__(self, machine, name, port = None, memory_size = None, memory_address = None, memory_banks = None, modes = None, boot_mode = None, *args, **kwargs):
     if memory_address is None:
       raise InvalidResourceError('sVGA device memory address must be specified explicitly')
@@ -216,10 +289,9 @@ class SimpleVGA(IOProvider, Device):
     if self.boot_mode not in self.modes:
       raise InvalidResourceError(F('Boot mode not available: boot_mode={mode}, modes={modes}', mode = self.boot_mode, modes = self.modes))
 
-    for i, (_, cols, rows, bytes_per_entity) in enumerate(self.modes):
-      size = rows * cols * bytes_per_entity
-      if size > self.memory_size:
-        raise InvalidResourceError(F('Not enough memory for mode: mode={mode}, required={bytes_required:d} bytes, available={bytes_available:d} bytes', mode = self.modes[i], bytes_required = size, bytes_available = self.memory_size))
+    for mode in self.modes:
+      if mode.required_memory > self.memory_size:
+        raise InvalidResourceError(F('Not enough memory for mode: mode={mode}, required={bytes_required:d} bytes, available={bytes_available:d} bytes', mode = mode, bytes_required = mode.required_memory, bytes_available = self.memory_size))
 
     self.memory = self.data = array.array('B', [0 for _ in range(0, self.memory_size)])
     self.bank_offsets = range(0, self.memory_size, self.memory_size / self.memory_banks)
@@ -237,11 +309,11 @@ class SimpleVGA(IOProvider, Device):
 
     modes = config.get(section, 'modes', None)
     if modes is not None:
-      modes = [parse_mode(m) for m in modes.split(';')]
+      modes = [Mode.from_string(m) for m in modes.split(';')]
 
     boot_mode = config.get(section, 'boot-mode', None)
     if boot_mode is not None:
-      boot_mode = parse_mode(boot_mode)
+      boot_mode = Mode.from_string(boot_mode)
 
     return SimpleVGA(machine, section,
                      port = _getint('port', DEFAULT_PORT_RANGE),
@@ -258,7 +330,7 @@ class SimpleVGA(IOProvider, Device):
              memory_banks = self.memory_banks,
              memory_address = ADDR_FMT(self.memory_address),
              ports = ', '.join([UINT16_FMT(port) for port in self.ports]),
-             mode = mode_to_pretty(self.active_mode) if self.active_mode is not None else (mode_to_pretty(self.boot_mode) + ' boot')
+             mode = self.active_mode.to_pretty_string() if self.active_mode is not None else (self.boot_mode.to_pretty_string() + ' boot')
              )
 
   def reset(self):
@@ -317,19 +389,19 @@ class SimpleVGA(IOProvider, Device):
 
     if self.state == SimpleVGACommands.GRAPHIC:
       self.state = None
-      return 1 if self.active_mode[0] == 'g' else 0
+      return 1 if self.active_mode.type == 'g' else 0
 
     if self.state == SimpleVGACommands.COLS:
       self.state = None
-      return self.active_mode[1]
+      return self.active_mode.width
 
     if self.state == SimpleVGACommands.ROWS:
       self.state = None
-      return self.active_mode[2]
+      return self.active_mode.height
 
     if self.state == SimpleVGACommands.DEPTH:
       self.state = None
-      return self.active_mode[3]
+      return self.active_mode.depth
 
     if self.state == SimpleVGACommands.MEMORY_BANK_ID:
       self.state = None
