@@ -210,8 +210,8 @@ class MachineConfig(ConfigParser):
     :param string klass: class of the device (``klass`` option).
     :param string driver: device driver - dot-separated path to class (``driver``
       option).
-    :param **kwargs: all keyword arguments will be added to the device's section
-      as its options.
+    :param kwargs: all keyword arguments will be added to the section as device
+      options.
     """
 
     st_section = 'device-{}'.format(self.devices_cnt)
