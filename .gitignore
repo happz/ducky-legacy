@@ -1,12 +1,11 @@
 tmp
 *.bin
+*.o
 lse
 .noseids
 
 forth/ducky-forth
-forth/ducky-forth.o
 interrupts
-interrupts.o
 
 # Test logs
 tests-pypy-devel-read
@@ -17,6 +16,7 @@ tests-python-devel-read
 tests-python-devel-mmap
 tests-python-egg-read
 tests-python-egg-mmap
+tests-coverage-python
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
