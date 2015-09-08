@@ -179,6 +179,16 @@ run-vga: vga
 	$(Q) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) tools/vm $(VMDEBUG) $(VMDEBUG_OPEN_FILES) --machine-config=examples/vga/vga.conf -g
 
 
+examples/clock/clock: examples/clock/clock.o
+	$(Q) echo -n "[LINK] $^ => $@ ... "
+	$(Q) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) tools/ld -o $@ $(foreach objfile,$^,-i $(objfile)) $(VMDEBUG); if [ "$$?" -eq 0 ]; then echo "$(CC_GREEN)PASS$(CC_END)"; else echo "$(CC_RED)FAIL$(CC_END)"; fi
+
+clock: interrupts examples/clock/clock
+
+run-clock: clock
+	$(Q) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) tools/vm $(VMDEBUG) $(VMDEBUG_OPEN_FILES) --machine-config=examples/clock/clock.conf -g
+
+
 interrupts: interrupts.o
 	$(Q) echo -n "[LINK] $^ => $@ ... "
 ifeq ($(VMCOVERAGE),yes)
@@ -284,6 +294,7 @@ endif
 				fi
 
 tests-post:
+	$(Q) echo "$(CC_GREEN)Avg # of instructions: `grep Executed $(TESTSETDIR)/*.machine | awk '{print $$5, " ", $$6}' | python tests/sum`/sec$(CC_END)"
 	$(Q) cd $(TESTSETDIR)/coverage && coverage combine && cd ..
 ifeq ($(VMCOVERAGE),yes)
 	$(Q) COVERAGE_FILE="$(TESTSETDIR)/coverage/.coverage" coverage html --omit="*/python2.7/*" -d $(TESTSETDIR)/coverage/
@@ -332,7 +343,7 @@ install:
 	python setup.py install
 
 clean:
-	$(Q) rm -f examples/hello-world/hello-world examples/hello-world-lib/hello-world $(FORTH_KERNEL) interrupts
+	$(Q) rm -f examples/hello-world/hello-world examples/hello-world-lib/hello-world examples/clock/clock $(FORTH_KERNEL) interrupts
 	$(Q) rm -f `find $(CURDIR) -name '*.pyc'` `find $(CURDIR) -name '*.o'` `find $(CURDIR) -name '*.bin'` tests/instructions/interrupts-basic
 	$(Q) rm -rf ducky-snapshot.bin build dist ducky.egg-info tests-python-egg-mmap tests-python-egg-read tests-python-devel-mmap tests-python-devel-read tests-pypy-devel-mmap tests-pypy-devel-mmap tests-pypy-devel-read tests-pypy-egg-mmap tests-pypy-egg-read
 

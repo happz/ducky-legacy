@@ -1134,7 +1134,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
     self.INFO('CPU core halted')
 
   def runnable(self):
-    return self.alive and self.running
+    return self.alive and self.running and not self.idle
 
   def run(self):
     try:

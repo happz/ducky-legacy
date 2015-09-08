@@ -1067,10 +1067,14 @@ class MemoryController(object):
     self.alloc_segment()
 
     # IRQ table
-    self.__alloc_page(addr_to_page(self.irq_table_address)).read = True
+    pg = self.__alloc_page(addr_to_page(self.irq_table_address))
+    pg.read = True
+    pg.cache = False
 
     # INT table
-    self.__alloc_page(addr_to_page(self.int_table_address)).read = True
+    pg = self.__alloc_page(addr_to_page(self.int_table_address))
+    pg.read = True
+    pg.cache = False
 
     self.INFO('mm: %s, %s available', sizeof_fmt(self.__size, max_unit = 'Ki'), sizeof_fmt(self.__size - len(self.__pages) * PAGE_SIZE, max_unit = 'Ki'))
 

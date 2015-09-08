@@ -217,6 +217,11 @@ def main():
   logger.table(table_cnts)
   logger.info('')
 
+  inst_executed = sum([core.registers.cnt.value for core in M.cores()])
+  runtime = float(M.end_time - M.start_time)
+  logger.info('Executed instructions: %i %f (%.4f/sec)', inst_executed, runtime, float(inst_executed) / runtime)
+  logger.info('')
+
   main_profiler.disable()
 
   if options.profile or options.machine_profile:

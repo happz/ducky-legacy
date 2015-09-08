@@ -9,6 +9,7 @@ import itertools
 import collections
 import importlib
 import os
+import time
 
 from . import mm
 from . import snapshot
@@ -132,14 +133,29 @@ class IRQRouterTask(IReactorTask):
   def __init__(self, machine):
     self.machine = machine
 
-    self.queue = []
+    from .devices import IRQList
+    self.queue = [False for _ in range(0, IRQList.IRQ_COUNT)]
 
   def runnable(self):
-    return self.queue
+    return any(self.queue)
 
   def run(self):
-    while self.queue:
-      self.machine.cpus[0].cores[0].irq(self.queue.pop(0).irq)
+    self.machine.DEBUG('irq: router has %i waiting irqs', self.queue.count(True))
+
+    for irq, triggered in enumerate(self.queue):
+      if triggered is not True:
+        continue
+
+      self.machine.DEBUG('irq: triggered %i', irq)
+      for core in self.machine.cores():
+        if core.registers.flags.hwint != 1:
+          continue
+
+        self.queue[irq] = False
+        core.irq(irq)
+
+      else:
+        break
 
 class CheckLivingCoresTask(IReactorTask):
   """
@@ -513,7 +529,7 @@ class Machine(ISnapshotable, IMachineWorker):
     del self.ports[port]
 
   def trigger_irq(self, handler):
-    self.irq_router_task.queue.append(handler)
+    self.irq_router_task.queue[handler.irq] = True
 
   def boot(self):
     self.INFO('Ducky VM, version %s', __version__)
@@ -545,7 +561,9 @@ class Machine(ISnapshotable, IMachineWorker):
     for __cpu in self.cpus:
       __cpu.run()
 
+    self.start_time = time.time()
     self.reactor.run()
+    self.end_time = time.time()
 
   def suspend(self):
     self.DEBUG('Machine.suspend')

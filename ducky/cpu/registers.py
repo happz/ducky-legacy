@@ -1,6 +1,6 @@
 import enum
 
-from ctypes import c_ushort
+from ctypes import c_ushort, c_uint
 from ..util import Flags
 
 class Registers(enum.IntEnum):
@@ -70,7 +70,14 @@ class RegisterSet(object):
       if not register_name:
         break
 
-      register_class = c_ushort if register_name != 'flags' else FlagsRegister
+      if register_name == 'cnt':
+        register_class = c_uint
+
+      elif register_name == 'flags':
+        register_class = FlagsRegister
+
+      else:
+        register_class = c_ushort
 
       register = register_class()
 

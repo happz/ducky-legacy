@@ -5,14 +5,15 @@ from . import Device, IRQProvider, IOProvider, IRQList
 from ..errors import InvalidResourceError
 from ..mm import UInt8, UINT16_FMT
 from ..reactor import RunInIntervalTask
+from ..util import F
 
 DEFAULT_FREQ = 100.0
 DEFAULT_PORT_RANGE = 0x300
-PORT_RANGE = 0x0006
+PORT_RANGE = 0x0007
 
 class RTCTask(RunInIntervalTask):
   def __init__(self, machine, rtc):
-    super(RTCTask, self).__init__(100, self.on_tick)
+    super(RTCTask, self).__init__(10, self.on_tick)
 
     self.machine = machine
     self.rtc = rtc
@@ -20,11 +21,18 @@ class RTCTask(RunInIntervalTask):
     self.stamp = 0
     self.tick = 1.0 / rtc.frequency
 
+  def update_tick(self):
+    self.tick = 1.0 / self.rtc.frequency
+    self.machine.DEBUG('rtc: new frequency: %i => %f' % (self.rtc.frequency, self.tick))
+
   def on_tick(self, task):
     stamp = time.time()
     diff = stamp - self.stamp
+    self.machine.DEBUG('rtc: tick: stamp=%s, last=%s, diff=%s, tick=%s, ?=%s' % (stamp, self.stamp, diff, self.tick, diff < self.tick))
     if diff < self.tick:
       return
+
+    self.machine.DEBUG('rtc: trigger irq')
 
     self.stamp = stamp
 
@@ -36,9 +44,12 @@ class RTC(IRQProvider, IOProvider, Device):
 
     self.frequency = frequency or DEFAULT_FREQ
     self.port = port or DEFAULT_PORT_RANGE
-    self.ports = range(port, port + 0x0006)
+    self.ports = range(port, port + PORT_RANGE)
     self.irq = irq or IRQList.TIMER
     self.timer_task = RTCTask(machine, self)
+
+    if self.frequency > 256:
+      raise InvalidResourceError('Maximum RTC ticks per second is 256')
 
   @classmethod
   def create_from_config(cls, machine, config, section):
@@ -71,24 +82,38 @@ class RTC(IRQProvider, IOProvider, Device):
       raise InvalidResourceError('Unhandled port: %s', UINT16_FMT(port))
 
     port -= self.port
-    now = datetime.datetime.now()
 
     if port == 0x0000:
-      return UInt8(now.second).value
+      return UInt8(self.frequency).u8
+
+    now = datetime.datetime.now()
 
     if port == 0x0001:
-      return UInt8(now.minute).value
+      return UInt8(now.second).u8
 
     if port == 0x0002:
-      return UInt8(now.hour).value
+      return UInt8(now.minute).u8
 
     if port == 0x0003:
-      return UInt8(now.day).value
+      return UInt8(now.hour).u8
 
     if port == 0x0004:
-      return UInt8(now.month).value
+      return UInt8(now.day).u8
 
     if port == 0x0005:
-      return UInt8(now.year - 2000).value
+      return UInt8(now.month).u8
+
+    if port == 0x0006:
+      return UInt8(now.year - 2000).u8
 
     raise InvalidResourceError('Unhandled port: %s', port + self.port)
+
+  def write_u8(self, port, value):
+    if port not in self.ports:
+      raise InvalidResourceError(F('Unhandled port: {port:W}', port = port))
+
+    if port != self.ports[0]:
+      raise InvalidResourceError(F('Unable to write to read-only port: port={port:W}, value={value:B}', port, value))
+
+    self.frequency = value
+    self.timer_task.update_tick()
