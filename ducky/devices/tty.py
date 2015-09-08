@@ -4,6 +4,7 @@ import sys
 from . import IOProvider, Device
 from ..errors import InvalidResourceError
 from ..mm import UINT16_FMT
+from ..util import isfile
 
 DEFAULT_PORT_RANGE = 0x200
 
@@ -28,7 +29,7 @@ class TTY(IOProvider, Device):
   def set_output(self, stream):
     self.machine.DEBUG('TTY.set_output: stream=%s', stream)
 
-    if isinstance(stream, file) or isinstance(stream, orig_file):  # noqa
+    if isfile(stream):
       self.machine.DEBUG('  stream is opened file')
 
       self.output = stream

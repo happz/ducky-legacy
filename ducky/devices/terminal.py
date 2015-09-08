@@ -2,6 +2,7 @@ import os
 import sys
 
 from . import Device
+from ..util import isfile
 
 class Terminal(Device):
   def __init__(self, machine, name, *args, **kwargs):
@@ -29,7 +30,7 @@ class StreamIOTerminal(Terminal):
       if isinstance(stream, str):
         return open(stream, flags)
 
-      if isinstance(stream, file) or isinstance(stream, orig_file):  # noqa
+      if isfile(stream):
         return stream
 
       self.machine.WARN('Unhandled stream type: stream=%s, type=%s', stream, type(stream))

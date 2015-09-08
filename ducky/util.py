@@ -114,6 +114,17 @@ UINT32_FMT = functools.partial(_F.format_int, 'L')
 ADDR_FMT   = functools.partial(_F.format_int, 'A')
 
 
+import __builtin__
+if not hasattr(__builtin__, 'orig_file'):
+  __builtin__.orig_file = None
+  __builtin__.orig_open = None
+
+def isfile(o):
+  if isinstance(o, file):
+    return True
+
+  return hasattr(__builtin__, 'orig_file') and __builtin__.orig_file is not None and isinstance(o, __builtin__.orig_file)
+
 class FileOpenPatcher(object):
   def __init__(self, logger):
     self.logger = logger
@@ -123,8 +134,6 @@ class FileOpenPatcher(object):
     self.open_files = None
 
   def patch(self):
-    import __builtin__
-
     logger = self.logger
 
     self.open_files = open_files = set()
@@ -155,8 +164,6 @@ class FileOpenPatcher(object):
     __builtin__.open = new_open
 
   def restore(self):
-    import __builtin__
-
     __builtin__.file = self.old_file
     __builtin__.open = self.old_open
 

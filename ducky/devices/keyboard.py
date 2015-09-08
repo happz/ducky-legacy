@@ -11,6 +11,7 @@ import types
 from . import IRQProvider, IOProvider, Device, IRQList
 from ..errors import InvalidResourceError
 from ..mm import UINT16_FMT
+from ..util import isfile
 
 DEFAULT_PORT_RANGE = 0x100
 
@@ -84,7 +85,7 @@ class KeyboardController(IRQProvider, IOProvider, Device):
       self.input = open(stream, 'rb')
       self.input_fd = self.input.fileno()
 
-    elif isinstance(stream, file) or isinstance(stream, orig_file):  # noqa
+    elif isfile(stream):
       self.machine.DEBUG('  opened file')
 
       self.input = stream
