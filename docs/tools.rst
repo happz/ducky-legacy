@@ -8,7 +8,13 @@ Ducky comes with basic toolchain necessary for development of complex programs. 
 as
 --
 
-Assembler. Translates assembler files (``.asm``) to `binaries` - files containing bytecode, symbols information, etc. that can by executed by VM.
+Assembler. Translates *assembler files* (``.asm``) to *object files* (``.o``) -  files containing bytecode, symbols information, etc.
+
+
+ld
+--
+
+Linker. Takes (one or multiple) *object files* and merges them into one, *binary*, which can be executed by VM.
 
 
 coredump
@@ -20,7 +26,7 @@ Prints information stored in a saved VM snapshot.
 objdump
 -------
 
-Prints information about binary file.
+Prints information about object and binary files.
 
 
 profile
@@ -28,3 +34,8 @@ profile
 
 Prints information stored in profiling data, created by VM. Used for profiling running binaries.
 
+
+vm
+--
+
+Stand-alone virtual machine - takes binary, configuration files, and other resources, and executes binaries.
