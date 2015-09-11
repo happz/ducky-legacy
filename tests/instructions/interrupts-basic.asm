@@ -3,8 +3,8 @@ int_routine_0:
 
 int_routine_10:
   ; modify some registers and flags
-  li r0, 0xEE
-  cmp r0, 0xFF
+  li r1, 0xDD
+  cmp r1, 0xFF
   retint
 
 int_routine_11:

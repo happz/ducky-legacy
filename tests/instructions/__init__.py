@@ -130,7 +130,7 @@ class Tests(unittest.TestCase):
     self.common_case(binary = 'cmp_10', r0 = 20)
 
   def test_int(self):
-    self.common_case(binary = 'int_1', r0 = 0xFF, e = 1)
+    self.common_case(binary = 'int_1', r0 = 0xFF, r1 = 0xDD, e = 1)
 
   def test_j(self):
     self.common_case(binary = 'j_1', r0 = 0xFF)
