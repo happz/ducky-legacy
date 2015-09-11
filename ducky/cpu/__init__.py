@@ -2,18 +2,15 @@ import functools
 import sys
 
 from . import registers
-from .. import mm
 from .. import profiler
 
 from ..interfaces import IMachineWorker, ISnapshotable
-from ..mm import ADDR_FMT, UINT8_FMT, UINT16_FMT, UINT32_FMT, SEGMENT_SIZE, PAGE_SIZE, i16, addr_to_page
-from .registers import Registers, REGISTER_NAMES, FlagsRegister, GENERAL_REGISTERS
+from ..mm import ADDR_FMT, UINT8_FMT, UINT16_FMT, UINT32_FMT, SEGMENT_SIZE, PAGE_SIZE, PAGE_MASK, PAGE_SHIFT, i16, addr_to_page
+from .registers import Registers, REGISTER_NAMES, FlagsRegister
 from .instructions import DuckyInstructionSet
 from ..errors import AccessViolationError, InvalidResourceError
 from ..util import LRUCache
 from ..snapshot import SnapshotNode
-
-from ctypes import LittleEndianStructure, c_ubyte, c_ushort
 
 #: Default size of core instruction cache, in instructions.
 DEFAULT_CORE_INST_CACHE_SIZE = 256
@@ -27,17 +24,17 @@ class CPUCoreState(SnapshotNode):
   def __init__(self):
     super(CPUCoreState, self).__init__('cpuid', 'coreid', 'registers', 'exit_code', 'alive', 'running', 'idle')
 
-class InterruptVector(LittleEndianStructure):
+class InterruptVector(object):
   """
   Interrupt vector table entry.
   """
 
-  _pack_ = 0
-  _fields_ = [
-    ('cs', c_ubyte),
-    ('ds', c_ubyte),
-    ('ip', c_ushort)
-  ]
+  SIZE = 4
+
+  def __init__(self, cs = 0x00, ds = 0x00, ip = 0x0000):
+    self.cs = cs
+    self.ds = ds
+    self.ip = ip
 
 class CPUException(Exception):
   """
@@ -283,7 +280,7 @@ class CPUDataCache(LRUCache):
 
     self.core.DEBUG('%s.read_u16: addr=%s', self.__class__.__name__, ADDR_FMT(addr))
 
-    if self.core.memory.page(addr_to_page(addr)).cache is False:
+    if self.core.memory.page((addr & PAGE_MASK) >> PAGE_SHIFT).cache is False:
       self.core.DEBUG('%s.read_u16: read directly from uncacheable page', self.__class__.__name__)
       return self.core.memory.read_u16(addr)
 
@@ -300,7 +297,7 @@ class CPUDataCache(LRUCache):
 
     self.core.DEBUG('%s.write_u16: addr=%s, value=%s', self.__class__.__name__, ADDR_FMT(addr), UINT16_FMT(value))
 
-    if self.core.memory.page(addr_to_page(addr)).cache is False:
+    if self.core.memory.page((addr & PAGE_MASK) >> PAGE_SHIFT).cache is False:
       self.core.DEBUG('%s.write_u16: write directly to uncacheable page', self.__class__.__name__)
       self.core.memory.write_u16(addr, value)
       return
@@ -323,22 +320,29 @@ class CPUDataCache(LRUCache):
 
     self.core.DEBUG('%s.release_entry_references: address=%s, writeback=%s, remove=%s', self.__class__.__name__, ADDR_FMT(addr), writeback, remove)
 
-    dirty, value = self.get(addr, (None, None))
+    if writeback:
+      dirty, value = self.get(addr, (None, None))
 
-    if dirty is None and value is None:
-      self.core.DEBUG('%s.release_entry_references: not cached', self.__class__.__name__,)
-      return
+      if dirty is None and value is None:
+        self.core.DEBUG('%s.release_entry_references: not cached', self.__class__.__name__,)
+        return
 
-    if dirty and writeback:
-      self.core.DEBUG('%s.release_entry_reference: write back', self.__class__.__name__)
-      self.core.memory.write_u16(addr, value)
+      if dirty:
+        self.core.DEBUG('%s.release_entry_reference: write back', self.__class__.__name__)
+        self.core.memory.write_u16(addr, value)
+
+      if not remove:
+        self[addr] = (False, value)
+        return
 
     if remove:
       self.core.DEBUG('%s.release_entry_reference: remove', self.__class__.__name__)
-      del self[addr]
 
-    else:
-      self[addr] = (False, value)
+      try:
+        del self[addr]
+
+      except KeyError:
+        pass
 
   def release_page_references(self, page, writeback = True, remove = True):
     """
@@ -353,10 +357,7 @@ class CPUDataCache(LRUCache):
 
     addresses = [i for i in range(page.base_address, page.base_address + PAGE_SIZE, 2)]
 
-    for addr in self.keys():
-      if addr not in addresses:
-        continue
-
+    for addr in [addr for addr in self.iterkeys() if addr in addresses]:
       self.release_entry_references(addr, writeback = writeback, remove = remove)
 
   def release_area_references(self, address, size, writeback = True, remove = True):
@@ -373,10 +374,7 @@ class CPUDataCache(LRUCache):
 
     addresses = [i for i in range(address, address + size, 2)]
 
-    for addr in self.keys():
-      if addr not in addresses:
-        continue
-
+    for addr in [addr for addr in self.iterkeys() if addr in addresses]:
       self.release_entry_references(addr, writeback = writeback, remove = remove)
 
   def release_references(self, writeback = True, remove = True):
@@ -561,7 +559,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
     self.running = False
     self.idle = False
 
-    self.core_profiler = profiler.STORE.get_core_profiler(self)
+    self.core_profiler = profiler.STORE.get_core_profiler(self) if profiler.STORE.is_cpu_enabled() else None
 
     self.exit_code = 0
 
@@ -845,10 +843,9 @@ class CPUCore(ISnapshotable, IMachineWorker):
     self.raw_push(old_DS)
     self.raw_push(old_SP)
     self.push(Registers.CS, Registers.FLAGS)
-    self.push(*GENERAL_REGISTERS)
     self.create_frame()
 
-    self.privileged = 1
+    self.privileged = True
 
     self.registers.cs.value = iv.cs
     self.registers.ip.value = iv.ip
@@ -868,10 +865,9 @@ class CPUCore(ISnapshotable, IMachineWorker):
     self.DEBUG('exit_interrupt')
 
     self.destroy_frame()
-    self.pop(*reversed(GENERAL_REGISTERS))
     self.pop(Registers.FLAGS, Registers.CS)
 
-    stack_page = self.memory.page(mm.addr_to_page(self.DS_ADDR(self.registers.sp.value)))
+    stack_page = self.memory.page(addr_to_page(self.DS_ADDR(self.registers.sp.value)))
 
     old_SP = self.raw_pop()
     old_DS = self.raw_pop()
@@ -933,10 +929,10 @@ class CPUCore(ISnapshotable, IMachineWorker):
 
   # Do it this way to avoid pylint' confusion
   def __get_privileged(self):
-    return self.registers.flags.privileged
+    return self.registers.flags.privileged == 1
 
   def __set_privileged(self, value):
-    self.registers.flags.privileged = value
+    self.registers.flags.privileged = 1 if value is True else 0
 
   privileged = property(__get_privileged, __set_privileged)
 
@@ -950,28 +946,33 @@ class CPUCore(ISnapshotable, IMachineWorker):
     """
 
     if not self.privileged:
-      raise AccessViolationError('Instruction not allowed in unprivileged mode: opcode={}'.format(self.current_instruction.opcode))
+      raise AccessViolationError('Instruction not allowed in unprivileged mode: inst={}'.format(self.current_instruction))
 
-  def check_protected_reg(self, *regs):
-    for reg in regs:
-      if reg in registers.PROTECTED_REGISTERS and not self.privileged:
-        raise AccessViolationError('Access not allowed in unprivileged mode: opcode={}, reg={}'.format(self.current_instruction.opcode, reg))
+  def check_protected_reg(self, reg):
+    if self.privileged:
+      return
+
+    if reg in registers.PROTECTED_REGISTERS:
+      raise AccessViolationError('Access not allowed in unprivileged mode: inst={}, reg={}'.format(self.current_instruction, reg))
 
   def check_protected_port(self, port):
     if port not in self.cpu.machine.ports:
       raise InvalidResourceError('Unhandled port: port={}'.format(UINT16_FMT(port)))
 
-    if self.cpu.machine.ports[port].is_port_protected(port) and not self.privileged:
-      raise AccessViolationError('Access to port not allowed in unprivileged mode: opcode={}, port={}'.format(self.current_instruction.opcode, port))
+    if self.privileged:
+      return
 
-  def update_arith_flags(self, *regs):
+    if self.cpu.machine.ports[port].is_port_protected(port):
+      raise AccessViolationError('Access to port not allowed in unprivileged mode: inst={}, port={}'.format(self.current_instruction, port))
+
+  def update_arith_flags(self, reg):
     """
     Set relevant arithmetic flags according to content of registers. Flags are set to zero at the beginning,
     then content of each register is examined, and ``S`` and ``Z`` flags are set.
 
     ``E`` flag is not touched, ``O`` flag is set to zero.
 
-    :param list regs: list of ``u16`` registers
+    :param c_types.c_ushort reg: ``u16`` bit-wide register
     """
 
     F = self.registers.flags
@@ -980,12 +981,11 @@ class CPUCore(ISnapshotable, IMachineWorker):
     F.o = 0
     F.s = 0
 
-    for reg in regs:
-      if reg.value == 0:
-        F.z = 1
+    if reg.value == 0:
+      F.z = 1
 
-      if reg.value & 0x8000 != 0:
-        F.s = 1
+    if reg.value & 0x8000 != 0:
+      F.s = 1
 
   def RI_VAL(self, inst):
     return self.registers.map[inst.ireg].value if inst.is_reg == 1 else inst.immediate
@@ -1043,14 +1043,19 @@ class CPUCore(ISnapshotable, IMachineWorker):
       F.s = 0
 
   def OFFSET_ADDR(self, inst):
-    self.DEBUG('offset addr: ireg=%s, imm=%s', inst.ireg, inst.immediate)
+    self.DEBUG('offset addr: inst=%s', inst)
 
-    addr = self.registers.map[inst.ireg].value
-    if inst.immediate != 0:
-      addr += inst.immediate
+    base = self.registers.map[inst.areg].value
+    offset = self.registers.map[inst.oreg].value if inst.is_reg == 1 else inst.immediate
 
-    self.DEBUG('offset addr: addr=%s', addr)
-    return self.DS_ADDR(addr)
+    if inst.is_segment == 1:
+      addr = (base & 0xFF) * SEGMENT_SIZE * PAGE_SIZE + offset
+
+    else:
+      addr = self.DS_ADDR(base + offset)
+
+    self.DEBUG('offset addr: base=%s, offset=%s, addr=%s', ADDR_FMT(base), ADDR_FMT(offset), ADDR_FMT(addr))
+    return addr
 
   def step(self):
     """
@@ -1091,7 +1096,8 @@ class CPUCore(ISnapshotable, IMachineWorker):
     self.DEBUG('"SYNC" phase:')
     log_cpu_core_state(self)
 
-    self.core_profiler.take_sample()
+    if self.core_profiler is not None:
+      self.core_profiler.take_sample()
 
   def suspend(self):
     self.DEBUG('CPUCore.suspend')
@@ -1172,7 +1178,8 @@ class CPUCore(ISnapshotable, IMachineWorker):
 
     self.cpu.machine.reactor.add_task(self)
 
-    self.core_profiler.enable()
+    if self.core_profiler is not None:
+      self.core_profiler.enable()
 
     self.INFO('CPU core is up')
     self.INFO('  cache: %i DC slots, %i IC slots', self.data_cache.size, self.instruction_cache.size)

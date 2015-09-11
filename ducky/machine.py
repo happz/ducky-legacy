@@ -379,9 +379,7 @@ class Machine(ISnapshotable, IMachineWorker):
     binary.load_symbols()
 
     from .cpu import InterruptVector
-    desc = InterruptVector()
-    desc.cs = binary.cs
-    desc.ds = binary.ds
+    desc = InterruptVector(cs = binary.cs, ds = binary.ds)
 
     def __save_iv(name, table, index):
       if name not in binary.symbols:

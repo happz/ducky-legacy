@@ -1,7 +1,7 @@
 import array
 import mmap
 
-from ctypes import LittleEndianStructure, c_ubyte, c_ushort, c_uint, sizeof
+from ctypes import LittleEndianStructure, c_ubyte, c_ushort, c_uint
 
 from ..interfaces import ISnapshotable
 from ..errors import AccessViolationError, InvalidResourceError
@@ -1413,11 +1413,11 @@ class MemoryController(object):
     self.DEBUG('mc.save_interrupt_vector: table=%s, index=%i, desc=(CS=%s, DS=%s, IP=%s)',
                table, index, desc.cs, desc.ds, desc.ip)
 
-    vector_address = table + index * sizeof(InterruptVector)
+    vector_address = table + index * InterruptVector.SIZE
 
-    self.write_u8(vector_address, desc.cs, privileged = True)
-    self.write_u8(vector_address + 1, desc.ds, privileged = True)
-    self.write_u16(vector_address + 2, desc.ip, privileged = True)
+    self.write_u8(vector_address, desc.cs & 0xFF, privileged = True)
+    self.write_u8(vector_address + 1, desc.ds & 0xFF, privileged = True)
+    self.write_u16(vector_address + 2, desc.ip & 0xFFFF, privileged = True)
 
   def load_interrupt_vector(self, table, index):
     """
@@ -1430,7 +1430,7 @@ class MemoryController(object):
 
     desc = InterruptVector()
 
-    vector_address = table + index * sizeof(InterruptVector)
+    vector_address = table + index * InterruptVector.SIZE
 
     desc.cs = self.read_u8(vector_address, privileged = True)
     desc.ds = self.read_u8(vector_address + 1, privileged = True)

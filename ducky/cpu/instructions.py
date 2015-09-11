@@ -6,7 +6,8 @@ import types
 from ctypes import LittleEndianStructure, c_uint, c_int
 
 from .registers import Registers, REGISTER_NAMES
-from ..mm import OFFSET_FMT, UINT16_FMT, i16, u16, UInt32
+from ..mm import OFFSET_FMT, i16, u16, UInt32
+from ..util import str2int
 
 class GenericInstBinaryFormat_Overall(LittleEndianStructure):
   _pack_ = 0
@@ -22,8 +23,8 @@ class GenericInstBinaryFormat_Opcode(LittleEndianStructure):
   ]
 
 PO_REGISTER  = r'(?P<register_n{operand_index}>(?:r\d\d?)|(?:sp)|(?:fp)|(?:ds))'
-PO_AREGISTER = r'(?P<address_register>(?:r(\d\d?)|(sp)|(fp)))(?:\[(?P<shift>-)?(?P<offset>(?:0x[0-9a-fA-F]+|\d+))\])?'
-PO_IMMEDIATE = r'(?:(?P<immediate_hex>-?0x[0-9a-fA-F]+)|(?P<immediate_dec>-?\d+)|(?P<immediate_address>&[a-zA-Z_\.][a-zA-Z0-9_]*))'
+PO_AREGISTER = r'(?P<address_register>r\d\d?|sp|fp|ds)(?:(?P<pointer>\[|\()(?:(?P<immediate_sign>-|\+)?(?P<offset_immediate>0x[0-9a-fA-F]+|\d+)|(?P<offset_register>r\d\d?|sp|fp|ds))(?:\]|\)))?'
+PO_IMMEDIATE = r'(?:(?P<immediate>(?:-|\+)?(?:0x[0-9a-fA-F]+|\d+))|(?P<immediate_address>&[a-zA-Z_\.][a-zA-Z0-9_]*))'
 
 
 def BF_FLG(n):
@@ -37,6 +38,9 @@ def BF_IMM(*args):
   args = args or ['immediate']
   return '{}:17:int'.format(args[0])
 
+def BF_IMM_SHORT(*args):
+  args = args or ['immediate']
+  return '{}:12:int'.format(args[0])
 
 class InstDescriptor(object):
   mnemonic      = None
@@ -116,9 +120,6 @@ class InstDescriptor(object):
   def assemble_operands(self, logger, inst, operands):
     pass
 
-  def fix_refers_to(self, logger, inst, refers_to):
-    pass
-
   def fill_reloc_slot(self, logger, inst, slot):
     assert False, 'not implemented in %s' % self.__class__
 
@@ -144,56 +145,49 @@ class InstDescriptor(object):
     matches = raw_match.groupdict()
     DEBUG('emit_instruction: matches=%s', matches)
 
-    operands = []
+    operands = {}
+
+    def str2reg(r):
+      if r == 'sp':
+        return Registers.SP
+      if r == 'ds':
+        return Registers.DS
+      if r == 'fp':
+        return Registers.FP
+      return Registers(int(r[1:]))
 
     if self.operands and len(self.operands):
       for operand_index in range(0, len(self.operands)):
         reg_group_name = 'register_n{}'.format(operand_index)
 
         if reg_group_name in matches and matches[reg_group_name]:
-          reg = matches[reg_group_name]
-
-          if reg == 'sp':
-            operands.append(Registers.SP)
-
-          elif reg == 'ds':
-            operands.append(Registers.DS)
-
-          elif reg == 'fp':
-            operands.append(Registers.FP)
-
-          else:
-            operands.append(Registers(int(reg[1:])))
+          operands[reg_group_name] = str2reg(matches[reg_group_name])
 
         elif 'address_register' in matches and matches['address_register']:
-          reg = matches['address_register']
+          operands['areg'] = str2reg(matches['address_register'])
 
-          if reg == 'fp':
-            operands.append(Registers.FP)
+          if 'pointer' in matches and matches['pointer'] is not None:
+            if matches['pointer'] == '[':
+              operands['pointer'] = 'offset'
 
-          elif reg == 'sp':
-            operands.append(Registers.SP)
-
-          else:
-            operands.append(Registers(int(reg[1:])))
-
-          if 'offset' in matches and matches['offset']:
-            k = -1 if 'shift' in matches and matches['shift'] and matches['shift'].strip() == '-' else 1
-
-            if matches['offset'].startswith('0x'):
-              operands.append(int(matches['offset'], base = 16) * k)
+            elif matches['pointer'] == '(':
+              operands['pointer'] = 'segment'
 
             else:
-              operands.append(int(matches['offset']) * k)
+              raise Exception('Unhandled pointer type: {}'.format(matches))
 
-        elif 'immediate_hex' in matches and matches['immediate_hex']:
-          operands.append(int(matches['immediate_hex'], base = 16))
+          if 'offset_register' in matches and matches['offset_register'] is not None:
+            operands['offset_register'] = str2reg(matches['offset_register'])
 
-        elif 'immediate_dec' in matches and matches['immediate_dec']:
-          operands.append(int(matches['immediate_dec']))
+          elif 'offset_immediate' in matches and matches['offset_immediate'] is not None:
+            k = -1 if 'immediate_sign' in matches and matches['immediate_sign'] and matches['immediate_sign'].strip() == '-' else 1
+            operands['offset_immediate'] = k * str2int(matches['offset_immediate'])
 
-        elif 'immediate_address' in matches and matches['immediate_address']:
-          operands.append(matches['immediate_address'])
+        elif 'immediate' in matches and matches['immediate']:
+          operands['immediate'] = str2int(matches['immediate'])
+
+        elif 'immediate_address' in matches and matches['immediate_address'] is not None:
+          operands['immediate'] = matches['immediate_address']
 
         else:
           raise Exception('Unhandled operand: {}'.format(matches))
@@ -219,7 +213,7 @@ class InstDescriptor_Generic_Unary_R(InstDescriptor):
   def assemble_operands(self, logger, inst, operands):
     logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
-    inst.reg = operands[0]
+    inst.reg = operands['register_n0']
 
   def disassemble_operands(self, inst):
     return [REGISTER_NAMES[inst.reg]]
@@ -232,19 +226,13 @@ class InstDescriptor_Generic_Unary_I(InstDescriptor):
   def assemble_operands(self, logger, inst, operands):
     logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
-    v = operands[0]
+    v = operands['immediate']
 
     if isinstance(v, types.IntType):
       inst.immediate = v
 
     elif isinstance(v, types.StringType):
       inst.refers_to = v
-
-  def fix_refers_to(self, logger, inst, refers_to):
-    logger.debug('fix_refers_to: inst=%s, refers_to=%s', inst, OFFSET_FMT(refers_to))
-
-    inst.immediate = int(refers_to)
-    inst.refers_to = None
 
   def disassemble_operands(self, inst):
     return [inst.refers_to if hasattr(inst, 'refers_to') and inst.refers_to else OFFSET_FMT(inst.immediate)]
@@ -256,25 +244,20 @@ class InstDescriptor_Generic_Unary_RI(InstDescriptor):
   def assemble_operands(self, logger, inst, operands):
     logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
-    v = operands[0]
-
-    if type(v) == Registers:
+    if 'register_n0' in operands:
+      inst.ireg = operands['register_n0']
       inst.is_reg = 1
-      inst.ireg = v
 
-    elif isinstance(v, types.IntType):
+    else:
+      v = operands['immediate']
+
       inst.is_reg = 0
-      inst.immediate = v
 
-    elif isinstance(v, types.StringType):
-      inst.is_reg = 0
-      inst.refers_to = v
+      if isinstance(v, int):
+        inst.immediate = v
 
-  def fix_refers_to(self, logger, inst, refers_to):
-    logger.debug('fix_refers_to: inst=%s, refers_to=%s', inst, OFFSET_FMT(refers_to))
-
-    inst.immediate = int(refers_to)
-    inst.refers_to = None
+      elif isinstance(v, str):
+        inst.refers_to = v
 
   def fill_reloc_slot(self, logger, inst, slot):
     logger.debug('fill_reloc_slot: inst=%s, slot=%s', inst, slot)
@@ -295,21 +278,14 @@ class InstDescriptor_Generic_Binary_R_I(InstDescriptor):
   def assemble_operands(self, logger, inst, operands):
     logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
-    inst.reg = operands[0]
+    inst.reg = operands['register_n0']
 
-    v = operands[1]
-
-    if isinstance(v, types.IntType):
+    v = operands['immediate']
+    if isinstance(v, int):
       inst.immediate = v
 
     else:
       inst.refers_to = v
-
-  def fix_refers_to(self, logger, inst, refers_to):
-    logger.debug('fix_refers_to: inst=%s, refers_to=%s', inst, UINT16_FMT(refers_to))
-
-    inst.immediate = int(refers_to)
-    inst.refers_to = None
 
   def fill_reloc_slot(self, logger, inst, slot):
     logger.debug('fill_reloc_slot: inst=%s, slot=%s', inst, slot)
@@ -327,27 +303,22 @@ class InstDescriptor_Generic_Binary_R_RI(InstDescriptor):
   def assemble_operands(self, logger, inst, operands):
     logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
-    inst.reg = operands[0]
+    inst.reg = operands['register_n0']
 
-    v = operands[1]
-
-    if type(v) == Registers:
+    if 'register_n1' in operands:
+      inst.ireg = operands['register_n1']
       inst.is_reg = 1
-      inst.ireg = v
 
-    elif isinstance(v, types.IntType):
+    else:
       inst.is_reg = 0
-      inst.immediate = v
 
-    elif isinstance(v, types.StringType):
-      inst.is_reg = 0
-      inst.refers_to = v
+      v = operands['immediate']
 
-  def fix_refers_to(self, logger, inst, refers_to):
-    logger.debug('fix_refers_to: inst=%s, refers_to=%s',  inst, UINT16_FMT(refers_to))
+      if isinstance(v, int):
+        inst.immediate = v
 
-    inst.immediate = int(refers_to)
-    inst.refers_to = None
+      elif isinstance(v, str):
+        inst.refers_to = v
 
   def fill_reloc_slot(self, logger, inst, slot):
     logger.debug('fill_reloc_slot: inst=%s, slot=%s', inst, slot)
@@ -368,27 +339,22 @@ class InstDescriptor_Generic_Binary_RI_R(InstDescriptor):
   def assemble_operands(self, logger, inst, operands):
     logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
-    inst.reg = operands[1]
+    inst.reg = operands['register_n1']
 
-    v = operands[0]
-
-    if type(v) == Registers:
+    if 'register_n0' in operands:
+      inst.ireg = operands['register_n0']
       inst.is_reg = 1
-      inst.ireg = v
 
-    elif isinstance(v, types.IntType):
+    else:
       inst.is_reg = 0
-      inst.immediate = v
 
-    elif isinstance(v, types.StringType):
-      inst.is_reg = 0
-      inst.refers_to = v
+      v = operands['immediate']
 
-  def fix_refers_to(self, logger, inst, refers_to):
-    logger.debug('fix_refers_to: inst=%s, refers_to=%s', inst, UINT16_FMT(refers_to))
+      if isinstance(v, int):
+        inst.immediate = v
 
-    inst.immediate = int(refers_to)
-    inst.refers_to = None
+      elif isinstance(v, str):
+        inst.refers_to = v
 
   def disassemble_operands(self, inst):
     if inst.is_reg == 1:
@@ -398,51 +364,83 @@ class InstDescriptor_Generic_Binary_RI_R(InstDescriptor):
 
 class InstDescriptor_Generic_Binary_R_A(InstDescriptor):
   operands = 'r,a'
-  binary_format = [BF_REG(), BF_REG('ireg'), BF_IMM()]
+  binary_format = [BF_FLG('is_reg'), BF_FLG('is_segment'), BF_REG(), BF_REG('areg'), BF_REG('oreg'), BF_IMM_SHORT()]
 
   def assemble_operands(self, logger, inst, operands):
     logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
-    inst.reg = operands[0]
-    inst.ireg = operands[1]
-    if len(operands) == 3:
-      inst.immediate = operands[2]
+    inst.reg = operands['register_n0']
+    inst.areg = operands['areg']
+
+    inst.is_reg = 0
+    inst.is_segment = 0
+
+    if 'offset_register' in operands:
+      inst.oreg = operands['offset_register']
+      inst.is_reg = 1
+
+    elif 'offset_immediate' in operands:
+      inst.immediate = operands['offset_immediate']
+
+    if 'pointer' in operands and operands['pointer'] == 'segment':
+      inst.is_segment = 1
 
   def disassemble_operands(self, inst):
     operands = [REGISTER_NAMES[inst.reg]]
 
-    if inst.immediate != 0:
-      reg = REGISTER_NAMES[inst.ireg]
-      s = '-' if inst.immediate < 0 else ''
-      operands.append('{}[{}0x{:04X}]'.format(reg, s, abs(inst.immediate)))
+    if inst.is_reg == 1:
+      p = '()' if inst.is_segment == 1 else '[]'
+      operands.append('{}{}{}{}'.format(REGISTER_NAMES[inst.areg], p[0], REGISTER_NAMES[inst.oreg], p[1]))
 
     else:
-      operands.append(REGISTER_NAMES[inst.ireg])
+      if inst.immediate == 0:
+        operands.append(REGISTER_NAMES[inst.areg])
+
+      else:
+        s = '-' if inst.immediate < 0 else ''
+        p = '()' if inst.is_segment == 1 else '[]'
+        operands.append('{}{}{}{}{}'.format(REGISTER_NAMES[inst.areg], p[0], s, abs(inst.immediate), p[1]))
 
     return operands
 
 class InstDescriptor_Generic_Binary_A_R(InstDescriptor):
   operands = 'a,r'
-  binary_format = [BF_REG(), BF_REG('ireg'), BF_IMM()]
+  binary_format = [BF_FLG('is_reg'), BF_FLG('is_segment'), BF_REG(), BF_REG('areg'), BF_REG('oreg'), BF_IMM_SHORT()]
 
   def assemble_operands(self, logger, inst, operands):
     logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
-    inst.reg = operands[-1]
-    inst.ireg = operands[0]
-    if len(operands) == 3:
-      inst.immediate = operands[1]
+    inst.reg = operands['register_n1']
+    inst.areg = operands['areg']
+
+    inst.is_reg = 0
+    inst.is_segment = 0
+
+    if 'offset_register' in operands:
+      inst.oreg = operands['offset_register']
+      inst.is_reg = 1
+
+    elif 'offset_immediate' in operands:
+      inst.immediate = operands['offset_immediate']
+
+    if 'pointer' in operands and operands['pointer'] == 'segment':
+      inst.is_segment = 1
 
   def disassemble_operands(self, inst):
     operands = []
 
-    if inst.immediate != 0:
-      reg = REGISTER_NAMES[inst.ireg]
-      s = '-' if inst.immediate < 0 else ''
-      operands.append('{}[{}0x{:04X}]'.format(reg, s, abs(inst.immediate)))
+    if inst.reg == 1:
+      p = '()' if inst.is_segment == 1 else '[]'
+      operands.append('{}{}{}{}'.format(REGISTER_NAMES[inst.areg], p[0], REGISTER_NAMES[inst.oreg], p[1]))
 
     else:
-      operands.append(REGISTER_NAMES[inst.ireg])
+      if inst.immediate == 0:
+        operands.append(REGISTER_NAMES[inst.areg])
+
+      else:
+        s = '-' if inst.immediate < 0 else ''
+        p = '()' if inst.is_segment == 1 else '[]'
+        operands.append('{}{}{}{}{}'.format(REGISTER_NAMES[inst.areg], p[0], s, abs(inst.immediate), p[1]))
 
     operands.append(REGISTER_NAMES[inst.reg])
 
@@ -455,8 +453,8 @@ class InstDescriptor_Generic_Binary_R_R(InstDescriptor):
   def assemble_operands(self, logger, inst, operands):
     logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
-    inst.reg1 = operands[0]
-    inst.reg2 = operands[1]
+    inst.reg1 = operands['register_n0']
+    inst.reg2 = operands['register_n1']
 
   def disassemble_operands(self, inst):
     return [REGISTER_NAMES[inst.reg1], REGISTER_NAMES[inst.reg2]]
@@ -1032,9 +1030,9 @@ class Inst_CAS(InstDescriptor):
   def assemble_operands(self, logger, inst, operands):
     logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
-    inst.r_addr = operands[0]
-    inst.r_test = operands[1]
-    inst.r_rep = operands[2]
+    inst.r_addr = operands['register_n0']
+    inst.r_test = operands['register_n1']
+    inst.r_rep = operands['register_n2']
 
   def disassemble_operands(self, inst):
     return [

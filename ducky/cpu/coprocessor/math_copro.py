@@ -245,7 +245,8 @@ class MathCoprocessor(ISnapshotable, Coprocessor):
     r2 = self.core.REG(Registers.R02)
     lr = self.registers.pop()
 
-    self.core.check_protected_reg(Registers.R01, Registers.R02)
+    self.core.check_protected_reg(Registers.R01)
+    self.core.check_protected_reg(Registers.R02)
     r1.value =  lr.value & 0x0000FFFF
     r2.value = (lr.value & 0xFFFF0000) >> 16
 

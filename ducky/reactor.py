@@ -9,7 +9,6 @@ There are two different kinds of objects that reactor manages:
   If there are no runnable tasks, reactor loop waits for incomming events.
 """
 
-import Queue
 import select
 
 from .interfaces import IReactorTask
@@ -107,7 +106,7 @@ class Reactor(object):
     self.machine = machine
 
     self.tasks = []
-    self.events = Queue.Queue()
+    self.events = []
 
     self.fds = {}
     self.fds_task = None
@@ -131,7 +130,7 @@ class Reactor(object):
     Enqueue asynchronous event.
     """
 
-    self.events.put(event)
+    self.events.append(event)
 
   def add_call(self, fn, *args, **kwargs):
     """
@@ -184,10 +183,15 @@ class Reactor(object):
         ran_tasks += 1
 
       if ran_tasks > 0:
-        while not self.events.empty():
-          e = self.events.get_nowait()
+        while self.events:
+          e = self.events.pop(0)
           e.run()
 
       else:
-        e = self.events.get()
-        e.run()
+        # This would be better with some sort of interruptible sleep...
+        # Maybe use an Event for that, and avoid using Queue when it's
+        # not necessary. But that needs more testing, and since I don't
+        # have much use for machine that's totally idle, that will come
+        # one day in the future
+        import time
+        time.sleep(0.01)
