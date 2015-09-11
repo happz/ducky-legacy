@@ -20,6 +20,7 @@ About
   hardware.rst
   software.rst
   tools.rst
+  examples.rst
 
 
 Code Documentation

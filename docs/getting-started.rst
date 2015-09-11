@@ -91,13 +91,13 @@ Virtual machine needs binary (or bytecode, as you wish...) code, and there's a t
 
 .. code-block:: none
 
-  tools/as -i examples/hello-world.asm -o examples/hello-world.bin
+  tools/as -i examples/hello-world/hello-world.asm -o examples/hello-world/hello-world.o
 
-This command will translate source code to instructions for VM. You can inspect the binary files using ``objdump`` tool:
+This command will translate source code to object file, containing instructions for VM and other resources. You can inspect the object file using ``objdump`` tool:
 
 .. code-block:: none
 
-  tools/objdump -i examples/hello-world.bin -a
+  tools/objdump -i examples/hello-world/hello-world.o -a
 
 This should produce output similar to this one:
 
@@ -159,7 +159,25 @@ This should produce output similar to this one:
   [INFO]   0x00015C (0x0000000E) ret
   [INFO] 
 
-You can see internal section in the binary file, list of symbols, and disassembled instructions (with labels replaced by proper offsets).
+You can see internal sections in the object file, list of symbols, and disassembled instructions, with labels replaced by dummy offsets. Offsets in jump instructions make no sense yet because object file is not the finalized binary - yet. For that, there's another tool:
+
+.. code-block:: none
+
+  tools/ld -i examples/hello-world/hello-world.o -o examples/hello-world/hello-world
+
+This command will take object file (or many of them), and produce one binary by merging code, data and sections in object files, and updates addresses used by instructions to retrieve data and to perform jumps. You can inspect the binary file using ``objdump`` tool, too:
+
+.. code-block:: none
+
+  tools/objdump -i examples/hello-world/hello-world -a
+
+This should produce output very similar to the one you've already seen - not much had changed, there was only one object files, only offsets used by ``call`` and ``j`` instructions are now non-zero, meaning they are now pointing to the correct locations.
+
+Oh, and you will need basic interrupt routines - no need to invent them yourself for "Hello, world!" example, just run this:
+
+.. code-block:: none
+
+  make interrupts
 
 
 Running
@@ -169,53 +187,57 @@ Virtual machine configuration can get quite complicated, so I try to avoid too m
 
 .. code-block:: none
 
-  tools/vm --machine-config=examples/hello-world.conf -g --conio-stdout-echo=yes
+  tools/vm --machine-config=examples/hello-world/hello-world.conf -g
 
 There are two other command line options that deserve some explanation:
 
- - ``-g`` - by default, VM prepares itself, and waits for user to press ``Enter`` to actually start running the loaded programs. This option tells it to skip "press any key" phase and go ahead.
- - ``--conio-stdout-echo=yes`` - by default, your terminal is dedicated to output of VM itself, and output (and input, too) of running programs is handled by pseudoterminal (`ptty`), you can use e.g. ``screen`` to connect to this terminal and communicate with your programs. But this is waaaay to complicated for such a simple example like `Hello, world!`. All we want to see is one line, no need to tell our example anything. For such case there's a ``--conio-stdout-echo`` which, when set to ``yes``, will mirror output of your program to your terminal.
+ - ``-g`` - by default, VM prepares itself, and waits for user to press ``Enter`` to actually start running the loaded binaries. This option tells it to skip "press any key" phase and go ahead.
 
 You should get output similar to this:
 
 .. code-block:: none
   :linenos:
 
-  #> [INFO] Loading IRQ routines from file interrupts.bin
-  [INFO] Section    Address      Size  Flags                                 First page    Last page
-  [INFO] ---------  ---------  ------  ----------------------------------  ------------  -----------
-  [INFO] .data      0x010000        2  <SectionFlags: r=1, w=1, x=0, b=0>           256          256
-  [INFO] .text      0x010100       64  <SectionFlags: r=1, w=1, x=1, b=0>           257          257
-  [INFO] stack      0x010200      256  <SectionFlags: r=1, w=1, x=0, b=0>           258          258
-  [INFO] 
-  [INFO] Loading binary from file examples/hello-world.bin
-  [INFO] Section    Address      Size  Flags                                 First page    Last page
-  [INFO] ---------  ---------  ------  ----------------------------------  ------------  -----------
-  [INFO] .data      0x020000       14  <SectionFlags: r=1, w=1, x=0, b=0>           512          512
-  [INFO] .text      0x020100       96  <SectionFlags: r=1, w=1, x=1, b=0>           513          513
-  [INFO] stack      0x020200      256  <SectionFlags: r=1, w=1, x=0, b=0>           514          514
-  [INFO] 
-  [INFO] #0: Booting...
-  [INFO] #0:#0:  Booted
-  [INFO] #0: Booted
-  [INFO] Guest terminal available at /dev/pts/19
+  1441740855.82 [INFO] Ducky VM, version 1.0
+  1441740855.82 [INFO] mm: 16384.0KiB, 16383.5KiB available
+  1441740855.82 [INFO] hid: basic keyboard controller on [0x0100] as device-1
+  1441740855.83 [INFO] hid: basic tty on [0x0200] as device-2
+  1441740855.83 [INFO] hid: basic terminal (device-1, device-2)
+  1441740855.83 [INFO] snapshot: storage ready, backed by file ducky-snapshot.bin
+  1441740855.83 [INFO] RTC: time 21:34:15, date: 08/09/15
+  1441740855.83 [INFO] irq: loading routines from file interrupts
+  1441740856.02 [INFO] binary: loading from from file examples/hello-world/hello-world
+  1441740856.02 [INFO] #0:#0: CPU core is up
+  1441740856.02 [INFO] #0:#0:   cache: 1024 DC slots, 256 IC slots
+  1441740856.02 [INFO] #0:#0:   check-frames: yes
+  1441740856.02 [INFO] #0:#0:   coprocessor: math
+  1441740856.02 [INFO] #0: CPU is up
   Hello, world!
-  [INFO] #0:#0:  Halted
-  [INFO] VM snapshot save in ducky-snapshot.bin
-  [INFO] Exit codes
-  [INFO] Core      Exit code
-  [INFO] ------  -----------
-  [INFO] #0:#0             0
-  [INFO] 
-  [INFO] Instruction caches
-  [INFO] Core      Reads    Inserts    Hits    Misses    Prunes
-  [INFO] ------  -------  ---------  ------  --------  --------
-  [INFO] #0:#0       119         26      93        26         0
-  [INFO] 
-  [INFO] Data caches
-  [INFO] Core      Reads    Inserts    Hits    Misses    Prunes
-  [INFO] ------  -------  ---------  ------  --------  --------
-  [INFO] #0:#0       237        231     237         0         0
-  [INFO] 
+  1441740856.04 [INFO] #0:#0: CPU core halted
+  1441740856.05 [INFO] #0: CPU halted
+  1441740856.05 [INFO] snapshot: saved in file ducky-snapshot.bin
+  1441740856.05 [INFO] Halted.
+  1441740856.05 [INFO] 
+  1441740856.05 [INFO] Exit codes
+  1441740856.05 [INFO] Core      Exit code
+  1441740856.06 [INFO] ------  -----------
+  1441740856.06 [INFO] #0:#0             0
+  1441740856.06 [INFO] 
+  1441740856.06 [INFO] Instruction caches
+  1441740856.06 [INFO] Core      Reads    Inserts    Hits    Misses    Prunes
+  1441740856.06 [INFO] ------  -------  ---------  ------  --------  --------
+  1441740856.06 [INFO] #0:#0       133         34      99        34         0
+  1441740856.06 [INFO] 
+  1441740856.06 [INFO] Data caches
+  1441740856.06 [INFO] Core      Reads    Inserts    Hits    Misses    Prunes
+  1441740856.06 [INFO] ------  -------  ---------  ------  --------  --------
+  1441740856.06 [INFO] #0:#0        93        173      85         8         0
+  1441740856.06 [INFO] 
+  1441740856.06 [INFO] Core    Ticks
+  1441740856.06 [INFO] ------  -------
+  1441740856.06 [INFO] #0:#0   133
+  1441740856.06 [INFO] 
+  1441740856.06 [INFO] Executed instructions: 133 0.028670 (4639.0223/sec)
+  1441740856.06 [INFO] 
 
-And there, on line 19, between all that funny nonsenses, it is! :) The rest of the output are just various notes about loaded binaries, CPU caches, nothing important right now - as I said, terminal is dedicated to VM itself.
+And there, on line 15, between all that funny nonsenses, it is! :) The rest of the output are just various notes about loaded binaries, CPU caches, nothing important right now - as I said, terminal is dedicated to VM itself.
