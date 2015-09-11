@@ -112,7 +112,7 @@ Invocation
 Only software interrupt routines can be invoked by means of special instruction. When invoked several events take place:
 
  - new stack page is allocated for interrupt routine ("interrupt stack")
- - all registers - except of ``r0`` - are stored on interrupt stack
+ - ``ds``, ``sp``, ``cs``, and ``flags`` are stored on interrupt stack
  - privileged mode is enabled
  - ``ip``, ``cs`` and ``ds`` are set to values stored in interrupt vector table
 
