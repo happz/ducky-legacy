@@ -153,6 +153,7 @@ class IRQRouterTask(IReactorTask):
 
         self.queue[irq] = False
         core.irq(irq)
+        break
 
       else:
         break
