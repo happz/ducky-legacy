@@ -350,7 +350,7 @@ ifdef CIRCLE_ARTIFACTS
 	$(Q) cp -r $(TESTSETDIR) $(CIRCLE_ARTIFACTS)
 endif
 
-tests: tests-pre tests-engine tests-forth-units tests-forth-ans tests-post tests-submit-results
+tests: tests-pre tests-engine tests-forth-units tests-forth-ans run-hello-world run-hello-world-lib run-vga run-clock tests-post tests-submit-results
 
 tests-engine-only: tests-pre tests-engine tests-post tests-submit-results
 
