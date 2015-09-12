@@ -46,6 +46,12 @@
 
   .data
 
+  .type iteration, int
+  .int 50
+
+
+  .text
+
 print_digits:
   ; r0 - buff
   ; r1 - value
@@ -105,7 +111,18 @@ irq_routine_0:
   ; refresh screen
   li r0, 0x0002
   out $VGA_COMMAND_PORT, r0
+
+  li r0, &iteration
+  lw r1, r0
+  dec r1
+  bz &halt
+  stw r0, r1
+
   retint
+
+halt:
+  li r0, 0
+  hlt r0
 
 
 main:
