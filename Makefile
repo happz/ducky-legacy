@@ -152,41 +152,81 @@ forth: $(FORTH_KERNEL)
 #
 
 examples/hello-world/hello-world: examples/hello-world/hello-world.o
+ifeq ($(VMCOVERAGE),yes)
+	$(eval VMCOVERAGE_FILE := COVERAGE_FILE="$(TESTSETDIR)/coverage/.coverage.ld-$(subst /,-,$<)-to-$(subst /,-,$@).$(PID)")
+else
+	$(eval VMCOVERAGE_FILE := )
+endif
 	$(Q) echo -n "[LINK] $^ => $@ ... "
-	$(Q) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) tools/ld -o $@ $(foreach objfile,$^,-i $(objfile)) $(VMDEBUG); if [ "$$?" -eq 0 ]; then echo "$(CC_GREEN)PASS$(CC_END)"; else echo "$(CC_RED)FAIL$(CC_END)"; fi
+	$(Q) $(VMCOVERAGE_FILE) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) $(VMCOVERAGE_BIN) tools/ld -o $@ $(foreach objfile,$^,-i $(objfile)) $(VMDEBUG); if [ "$$?" -eq 0 ]; then echo "$(CC_GREEN)PASS$(CC_END)"; else echo "$(CC_RED)FAIL$(CC_END)"; fi
 
 hello-world: interrupts examples/hello-world/hello-world
 
 run-hello-world: hello-world
-	$(Q) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) tools/vm $(VMDEBUG) $(VMDEBUG_OPEN_FILES) --machine-config=examples/hello-world/hello-world.conf -g
+ifeq ($(VMCOVERAGE),yes)
+	$(eval VMCOVERAGE_FILE := COVERAGE_FILE="$(TESTSETDIR)/coverage/.coverage.hello-world.$(PID)")
+else
+	$(eval VMCOVERAGE_FILE := )
+endif
+	$(Q) $(VMCOVERAGE_FILE) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) $(VMCOVERAGE_BIN) tools/vm $(VMDEBUG) $(VMDEBUG_OPEN_FILES) --machine-config=examples/hello-world/hello-world.conf -g
 
 examples/hello-world-lib/hello-world: examples/hello-world-lib/lib.o examples/hello-world-lib/main.o
+ifeq ($(VMCOVERAGE),yes)
+	$(eval VMCOVERAGE_FILE := COVERAGE_FILE="$(TESTSETDIR)/coverage/.coverage.ld-$(subst /,-,$<)-to-$(subst /,-,$@).$(PID)")
+else
+	$(eval VMCOVERAGE_FILE := )
+endif
 	$(Q) echo -n "[LINK] $^ => $@ ... "
-	$(Q) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) tools/ld -o $@ $(foreach objfile,$^,-i $(objfile)) $(VMDEBUG); if [ "$$?" -eq 0 ]; then echo "$(CC_GREEN)PASS$(CC_END)"; else echo "$(CC_RED)FAIL$(CC_END)"; fi
+	$(Q) $(VMCOVERAGE_FILE) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) $(VMCOVERAGE_BIN) tools/ld -o $@ $(foreach objfile,$^,-i $(objfile)) $(VMDEBUG); if [ "$$?" -eq 0 ]; then echo "$(CC_GREEN)PASS$(CC_END)"; else echo "$(CC_RED)FAIL$(CC_END)"; fi
 
 hello-world-lib: interrupts examples/hello-world-lib/hello-world
 
 run-hello-world-lib: hello-world-lib
-	$(Q) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) tools/vm $(VMDEBUG_OPEN_FILES) --machine-config=examples/hello-world-lib/hello-world.conf -g
+ifeq ($(VMCOVERAGE),yes)
+	$(eval VMCOVERAGE_FILE := COVERAGE_FILE="$(TESTSETDIR)/coverage/.coverage.hello-world-lib.$(PID)")
+else
+	$(eval VMCOVERAGE_FILE := )
+endif
+	$(Q) $(VMCOVERAGE_FILE) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) $(VMCOVERAGE_BIN) tools/vm $(VMDEBUG_OPEN_FILES) --machine-config=examples/hello-world-lib/hello-world.conf -g
 
 examples/vga/vga: examples/vga/vga.o
+ifeq ($(VMCOVERAGE),yes)
+	$(eval VMCOVERAGE_FILE := COVERAGE_FILE="$(TESTSETDIR)/coverage/.coverage.ld-$(subst /,-,$<)-to-$(subst /,-,$@).$(PID)")
+else
+	$(eval VMCOVERAGE_FILE := )
+endif
 	$(Q) echo -n "[LINK] $^ => $@ ... "
-	$(Q) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) tools/ld -o $@ $(foreach objfile,$^,-i $(objfile)) $(VMDEBUG); if [ "$$?" -eq 0 ]; then echo "$(CC_GREEN)PASS$(CC_END)"; else echo "$(CC_RED)FAIL$(CC_END)"; fi
+	$(Q) $(VMCOVERAGE_FILE) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) $(VMCOVERAGE_BIN) tools/ld -o $@ $(foreach objfile,$^,-i $(objfile)) $(VMDEBUG); if [ "$$?" -eq 0 ]; then echo "$(CC_GREEN)PASS$(CC_END)"; else echo "$(CC_RED)FAIL$(CC_END)"; fi
 
 vga: interrupts examples/vga/vga
 
 run-vga: vga
-	$(Q) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) tools/vm $(VMDEBUG) $(VMDEBUG_OPEN_FILES) --machine-config=examples/vga/vga.conf -g
+ifeq ($(VMCOVERAGE),yes)
+	$(eval VMCOVERAGE_FILE := COVERAGE_FILE="$(TESTSETDIR)/coverage/.coverage.vga.$(PID)")
+else
+	$(eval VMCOVERAGE_FILE := )
+endif
+	$(Q) $(VMCOVERAGE_FILE) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) $(VMCOVERAGE_BIN) tools/vm $(VMDEBUG) $(VMDEBUG_OPEN_FILES) --machine-config=examples/vga/vga.conf -g
 
 
 examples/clock/clock: examples/clock/clock.o
+ifeq ($(VMCOVERAGE),yes)
+	$(eval VMCOVERAGE_FILE := COVERAGE_FILE="$(TESTSETDIR)/coverage/.coverage.ld-$(subst /,-,$<)-to-$(subst /,-,$@).$(PID)")
+else
+	$(eval VMCOVERAGE_FILE := )
+endif
 	$(Q) echo -n "[LINK] $^ => $@ ... "
-	$(Q) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) tools/ld -o $@ $(foreach objfile,$^,-i $(objfile)) $(VMDEBUG); if [ "$$?" -eq 0 ]; then echo "$(CC_GREEN)PASS$(CC_END)"; else echo "$(CC_RED)FAIL$(CC_END)"; fi
+	$(Q) $(VMCOVERAGE_FILE) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) $(VMCOVERAGE_BIN) tools/ld -o $@ $(foreach objfile,$^,-i $(objfile)) $(VMDEBUG); if [ "$$?" -eq 0 ]; then echo "$(CC_GREEN)PASS$(CC_END)"; else echo "$(CC_RED)FAIL$(CC_END)"; fi
 
 clock: interrupts examples/clock/clock
 
 run-clock: clock
-	$(Q) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) tools/vm $(VMDEBUG) $(VMDEBUG_OPEN_FILES) --machine-config=examples/clock/clock.conf -g
+ifeq ($(VMCOVERAGE),yes)
+	$(eval VMCOVERAGE_FILE := COVERAGE_FILE="$(TESTSETDIR)/coverage/.coverage.clock.$(PID)")
+else
+	$(eval VMCOVERAGE_FILE := )
+endif
+	$(Q) $(VMCOVERAGE_FILE) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) $(VMCOVERAGE_BIN) tools/vm $(VMDEBUG) $(VMDEBUG_OPEN_FILES) --machine-config=examples/clock/clock.conf -g
 
 
 interrupts: interrupts.o
