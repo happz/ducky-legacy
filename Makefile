@@ -383,7 +383,7 @@ install:
 	python setup.py install
 
 clean:
-	$(Q) rm -f examples/hello-world/hello-world examples/hello-world-lib/hello-world examples/clock/clock $(FORTH_KERNEL) interrupts
+	$(Q) rm -f examples/hello-world/hello-world examples/hello-world-lib/hello-world examples/clock/clock examples/vga/vga $(FORTH_KERNEL) interrupts
 	$(Q) rm -f `find $(CURDIR) -name '*.pyc'` `find $(CURDIR) -name '*.o'` `find $(CURDIR) -name '*.bin'` tests/instructions/interrupts-basic
 	$(Q) rm -rf ducky-snapshot.bin build dist ducky.egg-info tests-python-egg-mmap tests-python-egg-read tests-python-devel-mmap tests-python-devel-read tests-pypy-devel-mmap tests-pypy-devel-mmap tests-pypy-devel-read tests-pypy-egg-mmap tests-pypy-egg-read
 
