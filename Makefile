@@ -74,7 +74,7 @@ ifndef VMCOVERAGE
   VMCOVERAGE=no
 endif
 ifeq ($(VMCOVERAGE),yes)
-  VMCOVERAGE_BIN := $(VIRTUAL_ENV)/bin/coverage run --source=ducky
+  VMCOVERAGE_BIN := $(VIRTUAL_ENV)/bin/coverage run --branch --source=ducky
 else
   VMCOVERAGE_BIN :=
 endif
