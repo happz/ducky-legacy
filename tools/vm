@@ -188,14 +188,15 @@ def main():
       core.instruction_cache.prunes
     ])
 
-    table_data_caches.append([
-      str(core),
-      core.data_cache.reads,
-      core.data_cache.inserts,
-      core.data_cache.hits,
-      core.data_cache.misses,
-      core.data_cache.prunes
-    ])
+    if core.data_cache is not None:
+      table_data_caches.append([
+        str(core),
+        core.data_cache.reads,
+        core.data_cache.inserts,
+        core.data_cache.hits,
+        core.data_cache.misses,
+        core.data_cache.prunes
+      ])
 
     table_cnts.append([
       str(core),

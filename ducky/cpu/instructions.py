@@ -1062,7 +1062,7 @@ class Inst_LW(InstDescriptor_Generic_Binary_R_A):
   @staticmethod
   def execute(core, inst):
     core.check_protected_reg(inst.reg)
-    core.registers.map[inst.reg].value = core.data_cache.read_u16(core.OFFSET_ADDR(inst))
+    core.registers.map[inst.reg].value = core.MEM_IN16(core.OFFSET_ADDR(inst))
     core.update_arith_flags(core.registers.map[inst.reg])
 
 class Inst_LB(InstDescriptor_Generic_Binary_R_A):
@@ -1072,7 +1072,7 @@ class Inst_LB(InstDescriptor_Generic_Binary_R_A):
   @staticmethod
   def execute(core, inst):
     core.check_protected_reg(inst.reg)
-    core.registers.map[inst.reg].value = core.data_cache.read_u8(core.OFFSET_ADDR(inst))
+    core.registers.map[inst.reg].value = core.MEM_IN8(core.OFFSET_ADDR(inst))
     core.update_arith_flags(core.registers.map[inst.reg])
 
 class Inst_LI(InstDescriptor_Generic_Binary_R_I):
@@ -1091,7 +1091,7 @@ class Inst_STW(InstDescriptor_Generic_Binary_A_R):
 
   @staticmethod
   def execute(core, inst):
-    core.data_cache.write_u16(core.OFFSET_ADDR(inst), core.registers.map[inst.reg].value)
+    core.MEM_OUT16(core.OFFSET_ADDR(inst), core.registers.map[inst.reg].value)
 
 class Inst_STB(InstDescriptor_Generic_Binary_A_R):
   mnemonic    = 'stb'
@@ -1099,7 +1099,7 @@ class Inst_STB(InstDescriptor_Generic_Binary_A_R):
 
   @staticmethod
   def execute(core, inst):
-    core.data_cache.write_u8(core.OFFSET_ADDR(inst), core.registers.map[inst.reg].value & 0xFF)
+    core.MEM_OUT8(core.OFFSET_ADDR(inst), core.registers.map[inst.reg].value & 0xFF)
 
 class Inst_MOV(InstDescriptor_Generic_Binary_R_R):
   mnemonic = 'mov'

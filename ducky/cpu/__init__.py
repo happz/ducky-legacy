@@ -164,8 +164,15 @@ class InstructionCache(LRUCache):
     :rtype: ``InstBinaryFormat_Master``
     """
 
-    return self.core.instruction_set.decode_instruction(self.core.memory.read_u32(addr, not_execute = False))
+    core = self.core
 
+    inst = core.instruction_set.decode_instruction(core.memory.read_u32(addr, not_execute = False))
+    opcode = inst.opcode
+
+    if opcode not in core.instruction_set.opcode_desc_map:
+      raise InvalidOpcodeError(opcode, ip = core.current_ip, core = self)
+
+    return (inst, opcode, core.instruction_set.opcode_desc_map[opcode].execute)
 
 class CPUDataCache(LRUCache):
   """
@@ -526,6 +533,8 @@ class CPUCore(ISnapshotable, IMachineWorker):
   def __init__(self, coreid, cpu, memory_controller, cache_controller):
     super(CPUCore, self).__init__()
 
+    config = cpu.machine.config
+
     self.cpuid_prefix = '#{}:#{}:'.format(cpu.id, coreid)
 
     def __log(logger, *args, **kwargs):
@@ -570,9 +579,29 @@ class CPUCore(ISnapshotable, IMachineWorker):
     self.debug = debugging.DebuggingSet(self)
 
     self.cache_controller = cache_controller
-    self.instruction_cache = InstructionCache(self, self.cpu.machine.config.getint('cpu', 'inst-cache', default = DEFAULT_CORE_INST_CACHE_SIZE))
-    self.data_cache = CPUDataCache(cache_controller, self, self.cpu.machine.config.getint('cpu', 'data-cache', default = DEFAULT_CORE_DATA_CACHE_SIZE))
-    self.cache_controller.register_core(self)
+
+    self.instruction_cache = InstructionCache(self, config.getint('cpu', 'inst-cache', default = DEFAULT_CORE_INST_CACHE_SIZE))
+
+    self.data_cache = None
+    if config.getbool('cpu', 'data-cache-enabled', True):
+      self.data_cache = CPUDataCache(cache_controller, self, config.getint('cpu', 'data-cache', default = DEFAULT_CORE_DATA_CACHE_SIZE))
+      self.cache_controller.register_core(self)
+
+    if self.data_cache:
+      self.MEM_IN8   = self.data_cache.read_u8
+      self.MEM_IN16  = self.data_cache.read_u16
+      self.MEM_IN32  = self.data_cache.read_u32
+      self.MEM_OUT8  = self.data_cache.write_u8
+      self.MEM_OUT16 = self.data_cache.write_u16
+      self.MEM_OUT32 = self.data_cache.write_u32
+
+    else:
+      self.MEM_IN8   = self.memory.read_u8
+      self.MEM_IN16  = self.memory.read_u16
+      self.MEM_IN32  = self.memory.read_u32
+      self.MEM_OUT8  = self.memory.write_u8
+      self.MEM_OUT16 = self.memory.write_u16
+      self.MEM_OUT32 = self.memory.write_u32
 
     self.coprocessors = {}
     if self.cpu.machine.config.getbool('cpu', 'math-coprocessor', False):
@@ -633,24 +662,6 @@ class CPUCore(ISnapshotable, IMachineWorker):
   def REG(self, reg):
     return self.registers.map[reg]
 
-  def MEM_IN8(self, addr):
-    return self.data_cache.read_u8(addr)
-
-  def MEM_IN16(self, addr):
-    return self.data_cache.read_u16(addr)
-
-  def MEM_IN32(self, addr):
-    return self.memory.read_u32(addr)
-
-  def MEM_OUT8(self, addr, value):
-    self.data_cache.write_u8(addr, value)
-
-  def MEM_OUT16(self, addr, value):
-    self.data_cache.write_u16(addr, value)
-
-  def MEM_OUT32(self, addr, value):
-    self.memory.write_u32(addr, value)
-
   def IP(self):
     return self.registers.ip
 
@@ -671,18 +682,6 @@ class CPUCore(ISnapshotable, IMachineWorker):
 
   def DS_ADDR(self, address):
     return (self.registers.ds.value & 0xFF) * SEGMENT_SIZE * PAGE_SIZE + address
-
-  def fetch_instruction(self):
-    ip = self.registers.ip
-
-    self.current_ip = ip.value
-
-    self.DEBUG('fetch_instruction: cs=%s, ip=%s', UINT8_FMT(self.registers.cs.value), ADDR_FMT(ip.value))
-
-    inst = self.instruction_cache[self.CS_ADDR(ip.value)]
-    ip.value += 4
-
-    return inst
 
   def reset(self, new_ip = 0):
     """
@@ -706,7 +705,8 @@ class CPUCore(ISnapshotable, IMachineWorker):
     self.registers.ip.value = new_ip
 
     self.instruction_cache.clear()
-    self.data_cache.clear()
+    if self.data_cache:
+      self.data_cache.clear()
 
   def __symbol_for_ip(self):
     ip = self.registers.ip
@@ -751,7 +751,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
     """
 
     self.registers.sp.value -= 2
-    self.data_cache.write_u16(self.DS_ADDR(self.registers.sp.value), val)
+    self.MEM_OUT16(self.DS_ADDR(self.registers.sp.value), val)
 
   def raw_pop(self):
     """
@@ -761,7 +761,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
     :rtype: ``u16``
     """
 
-    ret = self.data_cache.read_u16(self.DS_ADDR(self.registers.sp.value))
+    ret = self.MEM_IN16(self.DS_ADDR(self.registers.sp.value))
     self.registers.sp.value += 2
     return ret
 
@@ -875,7 +875,8 @@ class CPUCore(ISnapshotable, IMachineWorker):
     self.registers.ds.value = old_DS
     self.registers.sp.value = old_SP
 
-    self.data_cache.release_page_references(stack_page, writeback = False)
+    if self.data_cache:
+      self.data_cache.release_page_references(stack_page, writeback = False)
     self.memory.free_page(stack_page)
 
     self.instruction_set = self.instruction_set_stack.pop(0)
@@ -1074,17 +1075,19 @@ class CPUCore(ISnapshotable, IMachineWorker):
     # Read next instruction
     self.DEBUG('"FETCH" phase')
 
-    self.current_instruction = self.fetch_instruction()
-    opcode = self.current_instruction.opcode
+    ip = self.registers.ip
+    self.current_ip = ip.value
 
-    if opcode not in self.instruction_set.opcode_desc_map:
-      raise InvalidOpcodeError(opcode, ip = self.current_ip, core = self)
+    self.DEBUG('fetch instruction: cs=%s, ip=%s', UINT8_FMT(self.registers.cs.value), ADDR_FMT(ip.value))
 
     try:
+      self.current_instruction, opcode, execute = self.instruction_cache[self.CS_ADDR(ip.value)]
+      ip.value += 4
+
       self.DEBUG('"EXECUTE" phase: %s %s', UINT16_FMT(self.current_ip), self.instruction_set.disassemble_instruction(self.current_instruction))
       log_cpu_core_state(self)
 
-      self.instruction_set.opcode_desc_map[opcode].execute(self, self.current_instruction)
+      execute(self, self.current_instruction)
 
     except (InvalidOpcodeError, AccessViolationError, InvalidResourceError) as e:
       self.die(e)
@@ -1123,15 +1126,15 @@ class CPUCore(ISnapshotable, IMachineWorker):
   def halt(self):
     self.DEBUG('CPUCore.halt')
 
-    self.cpu.machine.cpu_cache_controller.unregister_core(self)
+    if self.data_cache:
+      self.data_cache.release_references()
+      self.cpu.machine.cpu_cache_controller.unregister_core(self)
 
     self.running = False
     self.cpu.core_suspended()
 
     self.alive = False
     self.cpu.core_halted()
-
-    self.data_cache.release_references()
 
     log_cpu_core_state(self)
 
@@ -1181,8 +1184,14 @@ class CPUCore(ISnapshotable, IMachineWorker):
     if self.core_profiler is not None:
       self.core_profiler.enable()
 
+    caches = []
+    if self.instruction_cache:
+      caches.append('%i IC slots'.format(self.instruction_cache.size))
+    if self.data_cache:
+      caches.append('%i DC slots'.format(self.data_cache.size))
+
     self.INFO('CPU core is up')
-    self.INFO('  cache: %i DC slots, %i IC slots', self.data_cache.size, self.instruction_cache.size)
+    self.INFO('  cache: %s', ', '.join(caches))
     self.INFO('  check-frames: %s', 'yes' if self.check_frames else 'no')
     if self.coprocessors:
       self.INFO('  coprocessor: %s', ' '.join(sorted(self.coprocessors.iterkeys())))
