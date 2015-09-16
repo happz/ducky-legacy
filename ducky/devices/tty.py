@@ -47,6 +47,12 @@ class TTY(IOProvider, Device):
       self.output = None
       self.output_fd = stream
 
+    elif stream == '<stdout>':
+      self.machine.DEBUG('  stream is stdout')
+
+      self.output = sys.stdout
+      self.output_fd = sys.stdout.fileno()
+
     elif stream is None:
       self.machine.DEBUG('  stream is dummy, none')
 

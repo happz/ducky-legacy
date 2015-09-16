@@ -1,4 +1,4 @@
-import array
+# import array
 import mmap
 
 from ctypes import LittleEndianStructure, c_ubyte, c_ushort, c_uint
@@ -503,7 +503,8 @@ class AnonymousMemoryPage(MemoryPage):
   def __init__(self, controller, index):
     super(AnonymousMemoryPage, self).__init__(controller, index)
 
-    self.data = array.array('B', [0 for _ in range(0, PAGE_SIZE)])
+    # self.data = array.array('B', [0 for _ in range(0, PAGE_SIZE)])
+    self.data = bytearray([0 for _ in range(0, PAGE_SIZE)])
 
   def do_clear(self):
     for i in range(0, PAGE_SIZE):

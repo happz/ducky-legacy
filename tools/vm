@@ -170,7 +170,7 @@ def main():
     ['Core', 'Reads', 'Inserts', 'Hits', 'Misses', 'Prunes']
   ]
   table_data_caches = [
-    ['Core', 'Reads', 'Inserts', 'Hits', 'Misses', 'Prunes']
+    ['Core', 'Reads', 'Hits', 'Misses', 'Prunes', 'Forced writes']
   ]
   table_cnts = [
     ['Core', 'Ticks']
@@ -192,10 +192,10 @@ def main():
       table_data_caches.append([
         str(core),
         core.data_cache.reads,
-        core.data_cache.inserts,
         core.data_cache.hits,
         core.data_cache.misses,
-        core.data_cache.prunes
+        core.data_cache.prunes,
+        core.data_cache.forced_writes
       ])
 
     table_cnts.append([

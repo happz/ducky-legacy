@@ -14,8 +14,15 @@ from ..snapshot import SnapshotNode
 
 #: Default size of core instruction cache, in instructions.
 DEFAULT_CORE_INST_CACHE_SIZE = 256
-#: Default size of core data cache, in words.
-DEFAULT_CORE_DATA_CACHE_SIZE = 1024
+
+#: Default size of core data cache, in bytes.
+DEFAULT_CORE_DATA_CACHE_SIZE = 8192
+
+#: Default data cache line length, in bytes.
+DEFAULT_CORE_DATA_CACHE_LINE_LENGTH = 32
+
+#: Default data cache associativity
+DEFAULT_CORE_DATA_CACHE_LINE_ASSOC  = 4
 
 class CPUState(SnapshotNode):
   pass
@@ -207,6 +214,11 @@ class CPUDataCache(LRUCache):
 
     self.controller = controller
     self.core = core
+
+    self.forced_writes = 0
+
+  def __repr__(self):
+    return 'dictionary-based cache, %i slots' % self.size
 
   def make_space(self):
     """
@@ -584,16 +596,45 @@ class CPUCore(ISnapshotable, IMachineWorker):
 
     self.data_cache = None
     if config.getbool('cpu', 'data-cache-enabled', True):
-      self.data_cache = CPUDataCache(cache_controller, self, config.getint('cpu', 'data-cache', default = DEFAULT_CORE_DATA_CACHE_SIZE))
+      driver = config.get('cpu', 'data-cache-driver', 'python')
+
+      import platform
+
+      if platform.python_implementation() == 'PyPy':
+        if driver != 'python':
+          self.WARN('Running on PyPy, forcing Python data cache implementation')
+          driver = 'python'
+
+      elif platform.python_implementation() == 'CPython':
+        pass
+
+      elif driver != 'python':
+        self.WARN('Running on unsupported platform, forcing Python data cache implementation')
+        driver = 'python'
+
+      if driver == 'native':
+        from ..native.data_cache import CPUDataCache as DC
+
+        self.data_cache = DC(cache_controller, self,
+                             config.getint('cpu', 'data-cache-size', DEFAULT_CORE_DATA_CACHE_SIZE),
+                             config.getint('cpu', 'data-cache-line', DEFAULT_CORE_DATA_CACHE_LINE_LENGTH),
+                             config.getint('cpu', 'data-cache-assoc', DEFAULT_CORE_DATA_CACHE_LINE_ASSOC))
+
+      elif driver == 'python':
+        self.data_cache = CPUDataCache(cache_controller, self, config.getint('cpu', 'data-cache-size', default = DEFAULT_CORE_DATA_CACHE_SIZE))
+
+      else:
+        raise InvalidResourceError('Unknown data cache driver: driver=%s' % driver)
+
       self.cache_controller.register_core(self)
 
-    if self.data_cache:
+    if self.data_cache is not None:
       self.MEM_IN8   = self.data_cache.read_u8
       self.MEM_IN16  = self.data_cache.read_u16
-      self.MEM_IN32  = self.data_cache.read_u32
+      self.MEM_IN32  = self.memory.read_u32
       self.MEM_OUT8  = self.data_cache.write_u8
       self.MEM_OUT16 = self.data_cache.write_u16
-      self.MEM_OUT32 = self.data_cache.write_u32
+      self.MEM_OUT32 = self.memory.write_u32
 
     else:
       self.MEM_IN8   = self.memory.read_u8
@@ -749,6 +790,8 @@ class CPUCore(ISnapshotable, IMachineWorker):
 
     :param u16 val: value to be pushed
     """
+
+    self.DEBUG("raw_push: sp=%s, ds-scp=%s, value=%s", ADDR_FMT(self.registers.sp.value), ADDR_FMT(self.DS_ADDR(self.registers.sp.value)), UINT16_FMT(val))
 
     self.registers.sp.value -= 2
     self.MEM_OUT16(self.DS_ADDR(self.registers.sp.value), val)
@@ -1126,7 +1169,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
   def halt(self):
     self.DEBUG('CPUCore.halt')
 
-    if self.data_cache:
+    if self.data_cache is not None:
       self.data_cache.release_references()
       self.cpu.machine.cpu_cache_controller.unregister_core(self)
 
@@ -1184,14 +1227,11 @@ class CPUCore(ISnapshotable, IMachineWorker):
     if self.core_profiler is not None:
       self.core_profiler.enable()
 
-    caches = []
-    if self.instruction_cache:
-      caches.append('%i IC slots'.format(self.instruction_cache.size))
-    if self.data_cache:
-      caches.append('%i DC slots'.format(self.data_cache.size))
-
     self.INFO('CPU core is up')
-    self.INFO('  cache: %s', ', '.join(caches))
+    if self.data_cache is not None:
+      self.INFO('  {}'.format(repr(self.data_cache)))
+    if self.instruction_cache is not None:
+      self.INFO('  {} IC slots'.format(self.instruction_cache.size))
     self.INFO('  check-frames: %s', 'yes' if self.check_frames else 'no')
     if self.coprocessors:
       self.INFO('  coprocessor: %s', ' '.join(sorted(self.coprocessors.iterkeys())))

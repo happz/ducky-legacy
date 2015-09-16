@@ -1,4 +1,6 @@
-from setuptools import setup
+from setuptools import setup, Extension
+
+mod_native_data_cache = Extension('ducky.native.data_cache', sources = ['ducky/native/data_cache.c'])
 
 setup(name = 'ducky',
       version = '1.0',
@@ -12,7 +14,8 @@ setup(name = 'ducky',
         'ducky.cpu',
         'ducky.cpu.coprocessor',
         'ducky.mm',
-        'ducky.devices'
+        'ducky.devices',
+        'ducky.native'
       ],
       package_dir = {'ducky': 'ducky'},
       zip_safe = False,
@@ -25,4 +28,7 @@ setup(name = 'ducky',
         'beautifulsoup4',
         'nose'
       ],
+      ext_modules = [
+        mod_native_data_cache
+      ]
      )
