@@ -379,6 +379,9 @@ docs:
 	make -C docs clean
 	make -C docs html
 
+build: ducky/native/data_cache.c
+	python setup.py build --debug
+
 install:
 	python setup.py install
 
