@@ -397,6 +397,9 @@ init_crcs:
 
 
 main:
+  li r0, 5
+  outb 0x0300, r0
+
   ; init RSP
   li $RSP, &rstack_top
 
