@@ -635,6 +635,11 @@ class MMapMemoryPage(ExternalMemoryPage):
   area).
   """
 
+  def __init__(self, area, *args, **kwargs):
+    super(MMapMemoryPage, self).__init__(*args, **kwargs)
+
+    self.area = area
+
   def get(self, offset):
     return ord(self.data[self.offset + offset])
 
@@ -656,6 +661,9 @@ class MMapArea(object):
     self.offset = offset
     self.pages_start = pages_start
     self.pages_cnt = pages_cnt
+
+  def __repr__(self):
+    return '<MMapArea: address=%s, size=%s, filepath=%s, pages-start=%s, pages-cnt=%i>' % (ADDR_FMT(self.address), self.size, self.file_path, self.pages_start, self.pages_cnt)
 
   def save_state(self, parent):
     pass
@@ -1305,7 +1313,7 @@ class MemoryController(object):
       is already allocated.
     """
 
-    self.DEBUG('mc.mmap_area: file=%s, offset=%s, size=%s, address=%s, access=%s, shared=%s', file_path, offset, size, address, access, shared)
+    self.DEBUG('mc.mmap_area: file=%s, offset=%s, size=%s, address=%s, access=%s, shared=%s', file_path, offset, size, ADDR_FMT(address), access, shared)
 
     if size % PAGE_SIZE != 0:
       raise InvalidResourceError('Memory size must be multiple of PAGE_SIZE')
@@ -1317,7 +1325,7 @@ class MemoryController(object):
 
     for i in xrange(pages_start, pages_start + pages_cnt):
       if i in self.__pages:
-        raise InvalidResourceError('MMap request overlaps with existing pages')
+        raise InvalidResourceError('MMap request overlaps with existing pages: page=%s, area=%s' % (self.__pages[i], self.__pages[i].area))
 
     access = access.lower()
 
@@ -1334,8 +1342,10 @@ class MemoryController(object):
       prot = mmap_prot,
       offset = offset)
 
+    area = MMapArea(ptr, address, size, file_path, ptr, pages_start, pages_cnt)
+
     for i in xrange(pages_start, pages_start + pages_cnt):
-      self.register_page(MMapMemoryPage(self, i, ptr, offset = (i - pages_start) * PAGE_SIZE))
+      self.register_page(MMapMemoryPage(area, self, i, ptr, offset = (i - pages_start) * PAGE_SIZE))
 
     self.reset_pages_flags(pages_start, pages_cnt)
 
@@ -1345,7 +1355,6 @@ class MemoryController(object):
     if 'x' in access:
       self.update_pages_flags(pages_start, pages_cnt, 'execute', True)
 
-    area = MMapArea(ptr, address, size, file_path, ptr, pages_start, pages_cnt)
     self.mmap_areas[area.address] = area
 
     return area
