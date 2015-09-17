@@ -101,7 +101,7 @@ endif
 # pypy selection
 ifdef PYPY
 ifdef CIRCLECI
-  PYPY_BINARY=$(shell pyenv which pypy-2.4.0)
+  PYPY_BINARY=$(shell pyenv which pypy)
 else
   PYPY_BINARY=$(shell which pypy)
 endif
