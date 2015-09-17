@@ -106,7 +106,7 @@ else
   PYPY_BINARY=$(shell which pypy)
 endif
   # pypy does not see our local installed packages
-	PYTHON := PYTHONPATH="$(INSTALLED_EGG):$(VIRTUAL_ENV)/lib/python2.7/site-packages:$(PYTHONPATH)" $(PYPY_BINARY)
+	PYTHON := PYTHONPATH="$(VIRTUAL_ENV)/lib/python2.7/site-packages/:$(PYTHONPATH)" $(PYPY_BINARY)
 else
 	PYTHON :=
 endif
