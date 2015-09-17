@@ -20,6 +20,8 @@ import ducky.util
 
 from ducky.mm import ADDR_FMT, UInt32, UINT32_FMT, UInt16, UInt8, UINT8_FMT
 
+from ducky.cpu.assemble import align_to_next_page, align_to_next_mmap
+
 class LinkerInfo(object):
   def __init__(self):
     super(LinkerInfo, self).__init__()
@@ -48,6 +50,8 @@ def merge_object_into(logger, info, f_dst, f_src):
 
     logger.debug('Merge section %s into dst file', s_name)
 
+    align = align_to_next_mmap if f_dst.get_header().flags.mmapable == 1 else align_to_next_page
+
     try:
       d_header, d_content = f_dst.get_section_by_name(s_name)
 
@@ -61,7 +65,7 @@ def merge_object_into(logger, info, f_dst, f_src):
       d_header.type = s_header.type
       d_header.items = s_header.items
       d_header.data_size = s_header.data_size
-      d_header.file_size = s_header.file_size
+      d_header.file_size = align(d_header.data_size)
       d_header.name = f_dst.string_table.put_string(s_name)
       d_header.flags = s_header.flags
       f_dst.set_content(d_header, s_content)
@@ -78,7 +82,7 @@ def merge_object_into(logger, info, f_dst, f_src):
 
     d_header.items += s_header.items
     d_header.data_size += s_header.data_size
-    d_header.file_size += s_header.file_size
+    d_header.file_size = align(d_header.data_size)
     d_content += s_content
     f_dst.set_content(d_header, d_content)
 
@@ -127,7 +131,6 @@ def fix_section_bases(logger, info, f_out, required_bases):
   fixed_sections = sorted(fixed_sections, key = lambda x: x.base)
   D('fixed sections, sorted: %s', fixed_sections)
 
-  from ducky.cpu.assemble import align_to_next_page, align_to_next_mmap
   align = align_to_next_mmap if f_out.get_header().flags.mmapable == 1 else align_to_next_page
 
   def overlap(a, b):
