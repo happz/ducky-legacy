@@ -5,23 +5,11 @@ CC_GREEN=$(shell echo -e "\033[0;32m")
 CC_YELLOW=$(shell echo -e "\033[0;33m")
 CC_END=$(shell echo -e "\033[0m")
 
-INSTALLED_EGG := $(VIRTUAL_ENV)/lib/python2.7/site-packages/ducky-1.0-py2.7.egg
-
 .PHONY: tests-pre tests-engine tests-post test-submit-results tests docs cloc flake
 
 .PRECIOUS: %.o %.bin
 
 PID := $(shell echo "$$$$")
-
-#
-# Tests
-#
-FORTH_TESTS_IN  := $(shell find $(CURDIR) -name 'test-*.f' | sort)
-FORTH_TESTS_OUT := $(FORTH_TESTS_IN:%.f=%.f.out)
-
-# See tests/forth/ans/runtest.fth for full list
-FORTH_ANS_TESTS := core.fr memorytest.fth # coreplustest.fth coreexttest.fth memorytest.fth toolstest.fth stringtest.fth
-ENGINE_TESTS := $(shell find $(CURDIR)/tests/instructions/tests $(CURDIR)/tests/storage -name '*.asm')
 
 
 #
@@ -130,146 +118,136 @@ endif
 
 
 #
+# Helpers
+#
+
+define run-as =
+$(Q) echo -n "[COMPILE] $< => $@ ... "
+$(Q) COVERAGE_FILE=$(shell if [ "$(VMCOVERAGE)" = "yes" ]; then echo "$(TESTSETDIR)/coverage/.coverage.as-$(subst /,-,$<)-to-$(subst /,-,$@).$(PID)"; else echo ""; fi) \
+	   DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) \
+		   $(PYTHON) $(VMCOVERAGE_BIN) tools/as -i $< -o $@ \
+		 -f \
+		 $(shell if [ "$(MMAPABLE_SECTIONS)" = "yes" ]; then echo "--mmapable-sections"; else echo ""; fi) \
+		 $1 \
+		 $(VMDEBUG); \
+		 if [ "$$?" -eq 0 ]; then \
+		   echo "$(CC_GREEN)PASS$(CC_END)"; \
+		 else \
+		   echo "$(CC_RED)FAIL$(CC_END)"; \
+		 fi;
+endef
+
+
+define run-linker =
+$(Q) echo -n "[LINK] $^ => $@ ... "
+$(Q) COVERAGE_FILE=$(shell if [ "$(VMCOVERAGE)" = "yes" ]; then echo "$(TESTSETDIR)/coverage/.coverage.ld-$(subst /,-,$<)-to-$(subst /,-,$@).$(PID)"; else echo ""; fi) \
+	   DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) \
+		 $(PYTHON) $(VMCOVERAGE_BIN) tools/ld -o $@ $(foreach objfile,$^,-i $(objfile)) \
+		 $1 \
+		 $(VMDEBUG); \
+		 if [ "$$?" -eq 0 ]; then \
+		   echo "$(CC_GREEN)PASS$(CC_END)"; \
+		 else \
+		   echo "$(CC_RED)FAIL$(CC_END)"; \
+		 fi
+endef
+
+
+define run-simple-binary =
+$(Q) echo "[RUN] $1 ..."
+$(Q) COVERAGE_FILE=$(shell if [ "$(VMCOVERAGE)" = "yes" ]; then echo "$(TESTSETDIR)/coverage/.coverage.$1.$(PID)"; else echo ""; fi) \
+	   DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) \
+		 $(PYTHON) $(VMCOVERAGE_BIN) tools/vm $(VMDEBUG) $(VMDEBUG_OPEN_FILES) --machine-config=$2 -g
+endef
+
+
+#
 # FORTH
 #
+
 FORTH_KERNEL := forth/ducky-forth
-FORTH_LD_OPTIONS := --section-base=.text=0x0000 --section-base=.userspace=0x5000
 
 forth/ducky-forth.o: forth/ducky-forth.asm forth/ducky-forth-words.asm
-$(FORTH_KERNEL): forth/ducky-forth.o
-ifeq ($(VMCOVERAGE),yes)
-	$(eval VMCOVERAGE_FILE := COVERAGE_FILE="$(TESTSETDIR)/coverage/.coverage.ld-$(subst /,-,$<)-to-$(subst /,-,$@).$(PID)")
-else
-	$(eval VMCOVERAGE_FILE := )
-endif
-	$(Q) echo -n "[LINK] $^ => $@ ... "
-	$(Q) $(VMCOVERAGE_FILE) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) $(VMCOVERAGE_BIN) tools/ld -o $@ $(foreach objfile,$^,-i $(objfile)) $(FORTH_LD_OPTIONS) $(VMDEBUG); if [ "$$?" -eq 0 ]; then echo "$(CC_GREEN)PASS$(CC_END)"; else echo "$(CC_RED)FAIL$(CC_END)"; fi
+	$(Q) echo "FORTH_DEBUG_FIND=$(FORTH_DEBUG_FIND)"
+	$(call run-as,$(if $(filter yes,$(FORTH_DEBUG_FIND)),-D FORTH_DEBUG_FIND) $(if $(filter yes,$(FORTH_TEXT_WRITABLE)),-D FORTH_TEXT_WRITABLE --writable-sections,) $(if $(filter yes,$(FORTH_WELCOME)),-D FORTH_WELCOME))
+
+forth/ducky-forth: forth/ducky-forth.o
+	$(call run-linker,--section-base=.text=0x0000 --section-base=.userspace=0x5000)
 
 forth: $(FORTH_KERNEL)
+
 
 #
 # Examples
 #
 
+# "Hello, world!"
 examples/hello-world/hello-world: examples/hello-world/hello-world.o
-ifeq ($(VMCOVERAGE),yes)
-	$(eval VMCOVERAGE_FILE := COVERAGE_FILE="$(TESTSETDIR)/coverage/.coverage.ld-$(subst /,-,$<)-to-$(subst /,-,$@).$(PID)")
-else
-	$(eval VMCOVERAGE_FILE := )
-endif
-	$(Q) echo -n "[LINK] $^ => $@ ... "
-	$(Q) $(VMCOVERAGE_FILE) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) $(VMCOVERAGE_BIN) tools/ld -o $@ $(foreach objfile,$^,-i $(objfile)) $(VMDEBUG); if [ "$$?" -eq 0 ]; then echo "$(CC_GREEN)PASS$(CC_END)"; else echo "$(CC_RED)FAIL$(CC_END)"; fi
+	$(run-linker)
 
 hello-world: interrupts examples/hello-world/hello-world
 
 run-hello-world: hello-world
-ifeq ($(VMCOVERAGE),yes)
-	$(eval VMCOVERAGE_FILE := COVERAGE_FILE="$(TESTSETDIR)/coverage/.coverage.hello-world.$(PID)")
-else
-	$(eval VMCOVERAGE_FILE := )
-endif
-	$(Q) $(VMCOVERAGE_FILE) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) $(VMCOVERAGE_BIN) tools/vm $(VMDEBUG) $(VMDEBUG_OPEN_FILES) --machine-config=examples/hello-world/hello-world.conf -g
+	$(call run-simple-binary,hello-world,examples/hello-world/hello-world.conf)
 
+
+# "Hello, world!" using library
 examples/hello-world-lib/hello-world: examples/hello-world-lib/lib.o examples/hello-world-lib/main.o
-ifeq ($(VMCOVERAGE),yes)
-	$(eval VMCOVERAGE_FILE := COVERAGE_FILE="$(TESTSETDIR)/coverage/.coverage.ld-$(subst /,-,$<)-to-$(subst /,-,$@).$(PID)")
-else
-	$(eval VMCOVERAGE_FILE := )
-endif
-	$(Q) echo -n "[LINK] $^ => $@ ... "
-	$(Q) $(VMCOVERAGE_FILE) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) $(VMCOVERAGE_BIN) tools/ld -o $@ $(foreach objfile,$^,-i $(objfile)) $(VMDEBUG); if [ "$$?" -eq 0 ]; then echo "$(CC_GREEN)PASS$(CC_END)"; else echo "$(CC_RED)FAIL$(CC_END)"; fi
+	$(run-linker)
 
 hello-world-lib: interrupts examples/hello-world-lib/hello-world
 
 run-hello-world-lib: hello-world-lib
-ifeq ($(VMCOVERAGE),yes)
-	$(eval VMCOVERAGE_FILE := COVERAGE_FILE="$(TESTSETDIR)/coverage/.coverage.hello-world-lib.$(PID)")
-else
-	$(eval VMCOVERAGE_FILE := )
-endif
-	$(Q) $(VMCOVERAGE_FILE) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) $(VMCOVERAGE_BIN) tools/vm $(VMDEBUG_OPEN_FILES) --machine-config=examples/hello-world-lib/hello-world.conf -g
+	$(run-simple-binary hello-world-lib,examples/hello-world-lib/hello-world.conf)
+
+
+# sVGA show-off
 
 examples/vga/vga: examples/vga/vga.o
-ifeq ($(VMCOVERAGE),yes)
-	$(eval VMCOVERAGE_FILE := COVERAGE_FILE="$(TESTSETDIR)/coverage/.coverage.ld-$(subst /,-,$<)-to-$(subst /,-,$@).$(PID)")
-else
-	$(eval VMCOVERAGE_FILE := )
-endif
-	$(Q) echo -n "[LINK] $^ => $@ ... "
-	$(Q) $(VMCOVERAGE_FILE) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) $(VMCOVERAGE_BIN) tools/ld -o $@ $(foreach objfile,$^,-i $(objfile)) $(VMDEBUG); if [ "$$?" -eq 0 ]; then echo "$(CC_GREEN)PASS$(CC_END)"; else echo "$(CC_RED)FAIL$(CC_END)"; fi
+	$(run-linker)
 
 vga: interrupts examples/vga/vga
 
 run-vga: vga
-ifeq ($(VMCOVERAGE),yes)
-	$(eval VMCOVERAGE_FILE := COVERAGE_FILE="$(TESTSETDIR)/coverage/.coverage.vga.$(PID)")
-else
-	$(eval VMCOVERAGE_FILE := )
-endif
-	$(Q) $(VMCOVERAGE_FILE) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) $(VMCOVERAGE_BIN) tools/vm $(VMDEBUG) $(VMDEBUG_OPEN_FILES) --machine-config=examples/vga/vga.conf -g
+	$(call run-simple-binary,vga,examples/vga/vga.conf)
 
+
+# RTC "clocks"
 
 examples/clock/clock: examples/clock/clock.o
-ifeq ($(VMCOVERAGE),yes)
-	$(eval VMCOVERAGE_FILE := COVERAGE_FILE="$(TESTSETDIR)/coverage/.coverage.ld-$(subst /,-,$<)-to-$(subst /,-,$@).$(PID)")
-else
-	$(eval VMCOVERAGE_FILE := )
-endif
-	$(Q) echo -n "[LINK] $^ => $@ ... "
-	$(Q) $(VMCOVERAGE_FILE) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) $(VMCOVERAGE_BIN) tools/ld -o $@ $(foreach objfile,$^,-i $(objfile)) $(VMDEBUG); if [ "$$?" -eq 0 ]; then echo "$(CC_GREEN)PASS$(CC_END)"; else echo "$(CC_RED)FAIL$(CC_END)"; fi
+	$(run-linker)
 
 clock: interrupts examples/clock/clock
 
 run-clock: clock
-ifeq ($(VMCOVERAGE),yes)
-	$(eval VMCOVERAGE_FILE := COVERAGE_FILE="$(TESTSETDIR)/coverage/.coverage.clock.$(PID)")
-else
-	$(eval VMCOVERAGE_FILE := )
-endif
-	$(Q) $(VMCOVERAGE_FILE) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) $(VMCOVERAGE_BIN) tools/vm $(VMDEBUG) $(VMDEBUG_OPEN_FILES) --machine-config=examples/clock/clock.conf -g
+	$(call run-simple-binary,clock,examples/clock/clock.conf)
 
+
+#
+# Common binaries
+#
+
+# Basic interrupt routines
 
 interrupts: interrupts.o
-	$(Q) echo -n "[LINK] $^ => $@ ... "
-ifeq ($(VMCOVERAGE),yes)
-	$(eval VMCOVERAGE_FILE := COVERAGE_FILE="$(TESTSETDIR)/coverage/.coverage.ld-$(subst /,-,$<)-to-$(subst /,-,$@).$(PID)")
-else
-	$(eval VMCOVERAGE_FILE := )
-endif
-	$(Q) $(VMCOVERAGE_FILE) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) $(VMCOVERAGE_BIN) tools/ld -o $@ $(foreach objfile,$^,-i $(objfile)) $(VMDEBUG); if [ "$$?" -eq 0 ]; then echo "$(CC_GREEN)PASS$(CC_END)"; else echo "$(CC_RED)FAIL$(CC_END)"; fi
+	$(run-linker)
+
+# Test interrupt routines
 
 tests/instructions/interrupts-basic: tests/instructions/interrupts-basic.o
-ifeq ($(VMCOVERAGE),yes)
-	$(eval VMCOVERAGE_FILE := COVERAGE_FILE="$(TESTSETDIR)/coverage/.coverage.ld-$(subst /,-,$<)-to-$(subst /,-,$@).$(PID)")
-else
-	$(eval VMCOVERAGE_FILE := )
-endif
-	$(Q) echo -n "[LINK] $^ => $@ ... "
-	$(Q) $(VMCOVERAGE_FILE) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) $(VMCOVERAGE_BIN) tools/ld -o $@ $(foreach objfile,$^,-i $(objfile)) $(VMDEBUG); if [ "$$?" -eq 0 ]; then echo "$(CC_GREEN)PASS$(CC_END)"; else echo "$(CC_RED)FAIL$(CC_END)"; fi
+	$(run-linker)
 
-run: interrupts $(FORTH_KERNEL)
-ifeq ($(VMCOVERAGE),yes)
-	$(eval VMCOVERAGE_FILE := COVERAGE_FILE="$(CURDIR)/.coverage.run.$(PID)")
-else
-	$(eval VMCOVERAGE_FILE := )
-endif
-	$(Q) $(VMCOVERAGE_FILE) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) PYTHONUNBUFFERED=yes $(PYTHON) $(VMCOVERAGE_BIN) tools/vm $(VMPROFILE) $(VMDEBUG) $(VMDEBUG_OPEN_FILES) $(BINPROFILE) --machine-config=tests/forth/test-machine.conf --machine-in=forth/ducky-forth.f
 
-run-binary: interrupts
-ifeq ($(VMCOVERAGE),yes)
-	$(eval VMCOVERAGE_FILE := COVERAGE_FILE="$(CURDIR)/.coverage.run.$(PID)")
-else
-	$(eval VMCOVERAGE_FILE := )
-endif
-	$(Q) $(VMCOVERAGE_FILE) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) PYTHONUNBUFFERED=yes $(PYTHON) $(VMCOVERAGE_BIN) tools/vm $(VMPROFILE) $(VMDEBUG) $(VMDEBUG_OPEN_FILES) $(BINPROFILE) --machine-config=$(MACHINE_CONFIG) -g
+#
+# Tests
+#
 
-run-forth-script: interrupts $(FORTH_KERNEL)
-ifeq ($(VMCOVERAGE),yes)
-	$(eval VMCOVERAGE_FILE := COVERAGE_FILE="$(CURDIR)/.coverage.run.$(PID)")
-else
-	$(eval VMCOVERAGE_FILE := )
-endif
-	$(Q) $(VMCOVERAGE_FILE) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) PYTHONUNBUFFERED=yes $(PYTHON) $(VMCOVERAGE_BIN) tools/vm $(VMPROFILE) $(VMDEBUG) $(BINPROFILE) --machine-config=tests/forth/test-machine.conf --machine-in=forth/ducky-forth.f --machine-in=$(FORTH_SCRIPT) -g
+FORTH_TESTS_IN  := $(shell find $(CURDIR) -name 'test-*.f' | sort)
+FORTH_TESTS_OUT := $(FORTH_TESTS_IN:%.f=%.f.out)
+
+# See tests/forth/ans/runtest.fth for full list
+FORTH_ANS_TESTS := core.fr memorytest.fth # coreplustest.fth coreexttest.fth memorytest.fth toolstest.fth stringtest.fth
+ENGINE_TESTS := $(shell find $(CURDIR)/tests/instructions/tests $(CURDIR)/tests/storage -name '*.asm')
 
 tests-pre:
 	$(Q) echo -n "[TEST] Create test set $(TESTSET) ... "
@@ -282,6 +260,7 @@ tests-pre:
 	$(Q) $(CURDIR)/tests/xunit-record --init --file=$(TESTSETDIR)/results/forth.xml --testsuite=forth-$(TESTSET)
 	$(Q) echo "$(CC_GREEN)PASS$(CC_END)"
 	$(Q) echo "Using python: $(CC_GREEN)$(PYTHON)$(CC_END)"
+
 
 tests-engine: tests/instructions/interrupts-basic $(ENGINE_TESTS:%.asm=%.bin)
 	$(Q)  echo "[TEST] Engine unit tests"
@@ -299,6 +278,7 @@ else
 endif
 	-$(Q) $(VMCOVERAGE_FILE) CURDIR=$(CURDIR) DEBUG_OPEN_FILES=$(DEBUG_OPEN_FILES) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) MMAPABLE_SECTIONS=$(MMAPABLE_SECTIONS) $(PYTHON) $(VIRTUAL_ENV)/bin/nosetests -v --all-modules $(COVERAGE_NOSE_FLAG) --with-xunit --xunit-file=$(TESTSETDIR)/results/nosetests.xml --no-path-adjustment -w $(CURDIR)/tests 2>&1 | stdbuf -oL -eL tee $(TESTSETDIR)/engine.out | grep -v -e '\[INFO\] ' -e '#> '
 	-$(Q) sed -i 's/<testsuite name="nosetests"/<testsuite name="nosetests-$(TESTSET)"/' $(TESTSETDIR)/results/nosetests.xml
+
 
 tests-forth-units: interrupts $(FORTH_KERNEL) $(FORTH_TESTS_OUT)
 
@@ -333,12 +313,14 @@ endif
 					sed -e 's/^/  /' $(tc_filtered); \
 				fi
 
+
 tests-post:
 	$(Q) echo "$(CC_GREEN)Avg # of instructions: `grep Executed $(TESTSETDIR)/*.machine | awk '{print $$5, " ", $$6}' | python tests/sum`/sec$(CC_END)"
 	$(Q) cd $(TESTSETDIR)/coverage && coverage combine && cd ..
 ifeq ($(VMCOVERAGE),yes)
 	$(Q) COVERAGE_FILE="$(TESTSETDIR)/coverage/.coverage" coverage html --omit="*/python2.7/*" -d $(TESTSETDIR)/coverage/
 endif
+
 
 tests-submit-results:
 ifdef CIRCLE_TEST_REPORTS
@@ -350,11 +332,15 @@ ifdef CIRCLE_ARTIFACTS
 	$(Q) cp -r $(TESTSETDIR) $(CIRCLE_ARTIFACTS)
 endif
 
+
 tests: tests-pre tests-engine tests-forth-units tests-forth-ans run-hello-world run-hello-world-lib run-vga run-clock tests-post tests-submit-results
+
 
 tests-engine-only: tests-pre tests-engine tests-post tests-submit-results
 
+
 tests-forth-only: tests-pre tests-forth-units tests-forth-ans tests-post tests-submit-results
+
 
 tests-interim-clean:
 	$(Q) rm -f $(FORTH_KERNEL) interrupts `find $(CURDIR) -name '*.pyc'` `find $(CURDIR) -name '*.o'` `find $(CURDIR) -name '*.bin'` tests/instructions/interrupts-basic ducky-snapshot.bin
@@ -367,11 +353,14 @@ tests-interim-clean:
 profile-eval:
 	$(Q) python -i -c "import os; import pstats; ps = pstats.Stats(*['$(TESTSETDIR)/profile/%s' % f for f in os.listdir('$(TESTSETDIR)/profile/') if f.find('-Profile-') != -1])"
 
+
 cloc:
 	cloc --skip-uniqueness ducky/ forth/ examples/
 
+
 flake:
 	$(Q) ! flake8 --config=$(CURDIR)/flake8.cfg $(shell find $(CURDIR)/ducky $(CURDIR)/tests -name '*.py') $(shell find $(CURDIR)/tools) | sort | grep -v -e "'patch' imported but unused" -e tools/cc -e duckyfs -e '\.swp'
+
 
 docs:
 	cp README.rst docs/introduction.rst
@@ -379,11 +368,14 @@ docs:
 	make -C docs clean
 	make -C docs html
 
+
 build: ducky/native/data_cache.c
 	python setup.py build --debug
 
+
 install:
 	python setup.py install
+
 
 clean:
 	$(Q) rm -f examples/hello-world/hello-world examples/hello-world-lib/hello-world examples/clock/clock examples/vga/vga $(FORTH_KERNEL) interrupts
@@ -396,45 +388,11 @@ clean:
 #
 
 %.o: %.asm
-ifeq ($(MMAPABLE_SECTIONS),yes)
-	$(eval mmapable_sections := --mmapable-sections)
-else
-	$(eval mmapable_sections := )
-endif
-ifeq ($(FORTH_DEBUG_FIND),yes)
-	$(eval forth_debug_find := -D FORTH_DEBUG_FIND)
-else
-	$(eval forth_debug_find := )
-endif
-ifeq ($(FORTH_TEXT_WRITABLE),yes)
-	$(eval forth_text_writable := -D FORTH_TEXT_WRITABLE --writable-sections)
-else
-	$(eval forth_text_writable := )
-endif
-ifeq ($(FORTH_WELCOME),yes)
-	$(eval forth_welcome := -D FORTH_WELCOME)
-else
-	$(eval forth_welcome := )
-endif
-ifeq ($(VMCOVERAGE),yes)
-	$(eval VMCOVERAGE_FILE := COVERAGE_FILE=$(TESTSETDIR)/coverage/.coverage.as-$(subst /,-,$<)-to-$(subst /,-,$@).$(PID))
-else
-	$(eval VMCOVERAGE_FILE := )
-endif
-	$(Q) echo -n "[COMPILE] $< => $@ ... "
-	$(Q) $(VMCOVERAGE_FILE) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) $(VMCOVERAGE_BIN) tools/as -i $< -o $@ -f $(mmapable_sections) $(forth_debug_find) $(forth_text_writable) $(forth_welcome) $(VMDEBUG); if [ "$$?" -eq 0 ]; then echo "$(CC_GREEN)PASS$(CC_END)"; else echo "$(CC_RED)FAIL$(CC_END)"; fi
+	$(run-as)
 
 
 %.bin: %.o
-ifeq ($(VMCOVERAGE),yes)
-	$(eval VMCOVERAGE_FILE := COVERAGE_FILE="$(TESTSETDIR)/coverage/.coverage.ld-$(subst /,-,$<)-to-$(subst /,-,$@).$(PID)")
-else
-	$(eval VMCOVERAGE_FILE := )
-endif
-	$(eval ld_flags := )
-	$(if $(findstring tests,$^), $(eval ld_flags := --section-base=.text=0x0000))
-	$(Q) echo -n "[LINK] $^ => $@ ... "
-	$(Q) $(VMCOVERAGE_FILE) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) $(PYTHON) $(VMCOVERAGE_BIN) tools/ld -o $@ $(foreach objfile,$^,-i $(objfile)) $(ld_flags) $(VMDEBUG); if [ "$$?" -eq 0 ]; then echo "$(CC_GREEN)PASS$(CC_END)"; else echo "$(CC_RED)FAIL$(CC_END)"; fi
+	$(call run-linker,$(if $(findstring tests,$^),--section-base=.text=0x0000))
 
 
 %.f.out: %.f interrupts $(FORTH_KERNEL)
