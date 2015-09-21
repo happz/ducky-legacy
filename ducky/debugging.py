@@ -105,6 +105,8 @@ class DebuggingSet(object):
 def add_breakpoint(core, address, ephemeral = False, countdown = None):
   core.DEBUG('add_breakpoint: address=%s, ephemeral=%s', ADDR_FMT(address), ephemeral)
 
+  core.init_debug_set()
+
   p = BreakPoint(core.debug, address)
 
   if ephemeral:

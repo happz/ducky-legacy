@@ -207,6 +207,7 @@ class Display(Device):
 
     self.gpu.boot()
     self.machine.reactor.add_task(self.refresh_task)
+    self.machine.reactor.task_runnable(self.refresh_task)
 
     self.machine.INFO(F('display: generic {name} connected to gpu {gpu}', name = self.name, gpu = self.gpu.name))
 

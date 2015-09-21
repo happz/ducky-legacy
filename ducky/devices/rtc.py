@@ -66,6 +66,7 @@ class RTC(IRQProvider, IOProvider, Device):
       self.machine.register_port(port, self)
 
     self.machine.reactor.add_task(self.timer_task)
+    self.machine.reactor.task_runnable(self.timer_task)
 
     now = datetime.datetime.now()
 

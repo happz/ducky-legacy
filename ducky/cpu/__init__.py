@@ -587,8 +587,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
     self.frames = []
     self.check_frames = cpu.machine.config.getbool('cpu', 'check-frames', default = False)
 
-    from .. import debugging
-    self.debug = debugging.DebuggingSet(self)
+    self.debug = None
 
     self.cache_controller = cache_controller
 
@@ -696,6 +695,11 @@ class CPUCore(ISnapshotable, IMachineWorker):
 
     if self.has_coprocessor('math'):
       self.math_coprocessor.load_state(state.get_children()['math_coprocessor'])
+
+  def init_debug_set(self):
+    if self.debug is None:
+      from .. import debugging
+      self.debug = debugging.DebuggingSet(self)
 
   def FLAGS(self):
     return self.registers.flags
@@ -1113,7 +1117,8 @@ class CPUCore(ISnapshotable, IMachineWorker):
 
     self.DEBUG('----- * ----- * ----- * ----- * ----- * ----- * ----- * -----')
 
-    self.debug.check()
+    if self.debug is not None:
+      self.debug.check()
 
     # Read next instruction
     self.DEBUG('"FETCH" phase')
@@ -1150,12 +1155,14 @@ class CPUCore(ISnapshotable, IMachineWorker):
 
     self.running = False
     self.cpu.core_suspended()
+    self.cpu.machine.reactor.task_suspended(self)
 
   def wake_up(self):
     self.DEBUG('CPUCore.wake_up')
 
     self.running = True
     self.cpu.core_running()
+    self.cpu.machine.reactor.task_runnable(self)
 
   def die(self, exc):
     self.DEBUG('CPUCore.die')
@@ -1223,6 +1230,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
     self.cpu.core_running()
 
     self.cpu.machine.reactor.add_task(self)
+    self.cpu.machine.reactor.task_runnable(self)
 
     if self.core_profiler is not None:
       self.core_profiler.enable()

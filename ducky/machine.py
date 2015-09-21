@@ -136,9 +136,6 @@ class IRQRouterTask(IReactorTask):
     from .devices import IRQList
     self.queue = [False for _ in range(0, IRQList.IRQ_COUNT)]
 
-  def runnable(self):
-    return any(self.queue)
-
   def run(self):
     self.machine.DEBUG('irq: router has %i waiting irqs', self.queue.count(True))
 
@@ -158,6 +155,9 @@ class IRQRouterTask(IReactorTask):
       else:
         break
 
+    if not any(self.queue):
+      self.machine.reactor.task_suspended(self)
+
 class CheckLivingCoresTask(IReactorTask):
   """
   This task checks number of living cores in the VM. If there are no living
@@ -168,9 +168,6 @@ class CheckLivingCoresTask(IReactorTask):
 
   def __init__(self, machine):
     self.machine = machine
-
-  def runnable(self):
-    return self.machine.cnt_living_cores == 0
 
   def run(self):
     self.machine.halt()
@@ -263,6 +260,9 @@ class Machine(ISnapshotable, IMachineWorker):
     """
 
     self.cnt_living_cores -= 1
+
+    if self.cnt_living_cores == 0:
+      self.reactor.task_runnable(self.check_living_cores_task)
 
   @property
   def living_cores(self):
@@ -529,6 +529,7 @@ class Machine(ISnapshotable, IMachineWorker):
 
   def trigger_irq(self, handler):
     self.irq_router_task.queue[handler.irq] = True
+    self.reactor.task_runnable(self.irq_router_task)
 
   def boot(self):
     self.INFO('Ducky VM, version %s', __version__)

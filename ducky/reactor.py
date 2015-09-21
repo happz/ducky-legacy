@@ -9,14 +9,21 @@ There are two different kinds of objects that reactor manages:
   If there are no runnable tasks, reactor loop waits for incomming events.
 """
 
+import collections
 import select
 
 from .interfaces import IReactorTask
+
+FDCallbacks = collections.namedtuple('FDCallbacks', ['on_read', 'on_write', 'on_error'])
 
 class CallInReactorTask(IReactorTask):
   """
   This task request running particular function during the reactor loop. Useful
   for planning future work, and for running tasks in reactor's thread.
+
+  :param fn: callback to fire.
+  :param args: arguments for callback.
+  :param kwargs: keyword arguments for callback.
   """
 
   def __init__(self, fn, *args, **kwargs):
@@ -24,13 +31,18 @@ class CallInReactorTask(IReactorTask):
     self.args = args
     self.kwargs = kwargs
 
-  def runnable(self):
-    return True
-
   def run(self):
     self.fn(*self.args, **self.kwargs)
 
 class RunInIntervalTask(IReactorTask):
+  """
+  This task will run its callback every ``ticks`` iterations of reactor's main loop.
+
+  :param int ticks: number of main loop iterations between two callback calls.
+  :param args: arguments for callback.
+  :param kwargs: keyword arguments for callback.
+  """
+
   def __init__(self, ticks, fn, *args, **kwargs):
     self.ticks = ticks
     self.counter = 0
@@ -38,9 +50,6 @@ class RunInIntervalTask(IReactorTask):
     self.fn = fn
     self.args = args
     self.kwargs = kwargs
-
-  def runnable(self):
-    return True
 
   def run(self):
     self.counter += 1
@@ -53,14 +62,24 @@ class RunInIntervalTask(IReactorTask):
     self.fn(self, *self.args, **self.kwargs)
 
 class SelectTask(IReactorTask):
+  """
+  Private task, serving as a single point where ``select`` syscall is being
+  executed. When a subsystem is interested in IO on a file descriptor, such
+  file descriptor should be set as non-blocking, and then registered with
+  reactor - it's not viable to place ``select`` calls everywhere in different
+  drivers. This task takes list of registered file descriptors, checks for
+  possible IO oportunities, and fires callbacks accordingly.
+
+  :param ducky.machine.Machine machine: VM this task (and reactor) belongs to.
+  :param dict fds: dictionary, where keys are descriptors, and values are lists
+  of their callbacks.
+  """
+
   def __init__(self, machine, fds, *args, **kwargs):
     super(SelectTask, self).__init__(*args, **kwargs)
 
     self.machine = machine
     self.fds = fds
-
-  def runnable(self):
-    return True
 
   def run(self):
     fds = [fd for fd in self.fds.iterkeys()]
@@ -71,31 +90,31 @@ class SelectTask(IReactorTask):
     self.machine.DEBUG('  select: f_read=%s, f_write=%s, f_err=%s', f_read, f_write, f_err)
 
     for fd in f_err:
-      if not self.fds[fd][2]:
+      if self.fds[fd].on_error is None:
         continue
 
-      self.machine.DEBUG('  trigger err: fd=%s, handler=%s', fd, self.fds[fd][2])
-      self.fds[fd][2]()
+      self.machine.DEBUG('  trigger err: fd=%s, handler=%s', fd, self.fds[fd].on_error)
+      self.fds[fd].on_error()
 
     for fd in f_read:
       if fd in f_err:
         continue
 
-      if fd not in self.fds or not self.fds[fd][0]:
+      if fd not in self.fds or self.fds[fd].on_read is None:
         continue
 
-      self.machine.DEBUG('  trigger read: fd=%s, handler=%s', fd, self.fds[fd][0])
-      self.fds[fd][0]()
+      self.machine.DEBUG('  trigger read: fd=%s, handler=%s', fd, self.fds[fd].on_read)
+      self.fds[fd].on_read()
 
     for fd in f_write:
       if fd in f_err:
         continue
 
-      if fd not in self.fds or not self.fds[fd][1]:
+      if fd not in self.fds or self.fds[fd].on_write is None:
         continue
 
-      self.machine.DEBUG('  trigger err: fd=%s, handler=%s', fd, self.fds[fd][1])
-      self.fds[fd][1]()
+      self.machine.DEBUG('  trigger err: fd=%s, handler=%s', fd, self.fds[fd].on_write)
+      self.fds[fd].on_write()
 
 class Reactor(object):
   """
@@ -106,10 +125,11 @@ class Reactor(object):
     self.machine = machine
 
     self.tasks = []
+    self.runnable_tasks = []
     self.events = []
 
     self.fds = {}
-    self.fds_task = None
+    self.fds_task = SelectTask(self.machine, self.fds)
 
   def add_task(self, task):
     """
@@ -120,10 +140,31 @@ class Reactor(object):
 
   def remove_task(self, task):
     """
-    Unregister task, it will never be run again.
+    Unregister task, it will never be ran again.
     """
 
+    self.task_suspended(task)
     self.tasks.remove(task)
+
+  def task_runnable(self, task):
+    """
+    If not yet marked as such, task is marked as runnable, and its ``run()``
+    method will be called every iteration of reactor's main loop.
+    """
+
+    if task not in self.runnable_tasks:
+      self.runnable_tasks.append(task)
+
+  def task_suspended(self, task):
+    """
+    If runnable, task is marked as suspended, not runnable, and it will no
+    longer be ran by reactor. It's still registered, so reactor's main loop
+    will not quit, and task can be later easily re-enabled by calling
+    :py:meth:`ducky.reactor.Reactor.task_runnable`.
+    """
+
+    if task in self.runnable_tasks:
+      self.runnable_tasks.remove(task)
 
   def add_event(self, event):
     """
@@ -140,17 +181,38 @@ class Reactor(object):
     self.add_event(CallInReactorTask(fn, *args, **kwargs))
 
   def add_fd(self, fd, on_read = None, on_write = None, on_error = None):
+    """
+    Register file descriptor with reactor. File descriptor will be checked for
+    read/write/error posibilities, and appropriate callbacks will be fired.
+
+    No arguments are passed to callbacks.
+
+    :param int fd: file descriptor.
+    :param on_read: function that will be called when file descriptor is available for
+      reading.
+    :param on_write: function that will be called when file descriptor is available for
+      write.
+    :param on_error: function that will be called when error state raised on file
+      descriptor.
+    """
+
     self.machine.DEBUG('Reactor.add_fd: fd=%s, on_read=%s, on_write=%s, on_error=%s', fd, on_read, on_write, on_error)
 
     assert fd not in self.fds
 
-    self.fds[fd] = (on_read, on_write, on_error)
+    self.fds[fd] = FDCallbacks(on_read, on_write, on_error)
 
     if len(self.fds) == 1:
-      self.fds_task = SelectTask(self.machine, self.fds)
       self.add_task(self.fds_task)
+      self.task_runnable(self.fds_task)
 
   def remove_fd(self, fd):
+    """
+    Unregister file descriptor. It will no longer be checked by its main loop.
+
+    :param int fd: previously registered file descriptor.
+    """
+
     self.machine.DEBUG('Reactor.remove_fd: fd=%s', fd)
 
     assert fd in self.fds
@@ -159,7 +221,6 @@ class Reactor(object):
 
     if not self.fds:
       self.remove_task(self.fds_task)
-      self.fds_task = None
 
   def run(self):
     """
@@ -173,16 +234,10 @@ class Reactor(object):
       if not self.tasks:
         break
 
-      ran_tasks = 0
+      if self.runnable_tasks:
+        for task in self.runnable_tasks:
+          task.run()
 
-      for task in self.tasks:
-        if task.runnable() is not True:
-          continue
-
-        task.run()
-        ran_tasks += 1
-
-      if ran_tasks > 0:
         while self.events:
           e = self.events.pop(0)
           e.run()
