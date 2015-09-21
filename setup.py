@@ -22,11 +22,7 @@ setup(name = 'ducky',
       install_requires = [
         'enum34',
         'tabulate',
-        'colorama',
-        'coverage',
-        'lxml',
-        'beautifulsoup4',
-        'nose'
+        'colorama'
       ],
       ext_modules = [
         mod_native_data_cache

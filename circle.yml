@@ -7,7 +7,6 @@ dependencies:
     - pip install enum34
     - pip install tabulate
     - pip install colorama
-    - pip install pytty
     - pip install coverage
     - pip install lxml
     - pip install beautifulsoup4

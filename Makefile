@@ -276,7 +276,7 @@ ifeq ($(VMDEBUG_OPEN_FILES),--debug-open-files)
 else
 	$(eval DEBUG_OPEN_FILES := no)
 endif
-	-$(Q) $(VMCOVERAGE_FILE) CURDIR=$(CURDIR) DEBUG_OPEN_FILES=$(DEBUG_OPEN_FILES) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) MMAPABLE_SECTIONS=$(MMAPABLE_SECTIONS) $(PYTHON) $(VIRTUAL_ENV)/bin/nosetests -v --all-modules $(COVERAGE_NOSE_FLAG) --with-xunit --xunit-file=$(TESTSETDIR)/results/nosetests.xml --no-path-adjustment -w $(CURDIR)/tests 2>&1 | stdbuf -oL -eL tee $(TESTSETDIR)/engine.out | grep -v -e '\[INFO\] ' -e '#> '
+	-$(Q) $(VMCOVERAGE_FILE) CURDIR=$(CURDIR) DEBUG_OPEN_FILES=$(DEBUG_OPEN_FILES) DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) MMAPABLE_SECTIONS=$(MMAPABLE_SECTIONS) $(PYTHON) $(VIRTUAL_ENV)/bin/nosetests -v --all-modules $(COVERAGE_NOSE_FLAG) --with-xunit --xunit-file=$(TESTSETDIR)/results/nosetests.xml --no-path-adjustment --with-timer -w $(CURDIR)/tests 2>&1 | stdbuf -oL -eL tee $(TESTSETDIR)/engine.out | grep -v -e '\[INFO\] ' -e '#> '
 	-$(Q) sed -i 's/<testsuite name="nosetests"/<testsuite name="nosetests-$(TESTSET)"/' $(TESTSETDIR)/results/nosetests.xml
 
 
