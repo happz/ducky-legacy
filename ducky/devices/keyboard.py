@@ -153,12 +153,12 @@ class KeyboardController(IRQProvider, IOProvider, Device):
       self.open_input()
       return
 
-    self.machine.DEBUG('adding %i chars', len(s))
+    self.machine.DEBUG('KeyboardController.handle_raw_input: adding %i chars', len(s))
 
     for c in s:
       self.queue.append(c)
 
-    self.machine.DEBUG('queue now has %i chars', len(self.queue))
+    self.machine.DEBUG('KeyboardController.handle_raw_input: queue now has %i chars', len(self.queue))
 
     self.machine.trigger_irq(self)
 
@@ -173,13 +173,13 @@ class KeyboardController(IRQProvider, IOProvider, Device):
         c = self.queue.pop(0)
 
       except IndexError:
-        self.machine.DEBUG('no available chars in queue')
+        self.machine.DEBUG('KeyboardController.__read_char: no available chars in queue')
         return None
 
-      self.machine.DEBUG('queue now has %i chars', len(self.queue))
+      self.machine.DEBUG('KeyboardController.__read_char: queue now has %i chars', len(self.queue))
 
       if c == ControlMessages.HALT:
-        self.machine.DEBUG('planned halt, execute')
+        self.machine.DEBUG('KeyboardController.__read_char: planned halt, execute')
         self.machine.halt()
 
         return None
@@ -188,7 +188,7 @@ class KeyboardController(IRQProvider, IOProvider, Device):
 
     c = ord(c)
 
-    self.machine.DEBUG('c=%s (%s)', c, self.__escape_char(c))
+    self.machine.DEBUG('KeyboardController.__read_char: c=%s (%s)', c, self.__escape_char(c))
 
     return c
 
@@ -200,9 +200,9 @@ class KeyboardController(IRQProvider, IOProvider, Device):
 
     c = self.__read_char()
     if not c:
-      self.machine.DEBUG('empty input, signal it downstream')
+      self.machine.DEBUG('KeyboardController.read_u8: empty input, signal it downstream')
       return 0xFF
 
-    self.machine.DEBUG('input byte is %i', c)
+    self.machine.DEBUG('KeyboardController.read_u8: input byte is %i', c)
 
     return c
