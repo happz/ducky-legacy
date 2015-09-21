@@ -121,7 +121,7 @@ endif
 # Helpers
 #
 
-define run-as =
+define run-as
 $(Q) echo -n "[COMPILE] $< => $@ ... "
 $(Q) COVERAGE_FILE=$(shell if [ "$(VMCOVERAGE)" = "yes" ]; then echo "$(TESTSETDIR)/coverage/.coverage.as-$(subst /,-,$<)-to-$(subst /,-,$@).$(PID)"; else echo ""; fi) \
 	   DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) \
@@ -138,7 +138,7 @@ $(Q) COVERAGE_FILE=$(shell if [ "$(VMCOVERAGE)" = "yes" ]; then echo "$(TESTSETD
 endef
 
 
-define run-linker =
+define run-linker
 $(Q) echo -n "[LINK] $^ => $@ ... "
 $(Q) COVERAGE_FILE=$(shell if [ "$(VMCOVERAGE)" = "yes" ]; then echo "$(TESTSETDIR)/coverage/.coverage.ld-$(subst /,-,$<)-to-$(subst /,-,$@).$(PID)"; else echo ""; fi) \
 	   DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) \
@@ -153,7 +153,7 @@ $(Q) COVERAGE_FILE=$(shell if [ "$(VMCOVERAGE)" = "yes" ]; then echo "$(TESTSETD
 endef
 
 
-define run-simple-binary =
+define run-simple-binary
 $(Q) echo "[RUN] $1 ..."
 $(Q) COVERAGE_FILE=$(shell if [ "$(VMCOVERAGE)" = "yes" ]; then echo "$(TESTSETDIR)/coverage/.coverage.$1.$(PID)"; else echo ""; fi) \
 	   DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) \
