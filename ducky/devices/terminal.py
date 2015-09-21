@@ -27,6 +27,9 @@ class StreamIOTerminal(Terminal):
       if stream is None:
         return None
 
+      if stream == '<stdout>':
+          return stream
+
       if isinstance(stream, str):
         return open(stream, flags)
 
