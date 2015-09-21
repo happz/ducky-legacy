@@ -15,7 +15,7 @@ dependencies:
 
 test:
   override:
-    - time DUCKY_IMPORT_DEVEL=yes VMDEBUG_OPEN_FILES=yes TESTSET=python-devel-read Q=@                                make clean tests
+    - time DUCKY_IMPORT_DEVEL=yes VMDEBUG_OPEN_FILES=yes TESTSET=python-devel-read Q=@                                make -d clean tests
     - time DUCKY_IMPORT_DEVEL=yes VMDEBUG_OPEN_FILES=yes TESTSET=python-devel-mmap Q=@          MMAPABLE_SECTIONS=yes make clean tests
     - pyenv global pypy-2.5.0
     - time DUCKY_IMPORT_DEVEL=yes VMDEBUG_OPEN_FILES=yes TESTSET=pypy-devel-read   Q=@ PYPY=yes                       make clean tests
