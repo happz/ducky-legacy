@@ -12,12 +12,13 @@ class SectionFlags(Flags):
     ('readable',   c_ubyte, 1),
     ('writable',   c_ubyte, 1),
     ('executable', c_ubyte, 1),
+    ('loadable',   c_ubyte, 1),
     ('bss',        c_ubyte, 1),
     ('mmapable',   c_ubyte, 1),
-    ('globally_visible', c_ubyte, 1)
+    ('globally_visible', c_ubyte, 1),
   ]
 
-  flag_labels = 'RWEBMG'
+  flag_labels = 'RWELBMG'
 
 class SectionTypes(enum.IntEnum):
   UNKNOWN = 0

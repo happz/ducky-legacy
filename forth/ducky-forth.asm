@@ -620,7 +620,7 @@ cold_start:
 
   ; User data area
   ; Keep it in separate section to keep it aligned, clean, unpoluted
-  .section .userspace, rwbg
+  .section .userspace, rwblg
   .space $USERSPACE_SIZE
 
 

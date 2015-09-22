@@ -32,7 +32,7 @@ RE_ASCII = re.compile(r'^\s*\.ascii\s+"(?P<value>.*?)"\s*$', re.MULTILINE)
 RE_BYTE = re.compile(r'^\s*\.byte\s+(?:(?P<value_hex>-?0x[a-fA-F0-9]+)|(?P<value_dec>(?:0)|(?:-?[1-9][0-9]*))|(?P<value_var>[a-zA-Z][a-zA-Z0-9_]*))\s*$', re.MULTILINE)
 RE_DATA = re.compile(r'^\s*\.data(?:\s+(?P<name>\.[a-z][a-z0-9_]*))?\s*$', re.MULTILINE)
 RE_INT = re.compile(r'^\s*\.int\s+(?:(?P<value_hex>-?0x[a-fA-F0-9]+)|(?P<value_dec>0|(?:-?[1-9][0-9]*))|(?P<value_var>[a-zA-Z][a-zA-Z0-9_]*)|(?P<value_label>&[a-zA-Z_\.][a-zA-Z0-9_]*))\s*$', re.MULTILINE)
-RE_SECTION = re.compile(r'^\s*\.section\s+(?P<name>\.[a-zA-z0-9_]+)(?:,\s*(?P<flags>[rwxbmg]*))?\s*$', re.MULTILINE)
+RE_SECTION = re.compile(r'^\s*\.section\s+(?P<name>\.[a-zA-z0-9_]+)(?:,\s*(?P<flags>[rwxlbmg]*))?\s*$', re.MULTILINE)
 RE_SET = re.compile(r'^\s*\.set\s+(?P<name>[a-zA-Z_][a-zA-Z0-9_]*),\s*(?:(?P<current>\.)|(?P<value_hex>-?0x[a-fA-F0-9]+)|(?P<value_dec>0|(?:-?[1-9][0-9]*))|(?P<value_label>&[a-zA-Z][a-zA-Z0-9_]*))\s*$', re.MULTILINE)
 RE_SIZE = re.compile(r'^\s*\.size\s+(?P<size>[1-9][0-9]*)\s*$', re.MULTILINE)
 RE_SPACE = re.compile(r'^\s*\.space\s+(?P<size>[1-9][0-9]*)\s*$', re.MULTILINE)
@@ -148,19 +148,19 @@ class Section(object):
 
 class TextSection(Section):
   def __init__(self, s_name, flags = None, **kwargs):
-    super(TextSection, self).__init__(s_name, SectionTypes.TEXT, flags or SectionFlags.create(readable = True, executable = True))
+    super(TextSection, self).__init__(s_name, SectionTypes.TEXT, flags or SectionFlags.create(readable = True, executable = True, loadable = True))
 
 class RODataSection(Section):
   def __init__(self, s_name, flags = None, **kwargs):
-    super(RODataSection, self).__init__(s_name, SectionTypes.DATA, flags or SectionFlags.create(readable = True))
+    super(RODataSection, self).__init__(s_name, SectionTypes.DATA, flags or SectionFlags.create(readable = True, loadable = True))
 
 class DataSection(Section):
   def __init__(self, s_name, flags = None, **kwargs):
-    super(DataSection, self).__init__(s_name, SectionTypes.DATA, flags or SectionFlags.create(readable = True, writable = True))
+    super(DataSection, self).__init__(s_name, SectionTypes.DATA, flags or SectionFlags.create(readable = True, writable = True, loadable = True))
 
 class BssSection(Section):
   def __init__(self, s_name, flags = None, **kwargs):
-    super(BssSection, self).__init__(s_name, SectionTypes.DATA, flags or SectionFlags.create(readable = True, writable = True, bss = True))
+    super(BssSection, self).__init__(s_name, SectionTypes.DATA, flags or SectionFlags.create(readable = True, writable = True, loadable = True, bss = True))
 
 class SymbolsSection(Section):
   def __init__(self, s_name, flags = None, **kwargs):

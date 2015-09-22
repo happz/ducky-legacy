@@ -1225,7 +1225,7 @@ class MemoryController(object):
 
           continue
 
-        if s_header.type in (binary.SectionTypes.RELOC, binary.SectionTypes.STRINGS):
+        if s_header.flags.loadable != 1:
           continue
 
         s_base_addr = segment_addr_to_addr(csr if s_header.type == binary.SectionTypes.TEXT else dsr, s_header.base)
