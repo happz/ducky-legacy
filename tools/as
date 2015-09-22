@@ -19,7 +19,7 @@ import ducky.util
 
 def translate_buffer(logger, buffer, file_in, file_out, options):
   try:
-    sections = ducky.cpu.assemble.translate_buffer(logger, buffer, mmapable_sections = options.mmapable_sections, writable_sections = options.writable_sections, filename = file_in, defines = options.defines)
+    sections = ducky.cpu.assemble.translate_buffer(logger, buffer, mmapable_sections = options.mmapable_sections, writable_sections = options.writable_sections, filename = file_in, defines = options.defines, includes = options.includes)
 
   except ducky.cpu.assemble.AssemblerError, exc:
     logger.exception(exc)
@@ -133,6 +133,7 @@ def main():
   group = optparse.OptionGroup(parser, 'Translation options')
   parser.add_option_group(group)
   group.add_option('-D', dest = 'defines', action = 'append', default = [], help = 'Define variable', metavar = 'VAR')
+  group.add_option('-I', dest = 'includes', action = 'append', default = [], help = 'Add directory to list of include dirs', metavar = 'DIR')
 
   group = optparse.OptionGroup(parser, 'Binary options')
   parser.add_option_group(group)

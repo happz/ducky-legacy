@@ -54,6 +54,10 @@ class IncompleteDirectiveError(AssemblerError):
   def __init__(self, filename, lineno, msg, line):
     super(IncompleteDirectiveError, self).__init__(filename, lineno, 'Incomplete directive: %s' % msg, line)
 
+class UnknownFileError(AssemblerError):
+  def __init__(self, filename, lineno, msg, line):
+    super(UnknownFileError, self).__init__(filename, lineno, 'Unknown file: %s' % msg, line)
+
 class Buffer(object):
   def __init__(self, logger, filename, buff):
     super(Buffer, self).__init__()
@@ -307,11 +311,13 @@ def sizeof(o):
 
   return None
 
-def translate_buffer(logger, buff, base_address = None, mmapable_sections = False, writable_sections = False, filename = None, defines = None):
+def translate_buffer(logger, buff, base_address = None, mmapable_sections = False, writable_sections = False, filename = None, defines = None, includes = None):
   DEBUG = logger.debug
 
   filename = filename or '<unknown>'
   defines = defines or []
+  includes = includes or []
+  includes.insert(0, os.getcwd())
 
   buff = Buffer(logger, filename, buff.split('\n'))
 
@@ -730,10 +736,27 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
 
       DEBUG(msg_prefix + 'include: file=%s', matches['file'])
 
-      with open(matches['file'], 'r') as f_in:
-        replace = f_in.read()
+      replace = None
 
-      buff.put_buffer(replace, filename = matches['file'])
+      for d in includes:
+        filename = os.path.join(d, matches['file'])
+        DEBUG(msg_prefix + '  checking file %s', filename)
+
+        try:
+          with open(filename, 'r') as f_in:
+            replace = f_in.read()
+
+        except IOError:
+          DEBUG('    failed to read')
+
+        else:
+          DEBUG('    read as replacement')
+          break
+
+      if replace is None:
+        raise buff.get_error(UnknownFileError, matches['file'])
+
+      buff.put_buffer(replace, filename = filename)
 
       continue
 
