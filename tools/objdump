@@ -50,7 +50,7 @@ def show_sections(logger, f):
       header.index,
       f.string_table.get_string(header.name),
       ducky.mm.binary.SECTION_TYPES[header.type],
-      '%s (0x%02X)' % (''.join(['R' if header.flags.readable == 1 else '-', 'W' if header.flags.writable == 1 else '-', 'X' if header.flags.executable == 1 else '-', 'B' if header.flags.bss == 1 else '-', 'M' if header.flags.mmapable == 1 else '-']), ctypes.cast(ctypes.byref(header.flags), ctypes.POINTER(ctypes.c_ubyte)).contents.value),
+      '%s (0x%02X)' % (header.flags.to_string(), ctypes.cast(ctypes.byref(header.flags), ctypes.POINTER(ctypes.c_ubyte)).contents.value),
       ADDR_FMT(header.base),
       header.items,
       SIZE_FMT(header.data_size),
