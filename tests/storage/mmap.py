@@ -58,6 +58,8 @@ class Tests(unittest.TestCase):
       file_assert[0][1][msg_offset + i + 1] = ord(msg[i + 1])
 
     code = """
+      .include "defs.asm"
+
       .def MMAP_START: {mmap_offset}
       .def MSG_OFFSET: {msg_offset}
       .def MSG_LENGTH: {msg_length}
@@ -89,7 +91,7 @@ class Tests(unittest.TestCase):
         dec r2
         j &copy_loop
       quit:
-        int 0
+        int $INT_HALT
     """.format(**{'mmap_offset': mmap_offset, 'msg_offset': msg_offset, 'msg_length': msg_length})
 
     self.common_case(code, [mmap_desc], mm_assert, file_assert, r0 = mmap_offset + msg_offset + msg_length, r1 = 0x0100 + 2 + msg_length, r3 = ord(msg[-1]), e = 1, z = 1)
@@ -125,6 +127,8 @@ class Tests(unittest.TestCase):
       file_assert[0][1][msg_offset + i + 1] = ord(msg[i + 1])
 
     code = """
+      .include "defs.asm"
+
       .def MMAP_START: {mmap_offset}
       .def MSG_OFFSET: {msg_offset}
       .def MSG_LENGTH: {msg_length}
@@ -150,7 +154,7 @@ class Tests(unittest.TestCase):
         dec r2
         j &copy_loop
       quit:
-        int 0
+        int $INT_HALT
     """.format(**{'mmap_offset': mmap_offset, 'msg_offset': msg_offset, 'msg_length': msg_length, 'msg': msg})
 
     self.common_case(code, [mmap_desc], mm_assert, file_assert, r0 = mmap_offset + msg_offset + msg_length, r1 = 0x0100 + msg_length, r3 = ord(msg[-1]), e = 1, z = 1)

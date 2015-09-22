@@ -132,4 +132,4 @@ main:
 .loop:
   idle
   j &.loop
-  int 0
+  int $INT_HALT

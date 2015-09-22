@@ -109,6 +109,7 @@ Memory model
  - each program has its own code and data segment
    - they are isolated from each other - CS/DS registers are protected in user mode
    - each segment can be addressed by unsigned 16-bit address, therefore 256 different segments available
+   - however, it is technicaly possible to use one segment for more than one binary, this feature is not yet supported
  - memory is organized into pages of 256 bytes
    - each page can be restricted for read, write and execute operations
 
@@ -116,17 +117,16 @@ Memory model
 Memory layout
 ^^^^^^^^^^^^^
 
-Interrupt Vector tables
-"""""""""""""""""""""""
+Interrupt Vector table
+""""""""""""""""""""""
 
-There are two separate interrupt vector tables (`IVT`), located in main memory, in segment ``0``. Each table is 256 bytes long, enough for 64 entries. Each entry has the same layout:
+Interrupt vector table (`IVT`), located in main memory, is by default located at address ``0x000000``. It is 256 bytes long, providing enough space for 64 entries. Each entry has the same layout:
 
 +-----------------+-----------------+------------------+
 | ``cs`` - 8 bits | ``ds`` - 8 bits | ``ip`` - 16 bits |
 +-----------------+-----------------+------------------+
 
- - IRQ (hardware interrupts) table starts by default at ``0x000000``
- - INT (software interrupts) table starts by default at ``0x000100``
+When CPU is interrupted - by hardware (device generates interrupt) or software (program executes ``int`` instruction) interrupt, corresponding entry is located in ``IVT``, using interrupt ID as an index.
 
 
 Stack

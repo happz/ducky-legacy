@@ -19,9 +19,6 @@ from ctypes import c_ubyte as u8  # NOQA
 from ctypes import c_ushort as u16  # NOQA
 from ctypes import c_uint as u32  # NOQA
 
-MEM_IRQ_TABLE_ADDRESS   = 0x000000
-MEM_INT_TABLE_ADDRESS   = 0x000100
-
 PAGE_SHIFT = 8
 #: Size of memory page, in bytes.
 PAGE_SIZE = (1 << PAGE_SHIFT)
@@ -710,7 +707,7 @@ class MemoryRegion(ISnapshotable, object):
 
 class MemoryState(SnapshotNode):
   def __init__(self):
-    super(MemoryState, self).__init__('size', 'irq_table_address', 'int_table_address', 'segments')
+    super(MemoryState, self).__init__('size', 'segments')
 
   def get_page_states(self):
     return [__state for __name, __state in self.get_children().iteritems() if __name.startswith('page_')]
@@ -755,17 +752,12 @@ class MemoryController(object):
     self.opened_mmap_files = {}  # path: (cnt, file)
     self.mmap_areas = {}
 
-    self.irq_table_address = MEM_IRQ_TABLE_ADDRESS
-    self.int_table_address = MEM_INT_TABLE_ADDRESS
-
   def save_state(self, parent):
     self.DEBUG('mc.save_state')
 
     state = parent.add_child('memory', MemoryState())
 
     state.size = self.__size
-    state.irq_table_address = self.irq_table_address
-    state.int_table_address = self.int_table_address
 
     state.segments = []
     for segment in self.__segments.keys():
@@ -776,8 +768,6 @@ class MemoryController(object):
 
   def load_state(self, state):
     self.size = state.size
-    self.irq_table_address = state.irq_table_address
-    self.int_table_address = state.int_table_address
 
     for segment in state.segments:
       self.__segments[segment] = True
@@ -987,6 +977,13 @@ class MemoryController(object):
 
     return (pg, pg.segment_address + PAGE_SIZE)
 
+  def alloc_ivt(self, address):
+    pg = self.__alloc_page(addr_to_page(address))
+    pg.read = True
+    pg.cache = False
+
+    return pg
+
   def free_page(self, page):
     """
     Free memory page when it's no longer needed.
@@ -1074,16 +1071,6 @@ class MemoryController(object):
 
     # Reserve the first segment for system usage
     self.alloc_segment()
-
-    # IRQ table
-    pg = self.__alloc_page(addr_to_page(self.irq_table_address))
-    pg.read = True
-    pg.cache = False
-
-    # INT table
-    pg = self.__alloc_page(addr_to_page(self.int_table_address))
-    pg.read = True
-    pg.cache = False
 
     self.INFO('mm: %s, %s available', sizeof_fmt(self.__size, max_unit = 'Ki'), sizeof_fmt(self.__size - len(self.__pages) * PAGE_SIZE, max_unit = 'Ki'))
 
@@ -1429,27 +1416,8 @@ class MemoryController(object):
     self.write_u8(vector_address + 1, desc.ds & 0xFF, privileged = True)
     self.write_u16(vector_address + 2, desc.ip & 0xFFFF, privileged = True)
 
-  def load_interrupt_vector(self, table, index):
-    """
-    load_interrupt_vector(int, int)
-    """
-
-    from ..cpu import InterruptVector
-
-    self.DEBUG('mc.load_interrupt_vector: table=%s, index=%i', table, index)
-
-    desc = InterruptVector()
-
-    vector_address = table + index * InterruptVector.SIZE
-
-    desc.cs = self.read_u8(vector_address, privileged = True)
-    desc.ds = self.read_u8(vector_address + 1, privileged = True)
-    desc.ip = self.read_u16(vector_address + 2, privileged = True)
-
-    return desc
-
 from ..interfaces import IVirtualInterrupt
-from ..devices import VIRTUAL_INTERRUPTS, InterruptList
+from ..devices import VIRTUAL_INTERRUPTS, IRQList
 
 class MMInterrupt(IVirtualInterrupt):
   def run(self, core):
@@ -1614,4 +1582,4 @@ class MMInterrupt(IVirtualInterrupt):
       core.WARN('Unknown mm operation requested: %s', op)
       core.REG(Registers.R00).value = 0xFFFF
 
-VIRTUAL_INTERRUPTS[InterruptList.MM.value] = MMInterrupt
+VIRTUAL_INTERRUPTS[IRQList.MM.value] = MMInterrupt

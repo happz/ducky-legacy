@@ -109,7 +109,7 @@ In need of waiting for external events it is possible to suspend CPU until the n
 Invocation
 """"""""""
 
-Only software interrupt routines can be invoked by means of special instruction. When invoked several events take place:
+Any interrupt service routine can be invoked by means of special instruction. When invoked several events take place:
 
  - new stack page is allocated for interrupt routine ("interrupt stack")
  - ``ds``, ``sp``, ``cs``, and ``flags`` are stored on interrupt stack

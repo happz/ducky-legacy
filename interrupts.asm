@@ -8,13 +8,6 @@ irq_routine_#index:
   retint
 .end
 
-.macro VIRTUAL_INTERRUPT index:
-  .text
-
-int_routine_#index:
-  retint
-.end
-
 
   .data
 
@@ -40,20 +33,19 @@ irq_routine_0:
   retint
 
 ;
-; Console IO
+; Keyboard
 ;
-; Just wake up all sleepers waiting for console IO
-;
-$VIRTUAL_IRQ 1
+irq_routine_1:
+  retint
 
 ;
 ; Halt VM
 ;
-int_routine_0:
+irq_routine_32:
   hlt r0
 
-$VIRTUAL_INTERRUPT $INT_BLOCKIO
-$VIRTUAL_INTERRUPT $INT_VMDEBUG
-$VIRTUAL_INTERRUPT $INT_CONIO
-$VIRTUAL_INTERRUPT $INT_MM
-$VIRTUAL_INTERRUPT $INT_MATH
+$VIRTUAL_IRQ $INT_BLOCKIO
+$VIRTUAL_IRQ $INT_VMDEBUG
+$VIRTUAL_IRQ $INT_CONIO
+$VIRTUAL_IRQ $INT_MM
+$VIRTUAL_IRQ $IMT_MATH

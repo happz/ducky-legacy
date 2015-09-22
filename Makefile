@@ -128,6 +128,7 @@ $(Q) COVERAGE_FILE=$(shell if [ "$(VMCOVERAGE)" = "yes" ]; then echo "$(TESTSETD
 		   $(PYTHON) $(VMCOVERAGE_BIN) tools/as -i $< -o $@ \
 		 -f \
 		 $(shell if [ "$(MMAPABLE_SECTIONS)" = "yes" ]; then echo "--mmapable-sections"; else echo ""; fi) \
+		 -I $(CURDIR) \
 		 $1 \
 		 $(VMDEBUG); \
 		 if [ "$$?" -eq 0 ]; then \
@@ -167,7 +168,7 @@ endef
 
 FORTH_KERNEL := forth/ducky-forth
 
-forth/ducky-forth.o: forth/ducky-forth.asm forth/ducky-forth-words.asm
+forth/ducky-forth.o: forth/ducky-forth.asm forth/ducky-forth-words.asm forth/defs.asm defs.asm
 	$(Q) echo "FORTH_DEBUG_FIND=$(FORTH_DEBUG_FIND)"
 	$(call run-as,$(if $(filter yes,$(FORTH_DEBUG_FIND)),-D FORTH_DEBUG_FIND) $(if $(filter yes,$(FORTH_TEXT_WRITABLE)),-D FORTH_TEXT_WRITABLE --writable-sections,) $(if $(filter yes,$(FORTH_WELCOME)),-D FORTH_WELCOME))
 
@@ -182,6 +183,7 @@ forth: $(FORTH_KERNEL)
 #
 
 # "Hello, world!"
+examples/hello-world/hello-world.o: defs.asm examples/hello-world/hello-world.asm
 examples/hello-world/hello-world: examples/hello-world/hello-world.o
 	$(run-linker)
 
@@ -192,17 +194,19 @@ run-hello-world: hello-world
 
 
 # "Hello, world!" using library
+examples/hello-world-lib/lib.o: defs.asm examples/hello-world-lib/lib.asm
+examples/hello-world-lib/main.o: defs.asm examples/hello-world-lib/main.asm
 examples/hello-world-lib/hello-world: examples/hello-world-lib/lib.o examples/hello-world-lib/main.o
 	$(run-linker)
 
 hello-world-lib: interrupts examples/hello-world-lib/hello-world
 
 run-hello-world-lib: hello-world-lib
-	$(run-simple-binary hello-world-lib,examples/hello-world-lib/hello-world.conf)
+	$(call run-simple-binary,hello-world-lib,examples/hello-world-lib/hello-world.conf)
 
 
 # sVGA show-off
-
+examples/vga/vga.o: defs.asm examples/vga/vga.asm
 examples/vga/vga: examples/vga/vga.o
 	$(run-linker)
 
@@ -213,7 +217,7 @@ run-vga: vga
 
 
 # RTC "clocks"
-
+examples/clock/clock.o: defs.asm examples/clock/clock.asm
 examples/clock/clock: examples/clock/clock.o
 	$(run-linker)
 
@@ -229,11 +233,13 @@ run-clock: clock
 
 # Basic interrupt routines
 
+interrupts.o: interrupts.asm defs.asm
 interrupts: interrupts.o
 	$(run-linker)
 
 # Test interrupt routines
 
+tests/instructions/interrupts-basic.o: tests/instructions/interrupts-basic.asm defs.asm
 tests/instructions/interrupts-basic: tests/instructions/interrupts-basic.o
 	$(run-linker)
 
@@ -388,7 +394,7 @@ clean:
 #
 
 %.o: %.asm
-	$(run-as)
+	$(call run-as)
 
 
 %.bin: %.o

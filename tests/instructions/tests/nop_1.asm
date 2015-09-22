@@ -1,3 +1,4 @@
+  .include "defs.asm"
 main:
   nop
-  int 0
+  int $INT_HALT

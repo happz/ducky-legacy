@@ -390,13 +390,11 @@ class Machine(ISnapshotable, IMachineWorker):
       desc.ip = binary.symbols[name].u16
       self.memory.save_interrupt_vector(table, index, desc)
 
+    self.memory.alloc_ivt(0x000000)
+
     from .devices import IRQList
     for i in range(0, IRQList.IRQ_COUNT):
-      __save_iv('irq_routine_{}'.format(i), self.memory.irq_table_address, i)
-
-    from .devices import InterruptList
-    for i in range(0, InterruptList.INT_COUNT):
-      __save_iv('int_routine_{}'.format(i), self.memory.int_table_address, i)
+      __save_iv('irq_routine_{}'.format(i), 0, i)
 
     self.print_regions(binary.regions)
 

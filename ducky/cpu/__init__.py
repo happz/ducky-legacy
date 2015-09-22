@@ -12,6 +12,9 @@ from ..errors import AccessViolationError, InvalidResourceError
 from ..util import LRUCache
 from ..snapshot import SnapshotNode
 
+#: Default IVT address
+DEFAULT_IVT_ADDRESS = 0x000000
+
 #: Default size of core instruction cache, in instructions.
 DEFAULT_CORE_INST_CACHE_SIZE = 256
 
@@ -29,7 +32,7 @@ class CPUState(SnapshotNode):
 
 class CPUCoreState(SnapshotNode):
   def __init__(self):
-    super(CPUCoreState, self).__init__('cpuid', 'coreid', 'registers', 'exit_code', 'alive', 'running', 'idle')
+    super(CPUCoreState, self).__init__('cpuid', 'coreid', 'registers', 'exit_code', 'alive', 'running', 'idle', 'ivt_address')
 
 class InterruptVector(object):
   """
@@ -570,6 +573,8 @@ class CPUCore(ISnapshotable, IMachineWorker):
 
     self.registers = registers.RegisterSet()
 
+    self.ivt_address = config.getint('cpu', 'ivt-address', DEFAULT_IVT_ADDRESS)
+
     self.instruction_set = DuckyInstructionSet
     self.instruction_set_stack = []
 
@@ -672,6 +677,8 @@ class CPUCore(ISnapshotable, IMachineWorker):
 
       state.registers.append(value)
 
+    state.ivt_address = self.ivt_address
+
     state.exit_code = self.exit_code
     state.idle = self.idle
     state.alive = self.alive
@@ -687,6 +694,8 @@ class CPUCore(ISnapshotable, IMachineWorker):
 
       else:
         self.registers.map[reg].value = state.registers[i]
+
+    self.ivt_address = state.ivt_address
 
     self.exit_code = state.exit_code
     self.idle = state.idle
@@ -864,7 +873,20 @@ class CPUCore(ISnapshotable, IMachineWorker):
 
     self.__symbol_for_ip()
 
-  def __enter_interrupt(self, table_address, index):
+  def __load_interrupt_vector(self, index):
+    self.DEBUG('load_interrupt_vector: ivt=%s, index=%i', ADDR_FMT(self.ivt_address), index)
+
+    desc = InterruptVector()
+
+    vector_address = self.ivt_address + index * InterruptVector.SIZE
+
+    desc.cs = self.MEM_IN8(vector_address)
+    desc.ds = self.MEM_IN8(vector_address + 1)
+    desc.ip = self.MEM_IN16(vector_address + 2)
+
+    return desc
+
+  def __enter_interrupt(self, index):
     """
     Prepare CPU for handling interrupt routine. New stack is allocated, content fo registers
     is saved onto this new stack, and new call frame is created on this stack. CPU is switched
@@ -875,9 +897,9 @@ class CPUCore(ISnapshotable, IMachineWorker):
     :param int index: interrupt number, its index into IDS
     """
 
-    self.DEBUG('__enter_interrupt: table=%s, index=%i', table_address, index)
+    self.DEBUG('__enter_interrupt: index=%i', index)
 
-    iv = self.memory.load_interrupt_vector(table_address, index)
+    iv = self.__load_interrupt_vector(index)
 
     stack_pg, sp = self.memory.alloc_stack(segment = iv.ds)
 
@@ -947,7 +969,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
       self.DEBUG('do_int: virtual interrupt finished')
 
     else:
-      self.__enter_interrupt(self.memory.int_table_address, index)
+      self.__enter_interrupt(index)
 
       self.DEBUG('do_int: CPU state prepared to handle interrupt')
 
@@ -960,7 +982,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
 
     self.DEBUG('__do_irq: %s', index)
 
-    self.__enter_interrupt(self.memory.irq_table_address, index)
+    self.__enter_interrupt(index)
     self.registers.flags.hwint = 0
     self.idle = False
 

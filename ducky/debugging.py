@@ -3,7 +3,7 @@ import logging
 
 from .interfaces import IVirtualInterrupt
 from .mm import ADDR_FMT
-from .devices import InterruptList, VIRTUAL_INTERRUPTS
+from .devices import IRQList, VIRTUAL_INTERRUPTS
 
 class Point(object):
   point_index = 0
@@ -203,4 +203,4 @@ class VMDebugInterrupt(IVirtualInterrupt):
     else:
       core.WARN('VMDebugInterrupt: unknown operation requested: %s', op)
 
-VIRTUAL_INTERRUPTS[InterruptList.VMDEBUG.value] = VMDebugInterrupt
+VIRTUAL_INTERRUPTS[IRQList.VMDEBUG.value] = VMDebugInterrupt

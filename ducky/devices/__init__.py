@@ -10,24 +10,18 @@ class IRQList(enum.IntEnum):
   List of known IRQ sources.
   """
 
-  TIMER = 0
+  # HW devices
+  TIMER    = 0
   KEYBOARD = 1
 
+  # SW interrupts and exceptions
+  HALT    = 32
+  BLOCKIO = 33
+  VMDEBUG = 34
+  MM      = 35
+  MATH    = 36
+
   IRQ_COUNT = 64
-
-
-class InterruptList(enum.IntEnum):
-  """
-  List of known software interrupts.
-  """
-
-  HALT    = 0
-  BLOCKIO = 1
-  VMDEBUG = 2
-  MM      = 4
-  MATH    = 5
-
-  INT_COUNT = 64
 
 
 class IOPorts(enum.IntEnum):

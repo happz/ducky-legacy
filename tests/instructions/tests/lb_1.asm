@@ -1,3 +1,4 @@
+  .include "defs.asm"
   .data
 
   .type redzone_pre, int
@@ -13,4 +14,4 @@
 main:
   li r0, &foo
   lb r1, r0
-  int 0
+  int $INT_HALT

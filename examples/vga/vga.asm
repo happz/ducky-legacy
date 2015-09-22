@@ -16,7 +16,7 @@ main:
   out $VGA_COMMAND_PORT, r0
 
   li r0, 0
-  int 0
+  int $INT_HALT
 
 
 writes:

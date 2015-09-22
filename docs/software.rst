@@ -21,18 +21,18 @@ All virtual interrupt routines, assembler code, any pieces of software I've writ
 Software interrupts
 -------------------
 
-Software interrupts provide access to library of common functions, and - in case of virtual interrupts - to internal, complex and otherwise inaccessible rouces of virtual machine itself.
+Software interrupts provide access to library of common functions, and - in case of virtual interrupts - to internal, complex and otherwise inaccessible resources of virtual machine itself.
 
-For the list for existing software interrupts and their numbers, see :py:class:`ducky.irq.InterruptList`. However, by the nature of invoking a software interrupt, this list is not carved into a stone. You may easily provide your own ``IVT``, with entries leading to your own routines, and use e.g. the first entry, ``HALT``, to sing a song.
+For the list for existing interrupts and their numbers, see :py:class:`ducky.irq.IRQList`. However, by the nature of invoking a software interrupt, this list is not carved into a stone. You may easily provide your own ``IVT``, with entries leading to your own routines, and use e.g. the 33th entry, ``HALT``, to sing a song.
 
-All values are defined in ``defs.asm`` file which you can include into your assembler sources.
+All values are defined in ``defs.asm`` file which you can - and should - include into your assembler sources.
 
 
 ``HALT``
 ^^^^^^^^
 
 +---------------+--------------------+
-| ``IVT`` entry | ``0``              |
+| ``IVT`` entry | ``32``             |
 +---------------+--------------------+
 | Parameters    | ``r0`` - exit code |
 +---------------+--------------------+
@@ -44,7 +44,7 @@ Halt a CPU core. Value in ``r0`` is propagated as a core's exit code. This inter
 ^^^^^^^^^^^
 
 +---------------+--------------------------------------------------------------------------+
-| ``IVT`` entry | ``1``                                                                    |
+| ``IVT`` entry | ``33``                                                                   |
 +---------------+--------+--------------------+--------------------------------------------+
 |               |        | Read mode          | Write mode                                 |
 +---------------+--------+--------------------+--------------------------------------------+

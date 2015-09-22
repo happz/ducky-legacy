@@ -29,11 +29,15 @@
 ;
 ; Interrupts
 ;
-.def INT_HALT:    0
-.def INT_BLOCKIO: 1
-.def INT_VMDEBUG: 2
-.def INT_MM:      4
-.def INT_MATH:    5
+
+.def IRQ_TIMER:     0
+.def IRQ_KEYBOARD:  1
+
+.def INT_HALT:    32
+.def INT_BLOCKIO: 33
+.def INT_VMDEBUG: 34
+.def INT_MM:      35
+.def INT_MATH:    36
 
 
 ;

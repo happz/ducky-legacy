@@ -68,8 +68,7 @@ class Tests(unittest.TestCase):
       file_assert[0][1][msg_block * ducky.devices.storage.BLOCK_SIZE + i + 1] = ord(msg[i + 1])
 
     code = """
-      .def INT_BLOCKIO: 1
-      .def BLOCKIO_READ: 0
+      .include "defs.asm"
 
       .def MSG_BLOCK:  {msg_block}
       .def MSG_LENGTH: {msg_length}
@@ -94,7 +93,7 @@ class Tests(unittest.TestCase):
         li r3, &block
         li r4, 1
         int $INT_BLOCKIO
-        int 0
+        int $INT_HALT
     """.format(**{'msg_block': msg_block, 'msg_length': msg_length, 'block_size': ducky.devices.storage.BLOCK_SIZE})
 
     self.common_case(code = code, storages = [storage_desc], mm = mm_assert, files = file_assert,
@@ -130,8 +129,7 @@ class Tests(unittest.TestCase):
       file_assert[0][1][msg_block * ducky.devices.storage.BLOCK_SIZE + i + 1] = ord(msg[i + 1])
 
     code = """
-      .def INT_BLOCKIO: 1
-      .def BLOCKIO_WRITE: 1
+      .include "defs.asm"
 
       .def MSG_BLOCK:  {msg_block}
       .def MSG_LENGTH: {msg_length}
@@ -150,7 +148,7 @@ class Tests(unittest.TestCase):
         li r3, $MSG_BLOCK
         li r4, 1
         int $INT_BLOCKIO
-        int 0
+        int $INT_HALT
     """.format(**{'msg_block': msg_block, 'msg_length': msg_length, 'block_size': ducky.devices.storage.BLOCK_SIZE, 'msg': msg})
 
     self.common_case(code = code, storages = [storage_desc], mm = mm_assert, files = file_assert,

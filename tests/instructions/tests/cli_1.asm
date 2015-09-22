@@ -1,6 +1,7 @@
+  .include "defs.asm"
   .text
 main:
   li r1, 0xFF
   cli
   li r1, 0xEE
-  int 0
+  int $INT_HALT

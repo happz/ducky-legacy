@@ -1,3 +1,4 @@
+  .include "defs.asm"
   .data
   .type foo, int
   .int 0x0
@@ -8,4 +9,4 @@ main:
   lw r1, r0
   li r2, 0xDEAD
   stb r0, r2
-  int 0
+  int $INT_HALT

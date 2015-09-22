@@ -17,7 +17,7 @@ from .. import CPUException
 from ..registers import Registers
 from ..instructions import InstructionSet, InstDescriptor_Generic, Inst_POP, Inst_PUSH, Inst_MOV, Inst_SIS, INSTRUCTION_SETS
 from ...mm import u32, i32, UINT32_FMT, UINT16_FMT
-from ...devices import InterruptList, VIRTUAL_INTERRUPTS
+from ...devices import IRQList, VIRTUAL_INTERRUPTS
 from ...snapshot import SnapshotNode
 
 #: Number of available spots on the math stack.
@@ -670,4 +670,4 @@ Inst_SIS(MathCoprocessorInstructionSet)
 MathCoprocessorInstructionSet.init()
 
 INSTRUCTION_SETS[MathCoprocessorInstructionSet.instruction_set_id] = MathCoprocessorInstructionSet
-VIRTUAL_INTERRUPTS[InterruptList.MATH] = MathInterrupt
+VIRTUAL_INTERRUPTS[IRQList.MATH.value] = MathInterrupt

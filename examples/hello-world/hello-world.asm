@@ -7,7 +7,7 @@ main:
   li r0, &message
   call &writesn
   li r0, 0
-  int 0
+  int $INT_HALT
 
 outb:
   ; > r0: port

@@ -17,7 +17,7 @@ import os
 from ..errors import InvalidResourceError
 from ..interfaces import IVirtualInterrupt
 from ..cpu.registers import Registers
-from . import InterruptList, VIRTUAL_INTERRUPTS
+from . import IRQList, VIRTUAL_INTERRUPTS
 from ..mm import segment_addr_to_addr
 from ..util import Flags
 from . import Device
@@ -248,4 +248,4 @@ class BlockIOInterrupt(IVirtualInterrupt):
       core.ERROR('BIO: operation failed')
       core.EXCEPTION(e)
 
-VIRTUAL_INTERRUPTS[InterruptList.BLOCKIO.value] = BlockIOInterrupt
+VIRTUAL_INTERRUPTS[IRQList.BLOCKIO.value] = BlockIOInterrupt
