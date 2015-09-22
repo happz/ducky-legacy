@@ -28,6 +28,7 @@
 #define BOOL_DEFAULT_TRUE(_o)   ((_o) != NULL ? PyObject_IsTrue(_o) : 1)
 
 #define DEBUG(_self, ...) do { sprintf(debug_buff, __VA_ARGS__); PyObject_CallMethod((_self)->dc_core, "DEBUG", "s", debug_buff); } while(0)
+//#define DEBUG(_self, ...) do { } while(0)
 
 #define WORD_LB(u16)  ((unsigned char)(u16 & 0xFF))
 #define WORD_HB(u16)  ((unsigned char)((u16 >> 8) & 0xFF))
@@ -51,8 +52,6 @@ struct CPUDataCache_s {
 
     PyObject *dc_controller;
     PyObject *dc_core;
-
-    PyObject *logger_debug;
 
     unsigned int dc_size;
 
@@ -156,8 +155,10 @@ static int DC_init(CPUDataCache *self, PyObject *args, PyObject *kwds)
     return -1;
 
   self->dc_buffer = PyMem_Malloc(sizeof(uint8_t) * self->dc_size);
-  if (!self->dc_buffer)
+  if (!self->dc_buffer) {
+    PyMem_Free(self->dc_lines);
     return -1;
+  }
 
   for(i = 0; i < self->dc_lines_count; i++) {
     line = &self->dc_lines[i];
@@ -233,15 +234,21 @@ static int __get_page_data(CPUDataCache *self, unsigned int address, PyObject **
   if (!mc)
     return -1;
 
+  Py_DECREF(mc);
+
   pg = PyObject_CallMethod(mc, "page", "I", (address & PAGE_MASK) >> PAGE_SHIFT);
   if (!pg)
     return -1;
+
+  Py_DECREF(pg);
 
   DEBUG(self, "  DC: pg=%s", PyString_AsString(PyObject_Repr(pg)));
 
   data = PyObject_GetAttrString(pg, "data");
   if (!data)
     return -1;
+
+  Py_DECREF(data);
 
   if (!data->ob_type || !data->ob_type->tp_as_buffer || !data->ob_type->tp_as_buffer->bf_getreadbuffer) {
     PyErr_SetString(PyExc_RuntimeError, "Data provider does not support buffer protocol");
@@ -254,7 +261,7 @@ static int __get_page_data(CPUDataCache *self, unsigned int address, PyObject **
       return -1;
 
     offset = PyInt_AsLong(o);
-    Py_XDECREF(o);
+    Py_DECREF(o);
   }
 
   if (data->ob_type->tp_as_buffer->bf_getreadbuffer(data, 0, (void **)buff) == -1)
@@ -265,11 +272,6 @@ static int __get_page_data(CPUDataCache *self, unsigned int address, PyObject **
   *buff = (*buff + offset);
   *provider = data;
 
-  return 0;
-}
-
-static int __put_page_data(PyObject *provider, char *buff)
-{
   return 0;
 }
 
@@ -284,8 +286,6 @@ static int __read_line_from_memory(unsigned int address, cache_line_t *line)
     return -1;
 
   memcpy(line->cl_data, &buff[address & (~PAGE_MASK)], sizeof(unsigned char) * line->cl_cache->dc_lines_length);
-
-  __put_page_data(provider, buff);
 
   line->cl_address = address;
   set_used(line);
@@ -305,8 +305,6 @@ static int __write_line_to_memory(cache_line_t *line)
     return -1;
 
   memcpy(&buff[line->cl_address & (~PAGE_MASK)], line->cl_data, sizeof(unsigned char) * line->cl_cache->dc_lines_length);
-
-  __put_page_data(provider, buff);
 
   clear_dirty(line);
 
@@ -554,6 +552,7 @@ static PyObject *DC_release_page_references(CPUDataCache *self, PyObject *args, 
     return NULL;
 
   address = PyInt_AsLong(base_address);
+  Py_DECREF(base_address);
 
   DEBUG(self, "DC.release_page_references: page=%i, address=0x%06X", (int)PyInt_AsLong(PyObject_GetAttrString(page, "index")), address);
 
