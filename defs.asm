@@ -54,6 +54,8 @@
 ;
 ; BlockIO Operations
 ;
+.def BLOCK_SIZE:    1024
+
 .def BLOCKIO_READ:  0
 .def BLOCKIO_WRITE: 1
 
