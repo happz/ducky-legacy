@@ -62,9 +62,11 @@ ifndef VMCOVERAGE
   VMCOVERAGE=no
 endif
 ifeq ($(VMCOVERAGE),yes)
-  VMCOVERAGE_BIN := $(VIRTUAL_ENV)/bin/coverage run --branch --source=ducky
+	VMCOVERAGE_BIN := $(VIRTUAL_ENV)/bin/coverage
+	VMCOVERAGE_RUN := $(VMCOVERAGE_BIN) run --rcfile=$(CURDIR)/coveragerc
 else
   VMCOVERAGE_BIN :=
+	VMCOVERAGE_RUN :=
 endif
 
 # Binary profiling
@@ -125,7 +127,7 @@ define run-as
 $(Q) echo -n "[COMPILE] $< => $@ ... "
 $(Q) COVERAGE_FILE=$(shell if [ "$(VMCOVERAGE)" = "yes" ]; then echo "$(TESTSETDIR)/coverage/.coverage.as-$(subst /,-,$<)-to-$(subst /,-,$@).$(PID)"; else echo ""; fi) \
 	   DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) \
-		   $(PYTHON) $(VMCOVERAGE_BIN) tools/as -i $< -o $@ \
+		   $(PYTHON) $(VMCOVERAGE_RUN) tools/as -i $< -o $@ \
 		 -f \
 		 $(shell if [ "$(MMAPABLE_SECTIONS)" = "yes" ]; then echo "--mmapable-sections"; else echo ""; fi) \
 		 -I $(CURDIR) \
@@ -143,7 +145,7 @@ define run-linker
 $(Q) echo -n "[LINK] $^ => $@ ... "
 $(Q) COVERAGE_FILE=$(shell if [ "$(VMCOVERAGE)" = "yes" ]; then echo "$(TESTSETDIR)/coverage/.coverage.ld-$(subst /,-,$<)-to-$(subst /,-,$@).$(PID)"; else echo ""; fi) \
 	   DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) \
-		 $(PYTHON) $(VMCOVERAGE_BIN) tools/ld -o $@ $(foreach objfile,$^,-i $(objfile)) \
+		 $(PYTHON) $(VMCOVERAGE_RUN) tools/ld -o $@ $(foreach objfile,$^,-i $(objfile)) \
 		 $1 \
 		 $(VMDEBUG); \
 		 if [ "$$?" -eq 0 ]; then \
@@ -158,7 +160,7 @@ define run-simple-binary
 $(Q) echo "[RUN] $1 ..."
 $(Q) COVERAGE_FILE=$(shell if [ "$(VMCOVERAGE)" = "yes" ]; then echo "$(TESTSETDIR)/coverage/.coverage.$1.$(PID)"; else echo ""; fi) \
 	   DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) \
-		 $(PYTHON) $(VMCOVERAGE_BIN) tools/vm $(VMDEBUG) $(VMDEBUG_OPEN_FILES) --machine-config=$2 -g
+		 $(PYTHON) $(VMCOVERAGE_RUN) tools/vm $(VMDEBUG) $(VMDEBUG_OPEN_FILES) --machine-config=$2 -g
 endef
 
 
@@ -300,7 +302,7 @@ else
 endif
 	-$(Q) $(VMCOVERAGE_FILE) \
 		    DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) \
-				$(PYTHON) $(VMCOVERAGE_BIN) tools/vm \
+				$(PYTHON) $(VMCOVERAGE_RUN) tools/vm \
 				$(VMPROFILE) \
 				$(BINPROFILE) -g \
 				--machine-config=tests/forth/test-machine.conf \
@@ -322,9 +324,9 @@ endif
 
 tests-post:
 	$(Q) echo "$(CC_GREEN)Avg # of instructions: `grep Executed $(TESTSETDIR)/*.machine | awk '{print $$5, " ", $$6}' | python tests/sum`/sec$(CC_END)"
-	$(Q) cd $(TESTSETDIR)/coverage && coverage combine && cd ..
+	$(Q) cd $(TESTSETDIR)/coverage && $(VMCOVERAGE_BIN) combine --rcfile=$(CURDIR)/coveragerc && cd ..
 ifeq ($(VMCOVERAGE),yes)
-	$(Q) COVERAGE_FILE="$(TESTSETDIR)/coverage/.coverage" coverage html --omit="*/python2.7/*" -d $(TESTSETDIR)/coverage/
+	$(Q) COVERAGE_FILE="$(TESTSETDIR)/coverage/.coverage" $(VMCOVERAGE_BIN) html --rcfile=$(CURDIR)/coveragerc --omit="*/python2.7/*" -d $(TESTSETDIR)/coverage/
 endif
 
 
@@ -418,7 +420,7 @@ endif
 	-$(Q) $(VMCOVERAGE_FILE) \
 		    DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) \
 				PYTHONUNBUFFERED=yes \
-				$(PYTHON) $(VMCOVERAGE_BIN) tools/vm \
+				$(PYTHON) $(VMCOVERAGE_RUN) tools/vm \
 				$(VMPROFILE) \
 				$(BINPROFILE) -g \
 				--machine-config=tests/forth/test-machine.conf \

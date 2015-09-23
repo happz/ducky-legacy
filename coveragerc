@@ -1,0 +1,11 @@
+[run]
+branch = True
+source = ducky
+
+[report]
+exclude_lines =
+  pragma: no cover
+  DEBUG
+  def __repr__
+  def __str__
+  raise NotImplementedError
