@@ -60,7 +60,7 @@ class Storage(Device):
     :param int cnt: number of blocks to read
     """
 
-    pass
+    raise NotImplementedError()
 
   def do_write_block(self, src, dst, cnt):
     """
@@ -73,7 +73,7 @@ class Storage(Device):
     :param int cnt: number of blocks to write
     """
 
-    pass
+    raise NotImplementedError()
 
   def read_block(self, src, dst, cnt):
     """

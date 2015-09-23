@@ -37,6 +37,16 @@ class Tests(unittest.TestCase):
 
     self.common_case(binary = os.path.join(os.getenv('CURDIR'), 'tests', 'storage', 'test_unknown_device_1.bin'), storages = [storage_desc], r0 = 0xFFFF, z = 1)
 
+  def test_out_of_bounds_access(self):
+    data_base = 0x1000 if os.getenv('MMAPABLE_SECTIONS')  == 'yes' else 0x0100
+
+    file_size = ducky.devices.storage.BLOCK_SIZE * 10
+    f_tmp = prepare_file(file_size)
+    storage_desc = ('ducky.devices.storage.FileBackedStorage', 1, f_tmp.name)
+
+    self.common_case(binary = os.path.join(os.getenv('CURDIR'), 'tests', 'storage', 'test_out_of_bounds_access_read.bin'), storages = [storage_desc], r0 = 0xFFFF, r2 = 16, r3 = data_base, r4 = 1)
+    self.common_case(binary = os.path.join(os.getenv('CURDIR'), 'tests', 'storage', 'test_out_of_bounds_access_write.bin'), storages = [storage_desc], r0 = 0xFFFF, r1 = 1, r2 = 16, r3 = data_base, r4 = 1)
+
   def test_block_read(self):
     # size of storage file
     file_size   = ducky.devices.storage.BLOCK_SIZE * 10

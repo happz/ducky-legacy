@@ -10,6 +10,22 @@ from ctypes import sizeof, LittleEndianStructure
 
 from .log import create_logger, StreamHandler
 
+def setup_logger(stream = None, debug = False, quiet = False):
+  stream = stream or sys.stdout
+
+  logger = create_logger(handler = StreamHandler(stream = stream))
+  logger.setLevel(logging.INFO)
+
+  if debug:
+    logger.setLevel(logging.DEBUG)
+
+  else:
+    levels = [logging.INFO, logging.WARNING, logging.ERROR, logging.CRITICAL]
+
+    logger.setLevel(levels[min(quiet, len(levels))])
+
+  return logger
+
 #
 # Command-line options
 #
@@ -23,16 +39,7 @@ def add_common_options(parser):
 def parse_options(parser):
   options, args = parser.parse_args()
 
-  logger = create_logger(handler = StreamHandler(stream = sys.stdout))
-  logger.setLevel(logging.INFO)
-
-  if options.debug:
-    logger.setLevel(logging.DEBUG)
-
-  else:
-    levels = [logging.INFO, logging.WARNING, logging.ERROR, logging.CRITICAL]
-
-    logger.setLevel(levels[min(options.quiet, len(levels))])
+  logger = setup_logger(stream = sys.stdout, debug = options.debug, quiet = options.quiet)
 
   from signal import signal, SIGPIPE, SIG_DFL
   signal(SIGPIPE, SIG_DFL)
