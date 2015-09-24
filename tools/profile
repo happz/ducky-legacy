@@ -59,7 +59,7 @@ def main():
 
   all_hits = sum(data.itervalues())
 
-  binary = ducky.mm.binary.File(options.binary, 'r')
+  binary = ducky.mm.binary.File(logger, options.binary, 'r')
   binary.load()
   binary.load_symbols()
 
