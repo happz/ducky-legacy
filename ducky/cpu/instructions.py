@@ -698,7 +698,7 @@ class Inst_IDLE(InstDescriptor_Generic):
 
   @staticmethod
   def execute(core, inst):
-    core.idle = True
+    core.change_runnable_state(idle = True)
 
 class Inst_SIS(InstDescriptor_Generic_Unary_I):
   mnemonic = 'sis'

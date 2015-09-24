@@ -984,7 +984,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
 
     self.__enter_interrupt(index)
     self.registers.flags.hwint = 0
-    self.idle = False
+    self.change_runnable_state(idle = False)
 
     self.DEBUG('__do_irq: CPU state prepared to handle IRQ')
     log_cpu_core_state(self)
@@ -1172,19 +1172,38 @@ class CPUCore(ISnapshotable, IMachineWorker):
     if self.core_profiler is not None:
       self.core_profiler.take_sample()
 
+  def change_runnable_state(self, alive = None, running = None, idle = None):
+    old_state = self.alive and self.running and not self.idle
+
+    if alive is not None:
+      self.alive = alive
+
+    if running is not None:
+      self.running = running
+
+    if idle is not None:
+      self.idle = idle
+
+    new_state = self.alive and self.running and not self.idle
+
+    if old_state != new_state:
+      if new_state is True:
+        self.cpu.machine.reactor.task_runnable(self)
+
+      else:
+        self.cpu.machine.reactor.task_suspended(self)
+
   def suspend(self):
     self.DEBUG('CPUCore.suspend')
 
-    self.running = False
+    self.change_runnable_state(running = False)
     self.cpu.core_suspended()
-    self.cpu.machine.reactor.task_suspended(self)
 
   def wake_up(self):
     self.DEBUG('CPUCore.wake_up')
 
-    self.running = True
+    self.change_runnable_state(running = True)
     self.cpu.core_running()
-    self.cpu.machine.reactor.task_runnable(self)
 
   def die(self, exc):
     self.DEBUG('CPUCore.die')
@@ -1202,10 +1221,8 @@ class CPUCore(ISnapshotable, IMachineWorker):
       self.data_cache.release_references()
       self.cpu.machine.cpu_cache_controller.unregister_core(self)
 
-    self.running = False
+    self.change_runnable_state(alive = False, running = False)
     self.cpu.core_suspended()
-
-    self.alive = False
     self.cpu.core_halted()
 
     log_cpu_core_state(self)
@@ -1213,9 +1230,6 @@ class CPUCore(ISnapshotable, IMachineWorker):
     self.cpu.machine.reactor.remove_task(self)
 
     self.INFO('CPU core halted')
-
-  def runnable(self):
-    return self.alive and self.running and not self.idle
 
   def run(self):
     try:
@@ -1245,14 +1259,10 @@ class CPUCore(ISnapshotable, IMachineWorker):
 
     log_cpu_core_state(self)
 
-    self.alive = True
-    self.cpu.core_alive()
-
-    self.running = True
-    self.cpu.core_running()
-
     self.cpu.machine.reactor.add_task(self)
-    self.cpu.machine.reactor.task_runnable(self)
+    self.change_runnable_state(alive = True, running = True)
+    self.cpu.core_alive()
+    self.cpu.core_running()
 
     if self.core_profiler is not None:
       self.core_profiler.enable()
