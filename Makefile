@@ -324,8 +324,8 @@ endif
 
 tests-post:
 	$(Q) echo "$(CC_GREEN)Avg # of instructions: `grep Executed $(TESTSETDIR)/*.machine | awk '{print $$5, " ", $$6}' | python tests/sum`/sec$(CC_END)"
-	$(Q) cd $(TESTSETDIR)/coverage && $(VMCOVERAGE_BIN) combine --rcfile=$(CURDIR)/coveragerc && cd ..
 ifeq ($(VMCOVERAGE),yes)
+	$(Q) cd $(TESTSETDIR)/coverage && $(VMCOVERAGE_BIN) combine --rcfile=$(CURDIR)/coveragerc && cd ..
 	$(Q) COVERAGE_FILE="$(TESTSETDIR)/coverage/.coverage" $(VMCOVERAGE_BIN) html --rcfile=$(CURDIR)/coveragerc --omit="*/python2.7/*" -d $(TESTSETDIR)/coverage/
 endif
 
