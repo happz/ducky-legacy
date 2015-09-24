@@ -67,9 +67,6 @@ class RegisterSet(object):
     self.map = {}
 
     for register_name, register_id in zip(REGISTER_NAMES, Registers):
-      if not register_name:
-        break
-
       if register_name == 'cnt':
         register_class = c_uint
 
