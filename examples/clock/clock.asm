@@ -41,6 +41,7 @@
   call &print_digits
 .end
 
+
 .include "defs.asm"
 
 
@@ -49,6 +50,8 @@
   .type iteration, int
   .int 50
 
+  .type second, byte
+  .byte 255
 
   .text
 
@@ -80,16 +83,29 @@ irq_routine_0:
   inb r5, $RTC_PORT_MONTH
   inb r4, $RTC_PORT_YEAR
 
+  li r0, &second
+  lb r0, r0
+  cmp r0, r9
+  be &.__quit
+
+.__redraw:
+  ; save new value
+  li r0, &second
+  stb r0, r9
+
   ; update frame buffer
   li r0, $VGA_BUFF
   add r0, 16
   li r1, 0
+
+  ; clear frame buffer
 .__memreset_loop:
   stb r0, r1
   dec r0
   cmp r0, $VGA_BUFF
   bne &.__memreset_loop
 
+  ; write new values
   li r0, $VGA_BUFF
 
   $INSERT_DIGITS r6 ; day
@@ -112,6 +128,7 @@ irq_routine_0:
   li r0, 0x0002
   out $VGA_COMMAND_PORT, r0
 
+.__quit:
   li r0, &iteration
   lw r1, r0
   dec r1
