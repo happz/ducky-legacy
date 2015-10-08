@@ -1,0 +1,1845 @@
+#! /usr/bin/env python
+
+import os
+import sys
+
+if os.environ.get('DUCKY_IMPORT_DEVEL', 'no') == 'yes':
+  sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+
+import argparse
+import collections
+import optparse
+import StringIO
+
+from pycparser import c_parser, c_ast, parse_file
+from itertools import chain
+
+import ducky.cpu
+import ducky.util
+
+def dump_node(node):
+  ignore = ['attr_names', 'children', 'show']
+  return '%s(%s)' % (node.__class__.__name__, ', '.join(['%s=%s' % (name, getattr(node, name)) for name in dir(node) if not name.startswith('__') and name not in ignore]))
+
+def show_node(node):
+  buff = StringIO.StringIO()
+  node.show(buf = buff, attrnames = True)
+  return buff.getvalue().strip()
+
+class CompilerError(Exception):
+  def __init__(self, location, msg):
+    super(CompilerError, self).__init__('%s:%s: %s' % (location.file, location.line, msg))
+
+class SymbolAlreadyDefinedError(CompilerError):
+  def __init__(self, loc, symbol):
+    super(SymbolAlreadyDefinedError, self).__init__(loc, 'Symbol already defined: name=%s' % symbol)
+
+class SymbolConflictError(CompilerError):
+  pass
+
+class SymbolUndefined(CompilerError):
+  def __init__(self, loc, symbol):
+    super(SymbolUndefined, self).__init__(loc, 'Undefined symbol: name=%s' % symbol)
+
+class Type(object):
+  def __init__(self, raw_type):
+    self.raw_type = raw_type
+
+  def size(self):
+    if isinstance(self.raw_type, c_ast.PtrDecl):
+      return 2
+
+    t = self.raw_type
+    while hasattr(t, 'type'):
+      t = t.type
+
+    if t.names == ['int']:
+      return 2
+
+    if t.names == ['void']:
+      return 0
+
+    raise CompilerError(self.raw_type.coord, 'Unknown type: %s => %s' % (dump_node(self.raw_type), dump_node(t)))
+
+  def dst_size(self):
+    t = self.raw_type
+
+    while isinstance(t, c_ast.PtrDecl):
+      t = t.type
+
+    while hasattr(t, 'type'):
+      t = t.type
+
+    if t.names == ['int']:
+      return 2
+
+    if t.names == ['char']:
+      return 1
+
+    if t.names == ['void']:
+      return 0
+
+    raise CompilerError(self.raw_type.coord, 'Unknown type: %s => %s' % (dump_node(self.raw_type), dump_node(t)))
+
+class Symbol(object):
+  def __init__(self, visitor, name, decl_type, return_type = None, extern = False, defined = False):
+    self.visitor = visitor
+    self.name = name
+    self.type = Type(decl_type)
+    self.return_type = Type(return_type) if return_type is not None else None
+
+    self.extern = extern
+    self.defined = defined
+
+    self.storage = None
+    self.register = None
+
+  def __repr__(self):
+    return '<Symbol: name=%s, type=%s, storage=%s, register=%s, extern=%s, defined=%s>' % (self.name, self.type, self.storage.name if self.storage is not None else '<none>', self.register.name if self.register is not None else '<none>', self.extern, self.defined)
+
+  def assign_register(self, reg):
+    if reg is None:
+      return
+
+    assert reg.symbol is None
+
+    self.register = reg
+    reg.symbol = self
+
+    return reg
+
+  def acquire_register(self, visitor, **kwargs):
+    if self.register is None:
+      self.register = visitor.GET_REG(**kwargs)
+
+      assert self.register.symbol is None
+      self.register.symbol = self
+
+      if self.storage.has_content:
+        self.storage.emit_symbol_load(visitor, self.register)
+
+    return self.register
+
+  def release_register(self):
+    if self.register is not None:
+      if self.register.dirty:
+        self.storage.emit_symbol_save(self.visitor)
+        self.storage.has_content = True
+
+      self.register.symbol = None
+      self.register = None
+
+class SymbolStorage(object):
+  def __init__(self):
+    self.name = None
+    self.symbol = None
+
+    self.has_content = False
+
+  def __repr__(self):
+    return '<%s: symbol=%s>' % (self.name, self.symbol)
+
+  def addrof(self, reg, emit):
+    pass
+
+  def emit_symbol_save(self, visitor):
+    visitor.DEBUG(visitor.log_prefix + 'emit_symbol_save: storage=%s, register=%s', self, self.symbol.register)
+
+    visitor.EMIT(STW(self.name, self.symbol.register.name))
+
+    self.symbol.register.dirty = False
+
+  def emit_symbol_load(self, visitor, reg):
+    inst = LW if self.symbol.type.size() == 2 else LB
+
+    visitor.EMIT(inst(reg.name, self.name))
+
+    self.symbol.register = reg
+    self.symbol.register.dirty = False
+
+class Register(SymbolStorage):
+  def __init__(self, index):
+    super(Register, self).__init__()
+
+    self.index = index
+    self.name = 'r%i' % index
+
+    self.dirty = False
+
+  def __repr__(self):
+    return '<%s: symbol=%s, dirty=%s>' % (self.name, self.symbol, self.dirty)
+
+class StackSlot(SymbolStorage):
+  def __init__(self, offset):
+    super(StackSlot, self).__init__()
+
+    self.offset = offset
+    self.name = 'fp[%i]' % offset
+
+  def addrof(self, reg, emit):
+    emit(MOV(reg, 'fp'))
+    emit(ADD(reg, self.offset))
+
+class MemorySlot(SymbolStorage):
+  def __init__(self, label):
+    super(MemorySlot, self).__init__()
+
+    self.label = label
+    self.name = '&%s' % label
+
+  def addrof(self, reg, emit):
+    emit(LI(reg, self.name))
+
+  def emit_symbol_save(self, visitor):
+    visitor.WARN('Attempt to save global variable - not supported!')
+
+class Scope(object):
+  scope_id = 0
+
+  def __init__(self, visitor, parent = None):
+    self.visitor = visitor
+
+    self.id = Scope.scope_id
+    Scope.scope_id += 1
+
+    self.parent = parent
+
+    self.symbols = {}
+
+  def __repr__(self):
+    return '<Scope: id=%i>' % self.id
+
+  def add(self, loc, symbol):
+    self.visitor.DEBUG(self.visitor.log_prefix + 'scope: add symbol: scope=%s, symbol=%s', self, symbol)
+
+    old_symbol = self.symbols.get(symbol.name, None)
+
+    if old_symbol is not None:
+      if old_symbol.defined:
+        if symbol.defined:
+          raise SymbolAlreadyDefinedError(loc, symbol.name)
+
+        else:
+          return old_symbol
+
+      else:
+        self.symbols[symbol.name] = symbol
+        return symbol
+
+    self.symbols[symbol.name] = symbol
+    return symbol
+
+  def get(self, name):
+    self.visitor.DEBUG(self.visitor.log_prefix + 'scope: get symbol: scope=%s, symbol=%s', self, name)
+
+    if name in self.symbols:
+      return self.symbols[name]
+
+    if self.parent is not None:
+      return self.parent.get(name)
+
+    return None
+
+class RegisterSet(object):
+  def __init__(self, fn):
+    self.fn = fn
+    self.visitor = fn.visitor
+
+    self.all_regs = collections.OrderedDict([(r.value, Register(r.value)) for r in ducky.cpu.registers.GENERAL_REGISTERS])
+    self.free_regs = self.all_regs.copy()
+    self.used_regs = collections.OrderedDict()
+
+    self.callee_saved_regs = self.all_regs.copy()
+
+    self.DEBUG = self.visitor.DEBUG
+
+  def save_callee_saves(self, block):
+    self.DEBUG(self.visitor.log_prefix + 'RegisterSet.save_callee_saves: used_regs=%s, callee_saves=%s', sorted([r.index for r in self.used_regs.keys()]), sorted(self.callee_saved_regs.keys()))
+
+    for reg in sorted(self.used_regs.keys(), key = lambda x: x.index):
+      if reg.index not in self.callee_saved_regs:
+        continue
+
+      self.DEBUG(self.visitor.log_prefix + '  save %s', reg.name)
+      block.emit(PUSH(reg.name))
+
+  def restore_callee_saves(self, block):
+    self.DEBUG(self.visitor.log_prefix + 'RegisterSet.restore_callee_saves: used_regs=%s, callee_saves=%s', sorted([r.index for r in self.used_regs.keys()]), sorted(self.callee_saved_regs.keys()))
+
+    for reg in reversed(sorted(self.used_regs.keys(), key = lambda x: x.index)):
+      if reg.index not in self.callee_saved_regs:
+        continue
+
+      block.emit(POP(reg.name))
+
+  def spoil_reg(self, reg):
+    self.DEBUG(self.visitor.log_prefix + 'RegisterSet.spoil_reg: reg=%s', reg)
+
+    if reg.dirty:
+      assert reg.symbol is not None
+
+      reg.symbol.storage.emit_symbol_save(self.visitor)
+
+    reg.symbol.register = None
+    reg.symbol = None
+
+    return reg
+
+  def __spoil_any_reg(self, keep = None):
+    self.DEBUG(self.visitor.log_prefix + 'RegisterSet.__spoil_any_reg: keep=%s', keep)
+
+    keep = keep or []
+
+    for i, reg in enumerate(self.all_regs):
+      if i in keep or reg in keep:
+        continue
+
+      break
+
+    else:
+      raise CompilerError('Unable to find register to spoil')
+
+    self.spoil_reg(reg)
+
+    return reg
+
+  def unspoil_symbol(self, symbol, **kwargs):
+    assert symbol.register is None
+    assert symbol.storage is not None
+
+    reg = self.get_reg(**kwargs)
+
+    symbol.storage.emit_symbol_load(self.visitor, reg)
+
+    return reg
+
+  def put_reg(self, reg):
+    self.DEBUG(self.visitor.log_prefix + 'RegisterSet.put_reg: reg=%s', reg)
+
+    if reg is None:
+      return
+
+    if reg.symbol is None:
+      self.free_regs[reg.index] = reg
+
+    self.DEBUG(self.visitor.log_prefix + '  free reg: %s', self.free_regs)
+
+  def get_reg(self, preferred = None, keep = None):
+    self.DEBUG(self.visitor.log_prefix + 'RegisterSet.get_reg: preferred=%s, keep=%s', preferred, keep)
+    self.DEBUG(self.visitor.log_prefix + '  free regs: %s', self.free_regs.keys())
+
+    if self.free_regs:
+      selected = None
+
+      if preferred is not None:
+        for i, reg in self.free_regs.iteritems():
+          self.DEBUG(self.visitor.log_prefix + '    consider %i: %s', i, reg)
+          if i != preferred and reg != preferred:
+            continue
+
+          selected = reg
+          break
+
+      else:
+        selected = self.free_regs[sorted(self.free_regs.keys())[-1]]
+
+      self.DEBUG(self.visitor.log_prefix + '  selected reg: %s', selected)
+
+      if selected is not None:
+        del self.free_regs[selected.index]
+        self.used_regs[selected] = True
+        return selected
+
+    return self.__spoil_any_reg(keep = keep)
+
+  def free_reg(self, reg):
+    reg = self.all_regs[reg]
+
+    self.DEBUG(self.visitor.log_prefix + 'RegisterSet.free_reg: reg=%s', reg)
+
+    if reg.symbol is not None:
+      reg.symbol.release_register()
+
+    self.free_regs[reg.index] = reg
+
+    return reg
+
+from ducky.cpu.instructions import DuckyOpcodes, DuckyInstructionSet
+
+class Instruction(object):
+  def __init__(self, opcode, *operands):
+    self.opcode = opcode
+    self.operands = operands
+
+    for inst in DuckyInstructionSet.instructions:
+      if inst.opcode != opcode:
+        continue
+
+      self.mnemonic = inst.mnemonic
+      break
+
+    self.labels = []
+
+  def __repr__(self):
+    return self.materialize()
+
+  def materialize(self):
+    if self.operands:
+      return '%s %s' % (self.mnemonic, ', '.join([str(o) for o in self.operands]))
+    else:
+      return self.mnemonic
+
+class Directive(Instruction):
+  def __init__(self, directive):
+    super(Directive, self).__init__(None)
+
+    self.directive = directive
+
+  def materialize(self):
+    return self.directive
+
+class Comment(object):
+  def __init__(self, comment):
+    self.comment = comment
+
+  def materialize(self):
+    return '; %s' % self.comment
+
+class InlineAsm(Instruction):
+  def __init__(self, code):
+    super(InlineAsm, self).__init__(None)
+
+    self.code = code
+
+  def materialize(self):
+    return self.code
+
+class ADD(Instruction):
+  def __init__(self, *operands):
+    super(ADD, self).__init__(DuckyOpcodes.ADD, *operands)
+
+class BNE(Instruction):
+  def __init__(self, label):
+    super(BNE, self).__init__(DuckyOpcodes.BNE, label)
+
+class BE(Instruction):
+  def __init__(self, label):
+    super(BE, self).__init__(DuckyOpcodes.BE, label)
+
+class BG(Instruction):
+  def __init__(self, label):
+    super(BG, self).__init__(DuckyOpcodes.BG, label)
+
+class CMP(Instruction):
+  def __init__(self, left, right):
+    super(CMP, self).__init__(DuckyOpcodes.CMP, left, right)
+
+class CALL(Instruction):
+  def __init__(self, label):
+    super(CALL, self).__init__(DuckyOpcodes.CALL, label)
+
+class INT(Instruction):
+  def __init__(self, isr):
+    super(INT, self).__init__(DuckyOpcodes.INT, isr)
+
+class INC(Instruction):
+  def __init__(self, reg):
+    super(INC, self).__init__(DuckyOpcodes.INC, reg)
+
+class J(Instruction):
+  def __init__(self, label):
+    super(J, self).__init__(DuckyOpcodes.J, label)
+
+class LB(Instruction):
+  def __init__(self, reg, addr):
+    super(LB, self).__init__(DuckyOpcodes.LB, reg, addr)
+
+class LW(Instruction):
+  def __init__(self, reg, addr):
+    super(LW, self).__init__(DuckyOpcodes.LW, reg, addr)
+
+class LI(Instruction):
+  def __init__(self, reg, value):
+    super(LI, self).__init__(DuckyOpcodes.LI, reg, value)
+
+class MOV(Instruction):
+  def __init__(self, *operands):
+    super(MOV, self).__init__(DuckyOpcodes.MOV, *operands)
+
+class MUL(Instruction):
+  def __init__(self, *operands):
+    super(MUL, self).__init__(DuckyOpcodes.MUL, *operands)
+
+class POP(Instruction):
+  def __init__(self, reg):
+    super(POP, self).__init__(DuckyOpcodes.POP, reg)
+
+class PUSH(Instruction):
+  def __init__(self, reg):
+    super(PUSH, self).__init__(DuckyOpcodes.PUSH, reg)
+
+class RET(Instruction):
+  def __init__(self):
+    super(RET, self).__init__(DuckyOpcodes.RET)
+
+class STB(Instruction):
+  def __init__(self, addr, reg):
+    super(STB, self).__init__(DuckyOpcodes.STB, addr, reg)
+
+class STW(Instruction):
+  def __init__(self, addr, reg):
+    super(STW, self).__init__(DuckyOpcodes.STW, addr, reg)
+
+class SUB(Instruction):
+  def __init__(self, *operands):
+    super(SUB, self).__init__(DuckyOpcodes.SUB, *operands)
+
+class Block(object):
+  id = 0
+
+  def __init__(self, name = None, comment = None):
+    Block.id += 1
+    self.id = Block.id
+
+    self.names = [name] if name is not None else []
+
+    self.comment = comment
+
+    self.code = []
+
+    self.incoming = {}
+    self.outgoing = {}
+
+  def __repr__(self):
+    return 'Block(id=%i, names=%s, in=%s, out=%s%s)' % (self.id, ','.join(self.names), ','.join([str(block.id) for block in self.incoming.itervalues()]), ','.join([str(block.id) for block in self.outgoing.itervalues()]), (' (%s)' % self.comment) if self.comment is not None else '')
+
+  def instructions(self):
+    return [i for i in self.code if isinstance(i, Instruction)]
+
+  def add_name(self, name):
+    self.names.append(name)
+
+  def emit(self, inst):
+    self.code.append(inst)
+
+  def add_outgoing(self, block):
+    self.outgoing[block.id] = block
+
+  def add_incoming(self, block):
+    self.incoming[block.id] = block
+
+  def connect(self, next):
+    self.outgoing[next.id] = next
+    next.incoming[self.id] = self
+
+  def materialize(self, code):
+    code.append('  ; block: id=%s, names=%s, in=%s, out=%s%s' % (self.id, ', '.join(self.names), ', '.join([str(block.id) for block in self.incoming.itervalues()]), ', '.join([str(block.id) for block in self.outgoing.itervalues()]), (' (%s)' % self.comment) if self.comment is not None else ''))
+
+    for name in self.names:
+      code.append('%s:' % name)
+
+    for inst in self.code:
+      if hasattr(inst, 'materialize'):
+        code.append('  ' + inst.materialize())
+
+      else:
+        code.append(inst)
+
+class Function(object):
+  def __init__(self, visitor, decl, return_type = None, args_types = None):
+    self.visitor = visitor
+    self.decl = decl
+    self.registers = RegisterSet(self)
+
+    self.name = decl.name
+
+    self.args_types = [Type(arg_type) for arg_type in args_types] if args_types is not None else []
+    self.return_type = Type(return_type)
+
+    self.fp_offset = 0
+
+    self.blocks = []
+
+    self._header_block = self.block(comment = '%s header' % decl.name)
+    self._prolog_block = self.block(name = decl.name, comment = '%s prolog' % decl.name)
+    self._args_block   = self.block(comment = '%s args' % decl.name)
+    self._body_block   = self.block(comment = '%s body' % decl.name)
+    self._epilog_block = Block(name = visitor.get_new_label(name = self.name + '_return'), comment = '%s epilog' % decl.name)
+
+    self._header_block.connect(self._prolog_block)
+    self._prolog_block.connect(self._args_block)
+    self._args_block.connect(self._body_block)
+
+  def block(self, *args, **kwargs):
+    block = Block(*args, **kwargs)
+    self.blocks.append(block)
+    return block
+
+  def header_block(self):
+    return self._header_block
+
+  def prolog_block(self):
+    return self._prolog_block
+
+  def args_block(self):
+    return self._args_block
+
+  def body_block(self):
+    return self._body_block
+
+  def epilog_block(self):
+    return self._epilog_block
+
+  def finish(self):
+    self.header_block().emit(Directive('.text'))
+
+    if 'static' not in self.decl.storage:
+      self.header_block().emit(Directive('.global {name}'.format(name = self.decl.name)))
+
+    self.blocks[-1].connect(self.epilog_block())
+    self.blocks.append(self.epilog_block())
+
+    self.prolog_block().emit(SUB('sp', abs(self.fp_offset)))
+    self.registers.save_callee_saves(self.prolog_block())
+
+    self.registers.restore_callee_saves(self.epilog_block())
+    self.epilog_block().emit(ADD('sp', abs(self.fp_offset)))
+    self.epilog_block().emit(RET())
+
+  def materialize(self):
+    code = []
+
+    for block in self.blocks:
+      block.materialize(code)
+
+    return code
+
+class ASTVisitor(c_ast.NodeVisitor):
+  def __init__(self, logger, *args, **kwargs):
+    super(ASTVisitor, self).__init__(*args, **kwargs)
+
+    self.logger = logger
+    self.DEBUG = logger.debug
+    self.INFO = logger.info
+    self.WARN = logger.warning
+    self.ERROR = logger.error
+
+    self.log_prefix = ''
+
+    self.node_parent = None
+
+    self.tree_modified = False
+
+  def UP(self):
+    self.log_prefix = (len(self.log_prefix) - 8) * ' '
+
+  def DOWN(self):
+    self.log_prefix += 8 * ' '
+
+  def generic_visit(self, node):
+    old_parent = self.node_parent
+    self.node_parent = node
+
+    l = [self.visit(c) for c_name, c in node.children()]
+
+    self.node_parent = old_parent
+
+    return l
+
+  def visit(self, node, **kwargs):
+    method = 'visit_' + node.__class__.__name__
+    visitor = getattr(self, method, self.generic_visit)
+
+    return visitor(node, **kwargs)
+
+class BlockVisitor(object):
+  def __init__(self, logger, *args, **kwargs):
+    self.logger = logger
+    self.DEBUG = logger.debug
+    self.INFO = logger.info
+    self.WARN = logger.warning
+    self.ERROR = logger.error
+
+    self.log_prefix = ''
+
+    self.tree_modified = False
+
+  def UP(self):
+    self.log_prefix = (len(self.log_prefix) - 8) * ' '
+
+  def DOWN(self):
+    self.log_prefix += 8 * ' '
+
+  def visit_fn(self, fn):
+    pass
+
+  def visit(self, cv):
+    for fn in cv.functions:
+      self.visit_fn(fn)
+
+class ASTOptVisitor(ASTVisitor):
+  def replace_child(self, current_node, new_node):
+    self.DEBUG(self.log_prefix + 'PRE:')
+    for line in show_node(self.node_parent).split('\n'):
+      self.DEBUG(self.log_prefix + line)
+
+    for name, child in self.node_parent.children():
+      if child != current_node:
+        continue
+
+      setattr(self.node_parent, name, new_node)
+      self.tree_modified = True
+      self.DEBUG(self.log_prefix + 'Replaced by %s', dump_node(new_node))
+      break
+
+    self.DEBUG(self.log_prefix + 'POST:')
+    for line in show_node(self.node_parent).split('\n'):
+      self.DEBUG(self.log_prefix + line)
+
+class ConstantFoldingVisitor(ASTOptVisitor):
+  def visit_BinaryOp(self, node):
+    self.generic_visit(node)
+
+    L = node.left
+    R = node.right
+
+    #
+    # If both left and right branches are constants, they can be merged into one
+    #
+    if isinstance(node.left, c_ast.Constant) and isinstance(node.right, c_ast.Constant):
+      self.DEBUG(self.log_prefix + 'Fold: binary op on two constants: %s %s %s', dump_node(self.node_parent), dump_node(node.left), dump_node(node.right))
+      self.DOWN()
+
+      if L.type == 'int' and R.type == 'int':
+        self.DEBUG(self.log_prefix + 'Fold: both branches are integers, fold into one')
+
+        if node.op == '+':
+          i = int(L.value) + int(R.value)
+
+        elif node.op == '*':
+          i = int(L.value) * int(R.value)
+
+        else:
+          self.WARN(self.log_prefix + '%s: Unhandled binary operation: op=%s', self.__class__.__name__, node.op)
+
+        self.replace_child(node, c_ast.Constant('int', i, coord = node.coord))
+
+        self.UP()
+
+    #
+    # Anything multiplied by zero is zero - replace such node with constant
+    #
+    if node.op == '*' and ((isinstance(L, c_ast.Constant) and L.type == 'int' and L.value == '0') or (isinstance(R, c_ast.Constant) and R.type == 'int' and R.value == '0')):
+      self.DEBUG(self.log_prefix + 'Fold: multiply by zero: %s %s %s', dump_node(self.node_parent), dump_node(L), dump_node(R))
+      self.DOWN()
+
+      self.replace_child(node, c_ast.Constant('int', 0, coord = node.coord))
+      
+      self.UP()
+
+    #
+    # Anything multiplied by one keeps its value - discard one branch and replace node with the other
+    #
+    if node.op == '*' and ((isinstance(L, c_ast.Constant) and L.type == 'int' and L.value == '1') or (isinstance(R, c_ast.Constant) and R.type == 'int' and R.value == '1')):
+      self.DEBUG(self.log_prefix + 'Fold: multiply by one: %s %s %s', dump_node(self.node_parent), dump_node(L), dump_node(R))
+      self.DOWN()
+
+      keep_node = R if isinstance(L, c_ast.Constant) else L
+
+      self.replace_child(node, keep_node)
+
+      self.UP()
+
+class DSEVisitor(ASTOptVisitor):
+  def visit_Compound(self, node):
+    #
+    # Any statement after "return" in a block is effectively dead
+    #
+    if any([isinstance(stmt, c_ast.Return) for stmt in node.block_items]):
+      self.DEBUG(self.log_prefix + 'DCE: Return present in compound block, check for dead statements')
+      self.DOWN()
+
+      self.DEBUG(self.log_prefix + 'PRE:')
+      for line in show_node(node).split('\n'):
+        self.DEBUG(self.log_prefix + line)
+
+      for stmt in reversed(node.block_items[:]):
+        if isinstance(stmt, c_ast.Return):
+          break
+
+        self.DEBUG(self.log_prefix + 'removing %s', dump_node(stmt))
+        node.block_items.remove(stmt)
+        self.tree_modified = True
+
+      self.DEBUG(self.log_prefix + 'POST:')
+      for line in show_node(node).split('\n'):
+        self.DEBUG(self.log_prefix + line)
+
+      self.generic_visit(node)
+
+      self.UP()
+
+class BlockTreePeepHoleVisitor(BlockVisitor):
+  def visit_block(self, block):
+    self.DEBUG(self.log_prefix + 'Examine block %s', block)
+    self.DOWN()
+
+    for i in block.instructions():
+      if isinstance(i, J):
+        index = block.code.index(i)
+
+        if index == 0:
+          continue
+
+        j = block.code[index - 1]
+
+        if not isinstance(j, J):
+          continue
+
+        self.DEBUG(self.log_prefix + 'Instruction "%s" follows previous jump instruction "%s", it is effectively dead', i, j)
+        block.code[index] = Comment('instruction "%s" removed by bt-peephole opt pass' % i)
+        continue
+
+      if isinstance(i, MUL) and i.operands[1] == 2:
+        self.DEBUG(self.log_prefix + 'Instruction "%s" can be replaced by faster one', i)
+        block.code[block.code.index(i)] = ADD(i.operands[0], i.operands[0])
+        continue
+
+      if isinstance(i, MUL) and i.operands[1] == 1:
+        self.DEBUG(self.log_prefix + 'Instruction "%s" is needles, remove', i)
+        block.code.remove(i)
+        continue
+
+      if isinstance(i, MUL) and i.operands[1] == 0:
+        self.DEBUG(self.log_prefix + 'Instruction "%s" can be replaced by faster one', i)
+        block.code[block.code.index(i)] = LI(i.operands[0], 0)
+        continue
+
+    self.UP()
+
+  def visit_fn(self, fn):
+    self.DEBUG(self.log_prefix + 'Examine fn %s', fn.name)
+    self.DOWN()
+
+    for block in fn.blocks:
+      self.visit_block(block)
+
+    self.UP()
+
+class BlockTreeSimplifyVisitor(BlockVisitor):
+  def visit_fn(self, fn):
+    self.DEBUG(self.log_prefix + 'Examine fn %s', fn.name)
+    self.DOWN()
+
+    # Remove empty blocks
+    for block in fn.blocks[:]:
+      #self.DEBUG(self.log_prefix + 'Block: %s', block)
+      #self.DEBUG(self.log_prefix + '  Code: %s, Instr: %s', block.code, block.instructions())
+
+      if block.instructions():
+        continue
+
+      if block.names:
+        # If it has no outgoing block, it weird but let not mess with it right now
+        # if it has multiple outgoing blocks, lets not mess with this one
+        if len(block.outgoing) != 1:
+          continue
+
+        next_block = block.outgoing.values()[0]
+
+        self.DEBUG(self.log_prefix + 'Block %s is empty, but is named - merging its names to the following block %s', block, next_block)
+
+        # Merge names to the following block
+        next_block.names += block.names
+        block.names = []
+
+      if block.names or len(block.outgoing) > 1:
+        continue
+
+      fn.blocks.remove(block)
+
+      out_block = block.outgoing.values()[0] if block.outgoing else None
+      if out_block is not None:
+        del out_block.incoming[block.id]
+
+      for in_block in block.incoming.itervalues():
+        del in_block.outgoing[block.id]
+        if out_block is not None:
+          in_block.add_outgoing(out_block)
+          out_block.add_incoming(in_block)
+
+      self.DEBUG(self.log_prefix + 'Block %s is empty, removed', block)
+
+    # Get rid of "jump-to-directly-next-block" instructions
+    prev = None
+    for block in fn.blocks:
+      if prev is None or not prev.code or not isinstance(prev.code[-1], J) or prev.code[-1].operands[0] not in ['&%s' % name for name in block.names]:
+        prev = block
+        continue
+
+      del prev.code[-1]
+      self.DEBUG(self.log_prefix + 'Block %s jumps directly to next block %s', prev, block)
+
+      prev = block
+
+    self.UP()
+
+class BlockTreeVisualiseVisitor(BlockVisitor):
+  def __init__(self, *args, **kwargs):
+    super(BlockTreeVisualiseVisitor, self).__init__(*args, **kwargs)
+
+    self.blocks = None
+
+  def visit(self, cv):
+    self.blocks = [
+      'blockdiag {',
+      'orientation = portrait;',
+      'node_width = 256;',
+      'node_height = 60;',
+    ]
+
+    for fn in cv.functions:
+      self.blocks += self.visit_fn(fn)
+
+    self.blocks.append('}')
+
+    with open('bt.diag', 'w') as f:
+      f.write('\n'.join(self.blocks))
+
+  def visit_fn(self, fn):
+    self.DEBUG(self.log_prefix + 'Examine fn %s', fn.name)
+    self.DOWN()
+
+    ret = []
+
+    for block in fn.blocks:
+      name = []
+      if block.comment is not None:
+        name.append(block.comment)
+      if block.names:
+        name.append('(%s)' % ', '.join(block.names))
+
+      ret.append('%i [numbered = %i, label = "%s"];' % (block.id, block.id, ' '.join(name)))
+
+      if block.outgoing:
+        for out_block in block.outgoing.itervalues():
+          ret.append('%i -> %i;' % (block.id, out_block.id))
+
+      else:
+        ret.append('%i;' % block.id)
+
+    self.UP()
+
+    return ret
+
+
+AST_OPT_PASSES = collections.OrderedDict()
+AST_OPT_PASSES['ast-const-prop'] = ConstantFoldingVisitor
+AST_OPT_PASSES['ast-dce']        = DSEVisitor
+
+BLOCK_OPT_PASSES = collections.OrderedDict()
+BLOCK_OPT_PASSES['bt-peephole']  = BlockTreePeepHoleVisitor
+BLOCK_OPT_PASSES['bt-simplify']  = BlockTreeSimplifyVisitor
+BLOCK_OPT_PASSES['bt-visualise'] = BlockTreeVisualiseVisitor
+
+class CompileVisitor(ASTVisitor):
+  def __init__(self, *args, **kwargs):
+    super(CompileVisitor, self).__init__(*args, **kwargs)
+
+    self.functions = []
+    self.global_scope = Scope(self)
+
+    self.FN       = None
+    self.BLOCK    = None
+    self.SCOPE    = self.global_scope
+    self.EMIT     = None
+    self.GET_REG  = None
+    self.FREE_REG = None
+    self.PUT_REG  = None
+
+    self.blocks = []
+    self.prolog_blocks = []
+    self.epilog_blocks = []
+
+    self.label_index = 0
+    self.literal_label_index = 0
+    self.string_literals = {}
+
+    self.break_stack = []
+    self.continue_stack = []
+
+    self.make_current(self.block(name = self.get_new_label(name = 'global')))
+
+  def block(self, stage = None, *args, **kwargs):
+    block = Block(*args, **kwargs)
+
+    if stage == 'prolog':
+      self.prolog_blocks.append(block)
+
+    elif stage == 'epilog':
+      self.epilog_blocks.append(block)
+
+    else:
+      self.blocks.append(block)
+
+    return block
+
+  def make_current(self, block):
+    self.DEBUG(self.log_prefix + 'new current block: %s', block)
+
+    self.BLOCK = block
+    self.EMIT = block.emit
+
+  def reset_scope(self):
+    while self.SCOPE != self.global_scope:
+      self.pop_scope()
+
+  def push_scope(self):
+    self.SCOPE = Scope(self, parent = self.SCOPE)
+
+    self.DEBUG(self.log_prefix + 'scope: pushing new scope: scope=%s, parent=%s', self.SCOPE, self.SCOPE.parent)
+
+    return self.SCOPE
+
+  def pop_scope(self):
+    self.DEBUG(self.log_prefix + 'scope: popping scope: scope=%s, parent=%s', self.SCOPE, self.SCOPE.parent)
+
+    self.SCOPE = self.SCOPE.parent
+
+  def get_new_label(self, name = None):
+    self.label_index += 1
+    return '.L%i' % self.label_index if name is None else '.L%i_%s' % (self.label_index, name)
+
+  def get_new_literal_label(self):
+    self.literal_label_index += 1
+    return '.LC%i' % self.literal_label_index
+
+  def get_new_local_storage(self):
+    assert self.FN is not None
+
+    self.FN.fp_offset -= 2
+    return StackSlot(self.FN.fp_offset)
+
+  def emit_string_literals(self):
+    B = self.block(stage = 'prolog', comment = 'global prolog')
+
+    B.emit(Directive('.include "defs.asm"'))
+    B.emit(Directive('.section .rodata'))
+
+    for label, s in self.string_literals.iteritems():
+      B.emit(Directive('.type %s, string' % label))
+      B.emit(Directive('.string %s' % s))
+
+  def emit_trampoline(self):
+    trampoline = self.block(stage = 'epilog', name = '_start', comment = 'global epilog')
+
+    trampoline.emit(CALL('&main'))
+    trampoline.emit(INT('$INT_HALT'))
+
+  def emit_prolog(self):
+    self.emit_string_literals()
+
+  def emit_epilog(self):
+    self.emit_trampoline()
+
+  def materialize(self):
+    # Emit translation unit prolog and epilog
+    self.emit_prolog()
+    self.emit_epilog()
+
+    # Now materialize block tree
+    code = []
+
+    for block in self.prolog_blocks:
+      block.materialize(code)
+      code.append('')
+
+    for block in self.blocks:
+      block.materialize(code)
+      code.append('')
+
+    for fn in self.functions:
+      code += fn.materialize()
+      code.append('')
+
+    for block in self.epilog_blocks:
+      block.materialize(code)
+      code.append('')
+
+    return '\n'.join(code)
+
+  def visit(self, node, **kwargs):
+    method = 'visit_' + node.__class__.__name__
+    visitor = getattr(self, method, self.generic_visit)
+
+    if visitor == self.generic_visit:
+      self.WARN(self.log_prefix + 'Unhandled node class: %s', node.__class__.__name__)
+
+    return visitor(node, **kwargs)
+
+  def generic_visit(self, node):
+    old_parent = self.node_parent
+    self.node_parent = node
+
+    ret = [self.visit(c) for c_name, c in node.children()]
+
+    self.node_parent = old_parent
+
+    return ret
+
+  def visit_constant_value(self, node):
+    self.DEBUG(self.log_prefix + 'visit_constant_value: %s', dump_node(node))
+
+    if node.type == 'string':
+      label = self.get_new_literal_label()
+      self.string_literals[label] = node.value
+
+      return '&{label}'.format(label = label)
+
+    if node.type == 'int':
+      return int(node.value)
+
+    if node.type == 'char':
+      special_chars = [r'\0']
+
+      c = node.value[1:-1]
+      if c in special_chars:
+        return special_chars.index(c)
+
+      return ord(c)
+
+    raise CompilerError(node.coord, 'Unhandled branch: Constant, type=%s' % node.type)
+
+  def _visit_and_convert(self, node):
+    self.DEBUG(self.log_prefix + 'visit_and_convert: node=%s', dump_node(node))
+    self.DOWN()
+
+    expr, expr_reg, expr_symbol = self.visit(node)
+    self.DEBUG(self.log_prefix + '    expr=%s, expr_reg=%s, expr_symbol=%s', expr, expr_reg, expr_symbol)
+
+    if not expr:
+      if not expr_reg:
+        if not expr_symbol:
+          return None, None, None # ???
+
+        expr_reg = expr_symbol.acquire_register(self)
+
+      expr = expr_reg.name
+
+    self.UP()
+    return expr, expr_reg, expr_symbol
+
+  def visit_expr(self, node_expr):
+    return self._visit_and_convert(node_expr)
+
+  def visit_left_and_right(self, node_left, node_right):
+    self.DEBUG(self.log_prefix + 'visit_left_and_right: left=%s, right=%s', dump_node(node_left), dump_node(node_right))
+    self.DOWN()
+
+    if isinstance(node_left, c_ast.Constant):
+      self.EMIT(Comment(dump_node(node_left)))
+
+      left = self.visit_constant_value(node_left)
+      left_reg, left_symbol = None, None
+
+    else:
+      left, left_reg, left_symbol = self._visit_and_convert(node_left)
+
+    if isinstance(node_right, c_ast.Constant):
+      self.EMIT(Comment(dump_node(node_right)))
+
+      right = self.visit_constant_value(node_right)
+      right_reg, right_symbol = None, None
+
+    else:
+      right, right_reg, right_symbol = self._visit_and_convert(node_right)
+
+    self.UP()
+    return left, left_reg, left_symbol, right, right_reg, right_symbol
+
+  def process_cond(self, node, iftrue_label = None, iffalse_label = None):
+    cond, cond_reg, cond_symbol = self.visit(node)
+    self.DEBUG(self.log_prefix + '  cond=%s, cond_reg=%s, cond_symbol=%s', cond, cond_reg, cond_symbol)
+
+    if cond is None and cond_reg is None and cond_symbol is None:
+      # check flags according to our cond
+
+      if isinstance(node, c_ast.BinaryOp):
+        if iftrue_label is not None:
+          if node.op == '==':
+            self.EMIT(BE('&' + iftrue_label))
+
+          elif node.op == '!=':
+            self.EMIT(BNE('&' + iftrue_label))
+
+          elif node.op == '<=':
+            self.EMIT(BLE('&' + iftrue_label))
+
+          else:
+            self.WARN(self.log_prefix + 'Condition handling not implemented: BinaryOp, op=%s', node.op)
+
+        if iffalse_label is not None:
+          if node.op == '==':
+            self.EMIT(BNE('&' + iffalse_label))
+
+          elif node.op == '!=':
+            self.EMIT(BE('&' + iffalse_label))
+
+          elif node.op == '<=':
+            self.EMIT(BG('&' + iffalse_label))
+
+          else:
+            self.WARN(self.log_prefix + 'Condition handling not implemented: BinaryOp, op=%s', node.op)
+
+      else:
+        self.WARN(self.log_prefix + 'Condition handling not implemented: cond=%s', dump_node(node))
+
+
+  #
+  # Real visitors
+  #
+
+  def visit_ArrayRef(self, node):
+    self.INFO(self.log_prefix + 'ArrayRef: %s', dump_node(node))
+    self.DOWN()
+
+    self.EMIT(Comment(dump_node(node)))
+
+    array_symbol = self.SCOPE.get(node.name.name)
+    array_reg = array_symbol.acquire_register(self)
+    array = array_reg.name
+
+    subscript, subscript_reg, subscript_symbol = self.visit_expr(node.subscript)
+
+    self.DEBUG(self.log_prefix + 'array=%s, array_reg=%s, array_symbol=%s', array, array_reg, array_symbol)
+    self.DEBUG(self.log_prefix + 'subscript=%s, subscript_reg=%s, subscript_symbol=%s', subscript, subscript_reg, subscript_symbol)
+
+    reg = self.GET_REG(keep = [array_reg, subscript_reg])
+    self.EMIT(MOV(reg.name, subscript))
+    self.EMIT(MUL(reg.name, array_symbol.type.dst_size()))
+    self.EMIT(ADD(reg.name, array))
+
+    self.PUT_REG(array_reg)
+    self.PUT_REG(subscript_reg)
+
+    self.UP()
+    return reg.name, reg, array_symbol
+
+  def visit_Assignment(self, node, preferred = None, keep = None):
+    self.INFO(self.log_prefix + 'Assignment: %s', dump_node(node))
+    self.DOWN()
+
+    self.EMIT(Comment(dump_node(node)))
+
+    left, left_reg, left_symbol, right, right_reg, right_symbol = self.visit_left_and_right(node.lvalue, node.rvalue)
+
+    self.DEBUG(self.log_prefix + 'left: left=%s, left_reg=%s, left_symbol=%s', left, left_reg, left_symbol)
+    self.DEBUG(self.log_prefix + 'right: right=%s, right_reg=%s, right_symbol=%s', right, right_reg, right_symbol)
+
+    if isinstance(node.rvalue, c_ast.ArrayRef):
+      # right is address of item in array
+
+      inst = LW if left_symbol.type.dst_size() == 2 else LB
+      self.EMIT(inst(right, right))
+
+    if isinstance(node.lvalue, c_ast.ArrayRef):
+      # left is address of item in array
+
+      inst = STW if left_symbol.type.dst_size() == 2 else STB
+      self.EMIT(inst(left, right))
+
+    else:
+      # left is pure lvalue
+
+      if right_reg is None:
+        # right is constant...
+        self.EMIT(LI(left, right))
+
+      else:
+        self.EMIT(MOV(left, right))
+
+    self.PUT_REG(right_reg)
+
+    self.UP()
+    return left, left_reg, left_symbol
+
+  def visit_BinaryOp(self, node, preferred = None, keep = None):
+    self.INFO(self.log_prefix + '%s, preferred=%s, keep=%s', dump_node(node), preferred, keep)
+    self.DOWN()
+
+    self.EMIT(Comment(dump_node(node)))
+    self.EMIT(Comment('left: ' + dump_node(node.left)))
+    self.EMIT(Comment('right: ' + dump_node(node.right)))
+
+    left, left_reg, left_symbol, right, right_reg, right_symbol = self.visit_left_and_right(node.left, node.right)
+
+    self.DEBUG(self.log_prefix + 'left: left=%s, left_reg=%s, left_symbol=%s', left, left_reg, left_symbol)
+    self.DEBUG(self.log_prefix + 'right: right=%s, right_reg=%s, right_symbol=%s', right, right_reg, right_symbol)
+
+    ret, ret_reg, ret_symbol = None, None, None
+    keep = keep or []
+
+    def __binop_arith(inst):
+      ret_reg = self.GET_REG(preferred = preferred, keep = [left_reg, right_reg] + keep)
+      ret = ret_reg.name
+
+      if left_reg is not None:
+        self.EMIT(MOV(ret, left))
+
+      else:
+        self.EMIT(LI(ret, left))
+
+      self.EMIT(inst(ret, right))
+      ret_reg.dirty = True
+
+      return ret, ret_reg
+
+    if node.op == '+':
+      ret, ret_reg = __binop_arith(ADD)
+
+    elif node.op == '-':
+      ret, ret_reg = __binop_arith(SUB)
+
+    elif node.op == '*':
+      ret, ret_reg = __binop_arith(MUL)
+
+    elif node.op == '==':
+      self.EMIT(CMP(left, right))
+
+    elif node.op == '!=':
+      self.EMIT(CMP(left, right))
+
+    elif node.op == '<=':
+      self.EMIT(CMP(left, right))
+
+    else:
+      self.WARN(self.log_prefix + 'Unhandled binary op: op=%s', node.op)
+
+    self.PUT_REG(left_reg)
+    self.PUT_REG(right_reg)
+
+    self.UP()
+    return ret, ret_reg, ret_symbol
+
+  def visit_Compound(self, node, create_scope = True):
+    self.DEBUG(self.log_prefix + dump_node(node))
+    self.DOWN()
+
+    self.EMIT(Comment(dump_node(node)))
+
+    if create_scope:
+      self.push_scope()
+
+    ret = self.generic_visit(node)
+    self.DEBUG(self.log_prefix + 'compound output: %s', ret)
+    #for child in node.block_items:
+    #  self.visit(child)
+
+    self.pop_scope()
+    self.UP()
+
+  def visit_Constant(self, node, preferred = None, keep = None):
+    self.DEBUG(self.log_prefix + 'Constant: node=%s, preferred=%s, keep=%s', dump_node(node), preferred, keep)
+    self.DOWN()
+
+    self.EMIT(Comment(dump_node(node)))
+
+    reg = self.GET_REG(preferred = preferred, keep = keep)
+
+    value = self.visit_constant_value(node)
+
+    self.EMIT(LI(reg.name, value))
+
+    self.UP()
+    return reg.name, reg, None
+
+  def visit_Decl(self, node):
+    self.INFO(self.log_prefix + '%s', dump_node(node))
+    self.DOWN()
+
+    self.EMIT(Comment(dump_node(node)))
+
+    self.INFO(self.log_prefix + 'type is %s', dump_node(node.type))
+
+    symbol = self.SCOPE.add(node.coord, Symbol(self, node.name, node.type, return_type = node.type.type if isinstance(node.type, c_ast.FuncDecl) else None, extern = ('extern' in node.storage)))
+
+    # get storage for new symbol
+    if self.FN is None:
+      symbol.storage = MemorySlot(node.name)
+      symbol.storage.symbol = symbol
+
+    else:
+      symbol.storage = self.get_new_local_storage()
+      symbol.storage.symbol = symbol
+
+    self.DEBUG(self.log_prefix + 'storage: %s', symbol.storage)
+
+    if node.init is not None:
+      self.DEBUG(self.log_prefix + 'has init, process it')
+      self.DOWN()
+
+      init, init_reg, init_symbol = self.visit(node.init)
+      self.DEBUG(self.log_prefix + 'init=%s, init_reg=%s, init_symbol=%s', init, init_reg, init_symbol)
+
+      symbol.assign_register(init_reg)
+
+      if isinstance(node.init, c_ast.ArrayRef):
+        inst = LW if symbol.type.dst_size() == 2 else LB
+        self.EMIT(inst(init, init))
+
+      self.UP()
+
+    self.UP()
+
+  def visit_For(self, node):
+    self.INFO(self.log_prefix + dump_node(node))
+    comment = dump_node(node)
+
+    self.DOWN()
+
+    self.EMIT(Comment(dump_node(node)))
+
+    init_block = self.FN.block(name = self.get_new_label(name = 'for_init'))
+    head_block = self.FN.block(name = self.get_new_label(name = 'for_head'))
+    body_block = self.FN.block(name = self.get_new_label(name = 'for_body'))
+    past_block = self.FN.block(name = self.get_new_label(name = 'for_past'))
+
+    self.break_stack.append(past_block)
+    self.continue_stack.append(head_block)
+
+    self.BLOCK.connect(init_block)
+    init_block.connect(head_block)
+    head_block.connect(body_block)
+    head_block.connect(past_block)
+    body_block.connect(head_block)
+    body_block.connect(past_block)
+
+    self.make_current(init_block)
+
+    init, init_reg, init_symbol = self.visit(node.init)
+    self.DEBUG(self.log_prefix + '  init=%s, init_reg=%s, init_symbol=%s', init, init_reg, init_symbol)
+
+    self.make_current(head_block)
+
+    cond, cond_reg, cond_symbol = self.visit(node.cond)
+    self.DEBUG(self.log_prefix + '  cond=%s, cond_reg=%s, cond_symbol=%s', cond, cond_reg, cond_symbol)
+
+    if cond is None and cond_reg is None and cond_symbol is None:
+      # check flags according to our cond
+
+      if isinstance(node.cond, c_ast.BinaryOp):
+        if node.cond.op == '==':
+          self.EMIT(BNE('&' + past_block.names[0]))
+
+        elif node.cond.op == '!=':
+          self.EMIT(BE('&' + past_block.names[0]))
+
+        elif node.cond.op == '<=':
+          self.EMIT(BG('&' + past_block.names[0]))
+
+        else:
+          self.WARN(self.log_prefix + 'For condition handling not implemented: BinaryOp, op=%s', node.cond.op)
+
+      else:
+        self.WARN(self.log_prefix + 'For condition handling not implemented: cond=%s', dump_node(node.cond))
+
+    self.make_current(body_block)
+    self.visit(node.stmt)
+
+    self.visit(node.next)
+    self.EMIT(J('&' + head_block.names[0]))
+
+    self.make_current(past_block)
+
+    self.break_stack.pop()
+    self.continue_stack.pop()
+
+    self.UP()
+
+  def visit_FuncCall(self, node, preferred = None, keep = None):
+    self.INFO(self.log_prefix + '%s', dump_node(node))
+    self.DOWN()
+
+    self.EMIT(Comment(dump_node(node)))
+
+    self.INFO(self.log_prefix + 'Name: %s', dump_node(node.name))
+    self.INFO(self.log_prefix + 'Args: %s', dump_node(node.args))
+
+    if isinstance(node.name, c_ast.ID) and node.name.name == 'asm' and node.args is not None and isinstance(node.args.exprs[0], c_ast.Constant) and node.args.exprs[0].type == 'string':
+      for line in node.args.exprs[0].value[1:-1].split('\n'):
+        self.EMIT(InlineAsm(line))
+
+      self.UP()
+      return None, None, None
+
+    fn, fn_reg, fn_symbol = self.visit(node.name)
+    if fn is None and fn_reg is None and fn_symbol is None:
+      raise SymbolUndefined(node.coord, dump_node(node.name))
+
+    self.DEBUG(self.log_prefix + 'fn=%s, fn_reg=%s, fn_symbol=%s', fn, fn_reg, fn_symbol)
+
+    if node.args is not None:
+      args = []
+
+      for i, arg in enumerate(node.args.exprs):
+        self.EMIT(Comment('arg #%i: %s' % (i, dump_node(arg))))
+
+        reg = self.FN.registers.all_regs[i + 1]
+        symbol = reg.symbol
+
+        self.EMIT(Comment('free register'))
+        self.FREE_REG(reg.index)
+
+        self.DEBUG(self.log_prefix + 'arg #%i: %s, place into %s (occupied by %s)', i, dump_node(arg), reg, symbol)
+
+        args.append((reg, symbol, self.visit(arg, preferred = reg.index)))
+
+      self.DEBUG(self.log_prefix + 'args: %s', args)
+
+    ret_reg = fn_symbol is not None and fn_symbol.return_type.dst_size() != 0 and self.node_parent is not None and not isinstance(self.node_parent, c_ast.Compound)
+    self.DEBUG(self.log_prefix + 'return type: %s', dump_node(fn_symbol.return_type) if fn_symbol.return_type is not None else '<none>')
+
+    if ret_reg:
+      ret_reg = self.GET_REG(preferred = 0)
+      ret = ret_reg.name
+
+    else:
+      ret, ret_reg = None, None
+
+    self.DEBUG(self.log_prefix + 'FN retval reg: %s, %s', ret, ret_reg)
+
+    if fn is not None:
+      pass
+
+    elif fn_reg is not None:
+      fn = fn_reg.name
+
+    else:
+      fn = fn_symbol.storage.name
+
+    self.EMIT(CALL(fn))
+
+    if ret_reg is not None:
+      ret_store_reg = self.GET_REG()
+      self.EMIT(MOV(ret_store_reg.name, ret_reg.name))
+      self.PUT_REG(ret_reg)
+      ret, ret_reg = ret_store_reg.name, ret_store_reg
+
+    if node.args is not None:
+      for reg, symbol, _ in args:
+        if symbol is None:
+          continue
+
+        self.EMIT(Comment('restore content of %s, storage of %s' % (reg, symbol)))
+        self.DEBUG(self.log_prefix + 'restore value of %s to %s', symbol, reg)
+        self.FREE_REG(reg.index)
+        symbol.acquire_register(self, preferred = reg.index)
+
+    self.INFO(self.log_prefix + 'parent=%s', dump_node(self.node_parent))
+
+    self.UP()
+    return ret, ret_reg, None
+
+  def visit_FuncDef(self, node):
+    decl = node.decl
+
+    self.INFO(self.log_prefix + '%s', dump_node(node))
+    self.DOWN()
+
+    self.EMIT(Comment(dump_node(node)))
+
+    self.INFO(self.log_prefix + 'Decl: %s', dump_node(decl))
+    self.INFO(self.log_prefix + 'Type: %s', dump_node(decl.type))
+    self.INFO(self.log_prefix + 'Args: %s', dump_node(decl.type.args))
+    self.INFO(self.log_prefix + 'Type type: %s', dump_node(decl.type.type))
+    self.INFO(self.log_prefix + 'Return type: %s', dump_node(decl.type.type.type))
+
+    self.reset_scope()
+    self.push_scope()
+
+    self.FN = FN = Function(self, decl, return_type = decl.type.type, args_types = [arg.type for arg in decl.type.args.params] if decl.type.args is not None else None)
+    self.functions.append(FN)
+
+    self.GET_REG = FN.registers.get_reg
+    self.FREE_REG = FN.registers.free_reg
+    self.PUT_REG = FN.registers.put_reg
+
+    symbol = self.global_scope.get(decl.name)
+    if symbol is None:
+      symbol = self.global_scope.add(node.coord, Symbol(self, decl.name, decl.type, return_type = decl.type.type))
+
+    symbol.storage = MemorySlot(decl.name)
+    symbol.storage.symbol = symbol
+    symbol.defined = True
+
+    self.make_current(FN.args_block())
+
+    if decl.type.args is not None:
+      for i, arg in enumerate(decl.type.args.params):
+        self.visit(arg)
+
+        symbol = self.SCOPE.get(arg.name)
+        symbol.defined = True
+
+        symbol.acquire_register(self, preferred = i + 1)
+        symbol.register.dirty = True
+
+        self.DEBUG(self.log_prefix + '  arg #%i: %s', i, symbol)
+        self.DEBUG(self.log_prefix + '    reg: %s', symbol.register)
+
+        del FN.registers.callee_saved_regs[symbol.register.index]
+
+    if FN.return_type.size() != 0:
+      del FN.registers.callee_saved_regs[0]
+
+    self.make_current(FN.body_block())
+
+    self.visit_Compound(node.body, create_scope = False)
+
+    #self.emit('{label}:', label = fn.return_label)
+    #self.DEBUG(self.log_prefix + 'return type: %s', dump_node(self.FN.return_type.type))
+    #self.emit('  ret')
+
+    FN.finish()
+
+    self.UP()
+
+  def visit_ID(self, node, preferred = None, keep = None):
+    self.INFO(self.log_prefix + 'ID: %s', dump_node(node))
+    self.DOWN()
+
+    self.EMIT(Comment(dump_node(node)))
+
+    symbol = self.SCOPE.get(node.name)
+
+    self.DEBUG(self.log_prefix + 'symbol for ID %s: %s', node.name, symbol)
+
+    self.UP()
+    return None, None, symbol
+
+  def visit_If(self, node):
+    self.INFO(self.log_prefix + 'If: %s', dump_node(node))
+    self.DOWN()
+
+    cond_label    = self.get_new_label(name = 'if_cond')
+    iftrue_label  = self.get_new_label(name = 'if_iftrue')
+    iffalse_label = self.get_new_label(name = 'if_iffalse')
+    past_label    = self.get_new_label(name = 'if_past')
+
+    self.EMIT(Comment(dump_node(node)))
+    self.EMIT(Comment('  iftrue=%s, iffalse=%s, past=%s' % (iftrue_label, iffalse_label, past_label)))
+
+    cond_block = self.FN.block(name = cond_label)
+    iftrue_block = self.FN.block(name = iftrue_label)
+    iffalse_block = self.FN.block(name = iffalse_label)
+
+    self.BLOCK.connect(cond_block)
+    cond_block.connect(iftrue_block)
+    cond_block.connect(iffalse_block)
+
+    self.make_current(cond_block)
+    self.process_cond(node.cond, iftrue_label = iftrue_block.names[0], iffalse_label = iffalse_block.names[0])
+
+    self.make_current(iftrue_block)
+    self.visit(node.iftrue)
+
+    self.make_current(iffalse_block)
+    self.visit(node.iffalse)
+
+    past_block = self.FN.block(name = past_label)
+    iftrue_block.connect(past_block)
+    iffalse_block.connect(past_block)
+
+    iftrue_block.emit(J('&' + past_label))
+    iffalse_block.emit(J('&' + past_label))
+
+    self.BLOCK.connect(past_block)
+    self.EMIT(Comment('connecting %s to %s' % (self.BLOCK, past_block)))
+    self.make_current(past_block)
+
+    self.UP()
+    return None, None, None
+
+  def visit_Return(self, node):
+    self.INFO(self.log_prefix + dump_node(node))
+    self.DOWN()
+
+    self.EMIT(Comment(dump_node(node)))
+
+    self.visit(node.expr, preferred = self.FREE_REG(0).index)
+    self.EMIT(J('&' + self.FN.epilog_block().names[0]))
+    self.BLOCK.connect(self.FN.epilog_block())
+
+    self.UP()
+
+  def visit_UnaryOp(self, node, preferred = None, keep = None):
+    self.INFO(self.log_prefix + '%s, preferred=%s, keep=%s', dump_node(node), preferred, keep)
+    self.DOWN()
+
+    self.EMIT(Comment(dump_node(node)))
+
+    comment = 'UnaryOp: %s' % dump_node(node)
+
+    expr, expr_reg, expr_symbol = self.visit_expr(node.expr)
+
+    self.DEBUG(self.log_prefix + 'expr=%s, expr_reg=%s, expr_symbol=%s' % (expr, expr_reg, expr_symbol))
+
+    if node.op == 'p++':
+      reg = self.GET_REG(preferred = preferred, keep = keep)
+      self.EMIT(MOV(reg.name, expr_reg.name))
+      reg.dirty = True
+
+      self.EMIT(INC(expr))
+      expr_reg.dirty = True
+
+      self.DEBUG(self.log_prefix + 'postfix inc: expr=%s, expr_reg=%s, expr_symbol=%s', expr, expr_reg, expr_symbol)
+
+      self.UP()
+      return reg.name, reg, None
+
+    if node.op == '*':
+      reg = self.GET_REG(preferred = preferred, keep = keep)
+      dst_type = None
+
+      if isinstance(node.expr, c_ast.Assignment):
+        self.DEBUG(self.log_prefix + 'deref assignment: %s, %s, %s', expr, expr_reg, expr_symbol)
+
+      elif isinstance(node.expr, c_ast.ID):
+        self.DEBUG(self.log_prefix + 'deref id: %s, %s, %s', expr, expr_reg, expr_symbol)
+
+      else:
+        self.WARN(self.log_prefix + 'Unhandled unary op deref of %s', dump_node(node.expr))
+
+      inst = LW if expr_reg.symbol.type.dst_size() == 2 else LB
+      self.EMIT(inst(reg.name, expr))
+      reg.dirty = True
+
+      self.UP()
+      return reg.name, reg, None
+
+    if node.op == '&':
+      reg = self.GET_REG(preferred = preferred, keep = keep)
+      expr_symbol.storage.addrof(reg.name, self.EMIT)
+      reg.dirty = True
+
+      self.UP()
+      return reg.name, reg, None
+
+    self.WARN('Unhandled unary op: op=%s', node.op)
+    self.UP()
+
+    return None, None, None
+
+  def visit_While(self, node):
+    self.INFO(self.log_prefix + dump_node(node))
+    comment = dump_node(node)
+
+    self.DOWN()
+
+    self.EMIT(Comment(dump_node(node)))
+
+    head_block = self.FN.block(name = self.get_new_label(name = 'while_head'))
+    body_block = self.FN.block(name = self.get_new_label(name = 'while_body'))
+    past_block = self.FN.block(name = self.get_new_label(name = 'while_past'))
+
+    self.break_stack.append(past_block.names[0])
+    self.continue_stack.append(head_block.names[0])
+
+    self.BLOCK.connect(head_block)
+    head_block.connect(body_block)
+    head_block.connect(past_block)
+    body_block.connect(head_block)
+    body_block.connect(past_block)
+
+    self.DEBUG(self.log_prefix + 'head_block: %s', head_block)
+
+    self.make_current(head_block)
+
+    self.process_cond(node.cond, iffalse_label = past_block.names[0])
+
+    self.make_current(body_block)
+    self.visit(node.stmt)
+    self.EMIT(J('&' + head_block.names[0]))
+
+    self.make_current(past_block)
+
+    self.break_stack.pop()
+    self.continue_stack.pop()
+
+    self.UP()
+
+def compile_file(logger, options, file_in, file_out):
+  ast = parse_file(file_in, use_cpp = True, cpp_path = 'gcc', cpp_args = ['-E', r'-I/data/git/pycparser/utils/fake_libc_include', r'-Ilibc/include'])
+
+  ast.show()
+
+  options.passes = list(set(options.passes))
+
+  def __apply_opt_passes(passes, tree):
+    tree_modified = True
+    while tree_modified is True:
+      tree_modified = False
+
+      for opt_pass in passes.keys():
+        if opt_pass not in options.passes or ('no-' + opt_pass) in options.passes:
+          logger.debug('Pass %s is disabled', opt_pass)
+          continue
+
+        logger.debug('Pass %s is enabled, running', opt_pass)
+
+        v = passes[opt_pass](logger)
+        v.DOWN()
+
+        v.tree_modified = True
+        while v.tree_modified is True:
+          v.tree_modified = False
+          v.visit(tree)
+
+          if v.tree_modified is True:
+            tree_modified = True
+
+        v.UP()
+
+  __apply_opt_passes(AST_OPT_PASSES, ast)
+
+  cv = CompileVisitor(logger)
+  cv.visit(ast)
+
+  __apply_opt_passes(BLOCK_OPT_PASSES, cv)
+
+  with open(file_out, 'w') as f_out:
+    f_out.write(cv.materialize())
+
+def main():
+  parser = argparse.ArgumentParser()
+
+  group = parser.add_argument_group('Tool verbosity')
+  group.add_argument('-d', '--debug', dest = 'debug', action = 'store_true', default = False, help = 'Debug mode')
+  group.add_argument('-q', '--quiet', dest = 'quiet', action = 'count',      default = 0,     help = 'Decrease verbosity. This option can be used multiple times')
+
+  group = parser.add_argument_group('File options')
+  group.add_argument('-i', dest = 'file_in',  action = 'append',     default = [],    help = 'Input file')
+  group.add_argument('-o', dest = 'file_out', action = 'append',     default = [],    help = 'Output file')
+  group.add_argument('-f', dest = 'force',    action = 'store_true', default = False, help = 'Force overwrite of the output file')
+
+  group = parser.add_argument_group('Passes')
+  group.add_argument('-p', dest = 'passes',   action = 'append',     default = [],    nargs = 1, help = 'Enable or disable optimization pass', metavar = 'PASS')
+
+  options, logger = ducky.util.parse_options(parser)
+
+  options.passes = list(chain.from_iterable(options.passes))
+  options.passes += ['ast-const-prop', 'ast-dce', 'bt-peephole', 'bt-simplify']
+
+  if not options.file_in:
+    parser.print_help()
+    sys.exit(1)
+
+  try:
+    for filepath in options.file_in:
+      compile_file(logger, options, filepath, options.file_out.pop(0))
+
+  except CompilerError as e:
+    logger.error(e.message)
+
+if __name__ == '__main__':
+  main()
