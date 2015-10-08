@@ -1,3 +1,4 @@
+import argparse
 import collections
 import functools
 import logging
@@ -37,7 +38,10 @@ def add_common_options(parser):
   group.add_option('-q', '--quiet', dest = 'quiet', action = 'count', default = 0, help = 'Decrease verbosity. This option can be used multiple times')
 
 def parse_options(parser):
-  options, args = parser.parse_args()
+  if isinstance(parser, argparse.ArgumentParser):
+    options = parser.parse_args()
+  else:
+    options, args = parser.parse_args()
 
   logger = setup_logger(stream = sys.stdout, debug = options.debug, quiet = options.quiet)
 
