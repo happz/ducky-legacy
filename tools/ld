@@ -22,6 +22,9 @@ from ducky.mm import ADDR_FMT, UInt32, UINT32_FMT, UInt16, UInt8, UINT8_FMT
 
 from ducky.cpu.assemble import align_to_next_page, align_to_next_mmap
 
+def align_nop(n):
+  return n
+
 class LinkerInfo(object):
   def __init__(self):
     super(LinkerInfo, self).__init__()
@@ -50,7 +53,7 @@ def merge_object_into(logger, info, f_dst, f_src):
 
     logger.debug('Merge section %s into dst file', s_name)
 
-    align = align_to_next_mmap if f_dst.get_header().flags.mmapable == 1 else align_to_next_page
+    align = align_to_next_mmap if f_dst.get_header().flags.mmapable == 1 else align_nop
 
     try:
       d_header, d_content = f_dst.get_section_by_name(s_name)
