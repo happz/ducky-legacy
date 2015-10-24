@@ -45,6 +45,8 @@ Code Documentation
    ducky.errors
    ducky.util
    ducky.patch
+   ducky.cc
+   ducky.cc.passes
 
 Indices and tables
 ==================

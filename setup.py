@@ -11,6 +11,8 @@ setup(name = 'ducky',
       license = 'MIT',
       packages = [
         'ducky',
+        'ducky.cc',
+        'ducky.cc.passes',
         'ducky.cpu',
         'ducky.cpu.coprocessor',
         'ducky.mm',
