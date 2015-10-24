@@ -24,6 +24,7 @@ from .errors import InvalidResourceError
 from .log import create_logger
 from .util import str2int, LRUCache, F
 from .mm import addr_to_segment, ADDR_FMT, segment_addr_to_addr, UInt16, UINT16_FMT
+from .mm.binary import SectionFlags
 from .reactor import Reactor
 from .snapshot import SnapshotNode
 
@@ -379,22 +380,25 @@ class Machine(ISnapshotable, IMachineWorker):
     binary.cs, binary.ds, binary.sp, binary.ip, binary.symbols, binary.regions, binary.raw_binary = self.memory.load_file(binary.path)
     binary.load_symbols()
 
+    ivt_address = self.config.getint('machine', 'interrupt-table', 0x000000)
+    self.DEBUG('IVT: address=%s', ADDR_FMT(ivt_address))
+
+    self.memory.alloc_ivt(ivt_address)
+
     from .cpu import InterruptVector
     desc = InterruptVector(cs = binary.cs, ds = binary.ds)
 
-    def __save_iv(name, table, index):
+    def __save_iv(name, index):
       if name not in binary.symbols:
         self.DEBUG('irq: routine %s not found', name)
         return
 
       desc.ip = binary.symbols[name].u16
-      self.memory.save_interrupt_vector(table, index, desc)
-
-    self.memory.alloc_ivt(0x000000)
+      self.memory.save_interrupt_vector(ivt_address, index, desc)
 
     from .devices import IRQList
     for i in range(0, IRQList.IRQ_COUNT):
-      __save_iv('irq_routine_{}'.format(i), 0, i)
+      __save_iv('irq_routine_{}'.format(i), i)
 
     self.print_regions(binary.regions)
 
@@ -425,11 +429,13 @@ class Machine(ISnapshotable, IMachineWorker):
       _getbool = functools.partial(self.config.getbool, mmap_section)
       _getint  = functools.partial(self.config.getint, mmap_section)
 
+      access = _get('access', 'r')
+      flags = SectionFlags(readable = 'r' in access, writable = 'w' in access, executable = 'x' in access)
       self.memory.mmap_area(_get('file'),
                             _getint('address'),
                             _getint('size'),
                             offset = _getint('offset', 0),
-                            access = _get('access', 'r'),
+                            flags = flags,
                             shared = _getbool('shared', False))
 
   def hw_setup(self, machine_config):

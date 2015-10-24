@@ -35,6 +35,8 @@ class MMOperationList(enum.IntEnum):
   ALLOC    = 3
   FREE     = 4
   UNUSED   = 5
+  MMAP     = 6
+  UNMMAP   = 7
 
 MM_FLAG_READ    = 0x0001
 MM_FLAG_WRITE   = 0x0002
@@ -1144,7 +1146,7 @@ class MemoryController(object):
     sp   = bsp
     size = len(content)
 
-    self.DEBUG('mc.__load_content_u8: segment=%s, base=%s, size=%s, sp=%s', segment, base, size, sp)
+    self.DEBUG('mc.__load_content_u8: segment=%s, base=%s, size=%s, sp=%s', UINT8_FMT(segment), UINT16_FMT(base), size, UINT16_FMT(sp))
 
     for i in content:
       if type(i) == SpaceSlot:
@@ -1158,7 +1160,7 @@ class MemoryController(object):
     sp   = bsp
     size = len(content) * 2
 
-    self.DEBUG('mc.__load_content_u16: segment=%s, base=%s, size=%s, sp=%s', segment, base, size, sp)
+    self.DEBUG('mc.__load_content_u16: segment=%s, base=%s, size=%s, sp=%s', UINT8_FMT(segment), UINT16_FMT(base), size, UINT16_FMT(sp))
 
     for i in content:
       self.write_u16(sp, i.u16, privileged = True)
@@ -1169,19 +1171,19 @@ class MemoryController(object):
     sp   = bsp
     size = len(content) * 4
 
-    self.DEBUG('mc.__load_content_u32: segment=%s, base=%s, size=%s, sp=%s', segment, base, size, sp)
+    self.DEBUG('mc.__load_content_u32: segment=%s, base=%s, size=%s, sp=%s', UINT8_FMT(segment), UINT16_FMT(base), size, UINT16_FMT(sp))
 
     for i in content:
       self.write_u32(sp, i.u32, privileged = True)
       sp += 4
 
   def load_text(self, segment, base, content):
-    self.DEBUG('mc.load_text: segment=%s, base=%s', segment, base)
+    self.DEBUG('mc.load_text: segment=%s, base=%s', UINT8_FMT(segment), UINT16_FMT(base))
 
     self.__load_content_u32(segment, base, content)
 
   def load_data(self, segment, base, content):
-    self.DEBUG('mc.load_data: segment=%s, base=%s', segment, base)
+    self.DEBUG('mc.load_data: segment=%s, base=%s', UINT8_FMT(segment), UINT16_FMT(base))
 
     self.__load_content_u8(segment, base, content)
 
@@ -1235,7 +1237,7 @@ class MemoryController(object):
           # Always mmap sections as RW, and disable W if section' flags requires that
           # Otherwise, when program asks Vm to enable W, any access would fail because
           # the underlying mmap area was not mmaped as writable
-          self.mmap_area(f_in.name, s_base_addr, s_header.file_size, offset = s_header.offset, access = 'rw', shared = False)
+          self.mmap_area(f_in.name, s_base_addr, s_header.file_size, offset = s_header.offset, flags = s_header.flags, shared = False)
 
         else:
           for i in xrange(pages_start, pages_start + pages_cnt):
@@ -1248,7 +1250,7 @@ class MemoryController(object):
             if s_header.flags.bss != 1:
               self.load_data(dsr, s_header.base, s_content)
 
-        self.__set_section_flags(pages_start, pages_cnt, s_header.flags)
+          self.__set_section_flags(pages_start, pages_cnt, s_header.flags)
 
         regions.append(MemoryRegion(self, f_in.string_table.get_string(s_header.name), s_base_addr, s_header.file_size, s_header.flags))
 
@@ -1277,7 +1279,7 @@ class MemoryController(object):
     desc[1].close()
     del self.opened_mmap_files[file_path]
 
-  def mmap_area(self, file_path, address, size, offset = 0, access = 'r', shared = False):
+  def mmap_area(self, file_path, address, size, offset = 0, flags = None, shared = False):
     """
     Assign set of memory pages to mirror external file, mapped into memory.
 
@@ -1286,9 +1288,8 @@ class MemoryController(object):
     :param u24 address: address where new area should start.
     :param u24 size: length of area, in bytes.
     :param int offset: starting point of the area in mmaped file.
-    :param string access: combination of letters ``r`` (`read`), ``w``
-      (`write`) and ``x`` (`execute`), specifying access flags of pages in new
-      area.
+    :param ducky.mm.binary.SectionFlags flags: specifies required flags for mmaped
+      pages.
     :param bool shared: if ``True``, content of external file is mmaped as
       shared, i.e. all changes are visible to all processes, not only to the
       current ducky virtual machine.
@@ -1300,7 +1301,7 @@ class MemoryController(object):
       is already allocated.
     """
 
-    self.DEBUG('mc.mmap_area: file=%s, offset=%s, size=%s, address=%s, access=%s, shared=%s', file_path, offset, size, ADDR_FMT(address), access, shared)
+    self.DEBUG('mc.mmap_area: file=%s, offset=%s, size=%s, address=%s, flags=%s, shared=%s', file_path, offset, size, ADDR_FMT(address), flags.to_string(), shared)
 
     if size % PAGE_SIZE != 0:
       raise InvalidResourceError('Memory size must be multiple of PAGE_SIZE')
@@ -1314,13 +1315,15 @@ class MemoryController(object):
       if i in self.__pages:
         raise InvalidResourceError('MMap request overlaps with existing pages: page=%s, area=%s' % (self.__pages[i], self.__pages[i].area))
 
-    access = access.lower()
-
     mmap_flags = mmap.MAP_SHARED if shared else mmap.MAP_PRIVATE
 
-    mmap_prot = mmap.PROT_READ
-    if 'w' in access:
-      mmap_prot |= mmap.PROT_WRITE
+    # Always mmap as writable - VM will force read-only access using
+    # page flags. But since it is possible to change page flags
+    # in run-time, and request write access to areas originaly
+    # loaded as read-only, such write access would fail because
+    # the underlying mmap area was mmaped as read-only only, and this
+    # limitation is not possible to overcome.
+    mmap_prot = mmap.PROT_READ | mmap.PROT_WRITE
 
     ptr = mmap.mmap(
       self.__get_mmap_fileno(file_path),
@@ -1334,13 +1337,7 @@ class MemoryController(object):
     for i in xrange(pages_start, pages_start + pages_cnt):
       self.register_page(MMapMemoryPage(area, self, i, ptr, offset = (i - pages_start) * PAGE_SIZE))
 
-    self.reset_pages_flags(pages_start, pages_cnt)
-
-    self.update_pages_flags(pages_start, pages_cnt, 'read', True)
-    if 'w' in access:
-      self.update_pages_flags(pages_start, pages_cnt, 'write', True)
-    if 'x' in access:
-      self.update_pages_flags(pages_start, pages_cnt, 'execute', True)
+    self.__set_section_flags(pages_start, pages_cnt, flags)
 
     self.mmap_areas[area.address] = area
 
@@ -1420,6 +1417,51 @@ from ..interfaces import IVirtualInterrupt
 from ..devices import VIRTUAL_INTERRUPTS, IRQList
 
 class MMInterrupt(IVirtualInterrupt):
+  def op_mmap(self, core):
+    from .binary import SectionFlags
+    from ..cpu.registers import Registers
+
+    core.REG(Registers.R00).value = 0xFFFF
+
+    address = segment_addr_to_addr(core.REG(Registers.DS).value, core.REG(Registers.R01).value)
+    size = core.REG(Registers.R02).value
+    filepath_ptr = segment_addr_to_addr(core.REG(Registers.DS).value, core.REG(Registers.R03).value)
+    offset = core.REG(Registers.R04).value
+    flags = core.REG(Registers.R05).value
+
+    filepath = []
+    filepath_ptr = segment_addr_to_addr(core.REG(Registers.DS).value, core.REG(Registers.R03).value)
+
+    while True:
+      c = core.MEM_IN8(filepath_ptr)
+      if c == 0:
+        break
+
+      filepath.append(chr(c))
+
+    filepath = ''.join(filepath)
+
+    flags = SectionFlags(readable = flags & MM_FLAG_READ, writable = flags & MM_FLAG_WRITE, executable = flags & MM_FLAG_EXECUTE)
+
+    self.mmap_area(filepath, address, size, offset = offset, flags = flags)
+
+    core.REG(Registers.R00).value = address
+
+  def op_unmmap(self, core):
+    from ..cpu.registers import Registers
+
+    core.REG(Registers.R00).value = 0xFFFF
+
+    address = segment_addr_to_addr(core.REG(Registers.DS).value, core.REG(Registers.R01).value)
+
+    area = self.core.memory.mmap_areas.get(address, None)
+    if area is None:
+      raise AccessViolationError('Unmmap is not allowed for this area: address=%s' % ADDR_FMT(address))
+
+    self.core.memory.unmmap_area(area)
+
+    core.REG(Registers.R00).value = 0
+
   def run(self, core):
     from ..cpu import do_log_cpu_core_state
     from ..cpu.registers import Registers
@@ -1577,6 +1619,12 @@ class MMInterrupt(IVirtualInterrupt):
       core.DEBUG('unused: allocated_pages=%i', len(pages))
 
       core.REG(Registers.R00).value = SEGMENT_SIZE - len(pages)
+
+    elif op == MMOperationList.MMAP:
+      self.op_mmap(core)
+
+    elif op == MMOperationList.UNMMAP:
+      self.op_unmmap(core)
 
     else:
       core.WARN('Unknown mm operation requested: %s', op)
