@@ -36,6 +36,17 @@ def main():
                        action = 'store_true',
                        default = False,
                        help = 'Enable profiling of running binaries')
+  opt_group.add_option('--set-option',
+                       dest = 'set_options',
+                       action = 'append',
+                       default = [],
+                       metavar = 'SECTION:OPTION=VALUE',
+                       help = 'Set option')
+  opt_group.add_option('--add-option',
+                       dest = 'add_options',
+                       action = 'append',
+                       default = [],
+                       metavar = 'SECTION:OPTION=VALUE')
   opt_group.add_option('--set-device-option',
                        dest = 'set_device_options',
                        action = 'append',
@@ -103,6 +114,27 @@ def main():
 
   machine_config = ducky.config.MachineConfig()
   machine_config.read(options.machine_config)
+
+  for option in options.set_options:
+    section, option = option.split(':')
+
+    if not machine_config.has_section(section):
+      logger.error('Unknown config section %s', section)
+      continue
+
+    option, value = option.split('=')
+
+    machine_config.set(section, option, value)
+
+  for option in options.add_options:
+    section, option = option.split(':')
+
+    if not machine_config.has_section(section):
+      logger.error('Unknown config section %s', section)
+      continue
+
+    option, value = option.split('=')
+    machine_config.set(section, option, machine_config.get(section, option) + ', ' + value)
 
   for option in options.set_device_options:
     dev, option = option.split(':')
