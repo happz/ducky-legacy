@@ -65,7 +65,11 @@ class StreamIOTerminal(Terminal):
   def create_from_config(cls, machine, config, section):
     input_device, output_device = cls.get_slave_devices(machine, config, section)
 
-    return StreamIOTerminal(machine, section, input = input_device, output = output_device, streams_in = [e.strip() for e in config.get(section, 'streams_in', '').split(',')], stream_out = config.get(section, 'stream_out', None))
+    streams_in = config.get(section, 'streams_in', None)
+    if streams_in is not None:
+      streams_in = [e.strip() for e in streams_in.split(',')]
+
+    return StreamIOTerminal(machine, section, input = input_device, output = output_device, streams_in = streams_in, stream_out = config.get(section, 'stream_out', None))
 
   def boot(self):
     self.machine.DEBUG('StreamIOTerminal.boot')
