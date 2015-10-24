@@ -24,7 +24,8 @@ setup(name = 'ducky',
       install_requires = [
         'enum34',
         'tabulate',
-        'colorama'
+        'colorama',
+        'pycparser',
       ],
       ext_modules = [
         mod_native_data_cache
