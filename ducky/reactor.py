@@ -72,7 +72,7 @@ class SelectTask(IReactorTask):
 
   :param ducky.machine.Machine machine: VM this task (and reactor) belongs to.
   :param dict fds: dictionary, where keys are descriptors, and values are lists
-  of their callbacks.
+    of their callbacks.
   """
 
   def __init__(self, machine, fds, *args, **kwargs):
