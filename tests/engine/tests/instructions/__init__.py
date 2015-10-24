@@ -13,7 +13,7 @@ class Tests(unittest.TestCase):
         assert_mm(S.get_child('machine').get_child('memory'), **kwargs['mm'])
 
     if binary is not None:
-      binary = os.path.join(os.getenv('CURDIR'), 'tests', 'instructions', 'tests', binary + '.bin')
+      binary = os.path.join(os.getenv('CURDIR'), 'tests', 'instructions', 'tests', binary + '.testbin')
 
     common_run_machine(code = code, binary = binary, post_run = [__assert_state])
 

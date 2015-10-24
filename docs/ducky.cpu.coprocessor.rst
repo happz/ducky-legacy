@@ -6,6 +6,7 @@ Submodules
 
 .. toctree::
 
+   ducky.cpu.coprocessor.control
    ducky.cpu.coprocessor.math_copro
 
 Module contents

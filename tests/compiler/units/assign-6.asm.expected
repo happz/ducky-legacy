@@ -1,0 +1,30 @@
+
+  .include "defs.asm"
+  .section .rodata
+
+
+.L1_global:
+
+
+  .text
+  .global fn
+
+fn:
+  sub sp, 24
+  push r11
+  push r12
+
+
+  mov r11, r12
+
+.L2_fn_return:
+  pop r12
+  pop r11
+  add sp, 24
+  ret
+
+
+_start:
+  call &main
+  int $INT_HALT
+  .global _start

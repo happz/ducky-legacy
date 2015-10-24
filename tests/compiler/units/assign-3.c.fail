@@ -1,0 +1,1 @@
+[ERRR] IncompatibleTypesError: tests/compiler/assign-3.c:5: Incompatible types: "char**" cannot be matched with "char*"[39m[49m[0m

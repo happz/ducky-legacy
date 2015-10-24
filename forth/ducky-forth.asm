@@ -6,7 +6,7 @@
 ; Richard W.M. Jones <rich@annexia.org> http://annexia.org/forth
 ;
 
-.include "forth/defs.asm"
+.include "ducky-forth-defs.asm"
 
 
 .ifndef FORTH_TEXT_WRITABLE

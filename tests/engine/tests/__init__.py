@@ -2,7 +2,7 @@ import os
 import sys
 
 if os.environ.get('DUCKY_IMPORT_DEVEL', 'no') == 'yes':
-  sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+  sys.path.insert(0, os.environ.get('TOPDIR'))
 
 import logging
 import tempfile
@@ -19,7 +19,7 @@ import ducky.snapshot
 import ducky.util
 
 def get_tempfile():
-  return tempfile.NamedTemporaryFile('w+b', delete = False, dir = os.path.join(os.getenv('PWD'), 'tests-{}'.format(os.getenv('TESTSET')), 'tmp'))
+  return tempfile.NamedTemporaryFile('w+b', delete = False, dir = os.path.join(os.getenv('TESTSETDIR'), 'tmp'))
 
 def prepare_file(size, messages = None, pattern = 0xDE):
   f_tmp = get_tempfile()
@@ -113,10 +113,10 @@ def compile_code(code):
   print f_asm
 
   f_obj_name = os.path.splitext(f_asm.name)[0] + '.o'
-  f_bin_name = os.path.splitext(f_asm.name)[0] + '.bin'
+  f_bin_name = os.path.splitext(f_asm.name)[0] + '.testbin'
 
-  os.system('PYTHONPATH={} {} -f -I {} -i {} -o {}'.format(os.getenv('PYTHONPATH'), os.path.join(os.getenv('PWD'), 'tools', 'as'), os.getenv('PWD'), f_asm.name, f_obj_name))
-  os.system('PYTHONPATH={} {} -f -i {} -o {} --section-base=.text=0x0000'.format(os.getenv('PYTHONPATH'), os.path.join(os.getenv('PWD'), 'tools', 'ld'), f_obj_name, f_bin_name))
+  os.system('PYTHONPATH={} {} -f -I {} -i {} -o {}'.format(os.getenv('PYTHONPATH'), os.path.join(os.getenv('TOPDIR'), 'tools', 'as'), os.getenv('TOPDIR'), f_asm.name, f_obj_name))
+  os.system('PYTHONPATH={} {} -f -i {} -o {} --section-base=.text=0x0000'.format(os.getenv('PYTHONPATH'), os.path.join(os.getenv('TOPDIR'), 'tools', 'ld'), f_obj_name, f_bin_name))
 
   os.unlink(f_asm.name)
   os.unlink(f_obj_name)

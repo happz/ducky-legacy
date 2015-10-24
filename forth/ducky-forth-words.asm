@@ -17,7 +17,7 @@
 ; use DEFWORD for them...
 ;
 
-.include "forth/defs.asm"
+.include "ducky-forth-defs.asm"
 
 ;
 ; - Environment queries -----------------------------------------------------------------

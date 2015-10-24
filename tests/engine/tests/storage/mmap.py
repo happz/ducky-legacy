@@ -112,7 +112,7 @@ class Tests(unittest.TestCase):
     # create file that we later mmap, filled with pseudodata
     f_tmp = prepare_file(mmap_size)
 
-    mmap_desc = (f_tmp.name, segment_addr_to_addr(2, mmap_offset), mmap_size, 0, 'w', True)
+    mmap_desc = (f_tmp.name, segment_addr_to_addr(2, mmap_offset), mmap_size, 0, 'rw', True)
 
     mm_assert = {
     }

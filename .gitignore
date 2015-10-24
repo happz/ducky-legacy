@@ -1,5 +1,6 @@
 tmp
 *.bin
+*.testbin
 *.o
 lse
 .noseids
