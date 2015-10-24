@@ -30,7 +30,7 @@ class TTY(IOProvider, Device):
     self.machine.DEBUG('TTY.set_output: stream=%s', stream)
 
     if isfile(stream):
-      self.machine.DEBUG('  stream is opened file')
+      self.machine.DEBUG('  stream is opened file %s', stream.name)
 
       self.output = stream
       self.output_fd = stream.fileno()
