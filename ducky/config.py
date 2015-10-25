@@ -214,15 +214,17 @@ class MachineConfig(ConfigParser):
       options.
     """
 
-    st_section = 'device-{}'.format(self.devices_cnt)
+    section = 'device-{}'.format(self.devices_cnt)
     self.devices_cnt += 1
 
-    self.add_section(st_section)
-    self.set(st_section, 'klass', klass)
-    self.set(st_section, 'driver', driver)
+    self.add_section(section)
+    self.set(section, 'klass', klass)
+    self.set(section, 'driver', driver)
 
     for name, value in kwargs.iteritems():
-      self.set(st_section, name, value)
+      self.set(section, name, value)
+
+    return section
 
   def add_storage(self, driver, sid, filepath = None):
     """
