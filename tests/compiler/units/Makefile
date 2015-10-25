@@ -20,7 +20,7 @@ clean:
 	$(eval TC_NAME     := $(notdir $(<:%.c=%)))
 	$(eval TC_OUT      := $(TC_DIR)/$(TC_NAME).$(DB_PID).asm)
 	$(eval TC_OUTPUT   := $(TC_DIR)/$(TC_NAME).$(DB_PID).out)
-	$(eval TC_COVERAGE := $(TESTSETDIR)/coverage/.coverage.forth-unit.$(TC_NAME).$(DB_PID))
+	$(eval TC_COVERAGE := $(TESTSETDIR)/coverage/.coverage.compiler-unit.$(TC_NAME).$(DB_PID))
 	$(eval TC_EXPECTED := $(<:%.c=%.asm.expected))
 	$(eval TC_DIFF     := $(TC_DIR)/$(TC_NAME).$(DB_PID).diff)
 	$(eval TC_FAIL     := $(<:%.c=%.c.fail))
@@ -57,4 +57,3 @@ endif
 					fi; \
 				fi;
 	-$(Q) rm -f $(TC_TMPFILE)
-
