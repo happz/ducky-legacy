@@ -101,11 +101,10 @@ class KeyboardController(IRQProvider, IOProvider, Device):
       self.machine.DEBUG('  raw descriptor')
 
       self.input = None
-      self.input_fd = stream
+      self.input_fd = int(stream)
 
     else:
-      self.machine.WARN('Unknown input stream type: stream=%s, class=%s', stream, type(stream))
-      self.open_input()
+      raise InvalidResourceError('Unknown input stream type: stream=%s, class=%s' % (stream, type(stream)))
 
     self.machine.DEBUG('input=%s, input_fd=%s', self.input, self.input_fd)
 
