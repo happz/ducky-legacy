@@ -120,7 +120,7 @@ Memory layout
 Interrupt Vector table
 """"""""""""""""""""""
 
-Interrupt vector table (`IVT`), located in main memory, is by default located at address ``0x000000``. It is 256 bytes long, providing enough space for 64 entries. Each entry has the same layout:
+Interrupt vector table (`IVT`), located in main memory, is by default located at address ``0x000000``. ``IVT`` address can be set per CPU core. ``IVT`` is 256 bytes long, providing enough space for 64 entries. Typically, lower 32 entries are reserved for hardware interrupts, provided by devices, and upper 32 entries leads to software routines that provide additional functionality for binaries. Each entry has the same layout:
 
 +-----------------+-----------------+------------------+
 | ``cs`` - 8 bits | ``ds`` - 8 bits | ``ip`` - 16 bits |

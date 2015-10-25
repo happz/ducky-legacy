@@ -164,6 +164,7 @@ Address operand - ``{address}`` - can be specified in different ways:
 
  - ``rA`` - address is stored in register
  - ``rA[<offset>]`` - address is computed by addition of ``rA`` and ``offset``. ``offset`` can be both positive and negative. ``fp`` and ``sp`` can be also used as ``rA``.
+ - ``rA(rO)`` - address is computed by using ``rO`` as a segment register, and value of ``rA`` is interpreted as a address in this segment.
 
 Read
 """"

@@ -12,6 +12,7 @@ I use very simple calling convention in my code:
  - if there's too many arguments, refactor your code or use a stack...
  - return value is in ``r0``
  - callee is reponsible for save/restore of registers it's using, with exception of:
+
    - registers that were used for passing arguments - these are expected to have undefined value when callee returns
    - ``r0`` if callee returns value back to caller
 
