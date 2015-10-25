@@ -7,7 +7,7 @@ from ..mm import UInt8, UINT16_FMT
 from ..reactor import RunInIntervalTask
 from ..util import F
 
-DEFAULT_FREQ = 100.0
+DEFAULT_FREQ = 100
 DEFAULT_PORT_RANGE = 0x300
 PORT_RANGE = 0x0007
 
@@ -19,10 +19,12 @@ class RTCTask(RunInIntervalTask):
     self.rtc = rtc
 
     self.stamp = 0
-    self.tick = 1.0 / rtc.frequency
+    self.tick = 0
+
+    self.update_tick()
 
   def update_tick(self):
-    self.tick = 1.0 / self.rtc.frequency
+    self.tick = 1.0 / float(self.rtc.frequency)
     self.machine.DEBUG('rtc: new frequency: %i => %f' % (self.rtc.frequency, self.tick))
 
   def on_tick(self, task):
@@ -106,8 +108,6 @@ class RTC(IRQProvider, IOProvider, Device):
 
     if port == 0x0006:
       return UInt8(now.year - 2000).u8
-
-    raise InvalidResourceError('Unhandled port: %s', port + self.port)
 
   def write_u8(self, port, value):
     if port not in self.ports:
