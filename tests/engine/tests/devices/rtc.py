@@ -32,11 +32,11 @@ class Tests(unittest.TestCase):
 
     # write - this one is out of range...
     with self.assertRaises(ducky.errors.InvalidResourceError):
-      self.common_case().read_u8(ducky.devices.rtc.DEFAULT_PORT_RANGE - 1)
+      self.common_case().write_u8(ducky.devices.rtc.DEFAULT_PORT_RANGE - 1, 100)
 
     # ... and this one is in range, but only 0x0000 is writable
     with self.assertRaises(ducky.errors.InvalidResourceError):
-      self.common_case().read_u8(ducky.devices.rtc.DEFAULT_PORT_RANGE - 1)
+      self.common_case().write_u8(ducky.devices.rtc.DEFAULT_PORT_RANGE + 1, 100)
 
   def test_frequency_change(self):
     rtc = self.common_case()

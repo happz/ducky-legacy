@@ -114,7 +114,7 @@ class RTC(IRQProvider, IOProvider, Device):
       raise InvalidResourceError(F('Unhandled port: {port:W}', port = port))
 
     if port != self.ports[0]:
-      raise InvalidResourceError(F('Unable to write to read-only port: port={port:W}, value={value:B}', port, value))
+      raise InvalidResourceError(F('Unable to write to read-only port: port={port:W}, value={value:B}', port = port, value = value))
 
     self.frequency = value
     self.timer_task.update_tick()
