@@ -6,7 +6,7 @@ export DB_PID
 
 include Makefile.inc
 
-.PHONY: tests tests-pre tests-post test-submit-results docs cloc flake forth
+.PHONY: tests tests-pre tests-post test-submit-results docs cloc flake forth hello-world hello-world-lib clock vga
 
 
 #
