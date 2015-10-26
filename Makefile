@@ -233,7 +233,7 @@ tests-post-master:
 	$(Q) $(MAKE) -C tests/ tests-post
 ifeq ($(VMCOVERAGE),yes)
 	$(Q) cd $(TESTSETDIR)/coverage && $(VMCOVERAGE_BIN) combine --rcfile=$(CURDIR)/coveragerc && cd ..
-	$(Q) COVERAGE_FILE="$(TESTSETDIR)/coverage/.coverage" $(VMCOVERAGE_BIN) html --rcfile=$(CURDIR)/coveragerc --omit="*/python2.7/*" -d $(TESTSETDIR)/coverage/
+	$(Q) COVERAGE_FILE="$(TESTSETDIR)/coverage/.coverage" $(VMCOVERAGE_BIN) html --rcfile=$(CURDIR)/coveragerc -d $(TESTSETDIR)/coverage/
 endif
 
 tests-post: tests-post-master

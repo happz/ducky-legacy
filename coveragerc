@@ -1,6 +1,6 @@
 [run]
 branch = True
-source = ducky
+omit = */python2.7/*
 
 [report]
 exclude_lines =
