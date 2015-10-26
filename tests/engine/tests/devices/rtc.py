@@ -18,10 +18,14 @@ class Tests(unittest.TestCase):
     self.common_case()
 
   def test_frequency(self):
-    rtc = self.common_case(frequency = 256)
-    rtc.read_u8(ducky.devices.rtc.DEFAULT_PORT_RANGE) == 256
+    rtc = self.common_case(frequency = 255)
+    print rtc.read_u8(ducky.devices.rtc.DEFAULT_PORT_RANGE)
+    assert rtc.read_u8(ducky.devices.rtc.DEFAULT_PORT_RANGE) == 255
 
   def test_high_frequency(self):
+    with self.assertRaises(ducky.errors.InvalidResourceError):
+      self.common_case(frequency = 256)
+
     with self.assertRaises(ducky.errors.InvalidResourceError):
       self.common_case(frequency = 257)
 

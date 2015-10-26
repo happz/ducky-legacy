@@ -500,7 +500,7 @@ class InstructionSet(object):
 
   @classmethod
   def decode_instruction(cls, inst):
-    if isinstance(inst, types.LongType) or isinstance(inst, types.IntType):
+    if isinstance(inst, (long, int)):
       master = cls.binary_format_master()
       master.overall.u32 = inst
       inst = master

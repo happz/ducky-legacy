@@ -50,8 +50,8 @@ class RTC(IRQProvider, IOProvider, Device):
     self.irq = irq or IRQList.TIMER
     self.timer_task = RTCTask(machine, self)
 
-    if self.frequency > 256:
-      raise InvalidResourceError('Maximum RTC ticks per second is 256')
+    if self.frequency >= 256:
+      raise InvalidResourceError('Maximum RTC ticks per second is 255')
 
   @classmethod
   def create_from_config(cls, machine, config, section):

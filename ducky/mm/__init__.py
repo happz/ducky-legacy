@@ -1454,7 +1454,7 @@ class MMInterrupt(IVirtualInterrupt):
 
     address = segment_addr_to_addr(core.REG(Registers.DS).value, core.REG(Registers.R01).value)
 
-    area = self.core.memory.mmap_areas.get(address, None)
+    area = self.core.memory.mmap_areas.get(address)
     if area is None:
       raise AccessViolationError('Unmmap is not allowed for this area: address=%s' % ADDR_FMT(address))
 

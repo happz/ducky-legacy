@@ -88,12 +88,10 @@ def assert_mm(state, **cells):
       assert False, 'Page {} (address {}) not found in memory'.format(page_index, ducky.mm.ADDR_FMT(addr))
 
 def assert_mm_pages(state, *pages):
+  pg_indices = [pg.index for pg in state.get_page_states()]
+
   for pg_id in pages:
-    for pg_state in state.get_page_states():
-      if pg_state.index == pg_id:
-        break
-    else:
-      assert False, 'Page {} not found in VM state'.format(pg_id)
+    assert pg_id in pg_indices, 'Page {} not found in VM state'.format(pg_id)
 
 def assert_file_content(filename, cells):
   with open(filename, 'rb') as f:

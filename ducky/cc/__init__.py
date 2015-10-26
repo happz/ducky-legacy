@@ -42,7 +42,7 @@ class IncompatibleTypesError(CompilerError):
 
 class UnableToImplicitCastError(CompilerError):
   def __init__(self, loc, t1, t2):
-    super(IncompatibleTypesError, self).__init__(loc, 'Unable to perform implicit cast: "%s" => "%s"' % (t1, t2))
+    super(UnableToImplicitCastError, self).__init__(loc, 'Unable to perform implicit cast: "%s" => "%s"' % (t1, t2))
 
 class NotAPointerError(CompilerError):
   def __init__(self, loc, t):
@@ -184,7 +184,7 @@ class Scope(object):
   def add(self, loc, symbol):
     self.visitor.DEBUG(self.visitor.log_prefix + 'scope: add symbol: scope=%s, symbol=%s', self, symbol)
 
-    old_symbol = self.symbols.get(symbol.name, None)
+    old_symbol = self.symbols.get(symbol.name)
 
     if old_symbol is not None:
       if old_symbol.defined:

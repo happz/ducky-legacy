@@ -349,7 +349,7 @@ class Machine(ISnapshotable, IMachineWorker):
     # ignore binary states
 
     for __cpu in self.cpus:
-      cpu_state = state.get_children().get('cpu{}'.format(__cpu.id), None)
+      cpu_state = state.get_children().get('cpu{}'.format(__cpu.id))
       if cpu_state is None:
         self.WARN('State of CPU #%i not found!', __cpu.id)
         continue
@@ -413,7 +413,7 @@ class Machine(ISnapshotable, IMachineWorker):
       binary.load_symbols()
 
       entry_label = self.config.get(binary_section, 'entry', 'main')
-      entry_addr = binary.symbols.get(entry_label, None)
+      entry_addr = binary.symbols.get(entry_label)
 
       if entry_addr is None:
         self.WARN('binary: entry point "%s" not found', entry_label)
@@ -496,7 +496,7 @@ class Machine(ISnapshotable, IMachineWorker):
 
       else:
         for binary in self.binaries:
-          symbol_address = binary.symbols.get(address, None)
+          symbol_address = binary.symbols.get(address)
           if symbol_address is not None:
             address = symbol_address
             break

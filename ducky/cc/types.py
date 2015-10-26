@@ -28,7 +28,7 @@ class CType(object):
     visitor.DEBUG(visitor.log_prefix + 'Type.get_from_desc: desc=%s', desc)
     visitor.DOWN()
 
-    T = visitor.types.get(desc, None)
+    T = visitor.types.get(desc)
 
     if T is None:
       raise RuntimeError('Unknown type: %s' % desc)
@@ -67,7 +67,7 @@ class CType(object):
       visitor.DEBUG(visitor.log_prefix + 'searching for "%s"', name)
       visitor.DEBUG(visitor.log_prefix + 'known types: %s', visitor.types)
 
-      T = visitor.types.get(name, None)
+      T = visitor.types.get(name)
 
     if T is None:
       raise RuntimeError('Unknown type: %s' % name)
