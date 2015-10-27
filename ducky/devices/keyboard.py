@@ -36,8 +36,8 @@ class KeyboardController(IRQProvider, IOProvider, Device):
 
     self.queue = []
 
-  @classmethod
-  def create_from_config(cls, machine, config, section):
+  @staticmethod
+  def create_from_config(machine, config, section):
     return KeyboardController(machine,
                               section,
                               streams = None,

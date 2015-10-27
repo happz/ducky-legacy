@@ -61,9 +61,9 @@ class StreamIOTerminal(Terminal):
 
     return (input_device, output_device)
 
-  @classmethod
-  def create_from_config(cls, machine, config, section):
-    input_device, output_device = cls.get_slave_devices(machine, config, section)
+  @staticmethod
+  def create_from_config(machine, config, section):
+    input_device, output_device = StreamIOTerminal.get_slave_devices(machine, config, section)
 
     streams_in = config.get(section, 'streams_in', None)
     if streams_in is not None:
@@ -93,9 +93,9 @@ class StreamIOTerminal(Terminal):
 
 
 class StandardIOTerminal(StreamIOTerminal):
-  @classmethod
-  def create_from_config(cls, machine, config, section):
-    input_device, output_device = cls.get_slave_devices(machine, config, section)
+  @staticmethod
+  def create_from_config(machine, config, section):
+    input_device, output_device = StreamIOTerminal.get_slave_devices(machine, config, section)
 
     return StandardIOTerminal(machine, section, input = input_device, output = output_device, streams_in = [sys.stdin], stream_out = sys.stdout)
 
@@ -106,9 +106,9 @@ class StandalonePTYTerminal(StreamIOTerminal):
 
     self.pttys = None
 
-  @classmethod
-  def create_from_config(cls, machine, config, section):
-    input_device, output_device = cls.get_slave_devices(machine, config, section)
+  @staticmethod
+  def create_from_config(machine, config, section):
+    input_device, output_device = StreamIOTerminal.get_slave_devices(machine, config, section)
 
     return StandalonePTYTerminal(machine, section, input = input_device, output = output_device)
 

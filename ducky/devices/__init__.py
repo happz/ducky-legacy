@@ -38,8 +38,8 @@ class Device(IMachineWorker):
 
     self.master = None
 
-  @classmethod
-  def create_from_config(cls, machine, config, section):
+  @staticmethod
+  def create_from_config(machine, config, section):
     return None
 
   def is_slave(self):

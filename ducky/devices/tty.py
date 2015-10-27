@@ -8,6 +8,9 @@ from ..util import isfile
 
 DEFAULT_PORT_RANGE = 0x200
 
+def escape_char(c):
+  return chr(c).replace(chr(10), '\\n').replace(chr(13), '\\r')
+
 class TTY(IOProvider, Device):
   def __init__(self, machine, name, stream = None, port = None, *args, **kwargs):
     super(TTY, self).__init__(machine, 'output', name, *args, **kwargs)
@@ -17,8 +20,8 @@ class TTY(IOProvider, Device):
 
     self.set_output(stream)
 
-  @classmethod
-  def create_from_config(cls, machine, config, section):
+  @staticmethod
+  def create_from_config(machine, config, section):
     return TTY(machine,
                section,
                port = config.getint(section, 'port', DEFAULT_PORT_RANGE))
@@ -65,11 +68,8 @@ class TTY(IOProvider, Device):
       self.output = None
       self.output_fd = None
 
-  def __escape_char(self, c):
-    return chr(c).replace(chr(10), '\\n').replace(chr(13), '\\r')
-
   def __write_char(self, c):
-    self.machine.DEBUG('TTY.__write_char: c=%s (%s)', c, self.__escape_char(c))
+    self.machine.DEBUG('TTY.__write_char: c=%s (%s)', c, escape_char(c))
 
     try:
       s = chr(c)

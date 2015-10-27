@@ -329,7 +329,7 @@ class LRUCache(collections.OrderedDict):
     changes to cache at all.
     """
 
-    return None
+    raise NotImplementedError('Cache %s does not implement get() method' % self.__class__.__name__)
 
   def __missing__(self, key):
     """

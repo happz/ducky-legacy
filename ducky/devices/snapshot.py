@@ -4,8 +4,8 @@ class SnapshotStorage(Device):
   def __init__(self, machine, name, *args, **kwargs):
     super(SnapshotStorage, self).__init__(machine, 'snapshot', name, *args, **kwargs)
 
-  @classmethod
-  def create_from_config(cls, machine, config, section):
+  @staticmethod
+  def create_from_config(machine, config, section):
     return SnapshotStorage(machine, section)
 
   def save_snapshot(self, snapshot):
@@ -21,8 +21,8 @@ class FileSnapshotStorage(SnapshotStorage):
 
     self.filepath = filepath
 
-  @classmethod
-  def create_from_config(cls, machine, config, section):
+  @staticmethod
+  def create_from_config(machine, config, section):
     return FileSnapshotStorage(machine, section, filepath = config.get(section, 'filepath', None))
 
   def save_snapshot(self, snapshot):
@@ -38,6 +38,6 @@ class FileSnapshotStorage(SnapshotStorage):
     self.save_snapshot(self.machine.last_state)
 
 class DefaultFileSnapshotStorage(FileSnapshotStorage):
-  @classmethod
-  def create_from_config(cls, machine, config, section):
+  @staticmethod
+  def create_from_config(machine, config, section):
     return DefaultFileSnapshotStorage(machine, section, filepath = 'ducky-snapshot.bin')

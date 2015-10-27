@@ -133,8 +133,8 @@ class FileBackedStorage(Storage):
     self.filepath = filepath
     self.file = None
 
-  @classmethod
-  def create_from_config(cls, machine, config, section):
+  @staticmethod
+  def create_from_config(machine, config, section):
     return FileBackedStorage(machine, section, sid = config.getint(section, 'sid', None), filepath = config.get(section, 'filepath', None))
 
   def boot(self):

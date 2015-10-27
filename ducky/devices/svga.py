@@ -103,7 +103,7 @@ class Char(LittleEndianStructure):
   def to_u8(self):
     return (UInt8(self.codepoint | self.unused << 7).value, UInt8(self.fg | self.bg << 4 | self.blink << 7).value)
 
-  @classmethod
+  @staticmethod
   def from_u8(cls, l, h):
     c = Char()
     c.codepoint = l & 0x7F
@@ -112,9 +112,9 @@ class Char(LittleEndianStructure):
     c.blink = h >> 7
     return c
 
-  @classmethod
-  def from_u16(cls, u):
-    return cls.from_u8(u & 0x00FF, u >> 8)
+  @staticmethod
+  def from_u16(u):
+    return Char.from_u8(u & 0x00FF, u >> 8)
 
 class DisplayRefreshTask(RunInIntervalTask):
   def __init__(self, display):
@@ -194,9 +194,9 @@ class Display(Device):
 
     return gpu_device
 
-  @classmethod
-  def create_from_config(cls, machine, config, section):
-    gpu = cls.get_slave_gpu(machine, config, section)
+  @staticmethod
+  def create_from_config(machine, config, section):
+    gpu = Display.get_slave_gpu(machine, config, section)
 
     return Display(machine, section, gpu = gpu)
 
@@ -300,8 +300,8 @@ class SimpleVGA(IOProvider, Device):
 
     self.machine.DEBUG(F('sVGA: memory-size={memory_size:d}, memory-banks={memory_banks:d}, offsets=[{bank_offsets}], pages-per-bank={pages_per_bank:d}, address={address:A}', memory_size = self.memory_size, memory_banks = self.memory_banks, bank_offsets = ', '.join([ADDR_FMT(o) for o in self.bank_offsets]), pages_per_bank = self.pages_per_bank, address = self.memory_address))
 
-  @classmethod
-  def create_from_config(cls, machine, config, section):
+  @staticmethod
+  def create_from_config(machine, config, section):
     _getint = functools.partial(config.getint, section)
 
     def parse_mode(m):

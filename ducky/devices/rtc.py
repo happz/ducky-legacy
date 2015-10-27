@@ -53,8 +53,8 @@ class RTC(IRQProvider, IOProvider, Device):
     if self.frequency >= 256:
       raise InvalidResourceError('Maximum RTC ticks per second is 255')
 
-  @classmethod
-  def create_from_config(cls, machine, config, section):
+  @staticmethod
+  def create_from_config(machine, config, section):
     return RTC(machine,
                section,
                frequency = config.getint(section, 'frequency', DEFAULT_FREQ),

@@ -117,13 +117,16 @@ class InstDescriptor(object):
   def execute(core, inst):
     pass
 
-  def assemble_operands(self, logger, inst, operands):
+  @staticmethod
+  def assemble_operands(logger, inst, operands):
     pass
 
-  def fill_reloc_slot(self, logger, inst, slot):
-    assert False, 'not implemented in %s' % self.__class__
+  @staticmethod
+  def fill_reloc_slot(logger, inst, slot):
+    raise NotImplementedError('Instruction descriptor does not support relocation')
 
-  def disassemble_operands(self, inst):
+  @staticmethod
+  def disassemble_operands(inst):
     # pylint: disable-msg=W0613
     return []
 
@@ -210,12 +213,14 @@ class InstDescriptor_Generic_Unary_R(InstDescriptor):
   operands = 'r'
   binary_format = [BF_REG()]
 
-  def assemble_operands(self, logger, inst, operands):
+  @staticmethod
+  def assemble_operands(logger, inst, operands):
     logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
     inst.reg = operands['register_n0']
 
-  def disassemble_operands(self, inst):
+  @staticmethod
+  def disassemble_operands(inst):
     return [REGISTER_NAMES[inst.reg]]
 
 
@@ -223,7 +228,8 @@ class InstDescriptor_Generic_Unary_I(InstDescriptor):
   operands      = 'i'
   binary_format = [BF_IMM()]
 
-  def assemble_operands(self, logger, inst, operands):
+  @staticmethod
+  def assemble_operands(logger, inst, operands):
     logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
     v = operands['immediate']
@@ -234,14 +240,16 @@ class InstDescriptor_Generic_Unary_I(InstDescriptor):
     elif isinstance(v, types.StringType):
       inst.refers_to = v
 
-  def disassemble_operands(self, inst):
+  @staticmethod
+  def disassemble_operands(inst):
     return [inst.refers_to if hasattr(inst, 'refers_to') and inst.refers_to else OFFSET_FMT(inst.immediate)]
 
 class InstDescriptor_Generic_Unary_RI(InstDescriptor):
   operands      = 'ri'
   binary_format = [BF_FLG('is_reg'), BF_REG('ireg'), BF_IMM()]
 
-  def assemble_operands(self, logger, inst, operands):
+  @staticmethod
+  def assemble_operands(logger, inst, operands):
     logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
     if 'register_n0' in operands:
@@ -259,13 +267,15 @@ class InstDescriptor_Generic_Unary_RI(InstDescriptor):
       elif isinstance(v, str):
         inst.refers_to = v
 
-  def fill_reloc_slot(self, logger, inst, slot):
+  @staticmethod
+  def fill_reloc_slot(logger, inst, slot):
     logger.debug('fill_reloc_slot: inst=%s, slot=%s', inst, slot)
 
     slot.patch_offset = 11
     slot.patch_size = 17
 
-  def disassemble_operands(self, inst):
+  @staticmethod
+  def disassemble_operands(inst):
     if inst.is_reg == 1:
       return [REGISTER_NAMES[inst.ireg]]
 
@@ -275,7 +285,8 @@ class InstDescriptor_Generic_Binary_R_I(InstDescriptor):
   operands = 'r,i'
   binary_format = [BF_REG(), BF_IMM()]
 
-  def assemble_operands(self, logger, inst, operands):
+  @staticmethod
+  def assemble_operands(logger, inst, operands):
     logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
     inst.reg = operands['register_n0']
@@ -287,20 +298,23 @@ class InstDescriptor_Generic_Binary_R_I(InstDescriptor):
     else:
       inst.refers_to = v
 
-  def fill_reloc_slot(self, logger, inst, slot):
+  @staticmethod
+  def fill_reloc_slot(logger, inst, slot):
     logger.debug('fill_reloc_slot: inst=%s, slot=%s', inst, slot)
 
     slot.patch_offset = 10
     slot.patch_size = 17
 
-  def disassemble_operands(self, inst):
+  @staticmethod
+  def disassemble_operands(inst):
     return [REGISTER_NAMES[inst.reg], inst.refers_to] if hasattr(inst, 'refers_to') and inst.refers_to else [REGISTER_NAMES[inst.reg], OFFSET_FMT(inst.immediate)]
 
 class InstDescriptor_Generic_Binary_R_RI(InstDescriptor):
   operands = 'r,ri'
   binary_format = [BF_FLG('is_reg'), BF_REG(), BF_REG('ireg'), BF_IMM()]
 
-  def assemble_operands(self, logger, inst, operands):
+  @staticmethod
+  def assemble_operands(logger, inst, operands):
     logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
     inst.reg = operands['register_n0']
@@ -320,13 +334,15 @@ class InstDescriptor_Generic_Binary_R_RI(InstDescriptor):
       elif isinstance(v, str):
         inst.refers_to = v
 
-  def fill_reloc_slot(self, logger, inst, slot):
+  @staticmethod
+  def fill_reloc_slot(logger, inst, slot):
     logger.debug('fill_reloc_slot: inst=%s, slot=%s', inst, slot)
 
     slot.patch_offset = 15
     slot.patch_size = 17
 
-  def disassemble_operands(self, inst):
+  @staticmethod
+  def disassemble_operands(inst):
     if inst.is_reg == 1:
       return [REGISTER_NAMES[inst.reg], REGISTER_NAMES[inst.ireg]]
 
@@ -336,7 +352,8 @@ class InstDescriptor_Generic_Binary_RI_R(InstDescriptor):
   operands = 'ri,r'
   binary_format = [BF_FLG('is_reg'), BF_REG(), BF_REG('ireg'), BF_IMM()]
 
-  def assemble_operands(self, logger, inst, operands):
+  @staticmethod
+  def assemble_operands(logger, inst, operands):
     logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
     inst.reg = operands['register_n1']
@@ -356,7 +373,8 @@ class InstDescriptor_Generic_Binary_RI_R(InstDescriptor):
       elif isinstance(v, str):
         inst.refers_to = v
 
-  def disassemble_operands(self, inst):
+  @staticmethod
+  def disassemble_operands(inst):
     if inst.is_reg == 1:
       return [REGISTER_NAMES[inst.ireg], REGISTER_NAMES[inst.reg]]
 
@@ -366,7 +384,8 @@ class InstDescriptor_Generic_Binary_R_A(InstDescriptor):
   operands = 'r,a'
   binary_format = [BF_FLG('is_reg'), BF_FLG('is_segment'), BF_REG(), BF_REG('areg'), BF_REG('oreg'), BF_IMM_SHORT()]
 
-  def assemble_operands(self, logger, inst, operands):
+  @staticmethod
+  def assemble_operands(logger, inst, operands):
     logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
     inst.reg = operands['register_n0']
@@ -385,7 +404,8 @@ class InstDescriptor_Generic_Binary_R_A(InstDescriptor):
     if 'pointer' in operands and operands['pointer'] == 'segment':
       inst.is_segment = 1
 
-  def disassemble_operands(self, inst):
+  @staticmethod
+  def disassemble_operands(inst):
     operands = [REGISTER_NAMES[inst.reg]]
 
     if inst.is_reg == 1:
@@ -407,7 +427,8 @@ class InstDescriptor_Generic_Binary_A_R(InstDescriptor):
   operands = 'a,r'
   binary_format = [BF_FLG('is_reg'), BF_FLG('is_segment'), BF_REG(), BF_REG('areg'), BF_REG('oreg'), BF_IMM_SHORT()]
 
-  def assemble_operands(self, logger, inst, operands):
+  @staticmethod
+  def assemble_operands(logger, inst, operands):
     logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
     inst.reg = operands['register_n1']
@@ -426,7 +447,8 @@ class InstDescriptor_Generic_Binary_A_R(InstDescriptor):
     if 'pointer' in operands and operands['pointer'] == 'segment':
       inst.is_segment = 1
 
-  def disassemble_operands(self, inst):
+  @staticmethod
+  def disassemble_operands(inst):
     operands = []
 
     if inst.reg == 1:
@@ -450,13 +472,15 @@ class InstDescriptor_Generic_Binary_R_R(InstDescriptor):
   operands = 'r,r'
   binary_format = [BF_REG('reg1'), BF_REG('reg2')]
 
-  def assemble_operands(self, logger, inst, operands):
+  @staticmethod
+  def assemble_operands(logger, inst, operands):
     logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
     inst.reg1 = operands['register_n0']
     inst.reg2 = operands['register_n1']
 
-  def disassemble_operands(self, inst):
+  @staticmethod
+  def disassemble_operands(inst):
     return [REGISTER_NAMES[inst.reg1], REGISTER_NAMES[inst.reg2]]
 
 class InstructionSetMetaclass(type):
@@ -1027,14 +1051,16 @@ class Inst_CAS(InstDescriptor):
   operands = 'r,r,r'
   binary_format = [BF_REG('r_addr'), BF_REG('r_test'), BF_REG('r_rep')]
 
-  def assemble_operands(self, logger, inst, operands):
+  @staticmethod
+  def assemble_operands(logger, inst, operands):
     logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
     inst.r_addr = operands['register_n0']
     inst.r_test = operands['register_n1']
     inst.r_rep = operands['register_n2']
 
-  def disassemble_operands(self, inst):
+  @staticmethod
+  def disassemble_operands(inst):
     return [
       REGISTER_NAMES[inst.r_addr],
       REGISTER_NAMES[inst.r_test],
