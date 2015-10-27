@@ -238,8 +238,7 @@ endif
 
 tests-post: tests-post-master
 	$(Q) $(MAKE) -C tests/ tests-post
-	$(Q) ls $(TESTSETDIR)/*.machine &> /dev/null; \
-	     if [ "$?" = "0" ]; then echo "$(CC_GREEN)Avg # of instructions: `grep Executed $(TESTSETDIR)/*.machine | awk '{print $$5, " ", $$6}' | python tests/sum`/sec$(CC_END)"; fi
+	$(Q) echo "$(CC_GREEN)Avg # of instructions: `grep Executed $(shell find $(TESTSETDIR) -name '*.machine') | awk '{print $$5, " ", $$6}' | python tests/sum`/sec$(CC_END)"
 
 tests-submit-results:
 ifdef CIRCLE_TEST_REPORTS
