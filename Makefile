@@ -39,11 +39,6 @@ endif
 
 TESTSETDIR := $(CURDIR)/tests-$(TESTSET)
 
-# Using development sources instead of installed package
-ifndef DUCKY_IMPORT_DEVEL
-  DUCKY_IMPORT_DEVEL := no
-endif
-
 # VM debugging
 ifndef VMDEBUG
   VMDEBUG := no
@@ -144,7 +139,6 @@ export VMCOVERAGE_BIN
 export VMCOVERAGE_RUN
 export PYTHON
 
-export DUCKY_IMPORT_DEVEL
 export DUCKY_ENABLE_DEVICES
 export DUCKY_DISABLE_DEVICES
 

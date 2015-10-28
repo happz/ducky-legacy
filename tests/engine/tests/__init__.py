@@ -1,9 +1,4 @@
 import os
-import sys
-
-if os.environ.get('DUCKY_IMPORT_DEVEL', 'no') == 'yes':
-  sys.path.insert(0, os.environ.get('TOPDIR'))
-
 import logging
 import tempfile
 import types

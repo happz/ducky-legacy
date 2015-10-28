@@ -39,7 +39,6 @@ endef
 define run-linker
 $(Q) echo -n "$(CC_YELLOW)[LINK]$(CC_END) $^ => $@ ... "
 $(Q) COVERAGE_FILE=$(shell if [ "$(VMCOVERAGE)" = "yes" ]; then echo "$(TESTSETDIR)/coverage/.coverage.ld-$(subst /,-,$(abspath $<))-to-$(subst /,-,$(abspath $@)).$(DB_PID)"; else echo ""; fi) \
-	   DUCKY_IMPORT_DEVEL=$(DUCKY_IMPORT_DEVEL) \
 		 $(PYTHON) $(VMCOVERAGE_RUN) $(DLD) -o $@ $(foreach objfile,$^,-i $(objfile)) \
 		 $1 \
 		 $(VMDEBUG); \
