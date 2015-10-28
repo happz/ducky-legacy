@@ -102,7 +102,7 @@ endif
 # pypy selection
 ifdef PYPY
 ifdef CIRCLECI
-  PYTHON := PYTHONPATH="$(shell find $(VIRTUAL_ENV) -name 'ducky-*' -type d):$(PYTHONPATH)" pypy
+  PYTHON := PYTHONPATH="$(shell find $(VIRTUAL_ENV) -name 'ducky-*' -type d):$(shell find $(VIRTUAL_ENV) -name 'site-packages' | head -1):$(PYTHONPATH)" pypy
 else
   PYTHON := pypy
 endif
