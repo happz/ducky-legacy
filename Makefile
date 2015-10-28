@@ -102,15 +102,12 @@ endif
 # pypy selection
 ifdef PYPY
 ifdef CIRCLECI
-  PYPY_BINARY=$(shell pyenv which pypy)
+  PYTHON := PYTHONPATH="$(shell find $(VIRTUAL_ENV) -name 'ducky-*' -type d):$(PYTHONPATH)" pypy
 else
-  PYPY_BINARY=$(shell which pypy)
+  PYTHON := pypy
 endif
-  # pypy does not see our local installed packages
-	#PYTHON := PYTHONPATH="$(VIRTUAL_ENV)/lib/python2.7/site-packages/:$(PYTHONPATH)" $(PYPY_BINARY)
-	PYTHON := $(PYPY_BINARY)
 else
-	PYTHON :=
+  PYTHON :=
 endif
 
 # Use mmapable sections
@@ -267,7 +264,7 @@ check: tests
 
 # Clean
 clean-master:
-	$(Q) rm -rf build dist ducky.egg-info
+	$(Q) rm -rf build dist
 	$(Q) rm -f $(shell find $(TOPDIR) -name 'ducky-snapshot.bin')
 	$(Q) rm -f $(shell find $(TOPDIR) -name '*.pyc' -o -name '*.o')
 	$(Q) rm -f interrupts
@@ -310,6 +307,12 @@ docs:
 build: ducky/native/data_cache.c
 	python setup.py build --debug
 
-
 install:
-	python setup.py install
+	$(Q) python setup.py install
+
+install-edit:
+	$(Q) pip install -e .
+
+uninstall:
+	$(Q) rm -rf $(shell find $(VIRTUAL_ENV) -name 'ducky-*' -type d)
+	$(Q) rm -f  $(shell find $(VIRTUAL_ENV) -name 'ducky.egg-link')
