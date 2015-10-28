@@ -1,27 +1,13 @@
-#! /usr/bin/env python
-
-import os
 import sys
-
-if os.environ.get('DUCKY_IMPORT_DEVEL', 'no') == 'yes':
-  sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
-
 import ctypes
 import optparse
 import re
 import tabulate
 
-import ducky.patch
-import ducky.console
-import ducky.cpu
-import ducky.cpu.coprocessor.math_copro
-import ducky.log
-import ducky.mm
-import ducky.cpu.instructions
-import ducky.mm.binary
-import ducky.util
-
-from ducky.mm import UInt16, ADDR_FMT, UINT16_FMT, SIZE_FMT, UINT32_FMT
+from . import add_common_options, parse_options
+from ..cpu.instructions import DuckyInstructionSet, get_instruction_set
+from ..mm import UInt16, ADDR_FMT, UINT16_FMT, SIZE_FMT, UINT32_FMT
+from ..mm.binary import File, SectionTypes, SECTION_TYPES, SYMBOL_DATA_TYPES, SymbolDataTypes
 
 def show_file_header(logger, f):
   f_header = f.get_header()
@@ -49,7 +35,7 @@ def show_sections(logger, f):
     table.append([
       header.index,
       f.string_table.get_string(header.name),
-      ducky.mm.binary.SECTION_TYPES[header.type],
+      SECTION_TYPES[header.type],
       '%s (0x%02X)' % (header.flags.to_string(), ctypes.cast(ctypes.byref(header.flags), ctypes.POINTER(ctypes.c_ubyte)).contents.value),
       ADDR_FMT(header.base),
       header.items,
@@ -66,13 +52,13 @@ def show_disassemble(logger, f):
   logger.info('=== Disassemble ==')
   logger.info('')
 
-  instruction_set = ducky.cpu.instructions.DuckyInstructionSet
+  instruction_set = DuckyInstructionSet
   f_header = f.get_header()
 
   for i in range(0, f_header.sections):
     header, content = f.get_section(i)
 
-    if header.type != ducky.mm.binary.SectionTypes.TEXT:
+    if header.type != SectionTypes.TEXT:
       continue
 
     logger.info('  Section %s', f.string_table.get_string(header.name))
@@ -86,8 +72,8 @@ def show_disassemble(logger, f):
 
       logger.info('  %s (%s) %s', csp_str, UINT32_FMT(raw_inst.u32), instruction_set.disassemble_instruction(raw_inst))
 
-      if inst.opcode == ducky.cpu.instructions.DuckyInstructionSet.opcodes.SIS:
-        instruction_set = ducky.cpu.instructions.get_instruction_set(inst.immediate)
+      if inst.opcode == DuckyInstructionSet.opcodes.SIS:
+        instruction_set = get_instruction_set(inst.immediate)
 
   logger.info('')
 
@@ -104,7 +90,7 @@ def show_reloc(logger, f):
   for i in range(0, f_header.sections):
     header, content = f.get_section(i)
 
-    if header.type != ducky.mm.binary.SectionTypes.RELOC:
+    if header.type != SectionTypes.RELOC:
       continue
 
     for index, entry in enumerate(content):
@@ -146,7 +132,7 @@ def show_symbols(logger, f):
   for i in range(0, f_header.sections):
     header, content = f.get_section(i)
 
-    if header.type != ducky.mm.binary.SectionTypes.SYMBOLS:
+    if header.type != SectionTypes.SYMBOLS:
       continue
 
     for index, entry in enumerate(content):
@@ -157,7 +143,7 @@ def show_symbols(logger, f):
         f.string_table.get_string(_header.name),
         entry.flags.to_string(),
         ADDR_FMT(entry.address),
-        '%s (%i)' % (ducky.mm.binary.SYMBOL_DATA_TYPES[entry.type], entry.type),
+        '%s (%i)' % (SYMBOL_DATA_TYPES[entry.type], entry.type),
         SIZE_FMT(entry.size),
         f.string_table.get_string(entry.filename),
         entry.lineno
@@ -165,18 +151,18 @@ def show_symbols(logger, f):
 
       symbol_content = ''
 
-      if entry.type == ducky.mm.binary.SymbolDataTypes.INT:
+      if entry.type == SymbolDataTypes.INT:
         symbol_content = UInt16(0)
         symbol_content.u16 = _content[entry.address - _header.base].u8 | (_content[entry.address - _header.base + 1].u8 << 8)
         symbol_content = UINT16_FMT(symbol_content.u16)
 
-      elif entry.type == ducky.mm.binary.SymbolDataTypes.ASCII:
+      elif entry.type == SymbolDataTypes.ASCII:
         symbol_content = ''.join(['%s' % chr(c.u8) for c in _content[entry.address - _header.base:entry.address - _header.base + entry.size]])
 
-      elif entry.type == ducky.mm.binary.SymbolDataTypes.STRING:
+      elif entry.type == SymbolDataTypes.STRING:
         symbol_content = ''.join(['%s' % chr(c.u8) for c in _content[entry.address - _header.base:entry.address - _header.base + entry.size]])
 
-      if entry.type == ducky.mm.binary.SymbolDataTypes.ASCII or entry.type == ducky.mm.binary.SymbolDataTypes.STRING:
+      if entry.type == SymbolDataTypes.ASCII or entry.type == SymbolDataTypes.STRING:
         if len(symbol_content) > 32:
           symbol_content = symbol_content[0:29] + '...'
 
@@ -192,8 +178,7 @@ def show_symbols(logger, f):
 
 def main():
   parser = optparse.OptionParser()
-
-  ducky.util.add_common_options(parser)
+  add_common_options(parser)
 
   parser.add_option('-i', dest = 'file_in', action = 'append', default = [], help = 'File to inspect')
 
@@ -204,7 +189,7 @@ def main():
   parser.add_option('-S', dest = 'sections',    default = False, action = 'store_true', help = 'List sections')
   parser.add_option('-a', dest = 'all',         default = False, action = 'store_true', help = 'All of above')
 
-  options, logger = ducky.util.parse_options(parser)
+  options, logger = parse_options(parser)
 
   if not options.file_in:
     parser.print_help()
@@ -216,7 +201,7 @@ def main():
   for file_in in options.file_in:
     logger.info('Input file: %s', file_in)
 
-    with ducky.mm.binary.File(logger, file_in, 'r') as f_in:
+    with File(logger, file_in, 'r') as f_in:
       f_in.load()
 
       logger.info('')
@@ -235,6 +220,3 @@ def main():
 
       if options.disassemble:
         show_disassemble(logger, f_in)
-
-if __name__ == '__main__':
-  main()

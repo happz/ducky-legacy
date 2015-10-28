@@ -1,15 +1,9 @@
-#! /usr/bin/env python
-
-import os
 import sys
-
-if os.environ.get('DUCKY_IMPORT_DEVEL', 'no') == 'yes':
-  sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
-
 import argparse
 
-import ducky.cc
-import ducky.cc.passes
+from . import parse_options
+from ..cc import CompilerError
+from ..cc.passes import AST_PASSES, BT_PASSES
 
 from itertools import chain
 from pycparser import parse_file
@@ -46,9 +40,9 @@ def compile_file(logger, options, file_in, file_out):
 
         v.UP()
 
-  __apply_opt_passes(ducky.cc.passes.AST_PASSES, ast)
+  __apply_opt_passes(AST_PASSES, ast)
 
-  cv = ducky.cc.passes.AST_PASSES['ast-codegen'](logger)
+  cv = AST_PASSES['ast-codegen'](logger)
 
   try:
     cv.visit(ast)
@@ -57,7 +51,7 @@ def compile_file(logger, options, file_in, file_out):
     logger.exception('Exception raised during compilation')
     raise SystemExit(1)
 
-  __apply_opt_passes(ducky.cc.passes.BT_PASSES, cv)
+  __apply_opt_passes(BT_PASSES, cv)
 
   with open(file_out, 'w') as f_out:
     f_out.write(cv.materialize())
@@ -78,17 +72,18 @@ def main():
   group.add_argument('-O', dest = 'opt_level', action = 'store',      default = 1,     nargs = 1, type = int, help = 'Set requested optimization level', metavar = 'LEVEL')
   group.add_argument('-p', dest = 'passes',    action = 'append',     default = [],    nargs = 1, help = 'Enable or disable optimization pass', metavar = 'PASS')
 
-  options, logger = ducky.util.parse_options(parser)
+  options, logger = parse_options(parser)
 
-  ducky.cc.passes.load(logger)
+  from ..cc.passes import load as load_passes
+  load_passes(logger)
 
   options.passes = list(chain.from_iterable(options.passes))
 
   if options.opt_level == [0]:
-    for p in ducky.cc.passes.AST_PASSES.iterkeys():
+    for p in AST_PASSES.iterkeys():
       options.passes.append('no-%s' % p)
 
-    for p in ducky.cc.passes.BT_PASSES.iterkeys():
+    for p in BT_PASSES.iterkeys():
       options.passes.append('no-%s' % p)
 
   elif options.opt_level == [1]:
@@ -105,8 +100,5 @@ def main():
     for filepath in options.file_in:
       compile_file(logger, options, filepath, options.file_out.pop(0))
 
-  except ducky.cc.CompilerError as e:
+  except CompilerError as e:
     logger.error(e.message)
-
-if __name__ == '__main__':
-  main()

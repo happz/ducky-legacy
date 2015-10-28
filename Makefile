@@ -4,7 +4,19 @@ export TOPDIR
 DB_PID := $(shell echo "$$$$")
 export DB_PID
 
+DCC := $(shell which ducky-cc)
+DAS := $(shell which ducky-as)
+DLD := $(shell which ducky-ld)
+DVM := $(shell which ducky-vm)
+
+export DAS
+export DCC
+export DLD
+export DVM
+
+
 include Makefile.inc
+
 
 .PHONY: tests tests-pre tests-post test-submit-results docs cloc flake forth hello-world hello-world-lib clock vga
 
@@ -100,7 +112,8 @@ else
   PYPY_BINARY=$(shell which pypy)
 endif
   # pypy does not see our local installed packages
-	PYTHON := PYTHONPATH="$(VIRTUAL_ENV)/lib/python2.7/site-packages/:$(PYTHONPATH)" $(PYPY_BINARY)
+	#PYTHON := PYTHONPATH="$(VIRTUAL_ENV)/lib/python2.7/site-packages/:$(PYTHONPATH)" $(PYPY_BINARY)
+	PYTHON := $(PYPY_BINARY)
 else
 	PYTHON :=
 endif
@@ -285,7 +298,7 @@ cloc:
 
 
 flake:
-	$(Q) ! flake8 --config=$(TOPDIR)/flake8.cfg $(shell find $(TOPDIR)/ducky $(TOPDIR)/tests -name '*.py') $(shell find $(TOPDIR)/tools) | sort | grep -v -e "'patch' imported but unused" -e 'tools/cc:' -e duckyfs -e '\.swp' -e 'unable to detect undefined names'
+	$(Q) ! flake8 --config=$(TOPDIR)/flake8.cfg $(shell find $(TOPDIR)/ducky $(TOPDIR)/tests -name '*.py') | sort | grep -v -e "'patch' imported but unused" -e duckyfs -e '\.swp' -e 'unable to detect undefined names'
 
 
 # Documentation

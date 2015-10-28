@@ -1,27 +1,14 @@
-#! /usr/bin/env python
-
-import os
-import sys
-
-if os.environ.get('DUCKY_IMPORT_DEVEL', 'no') == 'yes':
-  sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+from ..import patch
 
 import optparse
 import signal
-
-import ducky.patch
-import ducky.config
-import ducky.console
-import ducky.log
-import ducky.machine
-import ducky.util
-import ducky.profiler
-import ducky.snapshot
+import sys
 
 def main():
-  parser = optparse.OptionParser()
+  from . import add_common_options, parse_options
 
-  ducky.util.add_common_options(parser)
+  parser = optparse.OptionParser()
+  add_common_options(parser)
 
   # Machine configuration
   opt_group = optparse.OptionGroup(parser, 'Machine hardware')
@@ -91,29 +78,40 @@ def main():
                        help = 'Store profiling data in this directory')
   opt_group.add_option('--debug-open-files', dest = 'debug_open_files', action = 'store_true', default = False, help = 'List all open - not closed cleanly - files when VM quits')
 
-  options, logger = ducky.util.parse_options(parser)
+  options, logger = parse_options(parser)
+
+  if options.machine_config is None:
+    parser.print_help()
+    sys.exit(1)
 
   if options.debug_open_files:
-    file_open_patcher = ducky.util.FileOpenPatcher(logger)
+    from ..util import FileOpenPatcher, BinaryFile
+    file_open_patcher = FileOpenPatcher(logger)
     file_open_patcher.patch()
 
+  from ..profiler import STORE
+
   if options.profile:
-    ducky.profiler.STORE.enable_machine()
+    STORE.enable_machine()
 
   if options.machine_profile:
-    ducky.profiler.STORE.enable_cpu()
+    STORE.enable_cpu()
 
-  main_profiler = ducky.profiler.STORE.get_machine_profiler()
+  main_profiler = STORE.get_machine_profiler()
   main_profiler.enable()
 
-  M = ducky.machine.Machine()
+  from ..machine import Machine
+  M = Machine()
 
   # console_slave = ducky.console.TerminalConsoleConnection(0, M.console)
   # console_slave.boot()
   # M.console.connect(console_slave)
 
-  machine_config = ducky.config.MachineConfig()
-  machine_config.read(options.machine_config)
+  from ..config import MachineConfig
+  machine_config = MachineConfig()
+
+  if options.machine_config is not None:
+    machine_config.read(options.machine_config)
 
   for option in options.set_options:
     section, option = option.split(':')
@@ -259,18 +257,15 @@ def main():
 
   if options.profile or options.machine_profile:
     logger.info('Saving profiling data into %s' % options.profile_dir)
-    ducky.profiler.STORE.save(options.profile_dir)
+    STORE.save(options.profile_dir)
 
   if options.debug_open_files:
-    if file_open_patcher.has_open_files() or len(ducky.util.BinaryFile.open_files):
+    if file_open_patcher.has_open_files() or len(BinaryFile.open_files):
       file_open_patcher.log_open_files()
 
-      for f in ducky.util.BinaryFile.open_files:
+      for f in BinaryFile.open_files:
         logger.warn('  %s', repr(f))
 
     file_open_patcher.restore()
 
   sys.exit(M.exit_code)
-
-if __name__ == '__main__':
-  main()

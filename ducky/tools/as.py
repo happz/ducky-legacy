@@ -1,27 +1,14 @@
-#! /usr/bin/env python
-
 import os
 import sys
 
-if os.environ.get('DUCKY_IMPORT_DEVEL', 'no') == 'yes':
-  sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
-
-import optparse
-
-import ducky.patch
-import ducky.console
-import ducky.cpu
-import ducky.log
-import ducky.mm
-import ducky.mm.binary
-import ducky.cpu.assemble
-import ducky.util
-
 def translate_buffer(logger, buffer, file_in, file_out, options):
-  try:
-    sections = ducky.cpu.assemble.translate_buffer(logger, buffer, mmapable_sections = options.mmapable_sections, writable_sections = options.writable_sections, filename = file_in, defines = options.defines, includes = options.includes)
+  from ..cpu.assemble import translate_buffer, AssemblerError, sizeof
+  from ..mm.binary import File, SectionTypes, SymbolEntry, RelocEntry
 
-  except ducky.cpu.assemble.AssemblerError, exc:
+  try:
+    sections = translate_buffer(logger, buffer, mmapable_sections = options.mmapable_sections, writable_sections = options.writable_sections, filename = file_in, defines = options.defines, includes = options.includes)
+
+  except AssemblerError, exc:
     logger.exception(exc)
     sys.exit(1)
 
@@ -33,7 +20,7 @@ def translate_buffer(logger, buffer, file_in, file_out, options):
 
   i = 0
   for s_name, section in sections.items():
-    if section.type in (ducky.mm.binary.SectionTypes.SYMBOLS, ducky.mm.binary.SectionTypes.RELOC):
+    if section.type in (SectionTypes.SYMBOLS, SectionTypes.RELOC):
       continue
 
     if section.flags.bss and section.data_size > 0:
@@ -47,7 +34,7 @@ def translate_buffer(logger, buffer, file_in, file_out, options):
     section_name_to_index[s_name] = i
     i += 1
 
-  with ducky.mm.binary.File(logger, file_out, 'w') as f_out:
+  with File(logger, file_out, 'w') as f_out:
     h_file = f_out.create_header()
     h_file.flags.mmapable = 1 if options.mmapable_sections else 0
 
@@ -66,11 +53,11 @@ def translate_buffer(logger, buffer, file_in, file_out, options):
       h_section.name = f_out.string_table.put_string(section.name)
       h_section.base = section.base.u16
 
-      if section.type == ducky.mm.binary.SectionTypes.SYMBOLS:
+      if section.type == SectionTypes.SYMBOLS:
         symbol_entries = []
 
         for se in section.content:
-          entry = ducky.mm.binary.SymbolEntry()
+          entry = SymbolEntry()
           symbol_entries.append(entry)
 
           entry.flags = se.flags
@@ -90,13 +77,13 @@ def translate_buffer(logger, buffer, file_in, file_out, options):
           entry.type = se.symbol_type
 
         f_out.set_content(h_section, symbol_entries)
-        h_section.data_size = h_section.file_size = ducky.cpu.assemble.sizeof(ducky.mm.binary.SymbolEntry()) * len(symbol_entries)
+        h_section.data_size = h_section.file_size = sizeof(SymbolEntry()) * len(symbol_entries)
 
-      elif section.type == ducky.mm.binary.SectionTypes.RELOC:
+      elif section.type == SectionTypes.RELOC:
         reloc_entries = []
 
         for rs in section.content:
-          entry = ducky.mm.binary.RelocEntry()
+          entry = RelocEntry()
           reloc_entries.append(entry)
 
           entry.name = f_out.string_table.put_string(rs.name)
@@ -107,22 +94,24 @@ def translate_buffer(logger, buffer, file_in, file_out, options):
           entry.patch_size = rs.patch_size
 
         f_out.set_content(h_section, reloc_entries)
-        h_section.data_size = h_section.file_size = ducky.cpu.assemble.sizeof(ducky.mm.binary.RelocEntry()) * len(reloc_entries)
+        h_section.data_size = h_section.file_size = sizeof(RelocEntry()) * len(reloc_entries)
 
       else:
         h_section.flags = section.flags
         f_out.set_content(h_section, section.content)
 
     h_section = f_out.create_section()
-    h_section.type = ducky.mm.binary.SectionTypes.STRINGS
+    h_section.type = SectionTypes.STRINGS
     h_section.name = f_out.string_table.put_string('.strings')
 
     f_out.save()
 
 def main():
-  parser = optparse.OptionParser()
+  import optparse
+  from . import add_common_options, parse_options
 
-  ducky.util.add_common_options(parser)
+  parser = optparse.OptionParser()
+  add_common_options(parser)
 
   group = optparse.OptionGroup(parser, 'File options')
   parser.add_option_group(group)
@@ -140,7 +129,7 @@ def main():
   group.add_option('-m', '--mmapable-sections', dest = 'mmapable_sections', action = 'store_true', default = False, help = 'Create mmap\'able sections')
   group.add_option('-w', '--writable-sections', dest = 'writable_sections', action = 'store_true', default = False, help = '.text and other read-only sections will be marked as writable too')
 
-  options, logger = ducky.util.parse_options(parser)
+  options, logger = parse_options(parser)
 
   if not options.file_in:
     parser.print_help()
@@ -161,6 +150,3 @@ def main():
       file_out = os.path.splitext(file_in)[0] + '.o'
 
     translate_buffer(logger, buffer, file_in, file_out, options)
-
-if __name__ == '__main__':
-  main()

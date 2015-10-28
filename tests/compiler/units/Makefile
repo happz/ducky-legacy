@@ -32,7 +32,7 @@ else
 endif
 	-$(Q) echo -n "$(CC_YELLOW)[TEST]$(CC_END) Compiler $(TC_NAME) ... "
 	-$(Q) $(VMCOVERAGE_FILE) \
-	      $(PYTHON) $(VMCOVERAGE_RUN) $(TOPDIR)/tools/cc-ast \
+	      $(PYTHON) $(VMCOVERAGE_RUN) $(DCC) \
 				-i $< -o $(TC_OUT) -O0 -q \
 				$(VMDEBUG) &> $(TC_OUTPUT); \
 				if [ "$$?" = "0" ]; then \

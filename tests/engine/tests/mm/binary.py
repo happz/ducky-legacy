@@ -2,7 +2,7 @@ import unittest
 import os
 
 from tests import get_tempfile
-from ducky.util import setup_logger
+from ducky.tools import setup_logger
 from ducky.mm import MalformedBinaryError
 from ducky.mm.binary import File, SectionFlags
 

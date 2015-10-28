@@ -113,8 +113,8 @@ def compile_code(code):
   f_obj_name = os.path.splitext(f_asm.name)[0] + '.o'
   f_bin_name = os.path.splitext(f_asm.name)[0] + '.testbin'
 
-  os.system('PYTHONPATH={} {} -f -I {} -i {} -o {}'.format(os.getenv('PYTHONPATH'), os.path.join(os.getenv('TOPDIR'), 'tools', 'as'), os.getenv('TOPDIR'), f_asm.name, f_obj_name))
-  os.system('PYTHONPATH={} {} -f -i {} -o {} --section-base=.text=0x0000'.format(os.getenv('PYTHONPATH'), os.path.join(os.getenv('TOPDIR'), 'tools', 'ld'), f_obj_name, f_bin_name))
+  os.system('PYTHONPATH={} {} -f -I {} -i {} -o {}'.format(os.getenv('PYTHONPATH'), os.getenv('DAS'), os.getenv('TOPDIR'), f_asm.name, f_obj_name))
+  os.system('PYTHONPATH={} {} -f -i {} -o {} --section-base=.text=0x0000'.format(os.getenv('PYTHONPATH'), os.getenv('DLD'), f_obj_name, f_bin_name))
 
   os.unlink(f_asm.name)
   os.unlink(f_obj_name)

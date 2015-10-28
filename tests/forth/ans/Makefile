@@ -23,7 +23,7 @@ tests-pre:
 
 tests: $(TOPDIR)/interrupts $(FORTH_KERNEL)
 	-$(Q) echo -n "$(CC_YELLOW)[TEST]$(CC_END) FORTH ANS testsuite ... "
-	-$(Q) $(PYTHON) $(VMCOVERAGE_RUN) $(TOPDIR)/tools/vm \
+	-$(Q) $(PYTHON) $(VMCOVERAGE_RUN) $(DVM) \
 				$(VMPROFILE) \
 				$(BINPROFILE) -g \
 				--machine-config=$(TC_CONFIG) \

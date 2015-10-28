@@ -1,24 +1,12 @@
-#! /usr/bin/env python
-
-import os
 import sys
-
-if os.environ.get('DUCKY_IMPORT_DEVEL', 'no') == 'yes':
-  sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
-
 import optparse
 import string
 
-import ducky.patch
-import ducky.log
-import ducky.mm
-import ducky.mm.binary
-import ducky.snapshot
-import ducky.util
-
-from ducky.mm import ADDR_FMT, UINT16_FMT, UINT8_FMT, PAGE_SIZE
-from ducky.mm.binary import SectionFlags
-from ducky.cpu.registers import FlagsRegister, Registers
+from ..snapshot import CoreDumpFile
+from ..mm import ADDR_FMT, UINT16_FMT, UINT8_FMT, PAGE_SIZE, segment_addr_to_addr, addr_to_segment
+from ..mm.binary import SectionFlags, File, SectionTypes
+from ..cpu.registers import FlagsRegister, Registers
+from ..log import WHITE, GREEN
 
 def show_header(logger, state):
   state = state.get_child('machine')
@@ -78,8 +66,6 @@ def show_memory(logger, state):
   state = state.get_child('machine').get_child('memory')
 
   logger.info('  Size:          %s', state.size)
-  logger.info('  IRQ table:     %s', ADDR_FMT(state.irq_table_address))
-  logger.info('  Int table:     %s', ADDR_FMT(state.int_table_address))
   logger.info('  # of segments: %s', len(state.segments))
   logger.info('  # of pages:    %s', len(state.get_page_states()))
   logger.info('')
@@ -91,11 +77,11 @@ def show_stack(logger, state):
 
   sps = {}
   for cs in state.get_child('machine').get_core_states():
-    sps[ducky.mm.segment_addr_to_addr(cs.registers[Registers.DS], cs.registers[Registers.SP])] = '#%i:#%i' % (cs.cpuid, cs.coreid)
+    sps[segment_addr_to_addr(cs.registers[Registers.DS], cs.registers[Registers.SP])] = '#%i:#%i' % (cs.cpuid, cs.coreid)
 
   for pg in stacks:
     pg_address = pg.index * PAGE_SIZE
-    pg_segment = ducky.mm.addr_to_segment(pg_address)
+    pg_segment = addr_to_segment(pg_address)
 
     logger.info('=== Page %s - %s %s ===', pg.index, UINT8_FMT(pg_segment), ADDR_FMT(pg_address))
 
@@ -108,7 +94,7 @@ def show_stack(logger, state):
         v = pg.content[offset] | (pg.content[offset + 1] << 8)
         row.append((sps.get(segment_offset, None), v))
 
-      logger.info('  ' + '  '.join(['%s %s' % (' ' if sp is None else '*', ducky.log.WHITE(UINT16_FMT(value)) if value != 0 else ducky.log.GREEN(UINT16_FMT(value))) for sp, value in row]))
+      logger.info('  ' + '  '.join(['%s %s' % (' ' if sp is None else '*', WHITE(UINT16_FMT(value)) if value != 0 else GREEN(UINT16_FMT(value))) for sp, value in row]))
 
     logger.info('')
 
@@ -131,7 +117,7 @@ def show_pages(logger, state):
 
   for pg in sorted(state.get_child('machine').get_child('memory').get_page_states(), key = lambda x: x.index):
     pg_addr = pg.index * PAGE_SIZE
-    pg_segment = ducky.mm.addr_to_segment(pg_addr)
+    pg_segment = addr_to_segment(pg_addr)
 
     for bs in state.get_child('machine').get_binary_states():
       if pg_segment == bs.cs:
@@ -150,7 +136,7 @@ def show_pages(logger, state):
 
       for b in pg.content[CPR * i:CPR * (i + 1)]:
         c = '%02X' % b
-        s.append(ducky.log.GREEN(c) if b == 0 else ducky.log.WHITE(c))
+        s.append(GREEN(c) if b == 0 else WHITE(c))
 
         c = chr(b)
         if c in string.printable[0:-5]:
@@ -182,32 +168,33 @@ def show_pages(logger, state):
     logger.info('')
 
 def load_binary_symbols(logger, vs, bs):
-  bs.raw_binary = ducky.mm.binary.File(logger, bs.path, 'r')
+  bs.raw_binary = File(logger, bs.path, 'r')
   bs.raw_binary.load()
 
   bs.symbols = {}
   for i in range(0, bs.raw_binary.get_header().sections):
     s_header, s_content = bs.raw_binary.get_section(i)
 
-    if s_header.type != ducky.mm.binary.SectionTypes.SYMBOLS:
+    if s_header.type != SectionTypes.SYMBOLS:
       continue
 
     for entry in s_content:
       _header, _content = bs.raw_binary.get_section(entry.section)
 
-      segment = bs.cs if _header.type == ducky.mm.binary.SectionTypes.TEXT else bs.ds
+      segment = bs.cs if _header.type == SectionTypes.TEXT else bs.ds
 
       symbol_name = bs.raw_binary.string_table.get_string(entry.name)
-      symbol_address = ducky.mm.segment_addr_to_addr(segment, entry.address)
+      symbol_address = segment_addr_to_addr(segment, entry.address)
 
       if symbol_address not in bs.symbols:
         bs.symbols[symbol_address] = []
       bs.symbols[symbol_address].append(symbol_name)
 
 def main():
-  parser = optparse.OptionParser()
+  from . import add_common_options, parse_options
 
-  ducky.util.add_common_options(parser)
+  parser = optparse.OptionParser()
+  add_common_options(parser)
 
   parser.add_option('-i', dest = 'file_in', default = None, help = 'Input file')
 
@@ -220,7 +207,7 @@ def main():
   parser.add_option('-s',         dest = 'stack',    default = False, action = 'store_true', help = 'Show stack content')
   parser.add_option('-a',         dest = 'all',      default = False, action = 'store_true', help = 'All of above')
 
-  options, logger = ducky.util.parse_options(parser)
+  options, logger = parse_options(parser)
 
   if not options.file_in:
     parser.print_help()
@@ -231,7 +218,7 @@ def main():
 
   logger.info('Input file: %s', options.file_in)
 
-  with ducky.snapshot.CoreDumpFile(logger, options.file_in, 'r') as f_in:
+  with CoreDumpFile(logger, options.file_in, 'r') as f_in:
     state = f_in.load()
 
     for bs in state.get_child('machine').get_binary_states():

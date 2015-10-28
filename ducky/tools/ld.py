@@ -1,26 +1,10 @@
-#! /usr/bin/env python
-
-import os
+import collections
 import sys
 
-if os.environ.get('DUCKY_IMPORT_DEVEL', 'no') == 'yes':
-  sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
-
-import collections
-import optparse
-
-import ducky.patch
-import ducky.console
-import ducky.cpu
-import ducky.log
-import ducky.mm
-import ducky.mm.binary
-import ducky.cpu.assemble
-import ducky.util
-
-from ducky.mm import ADDR_FMT, UInt32, UINT32_FMT, UInt16, UInt8, UINT8_FMT
-
-from ducky.cpu.assemble import align_to_next_page, align_to_next_mmap
+from ..mm import ADDR_FMT, UInt32, UINT32_FMT, UInt16, UInt8, UINT8_FMT, MalformedBinaryError
+from ..mm.binary import File, SectionTypes, SymbolEntry, SECTION_ITEM_SIZE
+from ..cpu.assemble import align_to_next_page, align_to_next_mmap, sizeof
+from ..util import str2int
 
 def align_nop(n):
   return n
@@ -38,15 +22,15 @@ def merge_object_into(logger, info, f_dst, f_src):
   r_header, r_content = f_src.get_section_by_name('.reloc')
 
   for s_header, s_content in f_src.sections():
-    if s_header.type == ducky.mm.binary.SectionTypes.RELOC:
+    if s_header.type == SectionTypes.RELOC:
       info.relocations[f_src].append((s_header, s_content))
       continue
 
-    elif s_header.type == ducky.mm.binary.SectionTypes.SYMBOLS:
+    elif s_header.type == SectionTypes.SYMBOLS:
       info.symbols[f_src].append((s_header, s_content))
       continue
 
-    elif s_header.type == ducky.mm.binary.SectionTypes.STRINGS:
+    elif s_header.type == SectionTypes.STRINGS:
       continue
 
     s_name = f_src.string_table.get_string(s_header.name)
@@ -58,7 +42,7 @@ def merge_object_into(logger, info, f_dst, f_src):
     try:
       d_header, d_content = f_dst.get_section_by_name(s_name)
 
-    except ducky.mm.MalformedBinaryError:
+    except MalformedBinaryError:
       logger.debug('No such section exists in dst file yet, copy')
 
       info.section_offsets[f_src][s_header.index] = 0
@@ -96,14 +80,14 @@ def fix_section_bases(logger, info, f_out, required_bases):
 
   D('Fixing base addresses of sections')
 
-  required_bases = dict([(e.split('=')[0], ducky.util.str2int(e.split('=')[1])) for e in required_bases])
+  required_bases = dict([(e.split('=')[0], str2int(e.split('=')[1])) for e in required_bases])
 
   sections_to_fix = {}
 
   for s_header, s_content in f_out.sections():
     s_header.base = 0xFFFF
 
-    if s_header.type in (ducky.mm.binary.SectionTypes.RELOC, ducky.mm.binary.SectionTypes.SYMBOLS, ducky.mm.binary.SectionTypes.STRINGS):
+    if s_header.type in (SectionTypes.RELOC, SectionTypes.SYMBOLS, SectionTypes.STRINGS):
       continue
 
     sections_to_fix[f_out.string_table.get_string(s_header.name)] = s_header
@@ -123,7 +107,7 @@ def fix_section_bases(logger, info, f_out, required_bases):
 
   fixed_sections = []
   for s_header, s_content in f_out.sections():
-    if s_header.type in (ducky.mm.binary.SectionTypes.RELOC, ducky.mm.binary.SectionTypes.SYMBOLS, ducky.mm.binary.SectionTypes.STRINGS):
+    if s_header.type in (SectionTypes.RELOC, SectionTypes.SYMBOLS, SectionTypes.STRINGS):
       continue
     if s_header.base == 0xFFFF:
       continue
@@ -215,7 +199,7 @@ def resolve_symbols(logger, info, f_out, f_ins):
         D('src base: %s, dst base: %s, symbol addr: %s, section dst offset: %s', ADDR_FMT(o_header.base), ADDR_FMT(d_header.base), ADDR_FMT(s_se.address), ADDR_FMT(info.section_offsets[f_in][o_header.index]))
         new_addr = s_se.address - o_header.base + info.section_offsets[f_in][o_header.index] + d_header.base
 
-        d_se = ducky.mm.binary.SymbolEntry()
+        d_se = SymbolEntry()
         d_se.flags = s_se.flags
         d_se.name = f_out.string_table.put_string(f_in.string_table.get_string(s_se.name))
         d_se.address = new_addr
@@ -231,13 +215,13 @@ def resolve_symbols(logger, info, f_out, f_ins):
         D('New symbol: %s', d_se)
 
   h_symtab = f_out.create_section()
-  h_symtab.type = ducky.mm.binary.SectionTypes.SYMBOLS
+  h_symtab.type = SectionTypes.SYMBOLS
   h_symtab.items = len(symbols)
   h_symtab.name = f_out.string_table.put_string('.symtab')
   h_symtab.base = 0xFFFF
 
   f_out.set_content(h_symtab, symbols)
-  h_symtab.data_size = h_symtab.file_size = len(symbols) * ducky.cpu.assemble.sizeof(ducky.mm.binary.SymbolEntry())
+  h_symtab.data_size = h_symtab.file_size = len(symbols) * sizeof(SymbolEntry())
 
   f_out.save()
 
@@ -295,8 +279,8 @@ def resolve_relocations(logger, info, f_out, f_ins):
 
         D('Patching %s:%s:%s with %s', ADDR_FMT(fixed_patch_address), re.patch_offset, re.patch_size, ADDR_FMT(patch_address))
 
-        content_index = (fixed_patch_address - d_header.base) / ducky.mm.binary.SECTION_ITEM_SIZE[d_header.type]
-        D('  Content index: %i (%s - %s) / %s', content_index, fixed_patch_address, d_header.base, ducky.mm.binary.SECTION_ITEM_SIZE[d_header.type])
+        content_index = (fixed_patch_address - d_header.base) / SECTION_ITEM_SIZE[d_header.type]
+        D('  Content index: %i (%s - %s) / %s', content_index, fixed_patch_address, d_header.base, SECTION_ITEM_SIZE[d_header.type])
 
         orig_val = d_content[content_index]
 
@@ -352,9 +336,11 @@ def resolve_relocations(logger, info, f_out, f_ins):
   f_out.save()
 
 def main():
-  parser = optparse.OptionParser()
+  import optparse
+  from . import add_common_options, parse_options
 
-  ducky.util.add_common_options(parser)
+  parser = optparse.OptionParser()
+  add_common_options(parser)
 
   group = optparse.OptionGroup(parser, 'File options')
   parser.add_option_group(group)
@@ -366,7 +352,7 @@ def main():
   parser.add_option_group(group)
   group.add_option('--section-base', dest = 'section_base', action = 'append', default = [], help = 'Set base of section to specific address', metavar = 'SECTION=ADDRESS')
 
-  options, logger = ducky.util.parse_options(parser)
+  options, logger = parse_options(parser)
 
   if not options.file_in:
     parser.print_help()
@@ -382,7 +368,7 @@ def main():
 
   files_in = []
   for file_in in options.file_in:
-    with ducky.mm.binary.File(logger, file_in, 'r') as f_in:
+    with File(logger, file_in, 'r') as f_in:
       f_in.load()
       files_in.append(f_in)
 
@@ -392,12 +378,12 @@ def main():
 
   info = LinkerInfo()
 
-  with ducky.mm.binary.File(logger, options.file_out, 'w') as f_out:
+  with File(logger, options.file_out, 'w') as f_out:
     h_file = f_out.create_header()
     h_file.flags.mmapable = files_in[0].get_header().flags.mmapable
 
     h_section = f_out.create_section()
-    h_section.type = ducky.mm.binary.SectionTypes.STRINGS
+    h_section.type = SectionTypes.STRINGS
     h_section.name = f_out.string_table.put_string('.strings')
 
     for f_in in files_in:
@@ -408,6 +394,3 @@ def main():
     resolve_relocations(logger, info, f_out, files_in)
 
     f_out.save()
-
-if __name__ == '__main__':
-  main()

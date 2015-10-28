@@ -28,7 +28,7 @@ endif
 	-$(Q) echo -n "$(CC_YELLOW)[TEST]$(CC_END) FORTH $(TC_NAME) ... "
 	-$(Q) PYTHONUNBUFFERED=yes \
 	      $(VMCOVERAGE_FILE) \
-	      $(PYTHON) $(VMCOVERAGE_RUN) $(TOPDIR)/tools/vm \
+	      $(PYTHON) $(VMCOVERAGE_RUN) $(DVM) \
 				$(VMPROFILE) \
 				$(BINPROFILE) -g \
 				--machine-config=$(TC_CONFIG) \
