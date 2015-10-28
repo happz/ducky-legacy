@@ -288,7 +288,7 @@ profile-eval:
 
 
 cloc:
-	cloc --skip-uniqueness --lang-no-ext=Python ducky/ forth/ examples/ tools/
+	cloc --skip-uniqueness --lang-no-ext=Python ducky/ forth/ examples/
 
 
 flake:

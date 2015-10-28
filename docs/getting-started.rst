@@ -91,13 +91,13 @@ Virtual machine needs binary (or bytecode, as you wish...) code, and there's a t
 
 .. code-block:: none
 
-  tools/as -i examples/hello-world/hello-world.asm -o examples/hello-world/hello-world.o
+  ducky-as -i examples/hello-world/hello-world.asm -o examples/hello-world/hello-world.o
 
 This command will translate source code to object file, containing instructions for VM and other resources. You can inspect the object file using ``objdump`` tool:
 
 .. code-block:: none
 
-  tools/objdump -i examples/hello-world/hello-world.o -a
+  ducky-objdump -i examples/hello-world/hello-world.o -a
 
 This should produce output similar to this one:
 
@@ -163,13 +163,13 @@ You can see internal sections in the object file, list of symbols, and disassemb
 
 .. code-block:: none
 
-  tools/ld -i examples/hello-world/hello-world.o -o examples/hello-world/hello-world
+  ducky-ld -i examples/hello-world/hello-world.o -o examples/hello-world/hello-world
 
 This command will take object file (or many of them), and produce one binary by merging code, data and sections in object files, and updates addresses used by instructions to retrieve data and to perform jumps. You can inspect the binary file using ``objdump`` tool, too:
 
 .. code-block:: none
 
-  tools/objdump -i examples/hello-world/hello-world -a
+  ducky-objdump -i examples/hello-world/hello-world -a
 
 This should produce output very similar to the one you've already seen - not much had changed, there was only one object files, only offsets used by ``call`` and ``j`` instructions are now non-zero, meaning they are now pointing to the correct locations.
 
@@ -187,7 +187,7 @@ Virtual machine configuration can get quite complicated, so I try to avoid too m
 
 .. code-block:: none
 
-  tools/vm --machine-config=examples/hello-world/hello-world.conf -g
+  ducky-vm --machine-config=examples/hello-world/hello-world.conf -g
 
 There are two other command line options that deserve some explanation:
 
