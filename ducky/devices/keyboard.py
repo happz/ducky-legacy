@@ -22,6 +22,10 @@ class ControlMessages(enum.IntEnum):
   CONTROL_MESSAGE_FIRST = 1024
 
 
+def escape_char(c):
+  return chr(c).replace(chr(10), '\\n').replace(chr(13), '\\r')
+
+
 class KeyboardController(IRQProvider, IOProvider, Device):
   def __init__(self, machine, name, streams = None, port = None, irq = None, *args, **kwargs):
     super(KeyboardController, self).__init__(machine, 'input', name, *args, **kwargs)
@@ -161,9 +165,6 @@ class KeyboardController(IRQProvider, IOProvider, Device):
 
     self.machine.trigger_irq(self)
 
-  def __escape_char(self, c):
-    return chr(c).replace(chr(10), '\\n').replace(chr(13), '\\r')
-
   def __read_char(self):
     self.machine.DEBUG('KeyboardController.__read_char')
 
@@ -187,7 +188,7 @@ class KeyboardController(IRQProvider, IOProvider, Device):
 
     c = ord(c)
 
-    self.machine.DEBUG('KeyboardController.__read_char: c=%s (%s)', c, self.__escape_char(c))
+    self.machine.DEBUG('KeyboardController.__read_char: c=%s (%s)', c, escape_char(c))
 
     return c
 

@@ -45,8 +45,8 @@ class StreamIOTerminal(Terminal):
 
     self.output.set_output(get_stream(stream_out, 'wb'))
 
-  @classmethod
-  def get_slave_devices(cls, machine, config, section):
+  @staticmethod
+  def get_slave_devices(machine, config, section):
     input_name = config.get(section, 'input', None)
     input_device = machine.get_device_by_name(input_name)
 

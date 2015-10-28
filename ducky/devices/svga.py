@@ -104,7 +104,7 @@ class Char(LittleEndianStructure):
     return (UInt8(self.codepoint | self.unused << 7).value, UInt8(self.fg | self.bg << 4 | self.blink << 7).value)
 
   @staticmethod
-  def from_u8(cls, l, h):
+  def from_u8(l, h):
     c = Char()
     c.codepoint = l & 0x7F
     c.fg = h & 0x0F
@@ -184,8 +184,8 @@ class Display(Device):
 
     self.refresh_task = DisplayRefreshTask(self)
 
-  @classmethod
-  def get_slave_gpu(cls, machine, config, section):
+  @staticmethod
+  def get_slave_gpu(machine, config, section):
     gpu_name = config.get(section, 'gpu', None)
     gpu_device = machine.get_device_by_name(gpu_name)
 
