@@ -116,9 +116,9 @@ def show_symbols(logger, f):
   }
 
   def ascii_replacer(m):
-    ascii_replacements[m.group(0)]
+    return ascii_replacements[m.group(0)]
 
-  ascii_replace = re.compile('|'.join(ascii_replacements.keys()))
+  ascii_replace = re.compile(r'|'.join(ascii_replacements.keys()))
 
   logger.info('=== Symbols ===')
   logger.info('')
