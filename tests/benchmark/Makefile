@@ -1,12 +1,12 @@
 include $(TOPDIR)/Makefile.inc
 
-SUBDIRS := engine forth compiler benchmark
+SUBDIRS := simple-loop
 
-XUNIT := $(CURDIR)/xunit-record
-export XUNIT
-
+TC_DIR := $(TESTSETDIR)/benchmark
+export TC_DIR
 
 tests-pre:
+	$(Q) mkdir -p $(TC_DIR)
 	$(Q) for dir in $(SUBDIRS); do \
 	       $(MAKE) -C $$dir tests-pre; \
 			 done
