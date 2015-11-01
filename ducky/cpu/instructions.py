@@ -130,6 +130,10 @@ class InstDescriptor(object):
     # pylint: disable-msg=W0613
     return []
 
+  @classmethod
+  def disassemble_mnemonic(cls, inst):
+    return cls.mnemonic
+
   def emit_instruction(self, logger, line):
     DEBUG = logger.debug
 
@@ -548,9 +552,10 @@ class InstructionSet(object):
     inst = cls.decode_instruction(inst)
     desc = cls.opcode_desc_map[inst.opcode]
 
+    mnemonic = desc.disassemble_mnemonic(inst)
     operands = desc.disassemble_operands(inst)
 
-    return (desc.mnemonic + ' ' + ', '.join(operands)) if len(operands) else desc.mnemonic
+    return (mnemonic + ' ' + ', '.join(operands)) if operands else mnemonic
 
 #
 # Main instruction set
@@ -565,7 +570,6 @@ class DuckyOpcodes(enum.IntEnum):
   LI     =  4
   STW    =  5
   STB    =  6
-  #      =  7
   MOV    =  8
   SWP    =  9
   CAS    = 10
@@ -605,23 +609,42 @@ class DuckyOpcodes(enum.IntEnum):
 
   CMP    = 37
   J      = 38
-  BE     = 39
-  BNE    = 40
-  BZ     = 41
-  BNZ    = 42
-  BS     = 43
-  BNS    = 44
-  BG     = 45
-  BGE    = 46
-  BL     = 47
-  BLE    = 48
-
   DIV    = 49
   MOD    = 50
 
   UDIV   = 52
 
   CMPU   = 51
+
+  # B* instructions
+  BRANCH = 39
+  BE     = 39
+  BNE    = 39
+  BZ     = 39
+  BNZ    = 39
+  BO     = 39
+  BNO    = 39
+  BS     = 39
+  BNS    = 39
+  BG     = 39
+  BGE    = 39
+  BL     = 39
+  BLE    = 39
+
+  # SET* instructions
+  SET    =  7  # master opcode
+  SETE   =  7
+  SETNE  =  7
+  SETZ   =  7
+  SETNZ  =  7
+  SETO   =  7
+  SETNO  =  7
+  SETS   =  7
+  SETNS  =  7
+  SETL   =  7
+  SETLE  =  7
+  SETG   =  7
+  SETGE  =  7
 
   SIS    = 63
 
@@ -807,6 +830,196 @@ class Inst_SUB(InstDescriptor_Generic_Binary_R_RI):
 #
 # Conditional and unconditional jumps
 #
+class InstDescriptor_COND(InstDescriptor):
+  binary_format = ['flag:3', BF_FLG('value')]
+
+  FLAGS = ['e', 'z', 'o', 's', 'l', 'g']
+  GFLAGS = range(0, 4)
+
+  @staticmethod
+  def set_condition(inst, flag, value):
+    inst.flag = InstDescriptor_COND.FLAGS.index(flag)
+    inst.value = 1 if value is True else 0
+
+  @staticmethod
+  def evaluate(core, inst):
+    # genuine flags
+    if inst.flag in InstDescriptor_COND.GFLAGS and inst.value == getattr(core.registers.flags, InstDescriptor_SET.FLAGS[inst.flag]):
+      return True
+
+    # "less than" flag
+    if inst.flag == 4:
+      if inst.value == 1 and core.registers.flags.s == 1 and core.registers.flags.e == 0:
+        return True
+
+      if inst.value == 0 and (core.registers.flags.s == 0 or core.registers.flags.e == 1):
+        return True
+
+    # "greater than" flag
+    if inst.flag == 5:
+      if inst.value == 1 and core.registers.flags.s == 0 and core.registers.flags.e == 0:
+        return True
+
+      if inst.value == 0 and (core.registers.flags.s == 1 or core.registers.flags.e == 1):
+        return True
+
+    return False
+
+class InstDescriptor_BRANCH(InstDescriptor_COND):
+  operands = 'ri'
+  binary_format = InstDescriptor_COND.binary_format + [BF_FLG('is_reg'), BF_REG('ireg'), BF_IMM()]
+  relative_address = True
+
+  @classmethod
+  def assemble_operands(cls, logger, inst, operands):
+    logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
+
+    if 'register_n0' in operands:
+      inst.ireg = operands['register_n0']
+      inst.is_reg = 1
+
+    else:
+      v = operands['immediate']
+
+      inst.is_reg = 0
+
+      if isinstance(v, int):
+        inst.immediate = v
+
+      elif isinstance(v, str):
+        inst.refers_to = v
+
+    if cls is Inst_BE:
+      InstDescriptor_COND.set_condition(inst, 'e', True)
+
+    elif cls is Inst_BNE:
+      InstDescriptor_COND.set_condition(inst, 'e', False)
+
+    elif cls is Inst_BZ:
+      InstDescriptor_COND.set_condition(inst, 'z', True)
+
+    elif cls is Inst_BNZ:
+      InstDescriptor_COND.set_condition(inst, 'z', False)
+
+    elif cls is Inst_BO:
+      InstDescriptor_COND.set_condition(inst, 'o', True)
+
+    elif cls is Inst_BNO:
+      InstDescriptor_COND.set_condition(inst, 'o', False)
+
+    elif cls is Inst_BS:
+      InstDescriptor_COND.set_condition(inst, 's', True)
+
+    elif cls is Inst_BNS:
+      InstDescriptor_COND.set_condition(inst, 's', False)
+
+    elif cls is Inst_BL:
+      InstDescriptor_COND.set_condition(inst, 'l', True)
+
+    elif cls is Inst_BLE:
+      InstDescriptor_COND.set_condition(inst, 'g', False)
+
+    elif cls is Inst_BG:
+      InstDescriptor_COND.set_condition(inst, 'g', True)
+
+    elif cls is Inst_BGE:
+      InstDescriptor_COND.set_condition(inst, 'l', False)
+
+  @staticmethod
+  def fill_reloc_slot(logger, inst, slot):
+    logger.debug('fill_reloc_slot: inst=%s, slot=%s', inst, slot)
+
+    slot.patch_offset = 15
+    slot.patch_size = 17
+
+  @staticmethod
+  def disassemble_operands(inst):
+    if inst.is_reg == 1:
+      return [REGISTER_NAMES[inst.ireg]]
+
+    return [inst.refers_to if hasattr(inst, 'refers_to') and inst.refers_to else OFFSET_FMT(inst.immediate)]
+
+  @staticmethod
+  def disassemble_mnemonic(inst):
+    if inst.flag in InstDescriptor_COND.GFLAGS:
+      return 'b%s%s' % ('n' if inst.value == 0 else '', InstDescriptor_SET.FLAGS[inst.flag])
+
+    else:
+      if inst.flag == InstDescriptor_COND.FLAGS.index('l'):
+        return 'bl' if inst.value == 1 else 'bge'
+
+      elif inst.flag == InstDescriptor_COND.FLAGS.index('g'):
+        return 'bg' if inst.value == 1 else 'ble'
+
+  @staticmethod
+  def execute(core, inst):
+    if InstDescriptor_COND.evaluate(core, inst):
+      core.JUMP(inst)
+
+class InstDescriptor_SET(InstDescriptor_COND):
+  operands = 'r'
+  binary_format = InstDescriptor_COND.binary_format + [BF_REG('reg')]
+
+  @classmethod
+  def assemble_operands(cls, logger, inst, operands):
+    logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
+
+    inst.reg = operands['register_n0']
+
+    if cls is Inst_SETE:
+      InstDescriptor_COND.set_condition(inst, 'e', True)
+
+    elif cls is Inst_SETNE:
+      InstDescriptor_COND.set_condition(inst, 'e', False)
+
+    elif cls is Inst_SETZ:
+      InstDescriptor_COND.set_condition(inst, 'z', True)
+
+    elif cls is Inst_SETNZ:
+      InstDescriptor_COND.set_condition(inst, 'z', False)
+
+    elif cls is Inst_SETO:
+      InstDescriptor_COND.set_condition(inst, 'o', True)
+
+    elif cls is Inst_SETNO:
+      InstDescriptor_COND.set_condition(inst, 'o', False)
+
+    elif cls is Inst_SETS:
+      InstDescriptor_COND.set_condition(inst, 's', True)
+
+    elif cls is Inst_SETNS:
+      InstDescriptor_COND.set_condition(inst, 's', False)
+
+    elif cls is Inst_SETL:
+      InstDescriptor_COND.set_condition(inst, 'l', True)
+
+    elif cls is Inst_SETLE:
+      InstDescriptor_COND.set_condition(inst, 'g', False)
+
+    elif cls is Inst_SETG:
+      InstDescriptor_COND.set_condition(inst, 'g', True)
+
+    elif cls is Inst_SETGE:
+      InstDescriptor_COND.set_condition(inst, 'l', False)
+
+  @staticmethod
+  def disassemble_operands(inst):
+    return [REGISTER_NAMES[inst.reg]]
+
+  @staticmethod
+  def disassemble_mnemonic(inst):
+    if inst.flag in InstDescriptor_COND.GFLAGS:
+      return 'set%s%s' % ('n' if inst.value == 0 else '', InstDescriptor_SET.FLAGS[inst.flag])
+
+    else:
+      return 'set%s%s' % (InstDescriptor_SET.FLAGS[inst.flag], 'e' if inst.value == 1 else '')
+
+  @staticmethod
+  def execute(core, inst):
+    core.check_protected_reg(inst.reg)
+    core.registers.map[inst.reg].value = 1 if InstDescriptor_COND.evaluate(core, inst) is True else 0
+    core.update_arith_flags(core.registers.map[inst.reg])
+
 class Inst_CMP(InstDescriptor_Generic_Binary_R_RI):
   mnemonic = 'cmp'
   opcode = DuckyOpcodes.CMP
@@ -832,105 +1045,101 @@ class Inst_J(InstDescriptor_Generic_Unary_RI):
   def execute(core, inst):
     core.JUMP(inst)
 
-class Inst_BE(InstDescriptor_Generic_Unary_RI):
+class Inst_BE(InstDescriptor_BRANCH):
   mnemonic = 'be'
   opcode   = DuckyOpcodes.BE
-  relative_address = True
 
-  @staticmethod
-  def execute(core, inst):
-    if core.registers.flags.e == 1:
-      core.JUMP(inst)
-
-class Inst_BNE(InstDescriptor_Generic_Unary_RI):
+class Inst_BNE(InstDescriptor_BRANCH):
   mnemonic = 'bne'
   opcode   = DuckyOpcodes.BNE
-  relative_address = True
 
-  @staticmethod
-  def execute(core, inst):
-    if core.registers.flags.e == 0:
-      core.JUMP(inst)
-
-class Inst_BNS(InstDescriptor_Generic_Unary_RI):
+class Inst_BNS(InstDescriptor_BRANCH):
   mnemonic = 'bns'
   opcode   = DuckyOpcodes.BNS
-  relative_address = True
 
-  @staticmethod
-  def execute(core, inst):
-    if core.registers.flags.s == 0:
-      core.JUMP(inst)
-
-class Inst_BNZ(InstDescriptor_Generic_Unary_RI):
+class Inst_BNZ(InstDescriptor_BRANCH):
   mnemonic = 'bnz'
   opcode   = DuckyOpcodes.BNZ
-  relative_address = True
 
-  @staticmethod
-  def execute(core, inst):
-    if core.registers.flags.z == 0:
-      core.JUMP(inst)
-
-class Inst_BS(InstDescriptor_Generic_Unary_RI):
+class Inst_BS(InstDescriptor_BRANCH):
   mnemonic = 'bs'
   opcode   = DuckyOpcodes.BS
-  relative_address = True
 
-  @staticmethod
-  def execute(core, inst):
-    if core.registers.flags.s == 1:
-      core.JUMP(inst)
-
-class Inst_BZ(InstDescriptor_Generic_Unary_RI):
+class Inst_BZ(InstDescriptor_BRANCH):
   mnemonic = 'bz'
   opcode   = DuckyOpcodes.BZ
-  relative_address = True
 
-  @staticmethod
-  def execute(core, inst):
-    if core.registers.flags.z == 1:
-      core.JUMP(inst)
+class Inst_BO(InstDescriptor_BRANCH):
+  mnemonic = 'bo'
+  opcode   = DuckyOpcodes.BO
 
-class Inst_BG(InstDescriptor_Generic_Unary_RI):
+class Inst_BNO(InstDescriptor_BRANCH):
+  mnemonic = 'bno'
+  opcode   = DuckyOpcodes.BNO
+
+class Inst_BG(InstDescriptor_BRANCH):
   mnemonic = 'bg'
   opcode = DuckyOpcodes.BG
-  relative_address = True
 
-  @staticmethod
-  def execute(core, inst):
-    if core.registers.flags.s == 0 and core.registers.flags.e == 0:
-      core.JUMP(inst)
-
-class Inst_BGE(InstDescriptor_Generic_Unary_RI):
+class Inst_BGE(InstDescriptor_BRANCH):
   mnemonic = 'bge'
   opcode = DuckyOpcodes.BGE
-  relative_address = True
 
-  @staticmethod
-  def execute(core, inst):
-    if core.registers.flags.s == 0 or core.registers.flags.e == 1:
-      core.JUMP(inst)
-
-class Inst_BL(InstDescriptor_Generic_Unary_RI):
+class Inst_BL(InstDescriptor_BRANCH):
   mnemonic = 'bl'
   opcode = DuckyOpcodes.BL
-  relative_address = True
 
-  @staticmethod
-  def execute(core, inst):
-    if core.registers.flags.s == 1 and core.registers.flags.e == 0:
-      core.JUMP(inst)
-
-class Inst_BLE(InstDescriptor_Generic_Unary_RI):
+class Inst_BLE(InstDescriptor_BRANCH):
   mnemonic = 'ble'
   opcode = DuckyOpcodes.BLE
-  relative_address = True
 
-  @staticmethod
-  def execute(core, inst):
-    if core.registers.flags.s == 1 or core.registers.flags.e == 1:
-      core.JUMP(inst)
+class Inst_SETE(InstDescriptor_SET):
+  mnemonic = 'sete'
+  opcode = DuckyOpcodes.SETE
+
+class Inst_SETNE(InstDescriptor_SET):
+  mnemonic = 'setne'
+  opcode = DuckyOpcodes.SETNE
+
+class Inst_SETZ(InstDescriptor_SET):
+  mnemonic = 'setz'
+  opcode = DuckyOpcodes.SETZ
+
+class Inst_SETNZ(InstDescriptor_SET):
+  mnemonic = 'setnz'
+  opcode = DuckyOpcodes.SETNZ
+
+class Inst_SETO(InstDescriptor_SET):
+  mnemonic = 'seto'
+  opcode = DuckyOpcodes.SETO
+
+class Inst_SETNO(InstDescriptor_SET):
+  mnemonic = 'setno'
+  opcode = DuckyOpcodes.SETNO
+
+class Inst_SETS(InstDescriptor_SET):
+  mnemonic = 'sets'
+  opcode = DuckyOpcodes.SETS
+
+class Inst_SETNS(InstDescriptor_SET):
+  mnemonic = 'setns'
+  opcode = DuckyOpcodes.SETNS
+
+class Inst_SETG(InstDescriptor_SET):
+  mnemonic = 'setg'
+  opcode = DuckyOpcodes.SETG
+
+class Inst_SETGE(InstDescriptor_SET):
+  mnemonic = 'setge'
+  opcode = DuckyOpcodes.SETGE
+
+class Inst_SETL(InstDescriptor_SET):
+  mnemonic = 'setl'
+  opcode = DuckyOpcodes.SETL
+
+class Inst_SETLE(InstDescriptor_SET):
+  mnemonic = 'setle'
+  opcode = DuckyOpcodes.SETLE
 
 #
 # IO
@@ -1227,16 +1436,6 @@ Inst_ADD(DuckyInstructionSet)
 Inst_SUB(DuckyInstructionSet)
 Inst_CMP(DuckyInstructionSet)
 Inst_J(DuckyInstructionSet)
-Inst_BE(DuckyInstructionSet)
-Inst_BNE(DuckyInstructionSet)
-Inst_BNS(DuckyInstructionSet)
-Inst_BNZ(DuckyInstructionSet)
-Inst_BS(DuckyInstructionSet)
-Inst_BZ(DuckyInstructionSet)
-Inst_BG(DuckyInstructionSet)
-Inst_BGE(DuckyInstructionSet)
-Inst_BL(DuckyInstructionSet)
-Inst_BLE(DuckyInstructionSet)
 Inst_IN(DuckyInstructionSet)
 Inst_INB(DuckyInstructionSet)
 Inst_OUT(DuckyInstructionSet)
@@ -1261,6 +1460,34 @@ Inst_MOD(DuckyInstructionSet)
 Inst_CMPU(DuckyInstructionSet)
 Inst_CAS(DuckyInstructionSet)
 Inst_SIS(DuckyInstructionSet)
+
+# Branching instructions
+Inst_BE(DuckyInstructionSet)
+Inst_BNE(DuckyInstructionSet)
+Inst_BZ(DuckyInstructionSet)
+Inst_BNZ(DuckyInstructionSet)
+Inst_BO(DuckyInstructionSet)
+Inst_BNO(DuckyInstructionSet)
+Inst_BS(DuckyInstructionSet)
+Inst_BNS(DuckyInstructionSet)
+Inst_BG(DuckyInstructionSet)
+Inst_BGE(DuckyInstructionSet)
+Inst_BL(DuckyInstructionSet)
+Inst_BLE(DuckyInstructionSet)
+
+# SET* instructions
+Inst_SETE(DuckyInstructionSet)
+Inst_SETNE(DuckyInstructionSet)
+Inst_SETZ(DuckyInstructionSet)
+Inst_SETNZ(DuckyInstructionSet)
+Inst_SETO(DuckyInstructionSet)
+Inst_SETNO(DuckyInstructionSet)
+Inst_SETS(DuckyInstructionSet)
+Inst_SETNS(DuckyInstructionSet)
+Inst_SETG(DuckyInstructionSet)
+Inst_SETGE(DuckyInstructionSet)
+Inst_SETL(DuckyInstructionSet)
+Inst_SETLE(DuckyInstructionSet)
 
 DuckyInstructionSet.init()
 

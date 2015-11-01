@@ -49,7 +49,7 @@ Unconditional branching
 Conditional branching
 """""""""""""""""""""
 
-All conditional branching instructions comes in form ``<inst> rA`` or ``<inst> <address>``. Depending on relevant flags, jump is performed to specified address.
+All conditional branching instructions come in form ``<inst> rA`` or ``<inst> <address>``. Depending on relevant flags, jump is performed to specified address.
 
 +-------------+-------------------------+
 | Instruction | Relevant flags          |
@@ -60,11 +60,38 @@ All conditional branching instructions comes in form ``<inst> rA`` or ``<inst> <
 | ``bns``     | ``s = 0``               |
 | ``bz``      | ``z = 1``               |
 | ``bnz``     | ``z = 0``               |
+| ``bo``      | ``o = 1``               |
+| ``bno``     | ``o = 0``               |
 | ``bg``      | ``e = 0`` and ``s = 0`` |
 | ``bge``     | ``e = 1`` or ``s = 0``  |
 | ``bl``      | ``e = 0`` and ``s = 1`` |
 | ``ble``     | ``e = 1`` or ``s = 1``  |
 +-------------+-------------------------+
+
+Conditional setting
+"""""""""""""""""""
+
+All conditional setting instructions come in form ``<inst> rA``. Depending on relevant flags, ``rA`` is set to ``1`` if condition is evaluated to be true, or to ``0`` otherwise.
+
+For flags relevant for each instruction, see branching instruction with the same suffix (e.g. ``setle`` evaluates the same flags with the same result as ``ble``).
+
++-------------+
+| Instruction |
++-------------+
+| ``sete``    |
+| ``setne``   |
+| ``setz``    |
+| ``setnz``   |
+| ``seto``    |
+| ``setno``   |
+| ``sets``    |
+| ``setns``   |
+| ``setg``    |
+| ``setge``   |
+| ``setl``    |
+| ``setle``   |
++-------------+
+
 
 Comparing
 """""""""
@@ -73,7 +100,7 @@ Two instructions are available for comparing of values. Compare their operands a
 
 ``cmp rA, (rB|<value>)``
 
-``cmp rA, (rB|<value>)`` - treat operands as unsigned values
+``cmpu rA, (rB|<value>)`` - treat operands as unsigned values
 
 
 Port IO

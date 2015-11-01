@@ -153,6 +153,12 @@ class Tests(unittest.TestCase):
   def test_bnz(self):
     self.common_case(binary = 'bnz_1', r0 = 0xFF)
 
+  def test_bo(self):
+    self.common_case(binary = 'bo', r0 = 1, r1 = 0xDD)
+
+  def test_bno(self):
+    self.common_case(binary = 'bno', r0 = 0x2, r1 = 0xDD)
+
   def test_bg(self):
     self.common_case(binary = 'bg_1', r0 = 0x1FF)
     self.common_case(binary = 'bg_2', r0 = 0xEE, e = 1)
@@ -211,3 +217,27 @@ class Tests(unittest.TestCase):
 
     self.common_case(binary  ='cas_1', r1 = data_base, r2 = 0x0A, r3 = 0x0B, e = 1, mm = {'0x02%04X' % data_base: 0x0B})
     self.common_case(binary = 'cas_2', r1 = data_base, r2 = 0x0A, r3 = 0x0C, mm = {'0x02%04X' % data_base: 0x0A})
+
+  def test_sete(self):
+    self.common_case(binary = 'sete_1', r0 = 0xFF, r1 = 1, e = 1, z = 1)
+
+  def test_seto(self):
+    self.common_case(binary = 'seto_1', r0 = 1, r1 = 1, z = 1)
+
+  def test_setz(self):
+    self.common_case(binary = 'setz_1', r1 = 1, z = 1)
+
+  def test_sets(self):
+    self.common_case(binary = 'sets_1', r0 = 0xEE, r1 = 1, z = 1)
+
+  def test_setl(self):
+    self.common_case(binary = 'setl', r0 = 0xEE, r1 = 1, z = 1)
+
+  def test_setle(self):
+    self.common_case(binary = 'setle', r0 = 0xEE, r1 = 1, r2 = 1, z = 1)
+
+  def test_setg(self):
+    self.common_case(binary = 'setg', r0 = 0xEE, r1 = 1, z = 1)
+
+  def test_setge(self):
+    self.common_case(binary = 'setge', r0 = 0xEE, r1 = 1, r2 = 1, z = 1)
