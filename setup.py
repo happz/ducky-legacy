@@ -4,7 +4,7 @@ mod_native_data_cache = Extension('ducky.native.data_cache', sources = ['ducky/n
 
 setup(name = 'ducky',
       version = '1.0',
-      description = 'Simple virtual/CPU simulator',
+      description = 'Simple virtual CPU/machine simulator',
       long_description = 'Ducky is a simple virtual CPU/machine simulator, with modular design and interesting features.',
       url = 'https://github.com/happz/ducky',
       author = 'Milos Prchlik',
