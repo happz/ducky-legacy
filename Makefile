@@ -247,8 +247,8 @@ tests-post: tests-post-master
 tests-submit-results:
 ifdef CIRCLE_TEST_REPORTS
 	$(eval ts_results := $(wildard $(TESTSETDIR)/results/*.xml))
-	$(Q) mkdir -p $(CIRCLE_TEST_REPORTS)/$(TESTSET)
-	$(Q) for f in `ls -1 $(TESTSETDIR)/results/*.xml`; do g="`basename $$f`"; cp $$f $(CIRCLE_TEST_REPORTS)/`echo "$$g" | sed 's/\(.*\).xml/$(TESTSET)-\1.xml/'`; done;
+	$(Q) mkdir -p $(CIRCLE_TEST_REPORTS)/junit
+	$(Q) for f in `ls -1 $(TESTSETDIR)/results/*.xml`; do g="`basename $$f`"; cp $$f $(CIRCLE_TEST_REPORTS)/junit/`echo "$$g" | sed 's/\(.*\).xml/$(TESTSET)-\1.xml/'`; done;
 endif
 ifdef CIRCLE_ARTIFACTS
 	$(Q) cp -r $(TESTSETDIR) $(CIRCLE_ARTIFACTS)
