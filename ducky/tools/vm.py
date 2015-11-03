@@ -77,6 +77,7 @@ def main():
                        default = None,
                        help = 'Store profiling data in this directory')
   opt_group.add_option('--debug-open-files', dest = 'debug_open_files', action = 'store_true', default = False, help = 'List all open - not closed cleanly - files when VM quits')
+  opt_group.add_option('--stdio-console',    dest = 'stdio_console',    action = 'store_true', default = False, help = 'Enable console terminal using stdin/stdout as IO streams')
 
   options, logger = parse_options(parser)
 
@@ -103,9 +104,11 @@ def main():
   from ..machine import Machine
   M = Machine()
 
-  # console_slave = ducky.console.TerminalConsoleConnection(0, M.console)
-  # console_slave.boot()
-  # M.console.connect(console_slave)
+  if options.stdio_console:
+    from ..console import TerminalConsoleConnection
+    console_slave = TerminalConsoleConnection(0, M.console)
+    console_slave.boot()
+    M.console.connect(console_slave)
 
   from ..config import MachineConfig
   machine_config = MachineConfig()
