@@ -79,3 +79,7 @@ class Tests(unittest.TestCase):
       kbd = self.common_case()
       kbd.enqueue_input(object())
       kbd.open_input()
+
+  def test_read_unknown_port(self):
+    with self.assertRaises(ducky.errors.InvalidResourceError):
+      self.common_case().read_u8(ducky.devices.keyboard.DEFAULT_PORT_RANGE - 1)
