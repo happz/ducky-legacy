@@ -154,6 +154,7 @@ class StandalonePTYTerminal(StreamIOTerminal):
       os.close(self.pttys[0])
 
       self.pttys = None
+      self.terminal_device = None
 
     except Exception:
       self.machine.EXCEPTION('Exception raised while closing PTY')

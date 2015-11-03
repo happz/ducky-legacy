@@ -168,6 +168,12 @@ hello-world:
 run-hello-world: hello-world interrupts
 	$(Q) $(MAKE) -C examples/hello-world run
 
+# Hello, world! with screen terminal
+hello-world-screen: hello-world
+
+run-hello-world-screen: hello-world-screen interrupts
+	$(Q) $(MAKE) -C examples/hello-world run-screen
+
 
 # Clock
 clock:
