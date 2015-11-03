@@ -550,7 +550,8 @@ class CPUCore(ISnapshotable, IMachineWorker):
 
     config = cpu.machine.config
 
-    self.cpuid_prefix = '#{}:#{}:'.format(cpu.id, coreid)
+    self.cpuid = '#{}:#{}'.format(cpu.id, coreid)
+    self.cpuid_prefix = self.cpuid + ':'
 
     def __log(logger, *args, **kwargs):
       args = ('%s ' + args[0],) + (self.cpuid_prefix,) + args[1:]
@@ -1132,15 +1133,13 @@ class CPUCore(ISnapshotable, IMachineWorker):
     Perform one "step" - fetch next instruction, increment IP, and execute instruction's code (see inst_* methods)
     """
 
-    # pylint: disable-msg=R0912,R0914,R0915
-    # "Too many branches"
-    # "Too many local variables"
-    # "Too many statements"
-
     self.DEBUG('----- * ----- * ----- * ----- * ----- * ----- * ----- * -----')
 
     if self.debug is not None:
-      self.debug.check()
+      self.debug.enter_step()
+
+      if not self.running:
+        return
 
     # Read next instruction
     self.DEBUG('"FETCH" phase')
@@ -1171,6 +1170,9 @@ class CPUCore(ISnapshotable, IMachineWorker):
 
     if self.core_profiler is not None:
       self.core_profiler.take_sample()
+
+    if self.debug is not None:
+      self.debug.exit_step()
 
   def change_runnable_state(self, alive = None, running = None, idle = None):
     old_state = self.alive and self.running and not self.idle
@@ -1306,19 +1308,11 @@ class CPU(ISnapshotable, IMachineWorker):
     self.cnt_living_cores = 0
     self.cnt_running_cores = 0
 
-    C = self.machine.console
-    if not C.is_registered_command('sc'):
-      C.register_command('sc', cmd_set_core)
-    if not C.is_registered_command('cont'):
-      C.register_command('cont', cmd_cont)
-    if not C.is_registered_command('step'):
-      C.register_command('step', cmd_step)
-    if not C.is_registered_command('next'):
-      C.register_command('next', cmd_next)
-    if not C.is_registered_command('st'):
-      C.register_command('st', cmd_core_state)
-    if not C.is_registered_command('bt'):
-      C.register_command('bt', cmd_bt)
+    self.machine.console.register_commands([
+      ('sc', cmd_set_core),
+      ('st', cmd_core_state),
+      ('cont', cmd_cont)
+    ])
 
   def save_state(self, parent):
     state = parent.add_child('cpu{}'.format(self.id), CPUState())
@@ -1414,44 +1408,51 @@ class CPU(ISnapshotable, IMachineWorker):
 
 def cmd_set_core(console, cmd):
   """
-  Set core address of default core used by control commands
+  Set core address of default core used by control commands: sc <coreid>
   """
 
   M = console.master.machine
 
-  core = M.core(cmd[1])
-  if core is None:
-    console.log(M.WARN, 'Unknown core: cpuid="%s"', cmd[1])
+  try:
+    core = M.core(cmd[1])
+
+  except InvalidResourceError:
+    console.writeln('go away')
     return
 
   console.default_core = core
 
-  console.log(M.INFO, 'New default core is %s', '#{}:#{}'.format(core.cpu.id, core.id))
+  console.writeln('# OK: default core is %s', core.cpuid)
 
 def cmd_cont(console, cmd):
   """
-  Continue execution until next breakpoint is reached
+  Continue execution until next breakpoint is reached: cont
   """
 
-  M = console.master.machine
-  core = console.default_core if console.default_core is not None else M.cpus[0].cores[0]
+  if console.default_core is None:
+    console.writeln('# ERR: no core selected')
+    return
 
-  core.wake_up()
+  if console.default_core.running:
+    console.writeln('# ERR: core is not suspended')
+    return
+
+  console.default_core.wake_up()
+
+  console.writeln('# OK')
 
 def cmd_step(console, cmd):
   """
   Step one instruction forward
   """
 
-  M = console.master.machine
-  core = console.default_core if console.default_core is not None else M.cpus[0].cores[0]
-
-  if not core.is_suspended():
+  if console.default_core is None:
     return
 
-  core.run()
+  if console.default_core.running:
+    return
 
-  do_log_cpu_core_state(core, logger = functools.partial(console.log, core.INFO))
+  console.default_core.run()
 
 def cmd_next(console, cmd):
   """

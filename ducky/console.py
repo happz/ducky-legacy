@@ -183,6 +183,13 @@ class ConsoleMaster(object):
     if name in self.commands:
       del self.commands[name]
 
+  def register_commands(self, commands, *args, **kwargs):
+    for name, handler in commands:
+      if self.is_registered_command(name):
+        continue
+
+      self.register_command(name, handler, *args, **kwargs)
+
   def connect(self, slave):
     self.connections.append(slave)
 

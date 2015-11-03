@@ -2,6 +2,7 @@
 VM configuration management
 """
 
+import functools
 import StringIO
 
 from ConfigParser import ConfigParser, NoSectionError, NoOptionError
@@ -85,6 +86,9 @@ class MachineConfig(ConfigParser):
 
     except (NoSectionError, NoOptionError):
       return default
+
+  def create_getters(self, section):
+    return (functools.partial(self.get, section), functools.partial(self.getbool, section), functools.partial(self.getint, section))
 
   def read(self, *args, **kwargs):
     ConfigParser.read(self, *args, **kwargs)

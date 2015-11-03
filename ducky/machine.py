@@ -4,7 +4,6 @@ represents self-contained virtual machine, with all its devices, memory, CPUs
 and other necessary properties.
 """
 
-import functools
 import itertools
 import collections
 import importlib
@@ -22,7 +21,7 @@ from .interfaces import IMachineWorker, ISnapshotable, IReactorTask
 from .console import ConsoleMaster
 from .errors import InvalidResourceError
 from .log import create_logger
-from .util import str2int, LRUCache, F
+from .util import LRUCache, F
 from .mm import addr_to_segment, ADDR_FMT, segment_addr_to_addr, UInt16, UINT16_FMT
 from .mm.binary import SectionFlags
 from .reactor import Reactor
@@ -195,11 +194,11 @@ class Machine(ISnapshotable, IMachineWorker):
 
     raise InvalidResourceError(F('No such CPU core: cid={cid}', cid = cid))
 
-  def __init__(self):
+  def __init__(self, logger = None):
     self.reactor = Reactor(self)
 
     # Setup logging
-    self.LOGGER = create_logger()
+    self.LOGGER = logger or create_logger()
     self.DEBUG = self.LOGGER.debug
     self.INFO = self.LOGGER.info
     self.WARN = self.LOGGER.warning
@@ -424,10 +423,8 @@ class Machine(ISnapshotable, IMachineWorker):
       self.print_regions(binary.regions)
 
   def setup_mmaps(self):
-    for mmap_section in self.config.iter_mmaps():
-      _get     = functools.partial(self.config.get, mmap_section)
-      _getbool = functools.partial(self.config.getbool, mmap_section)
-      _getint  = functools.partial(self.config.getint, mmap_section)
+    for section in self.config.iter_mmaps():
+      _get, _getbool, _getint = self.config.create_getters(section)
 
       access = _get('access', 'r')
       flags = SectionFlags(readable = 'r' in access, writable = 'w' in access, executable = 'x' in access)
@@ -438,6 +435,43 @@ class Machine(ISnapshotable, IMachineWorker):
                             flags = flags,
                             shared = _getbool('shared', False))
 
+  def setup_devices(self):
+    for section in self.config.iter_devices():
+      _get, _getbool, _getint = self.config.create_getters(section)
+
+      klass = _get('klass', None)
+      driver = _get('driver', None)
+
+      if not klass or not driver:
+        self.ERROR('Unknown class or driver of device %s: klass=%s, driver=%s', section, klass, driver)
+        continue
+
+      if _getbool('enabled', True) is not True:
+        self.DEBUG('Device %s disabled', section)
+        continue
+
+      driver = driver.split('.')
+      driver_module = importlib.import_module('.'.join(driver[0:-1]))
+      driver_class = getattr(driver_module, driver[-1])
+      dev = driver_class.create_from_config(self, self.config, section)
+      self.devices[klass][section] = dev
+
+      if _get('master', None) is not None:
+        dev.master = _get('master')
+
+  def setup_debugging(self):
+    for section in self.config.iter_breakpoints():
+      _get, _getint, _getbool = self.config.create_getters(section)
+
+      core = self.core(_get('core', '#0:#0'))
+      core.init_debug_set()
+
+      klass = _get('klass', 'ducky.debugging.BreakPoint').split('.')
+      klass = getattr(importlib.import_module('.'.join(klass[0:-1])), klass[-1])
+
+      p = klass.create_from_config(core.debug, self.config, section)
+      core.debug.add_point(p)
+
   def hw_setup(self, machine_config):
     self.config = machine_config
 
@@ -446,66 +480,15 @@ class Machine(ISnapshotable, IMachineWorker):
 
     self.memory = mm.MemoryController(self, size = machine_config.getint('memory', 'size', 0x1000000))
 
+    self.setup_devices()
+
     from .cpu import CPU
     for cpuid in range(0, self.nr_cpus):
       self.cpus.append(CPU(self, cpuid, self.memory, self.cpu_cache_controller, cores = self.nr_cores))
 
-    # Devices
-    for st_section in self.config.iter_devices():
-      _get     = functools.partial(self.config.get, st_section)
-      _getbool = functools.partial(self.config.getbool, st_section)
-      _getint  = functools.partial(self.config.getint, st_section)
-
-      klass = _get('klass', None)
-      driver = _get('driver', None)
-
-      if not klass or not driver:
-        self.ERROR('Unknown class or driver of device %s: klass=%s, driver=%s', st_section, klass, driver)
-        continue
-
-      if _getbool('enabled', True) is not True:
-        self.DEBUG('Device %s disabled', st_section)
-        continue
-
-      driver = driver.split('.')
-      driver_module = importlib.import_module('.'.join(driver[0:-1]))
-      driver_class = getattr(driver_module, driver[-1])
-      dev = driver_class.create_from_config(self, self.config, st_section)
-      self.devices[klass][st_section] = dev
-
-      if _get('master', None) is not None:
-        dev.master = _get('master')
-
     from .devices import VIRTUAL_INTERRUPTS
     for index, cls in VIRTUAL_INTERRUPTS.iteritems():
       self.virtual_interrupts[index] = cls(self)
-
-    # Breakpoints
-    from .debugging import add_breakpoint
-
-    for bp_section in self.config.iter_breakpoints():
-      _get     = functools.partial(self.config.get, bp_section)
-      _getbool = functools.partial(self.config.getbool, bp_section)
-      _getint  = functools.partial(self.config.getint, bp_section)
-
-      core = self.core(_get('core', '#0:#0'))
-
-      address = _get('address', '0x000000')
-      if address[0].isdigit():
-        address = UInt16(str2int(address))
-
-      else:
-        for binary in self.binaries:
-          symbol_address = binary.symbols.get(address)
-          if symbol_address is not None:
-            address = symbol_address
-            break
-
-      if address is None:
-        self.ERROR('Unknown breakpoint address: %s on %s', _get('address', '0x000000'), _get('core', '#0:#0'))
-        continue
-
-      add_breakpoint(core, address.u16, ephemeral = _getbool('ephemeral', False), countdown = _getint('countdown', 0))
 
   @property
   def exit_code(self):
@@ -550,6 +533,7 @@ class Machine(ISnapshotable, IMachineWorker):
     self.setup_interrupt_routines()
     self.setup_binaries()
     self.setup_mmaps()
+    self.setup_debugging()
 
     init_states = [binary.get_init_state() for binary in self.binaries if binary.run]
     for __cpu in self.cpus:
