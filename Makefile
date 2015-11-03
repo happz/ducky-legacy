@@ -292,6 +292,10 @@ flake:
 	$(Q) ! flake8 --config=$(TOPDIR)/flake8.cfg $(shell find $(TOPDIR)/ducky $(TOPDIR)/tests -name '*.py') | sort | grep -v -e "'patch' imported but unused" -e duckyfs -e '\.swp' -e 'unable to detect undefined names'
 
 
+pylint:
+	$(Q) pylint --rcfile=pylintrc ducky
+
+
 # Documentation
 docs:
 	cp README.rst docs/introduction.rst
