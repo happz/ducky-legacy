@@ -1030,7 +1030,6 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
     else:
       raise buff.get_error(AssemblerError, 'Unknown pattern: line="{}"'.format(line))
 
-    # pylint: disable-msg=W0631
     emited_inst = desc.emit_instruction(logger, line)
     emited_inst.desc = desc
 
@@ -1075,8 +1074,6 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
   for s_name, section in sections_pass2.items():
     p1_section = sections_pass1[s_name]
 
-    # pylint: disable-msg=E1101
-    # Instance of 'UInt16' has no 'u16' member
     section.base = UInt16(base_ptr.u16)
     section.ptr  = UInt16(base_ptr.u16)
 

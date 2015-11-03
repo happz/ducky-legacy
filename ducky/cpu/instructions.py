@@ -127,7 +127,6 @@ class InstDescriptor(object):
 
   @staticmethod
   def disassemble_operands(inst):
-    # pylint: disable-msg=W0613
     return []
 
   @classmethod
