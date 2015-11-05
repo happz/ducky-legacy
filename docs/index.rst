@@ -43,6 +43,7 @@ Code Documentation
    ducky.profiler
    ducky.config
    ducky.errors
+   ducky.streams
    ducky.util
    ducky.patch
    ducky.tools
