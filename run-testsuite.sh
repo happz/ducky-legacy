@@ -16,7 +16,7 @@ function run_tests () {
   local pypy="no"
   [ $interpret == pypy-* ] && pypy="yes"
 
-  # pyenv global "$1"
+  pyenv global "$1"
 
   export Q=@
   export TESTSET="${interpret}${mmap_postfix}"
