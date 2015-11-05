@@ -4,23 +4,14 @@ tmp
 *.o
 lse
 .noseids
+.coveralls-token
 
 forth/ducky-forth
 interrupts
 tests/instructions/interrupts-basic
 
 # Test logs
-tests-pypy-devel-read
-tests-pypy-devel-mmap
-tests-pypy-egg-read
-tests-pypy-egg-mmap
-tests-python-devel-read
-tests-python-devel-mmap
-tests-python-egg-read
-tests-python-egg-mmap
-tests-coverage-python
-
-run-coverage.sh
+tests-*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

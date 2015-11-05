@@ -4,6 +4,16 @@ import inspect
 import os
 import sys
 
+from six import exec_, print_
+
+if os.getenv('VMDEBUG_PATCH', None) == 'yes':
+  def debug(s):
+    print_(s)
+
+else:
+  def debug(s):
+    pass
+
 def exec_f(object_, globals_ = None, locals_ = None):
   if not globals_ and not locals_:
     frame = inspect.stack()[1][0]
@@ -13,7 +23,7 @@ def exec_f(object_, globals_ = None, locals_ = None):
   elif globals_ and not locals_:
     locals_ = globals_
 
-  exec object_ in globals_, locals_
+  exec_(object_, globals_, locals_)
 
 class RemoveLoggingVisitor(ast.NodeTransformer):
   def visit_Expr(self, node):
@@ -29,16 +39,37 @@ class RemoveLoggingVisitor(ast.NodeTransformer):
 
     if hasattr(f, "id"):
       if f.id == 'debug':
+        debug('removing %s - it is "debug" call' % node)
         return None
 
       if f.id == 'log_cpu_core_state':
+        debug('remmoving %s - it is log_cpu_core_state call' % node)
         return None
 
       return node
 
     else:
       if hasattr(f, 'attr') and f.attr == 'DEBUG':
+        debug('removing %s - it is DEBUG call' % node)
         return None
+
+    return node
+
+  def visit_If(self, node):
+    self.generic_visit(node)
+
+    if not node.body:
+      debug('removing %s - it is empty if body')
+      return None
+
+    return node
+
+  def visit_For(self, node):
+    self.generic_visit(node)
+
+    if not node.body:
+      debug('removing %s - it is empty for loop' % node)
+      return None
 
     return node
 
@@ -47,7 +78,7 @@ class ModuleLoader(object):
     self.fullpath = fullpath
 
   def get_source(self, path):
-    with open(path, 'r') as f:
+    with open(path, 'rb') as f:
       source = f.read()
 
     return source
@@ -89,6 +120,8 @@ class Importer(object):
         return loader
 
   def loader_for_path(self, directory, fullname):
+    debug('module %s from %s' % (fullname, directory))
+
     module_path = os.path.join(directory, fullname.split('.')[-1]) + ".py"
     if os.path.exists(module_path):
       loader = ModuleLoader(module_path)
@@ -100,4 +133,4 @@ class Importer(object):
       return loader
 
 if '-d' not in sys.argv:
-  sys.meta_path.append(Importer())
+  sys.meta_path.insert(0, Importer())

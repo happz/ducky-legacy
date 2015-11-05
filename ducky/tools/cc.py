@@ -1,6 +1,8 @@
 import sys
 import argparse
 
+from six import iterkeys
+
 from . import parse_options
 from ..cc import CompilerError
 from ..cc.passes import AST_PASSES, BT_PASSES
@@ -20,7 +22,7 @@ def compile_file(logger, options, file_in, file_out):
     while tree_modified is True:
       tree_modified = False
 
-      for opt_pass in passes.keys():
+      for opt_pass in iterkeys(passes):
         if opt_pass not in options.passes or ('no-' + opt_pass) in options.passes:
           logger.debug('Pass %s is disabled', opt_pass)
           continue
@@ -80,10 +82,10 @@ def main():
   options.passes = list(chain.from_iterable(options.passes))
 
   if options.opt_level == [0]:
-    for p in AST_PASSES.iterkeys():
+    for p in iterkeys(AST_PASSES):
       options.passes.append('no-%s' % p)
 
-    for p in BT_PASSES.iterkeys():
+    for p in iterkeys(BT_PASSES):
       options.passes.append('no-%s' % p)
 
   elif options.opt_level == [1]:

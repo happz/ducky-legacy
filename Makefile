@@ -38,6 +38,7 @@ ifndef TESTSET
 endif
 
 TESTSETDIR := $(CURDIR)/tests-$(TESTSET)
+TESTSET_FAILED := $(TESTSETDIR)/.failed
 
 # VM debugging
 ifndef VMDEBUG
@@ -100,7 +101,11 @@ ifndef DUCKY_DISABLE_DEVICES
 endif
 
 # pypy selection
-ifdef PYPY
+ifndef PYPY
+  PYPY := no
+endif
+
+ifeq ($(PYPY),yes)
 ifdef CIRCLECI
   PYTHON := PYTHONPATH="$(shell find $(VIRTUAL_ENV) -name 'ducky-*' -type d):$(shell find $(VIRTUAL_ENV) -name 'site-packages' | head -1):$(PYTHONPATH)" pypy
 else
@@ -129,6 +134,7 @@ endif
 
 export TESTSET
 export TESTSETDIR
+export TESTSET_FAILED
 export VMDEBUG
 export VMPROFILE
 export VMCOVERAGE
@@ -217,10 +223,7 @@ interrupts: interrupts.o
 # Tests
 #
 
-tests-interim-clean: clean-master
-	$(Q) for dir in $(SUBDIRS); do \
-	       $(MAKE) -C $$dir clean; \
-			 done
+tests-interim-clean: clean-master clean-in-subdirs
 
 tests-pre-master:
 	$(Q) echo -n "$(CC_YELLOW)[TEST]$(CC_END) Create test set $(TESTSET) ... "
@@ -232,6 +235,7 @@ tests-pre-master:
 	$(Q) mkdir -p $(TESTSETDIR)/tmp
 	$(Q) echo "$(CC_GREEN)PASS$(CC_END)"
 	$(Q) echo "$(CC_YELLOW)Using python:$(CC_END) $(CC_GREEN)$(PYTHON)$(CC_END)"
+	$(Q) echo "$(CC_YELLOW)Test set directory:$(CC_END) $(CC_GREEN)$(TESTSETDIR)$(CC_END)"
 
 tests-pre: tests-pre-master
 	$(Q) $(MAKE) -C tests/ tests-pre
@@ -261,6 +265,8 @@ ifdef CIRCLE_ARTIFACTS
 endif
 
 tests: tests-pre tests-in-subdirs tests-post tests-submit-results
+	$(Q) if [ -e $(TESTSET_FAILED) ]; then /bin/false; fi
+
 check: tests
 
 

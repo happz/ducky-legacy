@@ -1,8 +1,7 @@
 import os
-import sys
 
 from . import Device
-from ..util import isfile
+from ..streams import InputStream, OutputStream
 
 class Terminal(Device):
   def __init__(self, machine, name, *args, **kwargs):
@@ -23,27 +22,11 @@ class StreamIOTerminal(Terminal):
 
     streams_in = streams_in or []
 
-    def get_stream(stream, flags):
-      if stream is None:
-        return None
-
-      if stream == '<stdout>':
-          return stream
-
-      if isinstance(stream, str):
-        return open(stream, flags)
-
-      if isfile(stream):
-        return stream
-
-      self.machine.WARN('Unhandled stream type: stream=%s, type=%s', stream, type(stream))
-      return None
-
     self.machine.DEBUG('streams_in=%s', streams_in)
     for stream in streams_in:
-      self.input.enqueue_input(get_stream(stream, 'rb'))
+      self.input.enqueue_input(stream)
 
-    self.output.set_output(get_stream(stream_out, 'wb'))
+    self.output.set_output(stream_out)
 
   @staticmethod
   def get_slave_devices(machine, config, section):
@@ -67,9 +50,9 @@ class StreamIOTerminal(Terminal):
 
     streams_in = config.get(section, 'streams_in', None)
     if streams_in is not None:
-      streams_in = [e.strip() for e in streams_in.split(',')]
+      streams_in = [InputStream.create(machine.LOGGER, e.strip()) for e in streams_in.split(',')]
 
-    return StreamIOTerminal(machine, section, input = input_device, output = output_device, streams_in = streams_in, stream_out = config.get(section, 'stream_out', None))
+    return StreamIOTerminal(machine, section, input = input_device, output = output_device, streams_in = streams_in, stream_out = OutputStream.create(machine.LOGGER, config.get(section, 'stream_out', None)))
 
   def boot(self):
     self.machine.DEBUG('StreamIOTerminal.boot')
@@ -97,7 +80,7 @@ class StandardIOTerminal(StreamIOTerminal):
   def create_from_config(machine, config, section):
     input_device, output_device = StreamIOTerminal.get_slave_devices(machine, config, section)
 
-    return StandardIOTerminal(machine, section, input = input_device, output = output_device, streams_in = [sys.stdin], stream_out = sys.stdout)
+    return StandardIOTerminal(machine, section, input = input_device, output = output_device, streams_in = [InputStream.create(machine.LOGGER, '<stdin>')], stream_out = OutputStream.create(machine.LOGGER, '<stdout>'))
 
 
 class StandalonePTYTerminal(StreamIOTerminal):

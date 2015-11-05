@@ -330,7 +330,7 @@ class MathCoprocessor(ISnapshotable, Coprocessor):
     i = i32(tos.value).value
     j = i32(lr.value).value
     D('  i=%i, j=%i (%s, %s)', i, j, type(i), type(j))
-    i /= j
+    i //= j
     D('  i=%i (%s)', i, type(i))
     tos.value = i
 

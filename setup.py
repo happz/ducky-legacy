@@ -18,7 +18,7 @@ setup(name = 'ducky',
         'License :: OSI Approved :: MIT License',
         'Operating System :: POSIX :: Linux',
         'Programming Language :: Python :: 2.7',
-        'Programming Language :: Python :: 2 :: Only',
+        'Programming Language :: Python :: 3.4',
         'Programming Language :: Python :: Implementation :: CPython',
         'Programming Language :: Python :: Implementation :: PyPy',
         'Programming Language :: Forth',
@@ -58,8 +58,9 @@ setup(name = 'ducky',
         'tabulate',
         'colorama',
         'pycparser',
+        'six'
       ],
       ext_modules = [
-        mod_native_data_cache
+        #mod_native_data_cache
       ]
      )

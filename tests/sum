@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 
+from __future__ import print_function
+
 import sys
 
 insts = 0
@@ -7,4 +9,4 @@ secs = 0
 
 lines = [(float(l[0]), float(l[1])) for l in [line.strip().split() for line in sys.stdin]]
 
-print sum([l[0] for l in lines]) / sum([l[1] for l in lines])
+print(sum([l[0] for l in lines]) / sum([l[1] for l in lines]))

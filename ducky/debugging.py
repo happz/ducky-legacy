@@ -1,6 +1,8 @@
 import enum
 import logging
 
+from six import itervalues
+
 from .interfaces import IVirtualInterrupt
 from .devices import IRQList, VIRTUAL_INTERRUPTS
 from .util import str2int, F
@@ -152,7 +154,7 @@ def cmd_bp_list(console, cmd):
     ['ID', 'Active', 'Countdown', 'Core', 'Point']
   ]
 
-  for point in Point.points.itervalues():
+  for point in itervalues(Point.points):
     points.append([
       point.id,
       '*' if point.active else '',

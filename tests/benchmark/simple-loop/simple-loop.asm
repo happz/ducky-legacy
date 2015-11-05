@@ -1,7 +1,7 @@
 .include "defs.asm"
 
 .def L1_ITERS: 1000
-.def L2_ITERS: 5000
+.def L2_ITERS: 1000
 
 
 loop:

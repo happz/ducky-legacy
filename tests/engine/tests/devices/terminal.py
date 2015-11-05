@@ -1,5 +1,5 @@
-import unittest
-import mock
+from .. import TestCase, mock
+from six import iteritems
 
 import ducky.config
 import ducky.devices.terminal
@@ -7,7 +7,7 @@ import ducky.errors
 import ducky.log
 import ducky.machine
 
-class TestsStandalonePTYTerminal(unittest.TestCase):
+class TestsStandalonePTYTerminal(TestCase):
   def common_case(self, **kwargs):
     machine = ducky.machine.Machine()
 
@@ -18,7 +18,7 @@ class TestsStandalonePTYTerminal(unittest.TestCase):
     machine_config.set(input_section, 'master', terminal_section)
     machine_config.set(output_section, 'master', terminal_section)
 
-    for name, value in kwargs.iteritems():
+    for name, value in iteritems(kwargs):
       machine_config.set(terminal_section, name, value)
 
     machine.config = machine_config

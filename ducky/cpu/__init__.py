@@ -1,6 +1,9 @@
 import functools
 import sys
 
+from six import iterkeys, itervalues
+from six.moves import range
+
 from . import registers
 from .. import profiler
 
@@ -379,7 +382,7 @@ class CPUDataCache(LRUCache):
 
     addresses = [i for i in range(page.base_address, page.base_address + PAGE_SIZE, 2)]
 
-    for addr in [addr for addr in self.iterkeys() if addr in addresses]:
+    for addr in [addr for addr in iterkeys(self) if addr in addresses]:
       self.release_entry_references(addr, writeback = writeback, remove = remove)
 
   def release_area_references(self, address, size, writeback = True, remove = True):
@@ -396,7 +399,7 @@ class CPUDataCache(LRUCache):
 
     addresses = [i for i in range(address, address + size, 2)]
 
-    for addr in [addr for addr in self.iterkeys() if addr in addresses]:
+    for addr in [addr for addr in iterkeys(self) if addr in addresses]:
       self.release_entry_references(addr, writeback = writeback, remove = remove)
 
   def release_references(self, writeback = True, remove = True):
@@ -409,7 +412,7 @@ class CPUDataCache(LRUCache):
 
     self.core.DEBUG('%s.release_references: writeback=%s, remove=%s', self.__class__.__name__, writeback, remove)
 
-    for addr in self.keys():
+    for addr in list(iterkeys(self)):
       self.release_entry_references(addr, writeback = writeback, remove = remove)
 
 class CPUCacheController(object):
@@ -1276,7 +1279,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
       self.INFO('  {} IC slots'.format(self.instruction_cache.size))
     self.INFO('  check-frames: %s', 'yes' if self.check_frames else 'no')
     if self.coprocessors:
-      self.INFO('  coprocessor: %s', ' '.join(sorted(self.coprocessors.iterkeys())))
+      self.INFO('  coprocessor: %s', ' '.join(sorted(iterkeys(self.coprocessors))))
 
 class CPU(ISnapshotable, IMachineWorker):
   def __init__(self, machine, cpuid, memory_controller, cache_controller, cores = 1):
@@ -1301,7 +1304,7 @@ class CPU(ISnapshotable, IMachineWorker):
     self.cache_controller = cache_controller
 
     self.cores = []
-    for i in xrange(0, cores):
+    for i in range(0, cores):
       __core = CPUCore(i, self, self.memory, self.cache_controller)
       self.cores.append(__core)
 
@@ -1321,7 +1324,7 @@ class CPU(ISnapshotable, IMachineWorker):
       core.save_state(state)
 
   def load_state(self, state):
-    for core_state in state.get_children().itervalues():
+    for core_state in itervalues(state.get_children()):
       self.cores[core_state.coreid].load_state(core_state)
 
   def core_alive(self):
@@ -1483,7 +1486,7 @@ def cmd_next(console, cmd):
 
       log_cpu_core_state(core, logger = core.INFO)
 
-  except CPUException, e:
+  except CPUException as e:
     core.die(e)
 
 def cmd_core_state(console, cmd):

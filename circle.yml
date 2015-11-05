@@ -18,9 +18,4 @@ dependencies:
 
 test:
   override:
-    - pyenv global 2.7.10
-    - time VMDEBUG_OPEN_FILES=yes TESTSET=python-devel-read Q=@                                make clean tests
-    - time VMDEBUG_OPEN_FILES=yes TESTSET=python-devel-mmap Q=@          MMAPABLE_SECTIONS=yes make clean tests
-    - pyenv global pypy-2.5.0
-    - time VMDEBUG_OPEN_FILES=yes TESTSET=pypy-devel-read   Q=@ PYPY=yes                       make clean tests
-    - time VMDEBUG_OPEN_FILES=yes TESTSET=pypy-devel-mmap   Q=@ PYPY=yes MMAPABLE_SECTIONS=yes make clean tests
+    - ./run-testsuite.sh

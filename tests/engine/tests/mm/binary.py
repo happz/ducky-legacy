@@ -13,13 +13,13 @@ class Tests(unittest.TestCase):
 
     logger = setup_logger()
 
-    with File(logger, tmp.name, 'w') as f_out:
+    with File.open(logger, tmp.name, 'w') as f_out:
       h_file = f_out.create_header()
       h_file.magic = File.MAGIC - 1
       f_out.save()
 
     try:
-      with File(logger, tmp.name, 'r') as f_in:
+      with File.open(logger, tmp.name, 'r') as f_in:
         f_in.load()
 
     except MalformedBinaryError as e:
@@ -34,7 +34,7 @@ class Tests(unittest.TestCase):
 
     logger = setup_logger()
 
-    with File(logger, tmp.name, 'w') as f_out:
+    with File.open(logger, tmp.name, 'w') as f_out:
       f_out.create_header()
 
       h_section = f_out.create_section()
@@ -51,7 +51,7 @@ class Tests(unittest.TestCase):
       f_out.save()
 
     try:
-      with File(logger, tmp.name, 'r') as f_in:
+      with File.open(logger, tmp.name, 'r') as f_in:
         f_in.load()
 
     except MalformedBinaryError as e:

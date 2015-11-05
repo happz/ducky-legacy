@@ -12,6 +12,8 @@ There are two different kinds of objects that reactor manages:
 import collections
 import select
 
+from six import iterkeys
+
 from .interfaces import IReactorTask
 
 FDCallbacks = collections.namedtuple('FDCallbacks', ['on_read', 'on_write', 'on_error'])
@@ -82,7 +84,7 @@ class SelectTask(IReactorTask):
     self.fds = fds
 
   def run(self):
-    fds = [fd for fd in self.fds.iterkeys()]
+    fds = [fd for fd in iterkeys(self.fds)]
     self.machine.DEBUG('SelectTask: fds=%s', fds)
 
     f_read, f_write, f_err = select.select(fds, fds, fds, 0)

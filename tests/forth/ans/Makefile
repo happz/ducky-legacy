@@ -36,7 +36,8 @@ tests: $(TOPDIR)/interrupts $(FORTH_KERNEL)
 				--set-device-option=device-3:stream_out=$(TC_OUTPUT) \
 				$(foreach device,$(DUCKY_ENABLE_DEVICES),--enable-device=$(device)) \
 				$(foreach device,$(DUCKY_DISABLE_DEVICES),--disable-device=$(device)) \
-				$(VMDEBUG) $(VMDEBUG_OPEN_FILES) 2>&1 | stdbuf -oL -eL tee $(TC_MACHINE) | grep -v -e '\[INFO\] ' -e '#> '
+				$(VMDEBUG) $(VMDEBUG_OPEN_FILES) 2>&1 | stdbuf -oL -eL tee $(TC_MACHINE) | grep -v -e '\[INFO\] ' -e '#> ' \
+				|| touch $(TESTSET_FAILED)
 	-$(Q) grep -e 'INCORRECT RESULT' -e 'WRONG NUMBER OF RESULTS' $(TC_OUTPUT) | cat > $(TC_FILTERED);
 	-$(Q) if [ ! -s $(TC_FILTERED) ]; then \
 	        $(XUNIT) --add --file=$(TC_RESULTS) --ts=$(TC_TESTSUITE) --name="ANS test suite"; \
@@ -45,6 +46,7 @@ tests: $(TOPDIR)/interrupts $(FORTH_KERNEL)
 				  $(XUNIT) --add --file=$(TC_RESULTS) --ts=$(TC_TESTSUITE) --name="ANS test suite" --result=fail --message="Failed aserts" --diff=$(TC_FILTERED); \
 				  echo "$(CC_RED)FAIL$(CC_END)"; \
 				  sed -e 's/^/  /' $(TC_FILTERED); \
+					touch $(TESTSET_FAILED); \
 				fi
 
 tests-post:

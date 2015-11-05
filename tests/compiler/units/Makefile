@@ -34,7 +34,8 @@ endif
 	-$(Q) $(VMCOVERAGE_FILE) \
 	      $(PYTHON) $(VMCOVERAGE_RUN) $(DCC) \
 				-i $< -o $(TC_OUT) -O0 -q \
-				$(VMDEBUG) &> $(TC_OUTPUT); \
+				$(VMDEBUG) &> $(TC_OUTPUT) \
+				|| touch $(TESTSET_FAILED); \
 				if [ "$$?" = "0" ]; then \
 				  if [ -f $(TC_EXPECTED) ]; then \
 					  sed '/^  ;.*$$/d' $(TC_OUT) > $(TC_TMPFILE); \
@@ -46,6 +47,7 @@ endif
 					else \
 					  $(XUNIT) --add --file=$(TC_RESULTS) --ts=$(TC_TESTSUITE) --name=$(TC_NAME) --classname=$< --result=fail --message="Unexpected output" --diff=$(TC_DIFF); \
 						echo "$(CC_RED)FAIL$(CC_END)"; \
+						touch $(TESTSET_FAILED); \
 					fi; \
 				else \
 				  if [ -f $(TC_FAIL) ]; then \
@@ -54,6 +56,7 @@ endif
 					else \
 					  $(XUNIT) --add --file=$(TC_RESULTS) --ts=$(TC_TESTSUITE) --name=$(TC_NAME) --classname=$< --result=fail --message="Unexpected exit code"; \
 						echo "$(CC_RED)FAIL$(CC_END)"; \
+						touch $(TESTSET_FAILED); \
 					fi; \
 				fi;
 	-$(Q) rm -f $(TC_TMPFILE)

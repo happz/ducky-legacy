@@ -1,6 +1,8 @@
 import os
 import sys
 
+from six import iteritems
+
 def translate_buffer(logger, buffer, file_in, file_out, options):
   from ..cpu.assemble import translate_buffer, AssemblerError, sizeof
   from ..mm.binary import File, SectionTypes, SymbolEntry, RelocEntry
@@ -8,7 +10,7 @@ def translate_buffer(logger, buffer, file_in, file_out, options):
   try:
     sections = translate_buffer(logger, buffer, mmapable_sections = options.mmapable_sections, writable_sections = options.writable_sections, filename = file_in, defines = options.defines, includes = options.includes)
 
-  except AssemblerError, exc:
+  except AssemblerError as exc:
     logger.exception(exc)
     sys.exit(1)
 
@@ -19,7 +21,7 @@ def translate_buffer(logger, buffer, file_in, file_out, options):
   section_name_to_index = {}
 
   i = 0
-  for s_name, section in sections.items():
+  for s_name, section in list(iteritems(sections)):
     if section.type in (SectionTypes.SYMBOLS, SectionTypes.RELOC):
       continue
 
@@ -34,7 +36,7 @@ def translate_buffer(logger, buffer, file_in, file_out, options):
     section_name_to_index[s_name] = i
     i += 1
 
-  with File(logger, file_out, 'w') as f_out:
+  with File.open(logger, file_out, 'w') as f_out:
     h_file = f_out.create_header()
     h_file.flags.mmapable = 1 if options.mmapable_sections else 0
 
@@ -44,7 +46,7 @@ def translate_buffer(logger, buffer, file_in, file_out, options):
     for i, s_name in enumerate(sections.keys()):
       section_name_to_index[s_name] = i
 
-    for s_name, section in sections.items():
+    for s_name, section in iteritems(sections):
       h_section = f_out.create_section()
       h_section.type = section.type
       h_section.items = section.items

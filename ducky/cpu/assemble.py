@@ -1,12 +1,11 @@
-#!/usr/bin/python
-
 import collections
 import ctypes
 import functools
 import mmap
 import os.path
 import re
-import types
+
+from six import iteritems, itervalues, integer_types, string_types, PY2
 
 from .. import cpu
 from .. import mm
@@ -14,7 +13,7 @@ from ..cpu.coprocessor.math_copro import MathCoprocessorInstructionSet  # noqa -
 
 from ..mm import UInt8, UInt16, ADDR_FMT, PAGE_SIZE
 from ..mm.binary import SectionTypes, SectionFlags, SymbolFlags, RelocFlags
-from ..util import align
+from ..util import align, str2bytes
 
 align_to_next_page = functools.partial(align, PAGE_SIZE)
 align_to_next_mmap = functools.partial(align, mmap.PAGESIZE)
@@ -81,7 +80,7 @@ class Buffer(object):
 
       line = self.buff.pop(0)
 
-      if isinstance(line, types.TupleType):
+      if isinstance(line, tuple):
         self.lineno = line[1]
         self.filename = line[0]
 
@@ -107,7 +106,7 @@ class Buffer(object):
 
     self.buff.insert(0, (self.filename, self.lineno))
 
-    if isinstance(buff, types.StringType):
+    if isinstance(buff, string_types):
       buff = buff.split('\n')
 
     for line in reversed(buff):
@@ -311,6 +310,14 @@ def sizeof(o):
 
   return None
 
+if PY2:
+  def decode_string(s):
+    return s.decode('string_escape')
+
+else:
+  def decode_string(s):
+    return str2bytes(s).decode('unicode_escape')
+
 def translate_buffer(logger, buff, base_address = None, mmapable_sections = False, writable_sections = False, filename = None, defines = None, includes = None):
   DEBUG = logger.debug
 
@@ -333,11 +340,11 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
   ])
 
   if mmapable_sections:
-    for section in sections_pass1.itervalues():
+    for section in itervalues(sections_pass1):
       section.flags.mmapable = 1
 
   if writable_sections:
-    for section in [_section for _section in sections_pass1.itervalues() if _section.name in ('.text', '.rodata', '.data', '.bss')]:
+    for section in [_section for _section in itervalues(sections_pass1) if _section.name in ('.text', '.rodata', '.data', '.bss')]:
       section.flags.writable = 1
 
   DEBUG('Pass #1')
@@ -350,7 +357,7 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
   def __apply_defs(line):
     orig_line = line
 
-    for def_pattern, def_value in defs.iteritems():
+    for def_pattern, def_value in iteritems(defs):
       line = def_pattern.sub(def_value, line)
 
     if orig_line != line:
@@ -359,7 +366,7 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
     return line
 
   def __apply_macros(line):
-    for m_pattern, m_desc in macros.iteritems():
+    for m_pattern, m_desc in iteritems(macros):
       matches = m_pattern.match(line)
       if not matches:
         continue
@@ -373,11 +380,11 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
         for i in range(0, len(m_desc['params'])):
           replace_map[re.compile(r'#{}'.format(m_desc['params'][i]))] = matches['arg{}'.format(i)]
 
-        DEBUG(msg_prefix + 'macro args: %s', ', '.join(['{} => {}'.format(pattern.pattern, repl) for pattern, repl in replace_map.iteritems()]))
+        DEBUG(msg_prefix + 'macro args: %s', ', '.join(['{} => {}'.format(pattern.pattern, repl) for pattern, repl in iteritems(replace_map)]))
 
         body = []
         for line in m_desc['body']:
-          for pattern, repl in replace_map.iteritems():
+          for pattern, repl in iteritems(replace_map):
             line = pattern.sub(repl, line)
           body.append(line)
 
@@ -419,7 +426,7 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
     if v_value:
       referred_var = variables[matches['value_var']]
 
-      if isinstance(referred_var, types.IntType):
+      if isinstance(referred_var, integer_types):
         var.value = referred_var
       else:
         var.refers_to = referred_var
@@ -452,7 +459,7 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
 
       referred_var = variables[matches['value_var']]
 
-      if isinstance(referred_var, types.IntType):
+      if isinstance(referred_var, integer_types):
         var.value = referred_var
       else:
         var.refers_to = referred_var
@@ -477,7 +484,11 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
     if not v_value:
       raise buff.get_error(IncompleteDirectiveError, '.ascii directive without a string')
 
-    var.value = v_value.decode('string_escape')
+    DEBUG('Pre-decode: (%s) %s', type(v_value), ', '.join([str(ord(c)) for c in v_value]))
+    s = decode_string(v_value)
+    DEBUG('Pre-decode: (%s) %s', type(s), ', '.join([str(ord(c)) for c in s]))
+
+    var.value = decode_string(v_value)
 
   def __parse_string(var, matches):
     if not var.lineno:
@@ -490,7 +501,11 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
     if not v_value:
       raise buff.get_error(IncompleteDirectiveError, '.string directive without a string')
 
-    var.value = v_value.decode('string_escape')
+    DEBUG('Pre-decode: (%s) %s', type(v_value), ', '.join([str(ord(c)) for c in v_value]))
+    s = decode_string(v_value)
+    DEBUG('Pre-decode: (%s) %s', type(s), ', '.join([str(ord(c)) for c in s]))
+
+    var.value = decode_string(v_value)
 
   def __parse_space(var, matches):
     if not var.lineno:
@@ -1048,7 +1063,7 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
 
       instruction_set = cpu.instructions.get_instruction_set(emited_inst.immediate)
 
-  for s_name, section in sections_pass1.items():
+  for s_name, section in iteritems(sections_pass1):
     DEBUG('pass #1: section %s', s_name)
 
     if section.type == SectionTypes.TEXT:
@@ -1065,13 +1080,13 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
   references = {}
   base_ptr = UInt16(base_address.u16)
 
-  for s_name, p1_section in sections_pass1.items():
+  for s_name, p1_section in iteritems(sections_pass1):
     section = sections_pass2[s_name] = Section(s_name, p1_section.type, p1_section.flags)
 
   symtab = sections_pass2['.symtab']
   reloctab = sections_pass2['.reloc']
 
-  for s_name, section in sections_pass2.items():
+  for s_name, section in iteritems(sections_pass2):
     p1_section = sections_pass1[s_name]
 
     section.base = UInt16(base_ptr.u16)
@@ -1098,7 +1113,7 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
         if var.refers_to:
           refers_to = var.refers_to
 
-          if isinstance(refers_to, types.TupleType):
+          if isinstance(refers_to, tuple):
             reloc = RelocSlot(refers_to[0], patch_section = section, patch_address = section.ptr.u16, patch_offset = 0, patch_size = 16)
             DEBUG(ptr_prefix + 'reloc slot created: %s', reloc)
 
@@ -1186,7 +1201,7 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
 
   sections_pass3 = {}
 
-  for s_name, p2_section in sections_pass2.items():
+  for s_name, p2_section in iteritems(sections_pass2):
     section = Section(s_name, p2_section.type, p2_section.flags)
     sections_pass3[s_name] = section
     section.base = UInt16(p2_section.base.u16)
@@ -1195,7 +1210,7 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
   symtab = sections_pass3['.symtab']
   reloctab = sections_pass3['.reloc']
 
-  for s_name, section in sections_pass3.items():
+  for s_name, section in iteritems(sections_pass3):
     DEBUG('pass #3: section %s', section.name)
 
     p2_section = sections_pass2[s_name]
@@ -1217,7 +1232,7 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
         if item.refers_to:
           refers_to = item.refers_to
 
-          if isinstance(refers_to, types.TupleType):
+          if isinstance(refers_to, tuple):
             referred_section = sections_pass2[item.refers_to[0]]
 
             reloc = RelocSlot(refers_to[0], patch_section = referred_section, patch_address = section.ptr.u16, patch_offset = 0, patch_size = 16)
@@ -1246,7 +1261,7 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
 
       DEBUG(ptr_prefix + str(item))
 
-      if not isinstance(item, types.ListType):
+      if not isinstance(item, list):
         item = [item]
 
       for i in item:
@@ -1256,7 +1271,7 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
     DEBUG('pass #3: section %s finished: %s', section.name, section)
 
   DEBUG('Bytecode sections:')
-  for s_name, section in sections_pass3.items():
+  for s_name, section in iteritems(sections_pass3):
     DEBUG(str(section))
 
   DEBUG('Bytecode translation completed')

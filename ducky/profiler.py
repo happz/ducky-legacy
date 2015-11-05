@@ -18,21 +18,17 @@ the `real` ones. Both kinds mimic API of :py:class:`profile.Profile` - the
 `real` machine profiler **is** :py:class:`profile.Profile` object.
 """
 
+import collections
+import os
+import os.path
+
+from six.moves import cPickle as pickle
+
 try:
   from cProfile import Profile as RealMachineProfiler
 
 except ImportError:
   from profile import Profile as RealMachineProfiler
-
-try:
-  import cPickle as pickle
-
-except ImportError:
-  import pickle
-
-import collections
-import os
-import os.path
 
 class DummyCPUCoreProfiler(object):
   """

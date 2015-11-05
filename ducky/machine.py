@@ -8,7 +8,10 @@ import itertools
 import collections
 import importlib
 import os
+import sys
 import time
+
+from six import itervalues, iteritems
 
 from . import mm
 from . import snapshot
@@ -32,10 +35,10 @@ class MachineState(SnapshotNode):
     super(MachineState, self).__init__('nr_cpus', 'nr_cores')
 
   def get_binary_states(self):
-    return [__state for __name, __state in self.get_children().iteritems() if __name.startswith('binary_')]
+    return [__state for __name, __state in iteritems(self.get_children()) if __name.startswith('binary_')]
 
   def get_core_states(self):
-    return [__state for __name, __state in self.get_children().iteritems() if __name.startswith('core')]
+    return [__state for __name, __state in iteritems(self.get_children()) if __name.startswith('core')]
 
 class SymbolCache(LRUCache):
   def __init__(self, machine, size, *args, **kwargs):
@@ -288,11 +291,11 @@ class Machine(ISnapshotable, IMachineWorker):
 
     self.DEBUG('get_device_by_name: name=%s, klass=%s', name, klass)
 
-    for dev_klass, devs in self.devices.iteritems():
+    for dev_klass, devs in iteritems(self.devices):
       if klass and dev_klass != klass:
         continue
 
-      for dev_name, dev in devs.iteritems():
+      for dev_name, dev in iteritems(devs):
         if dev_name != name:
           continue
 
@@ -313,7 +316,7 @@ class Machine(ISnapshotable, IMachineWorker):
     self.DEBUG('get_storage_by_id: id=%s', sid)
     self.DEBUG('storages: %s', self.devices['storage'])
 
-    for name, dev in self.devices['storage'].iteritems():
+    for name, dev in iteritems(self.devices['storage']):
       if dev.sid != sid:
         continue
 
@@ -487,7 +490,7 @@ class Machine(ISnapshotable, IMachineWorker):
       self.cpus.append(CPU(self, cpuid, self.memory, self.cpu_cache_controller, cores = self.nr_cores))
 
     from .devices import VIRTUAL_INTERRUPTS
-    for index, cls in VIRTUAL_INTERRUPTS.iteritems():
+    for index, cls in iteritems(VIRTUAL_INTERRUPTS):
       self.virtual_interrupts[index] = cls(self)
 
   @property
@@ -515,19 +518,22 @@ class Machine(ISnapshotable, IMachineWorker):
     del self.ports[port]
 
   def trigger_irq(self, handler):
+    self.DEBUG('Machine.trigger_irq: handler=%s', handler)
+
     self.irq_router_task.queue[handler.irq] = True
     self.reactor.task_runnable(self.irq_router_task)
 
   def boot(self):
     self.INFO('Ducky VM, version %s', __version__)
+    self.INFO('Running on %s', sys.version.replace('\n', ' '))
 
     self.DEBUG('Machine.boot')
 
     self.memory.boot()
     self.console.boot()
 
-    for devs in self.devices.itervalues():
-      for dev in [dev for dev in devs.itervalues() if not dev.is_slave()]:
+    for devs in itervalues(self.devices):
+      for dev in [dev for dev in itervalues(devs) if not dev.is_slave()]:
         dev.boot()
 
     self.setup_interrupt_routines()
@@ -542,8 +548,8 @@ class Machine(ISnapshotable, IMachineWorker):
   def run(self):
     self.DEBUG('Machine.run')
 
-    for devs in self.devices.itervalues():
-      for dev in [dev for dev in devs.itervalues() if not dev.is_slave()]:
+    for devs in itervalues(self.devices):
+      for dev in [dev for dev in itervalues(devs) if not dev.is_slave()]:
         dev.run()
 
     for __cpu in self.cpus:
@@ -580,8 +586,8 @@ class Machine(ISnapshotable, IMachineWorker):
     for __cpu in self.cpus:
       __cpu.halt()
 
-    for devs in self.devices.itervalues():
-      for dev in [dev for dev in devs.itervalues() if not dev.is_slave()]:
+    for devs in itervalues(self.devices):
+      for dev in [dev for dev in itervalues(devs) if not dev.is_slave()]:
         dev.halt()
 
     self.memory.halt()

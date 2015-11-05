@@ -1,5 +1,7 @@
 from pycparser import c_ast
 
+from six import iteritems, iterkeys
+
 from . import ASTVisitor
 from .. import *
 from ..types import *
@@ -19,7 +21,7 @@ class CodegenVisitor(ASTVisitor):
     }
     self.types['unsigned'] = self.types['unsigned int']
 
-    for desc in self.types.keys():
+    for desc in list(iterkeys(self.types)):
       self.types[desc + ' *'] = PointerType(self.types[desc], self)
 
     self.functions = []
@@ -104,7 +106,7 @@ class CodegenVisitor(ASTVisitor):
     B.emit(Directive('.include "defs.asm"'))
     B.emit(Directive('.section .rodata'))
 
-    for label, s in self.string_literals.iteritems():
+    for label, s in iteritems(self.string_literals):
       B.emit(Directive('.type %s, string' % label))
       B.emit(Directive('.string %s' % s))
 

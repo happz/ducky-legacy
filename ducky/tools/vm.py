@@ -4,6 +4,8 @@ import optparse
 import signal
 import sys
 
+from six.moves import input
+
 def main():
   from . import add_common_options, parse_options
 
@@ -84,11 +86,6 @@ def main():
   if options.machine_config is None:
     parser.print_help()
     sys.exit(1)
-
-  if options.debug_open_files:
-    from ..util import FileOpenPatcher, BinaryFile
-    file_open_patcher = FileOpenPatcher(logger)
-    file_open_patcher.patch()
 
   from ..profiler import STORE
 
@@ -191,7 +188,7 @@ def main():
   M.boot()
 
   if not options.go_on:
-    raw_input('Press Enter to start execution of loaded binaries')
+    input('Press Enter to start execution of loaded binaries')
 
   M.run()  # reactor loop!
 
@@ -236,7 +233,8 @@ def main():
       core.registers.cnt.value
     ])
 
-  map(__check_stats, M.cores())
+  for core in M.cores():
+    __check_stats(core)
 
   logger.info('')
   logger.info('Exit codes')
@@ -261,14 +259,5 @@ def main():
   if options.profile or options.machine_profile:
     logger.info('Saving profiling data into %s' % options.profile_dir)
     STORE.save(options.profile_dir)
-
-  if options.debug_open_files:
-    if file_open_patcher.has_open_files() or len(BinaryFile.open_files):
-      file_open_patcher.log_open_files()
-
-      for f in BinaryFile.open_files:
-        logger.warn('  %s', repr(f))
-
-    file_open_patcher.restore()
 
   sys.exit(M.exit_code)

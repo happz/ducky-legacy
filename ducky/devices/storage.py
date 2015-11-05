@@ -13,13 +13,14 @@ set values in registers.
 """
 
 import os
+import six
 
 from ..errors import InvalidResourceError
 from ..interfaces import IVirtualInterrupt
 from ..cpu.registers import Registers
 from . import IRQList, VIRTUAL_INTERRUPTS
 from ..mm import segment_addr_to_addr
-from ..util import Flags
+from ..util import Flags, str2bytes
 from . import Device
 
 from ctypes import c_ushort
@@ -156,9 +157,15 @@ class FileBackedStorage(Storage):
     self.file.seek(src * BLOCK_SIZE)
     buff = self.file.read(cnt * BLOCK_SIZE)
 
-    for c in buff:
-      self.machine.memory.write_u8(dst, ord(c))
-      dst += 1
+    if six.PY2:
+      for c in buff:
+        self.machine.memory.write_u8(dst, ord(c))
+        dst += 1
+
+    else:
+      for c in buff:
+        self.machine.memory.write_u8(dst, int(c))
+        dst += 1
 
     self.machine.DEBUG('BIO: %s bytes read from %s:%s', cnt * BLOCK_SIZE, self.file.name, dst * BLOCK_SIZE)
 
@@ -172,7 +179,7 @@ class FileBackedStorage(Storage):
     buff = ''.join(buff)
 
     self.file.seek(dst * BLOCK_SIZE)
-    self.file.write(buff)
+    self.file.write(str2bytes(buff))
     self.file.flush()
 
     self.machine.DEBUG('BIO: %s bytes written at %s:%s', cnt * BLOCK_SIZE, self.file.name, dst * BLOCK_SIZE)
@@ -244,7 +251,7 @@ class BlockIOInterrupt(IVirtualInterrupt):
       handler(src, dst, cnt)
       r0.value = 0
 
-    except StorageAccessError, e:
+    except StorageAccessError as e:
       core.ERROR('BIO: operation failed')
       core.EXCEPTION(e)
 

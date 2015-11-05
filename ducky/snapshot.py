@@ -1,8 +1,5 @@
-try:
-  import cPickle as pickle
-
-except ImportError:
-  import pickle
+from six import print_, iteritems
+from six.moves import cPickle as pickle
 
 from .util import BinaryFile
 
@@ -27,21 +24,21 @@ class SnapshotNode(object):
   def print_node(self, level = 0):
     offset = '    ' * level
 
-    print offset, self.__class__.__name__
+    print_(offset, self.__class__.__name__)
 
     for field in self.__fields:
-      print offset, '  ', '{}: {}'.format(field, getattr(self, field))
+      print_(offset, '  ', '{}: {}'.format(field, getattr(self, field)))
 
     if self.__children:
-      print offset, '  children:'
+      print_(offset, '  children:')
 
-      for name, value in self.__children.iteritems():
+      for name, value in iteritems(self.__children):
         if isinstance(value, SnapshotNode):
-          print offset, '    ', '{}: {}'.format(name, value.__class__.__name__)
+          print_(offset, '    ', '{}: {}'.format(name, value.__class__.__name__))
           value.print_node(level = level + 2)
 
         else:
-          print offset, '    ', '{}: {}'.format(name, value)
+          print_(offset, '    ', '{}: {}'.format(name, value))
 
 class VMState(SnapshotNode):
   def __init__(self, logger):
@@ -70,13 +67,17 @@ class VMState(SnapshotNode):
 
   @staticmethod
   def load_vm_state(logger, filename):
-    return CoreDumpFile(logger, filename, 'r').load()
+    return CoreDumpFile.open(logger, filename, 'r').load()
 
   def save(self, filename):
-    with CoreDumpFile(self.logger, filename, 'w') as f_out:
+    with CoreDumpFile.open(self.logger, filename, 'w') as f_out:
       f_out.save(self)
 
 class CoreDumpFile(BinaryFile):
+  @staticmethod
+  def open(*args, **kwargs):
+    return BinaryFile.do_open(*args, klass = CoreDumpFile, **kwargs)
+
   def load(self):
     self.DEBUG('CoreDumpFile.load')
 

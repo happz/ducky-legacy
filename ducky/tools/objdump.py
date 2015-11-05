@@ -4,6 +4,8 @@ import optparse
 import re
 import tabulate
 
+from six import viewkeys
+
 from . import add_common_options, parse_options
 from ..cpu.instructions import DuckyInstructionSet, get_instruction_set
 from ..mm import UInt16, ADDR_FMT, UINT16_FMT, SIZE_FMT, UINT32_FMT
@@ -118,7 +120,7 @@ def show_symbols(logger, f):
   def ascii_replacer(m):
     return ascii_replacements[m.group(0)]
 
-  ascii_replace = re.compile(r'|'.join(ascii_replacements.keys()))
+  ascii_replace = re.compile(r'|'.join(viewkeys(ascii_replacements)))
 
   logger.info('=== Symbols ===')
   logger.info('')
@@ -201,7 +203,7 @@ def main():
   for file_in in options.file_in:
     logger.info('Input file: %s', file_in)
 
-    with File(logger, file_in, 'r') as f_in:
+    with File.open(logger, file_in, 'r') as f_in:
       f_in.load()
 
       logger.info('')

@@ -1,5 +1,4 @@
 import tabulate
-import types
 
 class ConsoleConnection(object):
   def __init__(self, cid, master, stream_in, stream_out):
@@ -20,7 +19,7 @@ class ConsoleConnection(object):
     self.default_core = None
 
   def write(self, buff, *args):
-    if isinstance(buff, types.ListType):
+    if isinstance(buff, list):
       buff = ''.join([chr(c) for c in buff])
 
     if args:
@@ -30,7 +29,7 @@ class ConsoleConnection(object):
     self.stream_out.flush()
 
   def writeln(self, buff, *args):
-    if isinstance(buff, types.ListType):
+    if isinstance(buff, list):
       buff = ''.join([chr(c) for c in buff])
 
     self.write(buff + '\n', *args)
@@ -56,7 +55,7 @@ class ConsoleConnection(object):
     try:
       cmd_desc[0](self, cmd, *cmd_desc[1], **cmd_desc[2])
 
-    except Exception, exc:
+    except Exception as exc:
       self.master.machine.EXCEPTION(exc)
 
   def boot(self):

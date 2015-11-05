@@ -1,4 +1,6 @@
 SHELL := /bin/bash
+.SHELLFLAGS := -o pipefail -c
+
 
 CC_RED    := $(shell echo -e "\033[0;31m")
 CC_GREEN  := $(shell echo -e "\033[0;32m")

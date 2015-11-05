@@ -36,17 +36,18 @@ tests-pre:
 	$(Q) mkdir -p $(TC_DIR)
 
 tests: tests/instructions/interrupts-basic $(ENGINE_TESTS:%.asm=%.testbin)
-	-$(Q)  echo "$(CC_YELLOW)[TEST]$(CC_END) Engine unit tests"
+	-$(Q) echo "$(CC_YELLOW)[TEST]$(CC_END) Engine unit tests"
 	-$(Q) $(PYTHON) $(VIRTUAL_ENV)/bin/nosetests -v --all-modules $(COVERAGE_NOSE_FLAG) \
-				  --with-xunit --xunit-file=$(TC_RESULTS) \
-					--no-path-adjustment --with-timer \
-					-w tests 2>&1 | stdbuf -o L -eL tee $(TC_OUTPUT) | grep -v -e '\[INFO\] ' -e '#> '
+	      --with-xunit --xunit-file=$(TC_RESULTS) \
+			  --no-path-adjustment --with-timer \
+			  -w tests 2>&1 | stdbuf -o L -eL tee $(TC_OUTPUT) | grep -v -e '\[INFO\] ' -e '#> ' \
+			  || touch $(TESTSET_FAILED)
 	-$(Q) sed -i 's/<testsuite name="nosetests"/<testsuite name="nosetests-$(TESTSET)"/' $(TC_RESULTS)
 
 tests-post:
 
 clean:
-	$(Q) rm -rf tests/instructions/interrupts-basic.o tests/instructions/interrupts-basic $(ENGINE_TESTS:%.asm=%.testbin)
+	$(Q) rm -f tests/instructions/interrupts-basic.o tests/instructions/interrupts-basic $(ENGINE_TESTS:%.asm=%.testbin)
 
 %.testbin: %.o
 	$(call run-linker,--section-base=.text=0x0000)

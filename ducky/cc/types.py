@@ -23,6 +23,12 @@ class CType(object):
   def __cmp__(self, other):
     return 0 if repr(self) == repr(other) else -1
 
+  def __eq__(self, other):
+    return repr(self) == repr(other)
+
+  def __neq__(self, other):
+    return repr(self) != repr(other)
+
   @staticmethod
   def get_from_desc(visitor, desc):
     visitor.DEBUG(visitor.log_prefix + 'Type.get_from_desc: desc=%s', desc)

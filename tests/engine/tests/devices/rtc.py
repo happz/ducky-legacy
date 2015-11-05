@@ -1,25 +1,27 @@
 import unittest
 
+from six import iteritems
+
 import ducky.config
 import ducky.devices.rtc
 import ducky.errors
 
 class Tests(unittest.TestCase):
   def common_case(self, **kwargs):
-    machine_config = ducky.config.MachineConfig()
+    machine = ducky.machine.Machine()
+    machine_config = machine.config = ducky.config.MachineConfig()
     section = machine_config.add_device('rtc', 'ducky.devices.rtc.RTC')
 
-    for name, value in kwargs.iteritems():
+    for name, value in iteritems(kwargs):
       machine_config.set(section, name, value)
 
-    return ducky.devices.rtc.RTC.create_from_config(None, machine_config, section)
+    return ducky.devices.rtc.RTC.create_from_config(machine, machine_config, section)
 
   def test_default(self):
     self.common_case()
 
   def test_frequency(self):
     rtc = self.common_case(frequency = 255)
-    print rtc.read_u8(ducky.devices.rtc.DEFAULT_PORT_RANGE)
     assert rtc.read_u8(ducky.devices.rtc.DEFAULT_PORT_RANGE) == 255
 
   def test_high_frequency(self):

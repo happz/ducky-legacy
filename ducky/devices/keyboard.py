@@ -4,14 +4,10 @@ Keyboard controller - provides events for pressed and released keys.
 
 import enum
 import io
-import os
-import sys
-import types
 
 from . import IRQProvider, IOProvider, Device, IRQList
 from ..errors import InvalidResourceError
 from ..mm import UINT16_FMT
-from ..util import isfile
 
 DEFAULT_PORT_RANGE = 0x100
 
@@ -32,11 +28,10 @@ class KeyboardController(IRQProvider, IOProvider, Device):
 
     self.streams = streams[:] if streams else []
     self.port = port or DEFAULT_PORT_RANGE
-    self.ports = range(port, port + 0x0001)
+    self.ports = [port]
     self.irq = irq or IRQList.KEYBOARD
 
     self.input = None
-    self.input_fd = None
 
     self.queue = []
 
@@ -54,20 +49,21 @@ class KeyboardController(IRQProvider, IOProvider, Device):
   def enqueue_input(self, stream):
     self.machine.DEBUG('KeyboardController.enqueue_input: stream=%s', stream)
 
+    if not stream.has_fd():
+      raise InvalidResourceError('Keyboard controller requires input stream with fd support')
+
     self.streams.append(stream)
 
   def close_input(self):
-    self.machine.DEBUG('KeyboardController.close_input: input=%s, input_fd=%s', self.input, self.input_fd)
+    self.machine.DEBUG('KeyboardController.close_input: input=%s', self.input)
 
-    if self.input_fd is not None:
-      self.machine.reactor.remove_fd(self.input_fd)
+    if self.input is None:
+      return
 
-    if self.input:
-      if self.input != sys.stdin:
-        self.input.close()
+    self.machine.reactor.remove_fd(self.input.fd)
 
-      self.input = None
-      self.input_fd = None
+    self.input.close()
+    self.input = None
 
   def open_input(self):
     self.machine.DEBUG('KeyboardController.open_input')
@@ -81,38 +77,10 @@ class KeyboardController(IRQProvider, IOProvider, Device):
         self.queue.append(ControlMessages.HALT)
       return
 
-    stream = self.streams.pop(0)
+    self.input = self.streams.pop(0)
+    self.machine.DEBUG('KeyboardController.input=%s', self.input)
 
-    if isinstance(stream, types.StringType):
-      self.machine.DEBUG('  input file attached')
-
-      self.input = open(stream, 'rb')
-      self.input_fd = self.input.fileno()
-
-    elif isfile(stream):
-      self.machine.DEBUG('  opened file')
-
-      self.input = stream
-      self.input_fd = self.input.fileno()
-
-    elif hasattr(stream, 'fileno'):
-      self.machine.DEBUG('  object with fileno() method')
-
-      self.input = stream
-      self.input_fd = stream.fileno()
-
-    elif isinstance(stream, int):
-      self.machine.DEBUG('  raw descriptor')
-
-      self.input = None
-      self.input_fd = int(stream)
-
-    else:
-      raise InvalidResourceError('Unknown input stream type: stream=%s, class=%s' % (stream, type(stream)))
-
-    self.machine.DEBUG('input=%s, input_fd=%s', self.input, self.input_fd)
-
-    self.machine.reactor.add_fd(self.input_fd, on_read = self.handle_raw_input, on_error = self.handle_input_error)
+    self.machine.reactor.add_fd(self.input.fd, on_read = self.handle_raw_input, on_error = self.handle_input_error)
 
   def boot(self):
     self.machine.DEBUG('KeyboardController.boot')
@@ -142,26 +110,23 @@ class KeyboardController(IRQProvider, IOProvider, Device):
 
     assert self.input is not False
 
-    try:
-      s = os.read(self.input_fd, io.DEFAULT_BUFFER_SIZE)
+    buff = self.input.read_u8(size = io.DEFAULT_BUFFER_SIZE)
+    self.machine.DEBUG('KeyboardController.handle_raw_input: buff=%s (%s)', buff, type(buff))
 
-    except IOError, e:
-      e.exc_stack = sys.exc_info()
-      self.machine.ERROR('failed to read from input: input=%s', self.input)
-      self.machine.EXCEPTION(e)
+    if buff is None:
+      self.machine.DEBUG('KeyboardController.handle_raw_input: nothing to do, no input')
       return
 
-    if isinstance(s, types.StringType) and len(s) == 0:
+    if not buff:
       # EOF
       self.open_input()
       return
 
-    self.machine.DEBUG('KeyboardController.handle_raw_input: adding %i chars', len(s))
+    self.machine.DEBUG('KeyboardController.handle_raw_input: adding %i chars', len(buff))
 
-    for c in s:
-      self.queue.append(c)
+    self.queue += buff
 
-    self.machine.DEBUG('KeyboardController.handle_raw_input: queue now has %i chars', len(self.queue))
+    self.machine.DEBUG('KeyboardController.handle_raw_input: queue now has %i bytes', len(self.queue))
 
     self.machine.trigger_irq(self)
 
@@ -170,15 +135,15 @@ class KeyboardController(IRQProvider, IOProvider, Device):
 
     while True:
       try:
-        c = self.queue.pop(0)
+        b = self.queue.pop(0)
 
       except IndexError:
         self.machine.DEBUG('KeyboardController.__read_char: no available chars in queue')
         return None
 
-      self.machine.DEBUG('KeyboardController.__read_char: queue now has %i chars', len(self.queue))
+      self.machine.DEBUG('KeyboardController.__read_char: queue now has %i bytes', len(self.queue))
 
-      if c == ControlMessages.HALT:
+      if b == ControlMessages.HALT:
         self.machine.DEBUG('KeyboardController.__read_char: planned halt, execute')
         self.machine.halt()
 
@@ -186,11 +151,9 @@ class KeyboardController(IRQProvider, IOProvider, Device):
 
       break
 
-    c = ord(c)
+    self.machine.DEBUG('KeyboardController.__read_char: c=%s ()', b)
 
-    self.machine.DEBUG('KeyboardController.__read_char: c=%s (%s)', c, escape_char(c))
-
-    return c
+    return b
 
   def read_u8(self, port):
     self.machine.DEBUG('KeyboardController.read_u8: port=%s', UINT16_FMT(port))
@@ -198,11 +161,11 @@ class KeyboardController(IRQProvider, IOProvider, Device):
     if port not in self.ports:
       raise InvalidResourceError('Unhandled port: %s', UINT16_FMT(port))
 
-    c = self.__read_char()
-    if not c:
+    b = self.__read_char()
+    if not b:
       self.machine.DEBUG('KeyboardController.read_u8: empty input, signal it downstream')
       return 0xFF
 
-    self.machine.DEBUG('KeyboardController.read_u8: input byte is %i', c)
+    self.machine.DEBUG('KeyboardController.read_u8: input byte is %i', b)
 
-    return c
+    return b

@@ -1,3 +1,5 @@
+from six import itervalues
+
 from . import BlockVisitor
 
 class BlockTreeVisualiseVisitor(BlockVisitor):
@@ -40,7 +42,7 @@ class BlockTreeVisualiseVisitor(BlockVisitor):
     self.diag.append('%i [numbered = %i, label = "%s"];' % (block.id, block.id, ' '.join(name)))
 
     if block.outgoing:
-      for out_block in block.outgoing.itervalues():
+      for out_block in itervalues(block.outgoing):
         self.diag.append('%i -> %i;' % (block.id, out_block.id))
 
 from . import BT_PASSES

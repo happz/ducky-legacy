@@ -1,5 +1,7 @@
-# import array
 import mmap
+
+from six import iteritems, iterkeys, itervalues, PY2
+from six.moves import range
 
 from ctypes import LittleEndianStructure, c_ubyte, c_ushort, c_uint
 
@@ -116,7 +118,7 @@ def addr_to_offset(addr):
   return addr & (PAGE_SIZE - 1)
 
 def area_to_pages(addr, size):
-  return ((addr & PAGE_MASK) >> PAGE_SHIFT, align(PAGE_SIZE, size) / PAGE_SIZE)
+  return ((addr & PAGE_MASK) >> PAGE_SHIFT, align(PAGE_SIZE, size) // PAGE_SIZE)
 
 class MemoryPageState(SnapshotNode):
   def __init__(self, *args, **kwargs):
@@ -502,7 +504,6 @@ class AnonymousMemoryPage(MemoryPage):
   def __init__(self, controller, index):
     super(AnonymousMemoryPage, self).__init__(controller, index)
 
-    # self.data = array.array('B', [0 for _ in range(0, PAGE_SIZE)])
     self.data = bytearray([0 for _ in range(0, PAGE_SIZE)])
 
   def do_clear(self):
@@ -639,11 +640,23 @@ class MMapMemoryPage(ExternalMemoryPage):
 
     self.area = area
 
-  def get(self, offset):
+    if PY2:
+      self.get, self.put = self._get_py2, self._put_py2
+
+    else:
+      self.get, self.put = self._get_py3, self._put_py3
+
+  def _get_py2(self, offset):
     return ord(self.data[self.offset + offset])
 
-  def put(self, offset, b):
+  def _put_py2(self, offset, b):
     self.data[self.offset + offset] = chr(b)
+
+  def _get_py3(self, offset):
+    return self.data[self.offset + offset]
+
+  def _put_py3(self, offset, b):
+    self.data[self.offset + offset] = b
 
 class MMapAreaState(SnapshotNode):
   def __init__(self):
@@ -712,7 +725,7 @@ class MemoryState(SnapshotNode):
     super(MemoryState, self).__init__('size', 'segments')
 
   def get_page_states(self):
-    return [__state for __name, __state in self.get_children().iteritems() if __name.startswith('page_')]
+    return [__state for __name, __state in iteritems(self.get_children()) if __name.startswith('page_')]
 
 class MemoryController(object):
   """
@@ -744,10 +757,10 @@ class MemoryController(object):
     self.force_aligned_access = self.machine.config.getbool('memory', 'force-aligned-access', default = False)
 
     self.__size = size
-    self.__pages_cnt = size / PAGE_SIZE
+    self.__pages_cnt = size // PAGE_SIZE
     self.__pages = {}
 
-    self.__segments_cnt = size / (SEGMENT_SIZE * PAGE_SIZE)
+    self.__segments_cnt = size // (SEGMENT_SIZE * PAGE_SIZE)
     self.__segments = {}
 
     # mmap
@@ -762,10 +775,10 @@ class MemoryController(object):
     state.size = self.__size
 
     state.segments = []
-    for segment in self.__segments.keys():
+    for segment in iterkeys(self.__segments):
       state.segments.append(segment)
 
-    for page in self.__pages.values():
+    for page in itervalues(self.__pages):
       page.save_state(state)
 
   def load_state(self, state):
@@ -881,13 +894,13 @@ class MemoryController(object):
 
     self.DEBUG('mc.alloc_pages: page=%s, cnt=%s', pages_start, pages_cnt)
 
-    for i in xrange(pages_start, pages_start + pages_cnt):
-      for j in xrange(i, i + count):
+    for i in range(pages_start, pages_start + pages_cnt):
+      for j in range(i, i + count):
         if j in self.__pages:
           break
 
       else:
-        return [self.__alloc_page(j) for j in xrange(i, i + count)]
+        return [self.__alloc_page(j) for j in range(i, i + count)]
 
     raise InvalidResourceError('No sequence of free pages available')
 
@@ -1042,9 +1055,9 @@ class MemoryController(object):
     pages_cnt = pages_cnt or self.__pages_cnt
 
     if ignore_missing is True:
-      return (self.__pages[i] for i in xrange(pages_start, pages_start + pages_cnt) if i in self.__pages)
+      return (self.__pages[i] for i in range(pages_start, pages_start + pages_cnt) if i in self.__pages)
     else:
-      return (self.__pages[i] for i in xrange(pages_start, pages_start + pages_cnt))
+      return (self.__pages[i] for i in range(pages_start, pages_start + pages_cnt))
 
   def pages_in_area(self, address = 0, size = None, ignore_missing = False):
     """
@@ -1077,7 +1090,7 @@ class MemoryController(object):
     self.INFO('mm: %s, %s available', sizeof_fmt(self.__size, max_unit = 'Ki'), sizeof_fmt(self.__size - len(self.__pages) * PAGE_SIZE, max_unit = 'Ki'))
 
   def halt(self):
-    for area in self.mmap_areas.values()[:]:
+    for area in list(self.mmap_areas.values()):
       self.unmmap_area(area)
 
   def update_area_flags(self, address, size, flag, value):
@@ -1209,7 +1222,7 @@ class MemoryController(object):
     symbols = {}
     regions = []
 
-    with binary.File(self.machine.LOGGER, file_in, 'r') as f_in:
+    with binary.File.open(self.machine.LOGGER, file_in, 'r') as f_in:
       f_in.load()
 
       f_header = f_in.get_header()
@@ -1240,7 +1253,7 @@ class MemoryController(object):
           self.mmap_area(f_in.name, s_base_addr, s_header.file_size, offset = s_header.offset, flags = s_header.flags, shared = False)
 
         else:
-          for i in xrange(pages_start, pages_start + pages_cnt):
+          for i in range(pages_start, pages_start + pages_cnt):
             self.__alloc_page(i)
 
           if s_header.type == binary.SectionTypes.TEXT:
@@ -1311,7 +1324,7 @@ class MemoryController(object):
 
     pages_start, pages_cnt = area_to_pages(address, size)
 
-    for i in xrange(pages_start, pages_start + pages_cnt):
+    for i in range(pages_start, pages_start + pages_cnt):
       if i in self.__pages:
         raise InvalidResourceError('MMap request overlaps with existing pages: page=%s, area=%s' % (self.__pages[i], self.__pages[i].area))
 
@@ -1334,7 +1347,7 @@ class MemoryController(object):
 
     area = MMapArea(ptr, address, size, file_path, ptr, pages_start, pages_cnt)
 
-    for i in xrange(pages_start, pages_start + pages_cnt):
+    for i in range(pages_start, pages_start + pages_cnt):
       self.register_page(MMapMemoryPage(area, self, i, ptr, offset = (i - pages_start) * PAGE_SIZE))
 
     self.__set_section_flags(pages_start, pages_cnt, flags)

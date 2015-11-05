@@ -1,7 +1,8 @@
 import os
 import logging
 import tempfile
-import types
+
+from six import iteritems, print_
 
 import ducky.patch
 import ducky.config
@@ -13,6 +14,14 @@ import ducky.mm
 import ducky.snapshot
 import ducky.util
 
+from unittest import TestCase  # noqa
+
+try:
+  import unittest.mock as mock  # noqa
+
+except ImportError:
+  import mock  # noqa
+
 def get_tempfile():
   return tempfile.NamedTemporaryFile('w+b', delete = False, dir = os.path.join(os.getenv('TESTSETDIR'), 'tmp'))
 
@@ -22,14 +31,14 @@ def prepare_file(size, messages = None, pattern = 0xDE):
   # fill file with pattern
   f_tmp.seek(0)
   for _ in range(0, size):
-    f_tmp.write(chr(pattern))
+    f_tmp.write(ducky.util.str2bytes(chr(pattern)))
 
   messages = messages or []
 
   # write out messages
   for offset, msg in messages:
     f_tmp.seek(offset)
-    f_tmp.write(msg)
+    f_tmp.write(ducky.util.str2bytes(msg))
 
   f_tmp.close()
 
@@ -65,7 +74,7 @@ def assert_flags(state, **flags):
   assert real_flags.s == flags.get('s', 0), 'S flag expected to be {}'.format(flags.get('s', 0))
 
 def assert_mm(state, **cells):
-  for addr, expected_value in cells.items():
+  for addr, expected_value in iteritems(cells):
     addr = ducky.util.str2int(addr)
     expected_value = ducky.util.str2int(expected_value)
     page_index = ducky.mm.addr_to_page(addr)
@@ -90,20 +99,20 @@ def assert_mm_pages(state, *pages):
 
 def assert_file_content(filename, cells):
   with open(filename, 'rb') as f:
-    for cell_offset, cell_value in cells.iteritems():
+    for cell_offset, cell_value in iteritems(cells):
       f.seek(cell_offset)
       real_value = ord(f.read(1))
       assert real_value == cell_value, 'Value at {} (file {}) should be {}, {} found instead'.format(cell_offset, filename, ducky.mm.UINT8_FMT(cell_value), ducky.mm.UINT8_FMT(real_value))
 
 def compile_code(code):
   f_asm = get_tempfile()
-  print f_asm
-  f_asm.write(code)
-  print f_asm
+  print_(f_asm)
+  f_asm.write(ducky.util.str2bytes(code))
+  print_(f_asm)
   f_asm.flush()
-  print f_asm
+  print_(f_asm)
   f_asm.close()
-  print f_asm
+  print_(f_asm)
 
   f_obj_name = os.path.splitext(f_asm.name)[0] + '.o'
   f_bin_name = os.path.splitext(f_asm.name)[0] + '.testbin'
@@ -125,10 +134,6 @@ def run_machine(code = None, binary = None, machine_config = None, coredump_file
   if os.getenv('VMDEBUG') == 'yes':
     M.LOGGER.setLevel(logging.DEBUG)
 
-  if os.getenv('DEBUG_OPEN_FILES') == 'yes':
-    file_open_patcher = ducky.util.FileOpenPatcher(M.LOGGER)
-    file_open_patcher.patch()
-
   if code is not None:
     binary_path = compile_code(code)
 
@@ -146,13 +151,6 @@ def run_machine(code = None, binary = None, machine_config = None, coredump_file
 
   M.run()
 
-  if os.getenv('DEBUG_OPEN_FILES') == 'yes':
-    if file_open_patcher.has_open_files():
-      file_open_patcher.log_open_files()
-      assert False
-
-    file_open_patcher.restore()
-
   if code is not None:
     os.unlink(binary_path)
 
@@ -160,7 +158,7 @@ def run_machine(code = None, binary = None, machine_config = None, coredump_file
     fn(M, M.last_state)
 
 def common_run_machine(code = None, binary = None, machine_config = None, cpus = 1, cores = 1, irq_routines = 'tests/instructions/interrupts-basic', post_boot = None, post_run = None):
-  if code is not None and isinstance(code, types.ListType):
+  if code is not None and isinstance(code, list):
     code = '\n'.join(code)
 
   if machine_config is None:

@@ -1,10 +1,12 @@
 import enum
 import mmap
 
+from six.moves import range
+
 from .. import cpu
 
 from ..mm import UInt8, UInt32, ADDR_FMT
-from ..util import BinaryFile, StringTable, align, Flags
+from ..util import BinaryFile, StringTable, align, Flags, str2bytes, bytes2str
 from ctypes import LittleEndianStructure, c_uint, c_ushort, c_ubyte, sizeof
 
 class SectionFlags(Flags):
@@ -129,9 +131,11 @@ class File(BinaryFile):
   MAGIC = 0xDEAD
   VERSION = 1
 
-  def __init__(self, *args, **kwargs):
-    super(File, self).__init__(*args, **kwargs)
+  @staticmethod
+  def open(*args, **kwargs):
+    return BinaryFile.do_open(*args, klass = File, **kwargs)
 
+  def setup(self):
     self.__header = None
     self.__sections = []
 
@@ -161,7 +165,7 @@ class File(BinaryFile):
     return self.__header
 
   def sections(self):
-    return (self.get_section(i) for i in xrange(0, self.get_header().sections))
+    return (self.get_section(i) for i in range(0, self.get_header().sections))
 
   def get_section(self, i):
     return self.__sections[i]
@@ -209,7 +213,7 @@ class File(BinaryFile):
       self.seek(header.offset)
 
       if header.type == SectionTypes.STRINGS:
-        self.string_table.buff = self.read(header.file_size)
+        self.string_table.buff = bytes2str(self.read(header.file_size))
 
       else:
         if header.type == SectionTypes.DATA:
@@ -281,7 +285,7 @@ class File(BinaryFile):
 
       if header.type == SectionTypes.STRINGS:
         self.DEBUG('write: %s', self.string_table.buff)
-        self.write(self.string_table.buff)
+        self.write(str2bytes(self.string_table.buff))
 
       elif header.flags.bss == 1:
         self.DEBUG('BSS section - dont write out any slots')
@@ -290,11 +294,11 @@ class File(BinaryFile):
         for item in content:
           if type(item) == cpu.assemble.SpaceSlot:
             self.DEBUG('write_space: %s bytes', item.size.u16)
-            self.write('\x00' * item.size.u16)
+            self.write(str2bytes('\x00' * item.size.u16))
 
           else:
             self.write_struct(item)
 
         if header.data_size != header.file_size:
           self.DEBUG('write after-section padding of %s bytes', header.file_size - header.data_size)
-          self.write('\x00' * (header.file_size - header.data_size))
+          self.write(str2bytes('\x00' * (header.file_size - header.data_size)))

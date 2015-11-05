@@ -1,6 +1,8 @@
 import collections
 import sys
 
+from six import iteritems
+
 from ..mm import ADDR_FMT, UInt32, UINT32_FMT, UInt16, UInt8, UINT8_FMT, MalformedBinaryError
 from ..mm.binary import File, SectionTypes, SymbolEntry, SECTION_ITEM_SIZE
 from ..cpu.assemble import align_to_next_page, align_to_next_mmap, sizeof
@@ -94,7 +96,7 @@ def fix_section_bases(logger, info, f_out, required_bases):
 
   D('sections to fix: %s', sections_to_fix)
 
-  for s_name, s_base in required_bases.iteritems():
+  for s_name, s_base in iteritems(required_bases):
     s_header = sections_to_fix[s_name]
 
     if s_name not in sections_to_fix:
@@ -123,7 +125,7 @@ def fix_section_bases(logger, info, f_out, required_bases):
   def overlap(a, b):
     return max(0, min(a[1], b[1]) - max(a[0], b[0]))
 
-  for s_name, s_header in sections_to_fix.iteritems():
+  for s_name, s_header in iteritems(sections_to_fix):
     base = UInt16(0)
 
     for i, f_header in enumerate(fixed_sections):
@@ -177,7 +179,7 @@ def resolve_symbols(logger, info, f_out, f_ins):
   symbols = []
   symbol_map = []
 
-  for f_in, symbol_sections in info.symbols.iteritems():
+  for f_in, symbol_sections in iteritems(info.symbols):
     D('Processing file %s', f_in.name)
 
     for s_header, s_content in symbol_sections:
@@ -235,7 +237,7 @@ def resolve_relocations(logger, info, f_out, f_ins):
   for s_header, s_content in f_out.sections():
     D('name=%s base=%s header=%s', f_out.string_table.get_string(s_header.name), ADDR_FMT(s_header.base), s_header)
 
-  for f_in, reloc_sections in info.relocations.iteritems():
+  for f_in, reloc_sections in iteritems(info.relocations):
     D('Processing file %s', f_in.name)
 
     for r_header, r_content in reloc_sections:
@@ -279,7 +281,7 @@ def resolve_relocations(logger, info, f_out, f_ins):
 
         D('Patching %s:%s:%s with %s', ADDR_FMT(fixed_patch_address), re.patch_offset, re.patch_size, ADDR_FMT(patch_address))
 
-        content_index = (fixed_patch_address - d_header.base) / SECTION_ITEM_SIZE[d_header.type]
+        content_index = (fixed_patch_address - d_header.base) // SECTION_ITEM_SIZE[d_header.type]
         D('  Content index: %i (%s - %s) / %s', content_index, fixed_patch_address, d_header.base, SECTION_ITEM_SIZE[d_header.type])
 
         orig_val = d_content[content_index]
@@ -368,7 +370,7 @@ def main():
 
   files_in = []
   for file_in in options.file_in:
-    with File(logger, file_in, 'r') as f_in:
+    with File.open(logger, file_in, 'r') as f_in:
       f_in.load()
       files_in.append(f_in)
 
@@ -378,7 +380,7 @@ def main():
 
   info = LinkerInfo()
 
-  with File(logger, options.file_out, 'w') as f_out:
+  with File.open(logger, options.file_out, 'w') as f_out:
     h_file = f_out.create_header()
     h_file.flags.mmapable = files_in[0].get_header().flags.mmapable
 

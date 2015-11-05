@@ -1,6 +1,8 @@
 import time
 import datetime
 
+from six.moves import range
+
 from . import Device, IRQProvider, IOProvider, IRQList
 from ..errors import InvalidResourceError
 from ..mm import UInt8, UINT16_FMT
@@ -46,7 +48,7 @@ class RTC(IRQProvider, IOProvider, Device):
 
     self.frequency = frequency or DEFAULT_FREQ
     self.port = port or DEFAULT_PORT_RANGE
-    self.ports = range(port, port + PORT_RANGE)
+    self.ports = list(range(port, port + PORT_RANGE))
     self.irq = irq or IRQList.TIMER
     self.timer_task = RTCTask(machine, self)
 

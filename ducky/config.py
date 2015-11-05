@@ -3,9 +3,10 @@ VM configuration management
 """
 
 import functools
-import StringIO
 
-from ConfigParser import ConfigParser, NoSectionError, NoOptionError
+from six import iteritems
+from six.moves import StringIO
+from six.moves.configparser import ConfigParser, NoSectionError, NoOptionError
 
 from .util import str2int
 
@@ -99,7 +100,7 @@ class MachineConfig(ConfigParser):
     self.__count_devices()
 
   def dumps(self):
-    s = StringIO.StringIO()
+    s = StringIO()
     self.write(s)
     return s.getvalue()
 
@@ -225,7 +226,7 @@ class MachineConfig(ConfigParser):
     self.set(section, 'klass', klass)
     self.set(section, 'driver', driver)
 
-    for name, value in kwargs.iteritems():
+    for name, value in iteritems(kwargs):
       self.set(section, name, value)
 
     return section

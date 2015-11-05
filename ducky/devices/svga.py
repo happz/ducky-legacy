@@ -7,6 +7,9 @@ import array
 import enum
 import functools
 
+from six import print_
+from six.moves import range
+
 from ctypes import c_ushort, LittleEndianStructure
 
 from . import Device, IOProvider
@@ -164,12 +167,12 @@ class DisplayRefreshTask(RunInIntervalTask):
       if self.first_tick:
         self.first_tick = False
       else:
-        print F('\033[{rows:d}F', rows = mode.height + 3)
+        print_(F('\033[{rows:d}F', rows = mode.height + 3))
 
-      print '-' * mode.width
+      print_('-' * mode.width)
       for line in screen:
-        print line
-      print '-' * mode.width
+        print_(line)
+      print_('-' * mode.width)
 
     else:
       self.display.machine.WARN(F('Unhandled gpu mode: mode={mode}', mode = gpu.active_mode))
@@ -271,7 +274,7 @@ class SimpleVGA(IOProvider, Device):
     super(SimpleVGA, self).__init__(machine, 'gpu', name, *args, **kwargs)
 
     self.port = port or DEFAULT_PORT_RANGE
-    self.ports = range(port, port + 2)
+    self.ports = [port, port + 0x0001]
 
     self.memory_size = memory_size or DEFAULT_MEMORY_SIZE
     self.memory_address = memory_address
@@ -295,7 +298,7 @@ class SimpleVGA(IOProvider, Device):
         raise InvalidResourceError(F('Not enough memory for mode: mode={mode}, required={bytes_required:d} bytes, available={bytes_available:d} bytes', mode = mode, bytes_required = mode.required_memory, bytes_available = self.memory_size))
 
     self.memory = self.data = array.array('B', [0 for _ in range(0, self.memory_size)])
-    self.bank_offsets = range(0, self.memory_size, self.memory_size / self.memory_banks)
+    self.bank_offsets = list(range(0, self.memory_size, self.memory_size / self.memory_banks))
     self.pages_per_bank = self.memory_size / PAGE_SIZE / self.memory_banks
 
     self.machine.DEBUG(F('sVGA: memory-size={memory_size:d}, memory-banks={memory_banks:d}, offsets=[{bank_offsets}], pages-per-bank={pages_per_bank:d}, address={address:A}', memory_size = self.memory_size, memory_banks = self.memory_banks, bank_offsets = ', '.join([ADDR_FMT(o) for o in self.bank_offsets]), pages_per_bank = self.pages_per_bank, address = self.memory_address))

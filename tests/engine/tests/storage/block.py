@@ -119,7 +119,7 @@ class Tests(unittest.TestCase):
 
     # create random message
     msg = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(msg_length))
-    msg += (chr(0xBF) * (ducky.devices.storage.BLOCK_SIZE - msg_length))
+    msg += (chr(0x61) * (ducky.devices.storage.BLOCK_SIZE - msg_length))
 
     # create file that we later mmap, filled with pseudodata
     f_tmp = prepare_file(file_size)

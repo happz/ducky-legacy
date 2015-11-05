@@ -42,18 +42,20 @@ endif
 				--set-device-option=device-3:stream_out=$(TC_OUTPUT) \
 				$(foreach device,$(DUCKY_ENABLE_DEVICES),--enable-device=$(device)) \
 				$(foreach device,$(DUCKY_DISABLE_DEVICES),--disable-device=$(device)) \
-				$(VMDEBUG) $(VMDEBUG_OPEN_FILES) 2>&1 | stdbuf -oL -eL tee $(TC_MACHINE) | grep -v -e '\[INFO\] ' -e '#> ' | cat
-	-$(Q) grep -e 'INCORRECT RESULT' -e 'WRONG NUMBER OF RESULTS' $(TC_OUTPUT) | cat > $(TC_FILTERED)
+				$(VMDEBUG) $(VMDEBUG_OPEN_FILES) 2>&1 | stdbuf -oL -eL tee $(TC_MACHINE) | grep -v -e '\[INFO\] ' -e '#> ' | cat &> /dev/null \
+				|| touch $(TESTSET_FAILED)
+	-$(Q) grep -e 'INCORRECT RESULT' -e 'WRONG NUMBER OF RESULTS' $(TC_OUTPUT) | cat > $(TC_FILTERED) || /bin/true
 	-$(Q) if [ -f $(TC_EXPECTED) ]; then diff -u $(TC_EXPECTED) $(TC_OUTPUT) | cat &> $(TC_DIFF); fi
 	-$(Q) if [ ! -s $(TC_FILTERED) ] && ([ ! -f $(TC_DIFF) ] || [ ! -s $(TC_DIFF) ]); then \
 	        $(XUNIT) --add --file=$(TC_RESULTS) --ts=$(TC_TESTSUITE) --name=$(TC_NAME) --classname=$<; \
 					echo "$(CC_GREEN)PASS$(CC_END)"; \
 				else \
 				  [ -f $(TC_FILTERED) ] && cat $(TC_FILTERED) >> $(TC_TMPFILE); \
-					[ -f $(TC_DIFF) ] && cat $(TC_DIFF) >> $(TC_DIFF); \
+					[ -f $(TC_DIFF) ] && cat $(TC_DIFF) >> $(TC_TMPFILE); \
 					$(XUNIT) --add --file=$(TC_RESULTS) --ts=$(TC_TESTSUITE) --name=$(TC_NAME) --classname=$< --result=fail --message="Failed aserts" --diff=$(TC_TMPFILE); \
 					echo "$(CC_RED)FAIL$(CC_END)"; \
 					sed 's/^/  /' $(TC_TMPFILE); \
+					touch $(TESTSET_FAILED); \
 				fi;
 	-$(Q) rm -f $(TC_TMPFILE)
 

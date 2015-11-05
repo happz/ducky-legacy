@@ -1,7 +1,9 @@
 import ctypes
 import enum
 import re
-import types
+
+from six import integer_types, string_types, add_metaclass
+from six.moves import range
 
 from ctypes import LittleEndianStructure, c_uint, c_int
 
@@ -86,7 +88,7 @@ class InstDescriptor(object):
 
       self.operands = [ot.strip() for ot in self.operands.split(',')]
 
-      for operand_index, operand_types in zip(range(0, len(self.operands)), self.operands):
+      for operand_index, operand_types in zip(list(range(0, len(self.operands))), self.operands):
         operand_pattern = []
 
         for operand_type in operand_types:
@@ -237,10 +239,10 @@ class InstDescriptor_Generic_Unary_I(InstDescriptor):
 
     v = operands['immediate']
 
-    if isinstance(v, types.IntType):
+    if isinstance(v, integer_types):
       inst.immediate = v
 
-    elif isinstance(v, types.StringType):
+    elif isinstance(v, string_types):
       inst.refers_to = v
 
   @staticmethod
@@ -264,10 +266,10 @@ class InstDescriptor_Generic_Unary_RI(InstDescriptor):
 
       inst.is_reg = 0
 
-      if isinstance(v, int):
+      if isinstance(v, integer_types):
         inst.immediate = v
 
-      elif isinstance(v, str):
+      elif isinstance(v, string_types):
         inst.refers_to = v
 
   @staticmethod
@@ -295,7 +297,7 @@ class InstDescriptor_Generic_Binary_R_I(InstDescriptor):
     inst.reg = operands['register_n0']
 
     v = operands['immediate']
-    if isinstance(v, int):
+    if isinstance(v, integer_types):
       inst.immediate = v
 
     else:
@@ -331,10 +333,10 @@ class InstDescriptor_Generic_Binary_R_RI(InstDescriptor):
 
       v = operands['immediate']
 
-      if isinstance(v, int):
+      if isinstance(v, integer_types):
         inst.immediate = v
 
-      elif isinstance(v, str):
+      elif isinstance(v, string_types):
         inst.refers_to = v
 
   @staticmethod
@@ -370,10 +372,10 @@ class InstDescriptor_Generic_Binary_RI_R(InstDescriptor):
 
       v = operands['immediate']
 
-      if isinstance(v, int):
+      if isinstance(v, integer_types):
         inst.immediate = v
 
-      elif isinstance(v, str):
+      elif isinstance(v, string_types):
         inst.refers_to = v
 
   @staticmethod
@@ -490,9 +492,8 @@ class InstructionSetMetaclass(type):
   def __init__(cls, name, bases, dict):
     cls.instructions = []
 
+@add_metaclass(InstructionSetMetaclass)
 class InstructionSet(object):
-  __metaclass__ = InstructionSetMetaclass
-
   instruction_set_id = None
   opcodes = None
 
@@ -527,7 +528,7 @@ class InstructionSet(object):
 
   @classmethod
   def decode_instruction(cls, inst):
-    if isinstance(inst, (long, int)):
+    if isinstance(inst, integer_types):
       master = cls.binary_format_master()
       master.overall.u32 = inst
       inst = master
@@ -833,7 +834,7 @@ class InstDescriptor_COND(InstDescriptor):
   binary_format = ['flag:3', BF_FLG('value')]
 
   FLAGS = ['e', 'z', 'o', 's', 'l', 'g']
-  GFLAGS = range(0, 4)
+  GFLAGS = [0, 1, 2, 3]
 
   @staticmethod
   def set_condition(inst, flag, value):
@@ -882,10 +883,10 @@ class InstDescriptor_BRANCH(InstDescriptor_COND):
 
       inst.is_reg = 0
 
-      if isinstance(v, int):
+      if isinstance(v, integer_types):
         inst.immediate = v
 
-      elif isinstance(v, str):
+      elif isinstance(v, string_types):
         inst.refers_to = v
 
     if cls is Inst_BE:
@@ -1381,7 +1382,7 @@ class Inst_DIV(InstDescriptor_Generic_Binary_R_RI):
       r.value = 0
 
     else:
-      r.value = x / y
+      r.value = x // y
 
     core.update_arith_flags(core.registers.map[inst.reg])
 
@@ -1396,7 +1397,7 @@ class Inst_UDIV(InstDescriptor_Generic_Binary_R_RI):
     x = u16(r.value).value
     y = u16(core.RI_VAL(inst)).value
 
-    r.value = x / y
+    r.value = x // y
 
     core.update_arith_flags(core.registers.map[inst.reg])
 

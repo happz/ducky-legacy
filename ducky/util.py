@@ -1,7 +1,8 @@
 import collections
 import functools
 import string
-import types
+
+from six import iteritems, integer_types, PY2
 
 from ctypes import sizeof, LittleEndianStructure
 
@@ -9,7 +10,7 @@ def align(boundary, n):
   return (n + boundary - 1) & ~(boundary - 1)
 
 def str2int(s):
-  if isinstance(s, types.IntType):
+  if isinstance(s, integer_types):
     return s
 
   if s.startswith('0x'):
@@ -80,87 +81,63 @@ UINT32_FMT = functools.partial(_F.format_int, 'L')
 ADDR_FMT   = functools.partial(_F.format_int, 'A')
 
 
-import __builtin__
-if not hasattr(__builtin__, 'orig_file'):
-  __builtin__.orig_file = None
-  __builtin__.orig_open = None
+if PY2:
+  _BaseFile = file  # noqa
+
+  bytes2str = str
+  str2bytes = str
+  int2bytes = chr
+
+else:
+  from io import IOBase as _BaseFile
+  import functools
+
+  bytes2str = functools.partial(str, encoding = 'latin-1')
+  str2bytes = functools.partial(bytes, encoding = 'latin-1')
+
+  def int2bytes(b):
+    return bytes([b])
 
 def isfile(o):
-  if isinstance(o, file):
-    return True
+  return isinstance(o, (_BaseFile, BinaryFile))
 
-  return hasattr(__builtin__, 'orig_file') and __builtin__.orig_file is not None and isinstance(o, __builtin__.orig_file)
 
-class FileOpenPatcher(object):
-  def __init__(self, logger):
-    self.logger = logger
-
-    self.old_file = None
-    self.old_open = None
-    self.open_files = None
-
-  def patch(self):
-    logger = self.logger
-
-    self.open_files = open_files = set()
-
-    self.old_file = old_file = __builtin__.orig_file = __builtin__.file
-    self.old_open = __builtin__.orig_open = __builtin__.open
-
-    class NewFile(old_file):
-      def __init__(self, *args):
-        old_file.__init__(self, *args)
-
-        open_files.add(self)
-        logger.debug('Opening file: %s', args[0])
-
-      def close(self):
-        try:
-          old_file.close(self)
-        except IOError:
-          logger.exception('Exception raised when closing a file: %s', self)
-
-        open_files.remove(self)
-        logger.debug('Closing file: %s', self)
-
-    def new_open(*args):
-      return NewFile(*args)
-
-    __builtin__.file = NewFile
-    __builtin__.open = new_open
-
-  def restore(self):
-    __builtin__.file = self.old_file
-    __builtin__.open = self.old_open
-
-    __builtin__.orig_file = None
-    __builtin__.orig_open = None
-
-  def has_open_files(self):
-    return len(self.open_files) > 0
-
-  def log_open_files(self):
-    self.logger.warn('Opened files: %i files were not closed', len(self.open_files))
-
-    for f in self.open_files:
-      self.logger.warn('  %s', repr(f))
-
-class BinaryFile(file):
+class BinaryFile(object):
   """
   Base class of all classes that represent "binary" files - binaries, core dumps.
   It provides basic methods for reading and writing structures.
   """
 
-  open_files = set()
+  @staticmethod
+  def do_open(logger, path, mode = 'rb', klass = None):
+    if 'b' not in mode:
+      mode += 'b'
 
-  def __init__(self, logger, *args, **kwargs):
-    if args[1] == 'w':
-      args = (args[0], 'wb')
+    stream = open(path, mode)
 
-    elif args[1] == 'r':
-      args = (args[0], 'rb')
+    if not PY2:
+      import io
 
-    super(BinaryFile, self).__init__(*args, **kwargs)
+      if 'r' in mode:
+        if 'w' in mode:
+          stream = io.BufferedRandom(stream)
+
+        else:
+          stream = io.BufferedReader(stream)
+
+      else:
+        stream = io.BufferedWriter(stream)
+
+    klass = klass or BinaryFile
+
+    return klass(logger, stream)
+
+  @staticmethod
+  def open(*args, **kwargs):
+    return BinaryFile.do_open(*args, **kwargs)
+
+  def __init__(self, logger, stream):
+    self.stream = stream
 
     self.DEBUG = logger.debug
     self.INFO = logger.info
@@ -168,17 +145,25 @@ class BinaryFile(file):
     self.ERROR = logger.error
     self.EXCEPTION = logger.exception
 
-    self.DEBUG('Opening file: %s', args[0])
-    BinaryFile.open_files.add(self)
+    self.close = stream.close
+    self.name = stream.name
+    self.read = stream.read
+    self.readinto = stream.readinto
+    self.readline = stream.readline
+    self.seek = stream.seek
+    self.tell = stream.tell
+    self.write = stream.write
 
-  def close(self):
-    try:
-      super(BinaryFile, self).close()
-    except IOError:
-      self.EXCEPTION('Exception raised when closing a file: %s', self)
+    self.setup()
 
-    self.DEBUG('Closing file: %s', repr(self))
-    BinaryFile.open_files.remove(self)
+  def __enter__(self):
+    return self
+
+  def __exit__(self, *args, **kwargs):
+    self.close()
+
+  def setup(self):
+    pass
 
   def read_struct(self, st_class):
     """
@@ -323,7 +308,8 @@ class StringTable(object):
 
     offset = len(self.buff)
 
-    self.buff += s + '\x00'
+    self.buff += chr(len(s))
+    self.buff += s
 
     return offset
 
@@ -336,17 +322,8 @@ class StringTable(object):
     :rtype: ``string``
     """
 
-    s = []
-
-    for i in xrange(offset, len(self.buff)):
-      c = self.buff[i]
-
-      if c == '\x00':
-        break
-
-      s.append(c)
-
-    return ''.join(s)
+    l = ord(self.buff[offset])
+    return ''.join(self.buff[offset + 1:offset + 1 + l])
 
 class SymbolTable(dict):
   def __init__(self, binary):
@@ -356,7 +333,7 @@ class SymbolTable(dict):
     last_symbol = None
     last_symbol_offset = 0xFFFE
 
-    for symbol_name, symbol in self.binary.symbols.iteritems():
+    for symbol_name, symbol in iteritems(self.binary.symbols):
       if symbol.address > address:
         continue
 

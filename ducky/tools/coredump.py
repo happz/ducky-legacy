@@ -2,6 +2,8 @@ import sys
 import optparse
 import string
 
+from six import itervalues
+
 from ..snapshot import CoreDumpFile
 from ..mm import ADDR_FMT, UINT16_FMT, UINT8_FMT, PAGE_SIZE, segment_addr_to_addr, addr_to_segment
 from ..mm.binary import SectionFlags, File, SectionTypes
@@ -29,7 +31,7 @@ def show_binaries(logger, state):
       ['Section', 'Address', 'Size', 'Flags', 'First page', 'Last page']
     ]
 
-    for rs in bs.get_children().itervalues():
+    for rs in itervalues(bs.get_children()):
       flags = SectionFlags.from_uint16(rs.flags)
 
       table.append([rs.name, ADDR_FMT(rs.address), rs.size, flags.to_string(), rs.pages_start, rs.pages_start + rs.pages_cnt - 1])
@@ -168,7 +170,7 @@ def show_pages(logger, state):
     logger.info('')
 
 def load_binary_symbols(logger, vs, bs):
-  bs.raw_binary = File(logger, bs.path, 'r')
+  bs.raw_binary = File.open(logger, bs.path, 'r')
   bs.raw_binary.load()
 
   bs.symbols = {}
@@ -218,7 +220,7 @@ def main():
 
   logger.info('Input file: %s', options.file_in)
 
-  with CoreDumpFile(logger, options.file_in, 'r') as f_in:
+  with CoreDumpFile.open(logger, options.file_in, 'r') as f_in:
     state = f_in.load()
 
     for bs in state.get_child('machine').get_binary_states():

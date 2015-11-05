@@ -1,3 +1,5 @@
+from six import itervalues
+
 from . import BlockVisitor
 from .. import J
 
@@ -19,7 +21,7 @@ class BlockTreeSimplifyVisitor(BlockVisitor):
         if len(block.outgoing) != 1:
           continue
 
-        next_block = block.outgoing.values()[0]
+        next_block = list(block.outgoing.values())[0]
 
         self.DEBUG(self.log_prefix + 'Block %s is empty, but is named - merging its names to the following block %s', block, next_block)
 
@@ -32,11 +34,11 @@ class BlockTreeSimplifyVisitor(BlockVisitor):
 
       fn.blocks.remove(block)
 
-      out_block = block.outgoing.values()[0] if block.outgoing else None
+      out_block = list(block.outgoing.values())[0] if block.outgoing else None
       if out_block is not None:
         del out_block.incoming[block.id]
 
-      for in_block in block.incoming.itervalues():
+      for in_block in itervalues(block.incoming):
         del in_block.outgoing[block.id]
         if out_block is not None:
           in_block.add_outgoing(out_block)

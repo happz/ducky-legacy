@@ -1,7 +1,9 @@
 import collections
 import enum
 import os
-import StringIO
+
+from six import iteritems, iterkeys, itervalues
+from six.moves import cStringIO as StringIO
 
 import ducky.cpu
 import ducky.util
@@ -17,7 +19,7 @@ def dump_node(node):
   return '%s(%s)%s' % (node.__class__.__name__, ', '.join(['%s=%s' % (name, getattr(node, name)) for name in dir(node) if not name.startswith('__') and name not in ignore]), ' [' + line + ']' if line is not None else '')
 
 def show_node(node):
-  buff = StringIO.StringIO()
+  buff = StringIO()
   node.show(buf = buff, attrnames = True)
   return buff.getvalue().strip()
 
@@ -239,11 +241,11 @@ class Register(object):
     else:
       self.visitor.DEBUG(self.visitor.log_prefix + 'Register.put: register acquired by storage, not free')
 
-    self.visitor.DEBUG(self.visitor.log_prefix + 'free regs: %s', self.set.free_regs.keys())
+    self.visitor.DEBUG(self.visitor.log_prefix + 'free regs: %s', list(iterkeys(self.set.free_regs)))
 
   def free(self):
     self.visitor.DEBUG(self.visitor.log_prefix + 'Register.free: reg=%s', self)
-    self.visitor.DEBUG(self.visitor.log_prefix + '  free regs: %s', self.set.free_regs.keys())
+    self.visitor.DEBUG(self.visitor.log_prefix + '  free regs: %s', list(iterkeys(self.set.free_regs)))
 
     if self.storage is not None:
       self.storage.spill_register(self.visitor)
@@ -270,9 +272,9 @@ class RegisterSet(object):
     self.DEBUG = self.visitor.DEBUG
 
   def save_callee_saves(self, block):
-    self.DEBUG(self.visitor.log_prefix + 'RegisterSet.save_callee_saves: used_regs=%s, callee_saves=%s', sorted([r.index for r in self.used_regs.keys()]), sorted(self.callee_saved_regs.keys()))
+    self.DEBUG(self.visitor.log_prefix + 'RegisterSet.save_callee_saves: used_regs=%s, callee_saves=%s', sorted([r.index for r in iterkeys(self.used_regs)]), sorted(list(iterkeys(self.callee_saved_regs))))
 
-    for reg in sorted(self.used_regs.keys(), key = lambda x: x.index):
+    for reg in sorted(list(iterkeys(self.used_regs)), key = lambda x: x.index):
       if reg.index not in self.callee_saved_regs:
         continue
 
@@ -280,9 +282,9 @@ class RegisterSet(object):
       block.emit(PUSH(reg.name))
 
   def restore_callee_saves(self, block):
-    self.DEBUG(self.visitor.log_prefix + 'RegisterSet.restore_callee_saves: used_regs=%s, callee_saves=%s', sorted([r.index for r in self.used_regs.keys()]), sorted(self.callee_saved_regs.keys()))
+    self.DEBUG(self.visitor.log_prefix + 'RegisterSet.restore_callee_saves: used_regs=%s, callee_saves=%s', sorted([r.index for r in iterkeys(self.used_regs)]), sorted(list(iterkeys(self.callee_saved_regs))))
 
-    for reg in reversed(sorted(self.used_regs.keys(), key = lambda x: x.index)):
+    for reg in reversed(sorted(list(iterkeys(self.used_regs)), key = lambda x: x.index)):
       if reg.index not in self.callee_saved_regs:
         continue
 
@@ -290,13 +292,13 @@ class RegisterSet(object):
 
   def get(self, preferred = None, keep = None):
     self.DEBUG(self.visitor.log_prefix + 'RegisterSet.get: preferred=%s, keep=%s', preferred, keep)
-    self.DEBUG(self.visitor.log_prefix + '  free regs: %s', self.free_regs.keys())
+    self.DEBUG(self.visitor.log_prefix + '  free regs: %s', list(iterkeys(self.free_regs)))
 
     if self.free_regs:
       selected = None
 
       if preferred is not None:
-        for i, reg in self.free_regs.iteritems():
+        for i, reg in iteritems(self.free_regs):
           self.DEBUG(self.visitor.log_prefix + '    consider %i: %s', i, reg)
           if i != preferred and reg != preferred:
             continue
@@ -305,7 +307,7 @@ class RegisterSet(object):
           break
 
       else:
-        selected = self.free_regs[sorted(self.free_regs.keys())[-1]]
+        selected = self.free_regs[sorted(list(iterkeys(self.free_regs)))[-1]]
 
       self.DEBUG(self.visitor.log_prefix + '  selected reg: %s', selected)
 
@@ -655,7 +657,7 @@ class Block(object):
     self.outgoing = {}
 
   def __repr__(self):
-    return 'Block(id=%i, names=%s, in=%s, out=%s%s)' % (self.id, ','.join(self.names), ','.join([str(block.id) for block in self.incoming.itervalues()]), ','.join([str(block.id) for block in self.outgoing.itervalues()]), (' (%s)' % self.comment) if self.comment is not None else '')
+    return 'Block(id=%i, names=%s, in=%s, out=%s%s)' % (self.id, ','.join(self.names), ','.join([str(block.id) for block in itervalues(self.incoming)]), ','.join([str(block.id) for block in itervalues(self.outgoing)]), (' (%s)' % self.comment) if self.comment is not None else '')
 
   def instructions(self):
     return [i for i in self.code if isinstance(i, Instruction)]
@@ -678,7 +680,7 @@ class Block(object):
 
   def materialize(self, code):
     code.append('')
-    code.append('  ; block: id=%s, names=%s, in=%s, out=%s%s' % (self.id, ', '.join(self.names), ', '.join([str(block.id) for block in self.incoming.itervalues()]), ', '.join([str(block.id) for block in self.outgoing.itervalues()]), (' (%s)' % self.comment) if self.comment is not None else ''))
+    code.append('  ; block: id=%s, names=%s, in=%s, out=%s%s' % (self.id, ', '.join(self.names), ', '.join([str(block.id) for block in itervalues(self.incoming)]), ', '.join([str(block.id) for block in itervalues(self.outgoing)]), (' (%s)' % self.comment) if self.comment is not None else ''))
 
     for name in self.names:
       code.append('%s:' % name)

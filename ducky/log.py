@@ -2,6 +2,8 @@ import colorama
 import logging
 import tabulate
 
+from six import print_
+
 LEVELS = {
   logging.DEBUG:    'DEBG',
   logging.INFO:     'INFO',
@@ -48,10 +50,10 @@ class LogFormatter(logging.Formatter):
     except Exception:
       import sys
       import traceback
-      print >> sys.stderr, 'Failure in formatter:'
-      print >> sys.stderr, 'record: ' + str(record)
-      print >> sys.stderr, 'message: ' + str(record.msg)
-      print >> sys.stderr, 'args: ' + str(record.args)
+      print_('Failure in formatter:', file = sys.stderr)
+      print_('record: ' + str(record), file = sys.stderr)
+      print_('message: ' + str(record.msg), file = sys.stderr)
+      print_('args: ' + str(record.args), file = sys.stderr)
       traceback.print_exc(file = sys.stderr)
       sys.exit(1)
 
