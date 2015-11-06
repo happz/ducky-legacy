@@ -1,6 +1,6 @@
 [run]
 branch = True
-omit = */python2.7/*
+omit = */python2.7/*, */python3.4/*
 
 [report]
 exclude_lines =

@@ -3,7 +3,7 @@
 set -x
 
 PASSED=yes
-VERSIONS="${VERSIONS:-2.7.10 3.4.3 3.5.0 pypy-2.5.0}"
+VERSIONS="${1:-2.7.10 3.4.3 3.5.0 pypy-2.5.0}"
 
 
 function run_tests () {
@@ -14,7 +14,7 @@ function run_tests () {
   [ "$mmap" = "yes" ] && mmap_postfix="-mmap"
 
   local pypy="no"
-  [ $interpret == pypy-* ] && pypy="yes"
+  [[ "$interpret" == pypy-* ]] && pypy="yes"
 
   pyenv global "$1"
 
@@ -23,11 +23,9 @@ function run_tests () {
   export PYPY="$pypy"
   export MMAPABLE_SECTIONS="$mmap"
 
-  make tests-interim-clean tests
+  make --keep-going tests-interim-clean tests run-hello-world run-hello-world-lib run-clock run-vga run-hello-world-screen
   [ $? -ne 0 ] && PASSED=no
 }
-
-make clean
 
 for version in $VERSIONS; do
   run_tests "$version" no

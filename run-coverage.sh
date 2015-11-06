@@ -1,23 +1,57 @@
 #!/bin/sh
 
-export Q=@
-export TESTSET=coverage-python
-export VMCOVERAGE=yes
-export VMDEBUG_OPEN_FILES=yes
+set -x
 
-make clean tests-pre
+VERSIONS="${1:-2.7.10 3.4.3}"
 
-export MMAPABLE_SECTIONS=yes
-make tests-in-subdirs run-hello-world run-clock run-hello-world-lib run-vga run-hello-world-screen
+function run_tests () {
+  local interpret="$1"
 
-make clean-master clean-in-subdirs
+  local pypy="no"
+  [ $interpret == pypy-* ] && pypy="yes"
 
-export MMAPABLE_SECTIONS=
-make tests-in-subdirs run-hello-world run-clock run-hello-world-lib run-vga run-hello-world-screen
+  pyenv global "$1"
 
-make tests-post tests-submit-results
+  export Q=@
+  export TESTSET=coverage-${interpret}
+  export VMCOVERAGE=yes
 
-if [ -f ./.coveralls-token ]; then
-  source ./.coveralls-token
-  coveralls --config_file coveragerc --data_file tests-coverage-python/coverage/.coverage
+  make tests-interim-clean tests-pre
+
+  export MMAPABLE_SECTIONS=
+  make tests-in-subdirs run-hello-world run-clock run-hello-world-lib run-vga run-hello-world-screen
+
+  make tests-interim-clean
+
+  export MMAPABLE_SECTIONS=yes
+  make tests-in-subdirs run-hello-world run-clock run-hello-world-lib run-vga run-hello-world-screen
+
+  make tests-post tests-submit-results
+}
+
+if [ "$1" = "--submit" ]; then
+  rm -rf tests-coverage
+  mkdir tests-coverage
+
+  for f in `find tests-coverage-* -name '.coverage'`; do
+    cp $f tests-coverage/.coverage.`echo $(dirname $f) | sed 's/\//-/g'`
+  done
+
+  pushd tests-coverage
+    coverage combine --rcfile=../coveragerc
+  popd
+
+  if [ -f ./.coveralls-token ]; then
+    source ./.coveralls-token
+  fi
+
+  coveralls --config_file coveragerc --data_file tests-coverage/.coverage
+else
+  for version in $VERSIONS; do
+    run_tests "$version"
+  done
 fi
+
+set +x
+
+exit 0
