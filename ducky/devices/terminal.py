@@ -109,8 +109,8 @@ class StandalonePTYTerminal(StreamIOTerminal):
 
     self.machine.DEBUG('  set I/O stream: pttys=%s', pttys)
 
-    self.input.enqueue_input(pttys[0])
-    self.output.set_output(pttys[0])
+    self.input.enqueue_input(InputStream.create(self.machine.LOGGER, pttys[0]))
+    self.output.set_output(OutputStream.create(self.machine.LOGGER, pttys[0]))
 
     self.terminal_device = os.ttyname(pttys[1]) if pttys else '/dev/unknown'
 
