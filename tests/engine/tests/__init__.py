@@ -22,8 +22,8 @@ try:
 except ImportError:
   import mock  # noqa
 
-def get_tempfile():
-  return tempfile.NamedTemporaryFile('w+b', delete = False, dir = os.path.join(os.getenv('TESTSETDIR'), 'tmp'))
+def get_tempfile(keep = True):
+  return tempfile.NamedTemporaryFile('w+b', delete = not keep, dir = os.path.join(os.getenv('TESTSETDIR'), 'tmp'))
 
 def prepare_file(size, messages = None, pattern = 0xDE):
   f_tmp = get_tempfile()
