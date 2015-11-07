@@ -9,7 +9,7 @@ vga: vga.o
 
 build: vga
 
-run:
+run: build
 	$(Q) echo "[RUN] $(EXAMPLE) ..."
 	$(Q) COVERAGE_FILE=$(shell if [ "$(VMCOVERAGE)" = "yes" ]; then echo "$(TESTSETDIR)/coverage/.coverage.$(EXAMPLE).$(DB_PID)"; else echo ""; fi) \
 	     $(PYTHON) $(VMCOVERAGE_RUN) $(DVM) $(VMDEBUG) $(VMDEBUG_OPEN_FILES) \
@@ -17,6 +17,12 @@ run:
 			 --set-option=machine:interrupt-routines=$(INTERRUPTS) \
 			 --set-option=binary-0:file=$(CURDIR)/vga \
 			 -g
+
+tests-pre: build
+
+tests: run
+
+tests-post:
 
 clean:
 	$(Q) rm -f vga.o vga

@@ -9,7 +9,7 @@ hello-world: hello-world.o
 
 build: hello-world
 
-run:
+run: build
 	$(Q) echo "[RUN] $(EXAMPLE) ..."
 	$(Q) COVERAGE_FILE=$(shell if [ "$(VMCOVERAGE)" = "yes" ]; then echo "$(TESTSETDIR)/coverage/.coverage.$(EXAMPLE).$(DB_PID)"; else echo ""; fi) \
 	     $(PYTHON) $(VMCOVERAGE_RUN) $(DVM) $(VMDEBUG) $(VMDEBUG_OPEN_FILES) \
@@ -18,7 +18,7 @@ run:
 			 --set-option=binary-0:file=$(CURDIR)/hello-world \
 			 -g
 
-run-screen:
+run-screen: build
 	$(Q) echo "[RUN] $(EXAMPLE) ..."
 	$(Q) COVERAGE_FILE=$(shell if [ "$(VMCOVERAGE)" = "yes" ]; then echo "$(TESTSETDIR)/coverage/.coverage.$(EXAMPLE)-screen.$(DB_PID)"; else echo ""; fi) \
 	     $(PYTHON) $(VMCOVERAGE_RUN) $(DVM) $(VMDEBUG) $(VMDEBUG_OPEN_FILES) \
@@ -26,8 +26,14 @@ run-screen:
 			 --set-option=machine:interrupt-routines=$(INTERRUPTS) \
 			 --set-option=binary-0:file=$(CURDIR)/hello-world \
 			 --set-option=device-3:driver=ducky.devices.terminal.StandalonePTYTerminal \
-			 -g
+			 -g \
+			 || touch $(TESTSET_FAILED)
 
+tests-pre: build
+
+tests: run run-screen
+
+tests-post:
 
 clean:
 	$(Q) rm -f hello-world.o hello-world

@@ -23,7 +23,7 @@ function run_tests () {
   export PYPY="$pypy"
   export MMAPABLE_SECTIONS="$mmap"
 
-  make --keep-going tests-interim-clean tests run-hello-world run-hello-world-lib run-clock run-vga run-hello-world-screen
+  make --keep-going tests-interim-clean tests
   [ $? -ne 0 ] && PASSED=no
 }
 
