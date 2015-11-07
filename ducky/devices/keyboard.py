@@ -110,7 +110,7 @@ class KeyboardController(IRQProvider, IOProvider, Device):
 
     assert self.input is not False
 
-    buff = self.input.read_u8(size = io.DEFAULT_BUFFER_SIZE)
+    buff = self.input.read(size = io.DEFAULT_BUFFER_SIZE)
     self.machine.DEBUG('KeyboardController.handle_raw_input: buff=%s (%s)', buff, type(buff))
 
     if buff is None:

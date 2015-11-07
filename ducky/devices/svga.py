@@ -7,7 +7,6 @@ import array
 import enum
 import functools
 
-from six import print_
 from six.moves import range
 
 from ctypes import c_ushort, LittleEndianStructure
@@ -15,8 +14,9 @@ from ctypes import c_ushort, LittleEndianStructure
 from . import Device, IOProvider
 from ..errors import InvalidResourceError
 from ..mm import PAGE_SIZE, ExternalMemoryPage, addr_to_page, UInt8
-from ..util import sizeof_fmt, F, UINT16_FMT, ADDR_FMT
+from ..util import sizeof_fmt, F, UINT16_FMT, ADDR_FMT, str2bytes
 from ..reactor import RunInIntervalTask
+from ..streams import OutputStream
 
 #: Default address of command port
 DEFAULT_PORT_RANGE = 0x3F0
@@ -45,10 +45,13 @@ class Mode(object):
     self.height = height
     self.depth = depth
 
-    self.required_memory = self.width * self.height * (self.depth if self.type == 't' else self.depth / 8)
+    self.required_memory = self.width * self.height * (self.depth if self.type == 't' else self.depth // 8)
 
   def __cmp__(self, other):
     return self.type == other.type and self.width == other.width and self.height == other.height and self.depth == other.depth
+
+  def __eq__(self, other):
+    return self.__cmp__(other)
 
   def __repr__(self):
     return self.to_string()
@@ -126,6 +129,8 @@ class DisplayRefreshTask(RunInIntervalTask):
     self.display = display
     self.first_tick = True
 
+    self.write = display.stream_out.write
+
   def on_tick(self, task):
     self.display.machine.DEBUG('Display: refresh display')
 
@@ -164,24 +169,28 @@ class DisplayRefreshTask(RunInIntervalTask):
 
         screen.append(''.join(line))
 
+      def __line(l):
+        return [ord(c) for c in l] + [ord('\n')]
+
       if self.first_tick:
         self.first_tick = False
       else:
-        print_(F('\033[{rows:d}F', rows = mode.height + 3))
+        self.write(__line(F('\033[{rows:d}F', rows = mode.height + 3)))
 
-      print_('-' * mode.width)
+      self.write(__line('-' * mode.width))
       for line in screen:
-        print_(line)
-      print_('-' * mode.width)
+        self.write(__line(line))
+      self.write(__line('-' * mode.width))
 
     else:
       self.display.machine.WARN(F('Unhandled gpu mode: mode={mode}', mode = gpu.active_mode))
 
 class Display(Device):
-  def __init__(self, machine, name, gpu = None, *args, **kwargs):
+  def __init__(self, machine, name, gpu = None, stream_out = None, *args, **kwargs):
     super(Display, self).__init__(machine, 'display', name, *args, **kwargs)
 
     self.gpu = gpu
+    self.stream_out = stream_out
 
     self.gpu.master = self
 
@@ -200,8 +209,9 @@ class Display(Device):
   @staticmethod
   def create_from_config(machine, config, section):
     gpu = Display.get_slave_gpu(machine, config, section)
+    stream_out =  OutputStream.create(machine.LOGGER, config.get(section, 'stream_out', '<stdout>'))
 
-    return Display(machine, section, gpu = gpu)
+    return Display(machine, section, gpu = gpu, stream_out = stream_out)
 
   def boot(self):
     self.machine.DEBUG('Display.boot')
@@ -212,7 +222,7 @@ class Display(Device):
     self.machine.reactor.add_task(self.refresh_task)
     self.machine.reactor.task_runnable(self.refresh_task)
 
-    self.machine.INFO(F('display: generic {name} connected to gpu {gpu}', name = self.name, gpu = self.gpu.name))
+    self.machine.INFO(F('display: generic {name} connected to gpu {gpu}, output stream {stream}', name = self.name, gpu = self.gpu.name, stream = self.stream_out))
 
   def halt(self):
     self.machine.DEBUG('Display.halt')
@@ -284,7 +294,7 @@ class SimpleVGA(IOProvider, Device):
     if self.memory_size % PAGE_SIZE:
       raise InvalidResourceError('sVGA device memory size must be page-aligned')
 
-    if (self.memory_size / self.memory_banks) % PAGE_SIZE:
+    if (self.memory_size // self.memory_banks) % PAGE_SIZE:
       raise InvalidResourceError('sVGA device memory bank size must be page-aligned')
 
     self.active_mode = None
@@ -298,8 +308,8 @@ class SimpleVGA(IOProvider, Device):
         raise InvalidResourceError(F('Not enough memory for mode: mode={mode}, required={bytes_required:d} bytes, available={bytes_available:d} bytes', mode = mode, bytes_required = mode.required_memory, bytes_available = self.memory_size))
 
     self.memory = self.data = array.array('B', [0 for _ in range(0, self.memory_size)])
-    self.bank_offsets = list(range(0, self.memory_size, self.memory_size / self.memory_banks))
-    self.pages_per_bank = self.memory_size / PAGE_SIZE / self.memory_banks
+    self.bank_offsets = list(range(0, self.memory_size, self.memory_size // self.memory_banks))
+    self.pages_per_bank = self.memory_size // PAGE_SIZE // self.memory_banks
 
     self.machine.DEBUG(F('sVGA: memory-size={memory_size:d}, memory-banks={memory_banks:d}, offsets=[{bank_offsets}], pages-per-bank={pages_per_bank:d}, address={address:A}', memory_size = self.memory_size, memory_banks = self.memory_banks, bank_offsets = ', '.join([ADDR_FMT(o) for o in self.bank_offsets]), pages_per_bank = self.pages_per_bank, address = self.memory_address))
 

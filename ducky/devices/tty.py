@@ -41,7 +41,7 @@ class TTY(IOProvider, Device):
     if port not in self.ports:
       raise InvalidResourceError('Unhandled port: %s', UINT16_FMT(port))
 
-    self.output.write_u8([value])
+    self.output.write([value])
 
   def boot(self):
     self.machine.DEBUG('TTY.boot')
