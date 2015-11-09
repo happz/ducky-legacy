@@ -184,7 +184,7 @@ class StdinStream(InputStream):
     stream = sys.stdin.buffer if hasattr(sys.stdin, 'buffer') else sys.stdin
     fd = sys.stdin.fileno() if hasattr(sys.stdin, 'fileno') else None
 
-    super(StdinStream, self).__init__(logger, '<stdin>', stream = sys.stdin.buffer, fd = sys.stdin.fileno(), close = False, **kwargs)
+    super(StdinStream, self).__init__(logger, '<stdin>', stream = stream, fd = fd, close = False, **kwargs)
 
 class OutputStream(Stream):
   def read(self, size = None):
