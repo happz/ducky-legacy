@@ -17,10 +17,13 @@ run: simple-loop
 	     $(PYTHON) $(VMCOVERAGE_RUN) $(DVM) $(VMDEBUG) \
 			 --machine-config=$(CURDIR)/simple-loop.conf \
 			 --set-option=machine:interrupt-routines=$(INTERRUPTS) \
-			 --set-option=binary-0:file=$(CURDIR)/simple-loop \
-			 -g 2>&1 | stdbuf -oL -eL tee $(TC_MACHINE) &> /dev/null \
-			 || touch $(TESTSET_FAILED);
-	$(Q) echo "$(CC_GREEN)`grep 'Executed instructions' $(TC_MACHINE) | awk '{print $$5, $$6, $$7}'`$(CC_END)"
+			 --set-option=binary-0:file=$(CURDIR)/simple-loop -g &> $(TC_MACHINE); \
+			 if [[ $$? -ne 0 ]]; then \
+			   touch $(TESTSET_FAILED); \
+				 echo "$(CC_RED)FAIL$(CC_END)"; \
+			 else \
+			   echo "$(CC_GREEN)`grep 'Executed instructions' $(TC_MACHINE) | awk '{print $$5, $$6, $$7}'`$(CC_END)"; \
+			 fi;
 
 tests-pre:
 

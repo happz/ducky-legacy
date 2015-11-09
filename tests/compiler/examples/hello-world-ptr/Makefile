@@ -42,19 +42,24 @@ tests: build
 			  --set-device-option=device-3:stream_out=$(TC_OUT) \
 			  $(foreach device,$(DUCKY_ENABLE_DEVICES),--enable-device=$(device)) \
 			  $(foreach device,$(DUCKY_DISABLE_DEVICES),--disable-device=$(device)) \
-	 	 	  $(VMDEBUG) $(VMDEBUG_OPEN_FILES) 2>&1 | stdbuf -oL -eL tee $(TC_MACHINE) | grep -v -e '\[INFO\] ' -e '#> ' | cat &> /dev/null \
-				|| touch $(TESTSET_FAILED);
-	-$(Q) if [ -f $(TC_EXPECTED) ]; then diff -u $(TC_EXPECTED) $(TC_OUT) | cat &> $(TC_DIFF); fi
-	-$(Q) if [ ! -s $(TC_FILTERED) ] && ([ ! -f $(TC_DIFF) ] || [ ! -s $(TC_DIFF) ]); then \
-	        $(XUNIT) --add --file=$(TC_RESULTS) --ts=$(TC_TESTSUITE) --name=$(TC_NAME) --classname=$<; \
-					echo "$(CC_GREEN)PASS$(CC_END)"; \
-				else \
-				  [ -f $(TC_FILTERED) ] && cat $(TC_FILTERED) >> $(TC_TMPFILE); \
-					[ -f $(TC_DIFF) ] && cat $(TC_DIFF) >> $(TC_TMPFILE); \
-					$(XUNIT) --add --file=$(TC_RESULTS) --ts=$(TC_TESTSUITE) --name=$(TC_NAME) --classname=$< --result=fail --message="Failed aserts" --diff=$(TC_TMPFILE); \
-					echo "$(CC_RED)FAIL$(CC_END)"; \
-					sed 's/^/  /' $(TC_TMPFILE); \
+	 	 	  $(VMDEBUG) $(VMDEBUG_OPEN_FILES) &> $(TC_MACHINE); \
+				if [[ $$? -ne 0 ]]; then \
+				  $(XUNIT) --add --file=$(TC_RESULTS) --ts=$(TC_TESTSUITE) --name=$(TC_NAME) --classname=$< --result=fail --message="Unexpected exit code" --diff=$(TC_MACHINE); \
 					touch $(TESTSET_FAILED); \
+					echo "$(CC_RED)FAIL$(CC_END)"; \
+				else \
+				  if [ -f $(TC_EXPECTED) ]; then diff -u $(TC_EXPECTED) $(TC_OUT) &> $(TC_DIFF) || /bin/true; fi; \
+					if [ ! -s $(TC_FILTERED) ] && ([ ! -f $(TC_DIFF) ] || [ ! -s $(TC_DIFF) ]); then \
+					  $(XUNIT) --add --file=$(TC_RESULTS) --ts=$(TC_TESTSUITE) --name=$(TC_NAME) --classname=$<; \
+						echo "$(CC_GREEN)PASS$(CC_END)"; \
+					else \
+					  [ -f $(TC_FILTERED) ] && cat $(TC_FILTERED) >> $(TC_TMPFILE); \
+					  [ -f $(TC_DIFF) ] && cat $(TC_DIFF) >> $(TC_TMPFILE); \
+					  $(XUNIT) --add --file=$(TC_RESULTS) --ts=$(TC_TESTSUITE) --name=$(TC_NAME) --classname=$< --result=fail --message="Failed aserts" --diff=$(TC_TMPFILE); \
+						sed 's/^/  /' $(TC_TMPFILE); \
+						touch $(TESTSET_FAILED); \
+					  echo "$(CC_RED)FAIL$(CC_END)"; \
+					fi; \
 				fi;
 	-$(Q) rm -f $(TC_TMPFILE)
 

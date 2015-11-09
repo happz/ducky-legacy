@@ -33,21 +33,19 @@ endif
 	-$(Q) echo -n "$(CC_YELLOW)[TEST]$(CC_END) Compiler $(TC_NAME) ... "
 	-$(Q) $(VMCOVERAGE_FILE) \
 	      $(PYTHON) $(VMCOVERAGE_RUN) $(DCC) \
-				-i $< -o $(TC_OUT) -O0 -q \
-				$(VMDEBUG) &> $(TC_OUTPUT) \
-				|| touch $(TESTSET_FAILED); \
-				if [ "$$?" = "0" ]; then \
+				-i $< -o $(TC_OUT) -O0 -q $(VMDEBUG) &> $(TC_OUTPUT); \
+				if [[ $$? -eq 0 ]]; then \
 				  if [ -f $(TC_EXPECTED) ]; then \
 					  sed '/^  ;.*$$/d' $(TC_OUT) > $(TC_TMPFILE); \
-						diff -u $(TC_EXPECTED) $(TC_TMPFILE) | cat &> $(TC_DIFF); \
+						diff -u $(TC_EXPECTED) $(TC_TMPFILE) &> $(TC_DIFF) || /bin/true; \
 					fi; \
 					if [ ! -f $(TC_DIFF) ] || [ ! -s $(TC_DIFF) ]; then \
 					  $(XUNIT) --add --file=$(TC_RESULTS) --ts=$(TC_TESTSUITE) --name=$(TC_NAME) --classname=$<; \
 						echo "$(CC_GREEN)PASS$(CC_END)"; \
 					else \
 					  $(XUNIT) --add --file=$(TC_RESULTS) --ts=$(TC_TESTSUITE) --name=$(TC_NAME) --classname=$< --result=fail --message="Unexpected output" --diff=$(TC_DIFF); \
-						echo "$(CC_RED)FAIL$(CC_END)"; \
 						touch $(TESTSET_FAILED); \
+						echo "$(CC_RED)FAIL$(CC_END)"; \
 					fi; \
 				else \
 				  if [ -f $(TC_FAIL) ]; then \
@@ -58,5 +56,6 @@ endif
 						echo "$(CC_RED)FAIL$(CC_END)"; \
 						touch $(TESTSET_FAILED); \
 					fi; \
-				fi;
+				fi; \
+				exit 0;
 	-$(Q) rm -f $(TC_TMPFILE)

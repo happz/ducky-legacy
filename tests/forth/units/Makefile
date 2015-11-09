@@ -25,38 +25,45 @@ ifeq ($(VMCOVERAGE),yes)
 else
 	$(eval VMCOVERAGE_FILE := )
 endif
-	-$(Q) echo -n "$(CC_YELLOW)[TEST]$(CC_END) FORTH $(TC_NAME) ... "
-	-$(Q) PYTHONUNBUFFERED=yes \
-	      $(VMCOVERAGE_FILE) \
-	      $(PYTHON) $(VMCOVERAGE_RUN) $(DVM) \
-				$(VMPROFILE) \
-				$(BINPROFILE) -g \
-				--machine-config=$(TC_CONFIG) \
-				--set-option=machine:interrupt-routines=$(INTERRUPTS) \
-				--set-option=binary-0:file=$(FORTH_KERNEL) \
-				--set-device-option=device-3:streams_in=$(CURDIR)/../enable-test-mode.f \
-				--add-device-option=device-3:streams_in=$(TOPDIR)/forth/ducky-forth.f \
-				--add-device-option=device-3:streams_in=$(CURDIR)/../ans/tester.fr \
-				--add-device-option=device-3:streams_in=$< \
-				--add-device-option=device-3:streams_in=$(CURDIR)/../run-test-word.f \
-				--set-device-option=device-3:stream_out=$(TC_OUTPUT) \
-				$(foreach device,$(DUCKY_ENABLE_DEVICES),--enable-device=$(device)) \
-				$(foreach device,$(DUCKY_DISABLE_DEVICES),--disable-device=$(device)) \
-				$(VMDEBUG) $(VMDEBUG_OPEN_FILES) 2>&1 | stdbuf -oL -eL tee $(TC_MACHINE) | grep -v -e '\[INFO\] ' -e '#> ' | cat &> /dev/null \
-				|| touch $(TESTSET_FAILED)
-	-$(Q) grep -e 'INCORRECT RESULT' -e 'WRONG NUMBER OF RESULTS' $(TC_OUTPUT) | cat > $(TC_FILTERED) || /bin/true
-	-$(Q) if [ -f $(TC_EXPECTED) ]; then diff -u $(TC_EXPECTED) $(TC_OUTPUT) | cat &> $(TC_DIFF); fi
-	-$(Q) if [ ! -s $(TC_FILTERED) ] && ([ ! -f $(TC_DIFF) ] || [ ! -s $(TC_DIFF) ]); then \
-	        $(XUNIT) --add --file=$(TC_RESULTS) --ts=$(TC_TESTSUITE) --name=$(TC_NAME) --classname=$<; \
-					echo "$(CC_GREEN)PASS$(CC_END)"; \
-				else \
-				  [ -f $(TC_FILTERED) ] && cat $(TC_FILTERED) >> $(TC_TMPFILE); \
-					[ -f $(TC_DIFF) ] && cat $(TC_DIFF) >> $(TC_TMPFILE); \
-					$(XUNIT) --add --file=$(TC_RESULTS) --ts=$(TC_TESTSUITE) --name=$(TC_NAME) --classname=$< --result=fail --message="Failed aserts" --diff=$(TC_TMPFILE); \
-					echo "$(CC_RED)FAIL$(CC_END)"; \
-					sed 's/^/  /' $(TC_TMPFILE); \
-					touch $(TESTSET_FAILED); \
-				fi;
+	$(Q) echo -n "$(CC_YELLOW)[TEST]$(CC_END) FORTH $(TC_NAME) ... "
+	$(Q) PYTHONUNBUFFERED=yes \
+	     $(VMCOVERAGE_FILE) \
+	     $(PYTHON) $(VMCOVERAGE_RUN) $(DVM) \
+			 $(VMPROFILE) \
+			 $(BINPROFILE) -g \
+			 --machine-config=$(TC_CONFIG) \
+			 --set-option=machine:interrupt-routines=$(INTERRUPTS) \
+			 --set-option=binary-0:file=$(FORTH_KERNEL) \
+			 --set-device-option=device-3:streams_in=$(CURDIR)/../enable-test-mode.f \
+			 --add-device-option=device-3:streams_in=$(TOPDIR)/forth/ducky-forth.f \
+			 --add-device-option=device-3:streams_in=$(CURDIR)/../ans/tester.fr \
+			 --add-device-option=device-3:streams_in=$< \
+			 --add-device-option=device-3:streams_in=$(CURDIR)/../run-test-word.f \
+			 --set-device-option=device-3:stream_out=$(TC_OUTPUT) \
+			 $(foreach device,$(DUCKY_ENABLE_DEVICES),--enable-device=$(device)) \
+			 $(foreach device,$(DUCKY_DISABLE_DEVICES),--disable-device=$(device)) \
+			 $(VMDEBUG) $(VMDEBUG_OPEN_FILES) &> $(TC_MACHINE); \
+			 if [[ $$? -ne 0 ]]; then \
+			   $(XUNIT) --add --file=$(TC_RESULTS) --ts=$(TC_TESTSUITE) --name=$(TC_NAME) --classname=$< --result=fail --message="Invalid exit code" --diff=$(TC_MACHINE); \
+			   touch $(TESTSET_FAILED); \
+				 echo "$(CC_RED)FAIL$(CC_END)"; \
+			 else \
+			   grep -v -e '\[INFO\] ' -e '#> ' $(TC_MACHINE) || /bin/true; \
+				 grep -e 'INCORRECT RESULT' -e 'WRONG NUMBER OF RESULTS' $(TC_OUTPUT) > $(TC_FILTERED) || /bin/true; \
+				 if [ -f $(TC_EXPECTED) ]; then diff -u $(TC_EXPECTED) $(TC_OUTPUT) &> $(TC_DIFF) || /bin/true; fi; \
+				 if [ ! -s $(TC_FILTERED) ] && ([ ! -f $(TC_DIFF) ] || [ ! -s $(TC_DIFF) ]); then \
+				   $(XUNIT) --add --file=$(TC_RESULTS) --ts=$(TC_TESTSUITE) --name=$(TC_NAME) --classname=$<; \
+					 echo "$(CC_GREEN)PASS$(CC_END)"; \
+				 else \
+				   [ -f $(TC_FILTERED) ] && cat $(TC_FILTERED) >> $(TC_TMPFILE); \
+					 [ -f $(TC_DIFF) ] && cat $(TC_DIFF) >> $(TC_TMPFILE); \
+					 $(XUNIT) --add --file=$(TC_RESULTS) --ts=$(TC_TESTSUITE) --name=$(TC_NAME) --classname=$< --result=fail --message="Failed aserts" --diff=$(TC_TMPFILE); \
+					 sed 's/^/  /' $(TC_TMPFILE); \
+					 touch $(TESTSET_FAILED); \
+					 echo "$(CC_RED)FAIL$(CC_END)"; \
+				 fi; \
+			 fi; \
+			 exit 0;
 	-$(Q) rm -f $(TC_TMPFILE)
 
 tests-post:
