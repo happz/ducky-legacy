@@ -135,9 +135,6 @@ class InputStream(Stream):
 
       buff = self._raw_read(size = size)
 
-      if isinstance(buff, str):
-        buff = bytes(buff, 'latin-1')
-
       return buff
 
   def write(self, b):
