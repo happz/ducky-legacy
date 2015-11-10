@@ -254,7 +254,6 @@ ifeq ($(VMCOVERAGE),yes)
 endif
 
 tests-post: tests-post-master
-	$(Q) $(MAKE) -C tests/ tests-post
 	$(Q) echo "$(CC_GREEN)Avg # of instructions: `grep Executed $(shell find $(TESTSETDIR) -name '*.machine') | awk '{print $$5, " ", $$6}' | python tests/sum`/sec$(CC_END)"
 
 tests-submit-results:
