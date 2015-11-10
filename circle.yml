@@ -24,7 +24,7 @@ test:
     - ./run-testsuite.sh 3.4.3
     - ./run-testsuite.sh 3.5.0
     - ./run-testsuite.sh pypy-2.5.0
-    - make clean
-    - ./run-coverage.sh 2.7.10
-    - ./run-coverage.sh 3.4.3
-    - ./run-coverage.sh --submit
+#    - make clean
+#    - ./run-coverage.sh 2.7.10
+#    - ./run-coverage.sh 3.4.3
+#    - ./run-coverage.sh --submit
