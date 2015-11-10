@@ -19,14 +19,14 @@ function run_tests () {
   make tests-interim-clean tests-pre
 
   export MMAPABLE_SECTIONS=
-  make tests-in-subdirs run-hello-world run-clock run-hello-world-lib run-vga run-hello-world-screen
+  make tests-in-subdirs
 
   make tests-interim-clean
 
   export MMAPABLE_SECTIONS=yes
-  make tests-in-subdirs run-hello-world run-clock run-hello-world-lib run-vga run-hello-world-screen
+  make tests-in-subdirs
 
-  make tests-post tests-submit-results
+  make tests-post
 }
 
 if [ "$1" = "--submit" ]; then
