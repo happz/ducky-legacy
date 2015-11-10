@@ -16,7 +16,7 @@ import sys
 from six import PY2, integer_types, string_types, add_metaclass
 
 from .errors import InvalidResourceError
-from .util import isfile, bytes2str
+from .util import isfile
 
 @add_metaclass(abc.ABCMeta)
 class Stream(object):

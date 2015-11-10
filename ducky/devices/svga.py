@@ -14,7 +14,7 @@ from ctypes import c_ushort, LittleEndianStructure
 from . import Device, IOProvider
 from ..errors import InvalidResourceError
 from ..mm import PAGE_SIZE, ExternalMemoryPage, addr_to_page, UInt8
-from ..util import sizeof_fmt, F, UINT16_FMT, ADDR_FMT, str2bytes
+from ..util import sizeof_fmt, F, UINT16_FMT, ADDR_FMT
 from ..reactor import RunInIntervalTask
 from ..streams import OutputStream
 
