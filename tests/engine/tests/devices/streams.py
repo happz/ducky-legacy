@@ -1,6 +1,6 @@
 import sys
 
-from . import TestCase, get_tempfile
+from .. import TestCase, get_tempfile
 
 import ducky.errors
 import ducky.streams
