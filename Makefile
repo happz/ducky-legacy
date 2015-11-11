@@ -334,3 +334,6 @@ install-edit:
 uninstall:
 	$(Q) rm -rf $(shell find $(VIRTUAL_ENV) -name 'ducky-*' -type d)
 	$(Q) rm -f  $(shell find $(VIRTUAL_ENV) -name 'ducky.egg-link')
+
+publish:
+	$(Q) python setup.py sdist upload
