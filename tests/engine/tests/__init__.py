@@ -73,10 +73,10 @@ def assert_flags(state, **flags):
   assert real_flags.o == flags.get('o', 0), 'O flag expected to be {}'.format(flags.get('o', 0))
   assert real_flags.s == flags.get('s', 0), 'S flag expected to be {}'.format(flags.get('s', 0))
 
-def assert_mm(state, **cells):
-  for addr, expected_value in iteritems(cells):
-    addr = ducky.util.str2int(addr)
-    expected_value = ducky.util.str2int(expected_value)
+def assert_mm(state, cells):
+  for addr, expected_value in cells:
+    addr = addr
+    expected_value = expected_value
     page_index = ducky.mm.addr_to_page(addr)
     page_offset = ducky.mm.addr_to_offset(addr)
 
@@ -104,6 +104,18 @@ def assert_file_content(filename, cells):
       real_value = ord(f.read(1))
       assert real_value == cell_value, 'Value at {} (file {}) should be {}, {} found instead'.format(cell_offset, filename, ducky.mm.UINT8_FMT(cell_value), ducky.mm.UINT8_FMT(real_value))
 
+def common_asserts(M, S, mm_asserts = None, file_asserts = None, **kwargs):
+  mm_asserts = mm_asserts or {}
+  file_asserts = file_asserts or []
+
+  assert_registers(S.get_child('machine').get_child('core0'), **kwargs)
+  assert_flags(S.get_child('machine').get_child('core0'), **kwargs)
+
+  assert_mm(S.get_child('machine').get_child('memory'), mm_asserts)
+
+  for filename, cells in file_asserts:
+    assert_file_content(filename, cells)
+
 def compile_code(code):
   f_asm = get_tempfile()
   print_(f_asm)
@@ -125,7 +137,9 @@ def compile_code(code):
 
   return f_bin_name
 
-def run_machine(code = None, binary = None, machine_config = None, coredump_file = None, post_boot = None, post_run = None):
+def run_machine(code = None, binary = None, machine_config = None, coredump_file = None, pokes = None, post_setup = None, post_boot = None, post_run = None, **kwargs):
+  pokes = pokes or []
+  post_setup = post_setup or []
   post_boot = post_boot or []
   post_run = post_run or []
 
@@ -134,35 +148,54 @@ def run_machine(code = None, binary = None, machine_config = None, coredump_file
   if os.getenv('VMDEBUG') == 'yes':
     M.LOGGER.setLevel(logging.DEBUG)
 
-  if code is not None:
-    binary_path = compile_code(code)
+  if binary is None and code is not None:
+    binary = compile_code(code)
 
-  else:
-    binary_path = binary
-
-  machine_config.add_section('binary-0')
-  machine_config.set('binary-0', 'file', binary_path)
+  if binary is not None:
+    machine_config.add_section('binary-0')
+    machine_config.set('binary-0', 'file', binary)
 
   M.hw_setup(machine_config)
+
+  if not all([fn(M) in (True, None) for fn in post_setup]):
+    if code is not None:
+      os.unlink(binary)
+
+    return M
+
   M.boot()
 
-  for fn in post_boot:
-    fn(M)
+  if code is not None:
+    os.unlink(binary)
+
+  if not all([fn(M) in (True, None) for fn in post_boot]):
+    return M
+
+  for address, value, length in pokes:
+    M.poke(address, value, length)
 
   M.run()
-
-  if code is not None:
-    os.unlink(binary_path)
 
   for fn in post_run:
     fn(M, M.last_state)
 
-def common_run_machine(code = None, binary = None, machine_config = None, cpus = 1, cores = 1, irq_routines = 'tests/instructions/interrupts-basic', post_boot = None, post_run = None):
+  return M
+
+def common_run_machine(code = None, binary = None, machine_config = None,
+                       cpus = 1, cores = 1,
+                       irq_routines = 'tests/instructions/interrupts-basic',
+                       pokes = None,
+                       storages = None,
+                       mmaps = None,
+                       post_setup = None, post_boot = None, post_run = None,
+                       **kwargs):
+  storages = storages or []
+  mmaps = mmaps or []
+
   if code is not None and isinstance(code, list):
     code = '\n'.join(code)
 
-  if machine_config is None:
-    machine_config = ducky.config.MachineConfig()
+  machine_config = machine_config or ducky.config.MachineConfig()
 
   machine_config.add_section('machine')
   machine_config.set('machine', 'cpus', cpus)
@@ -171,4 +204,10 @@ def common_run_machine(code = None, binary = None, machine_config = None, cpus =
   machine_config.add_section('cpu')
   machine_config.set('cpu', 'math-coprocessor', 'yes')
 
-  run_machine(code = code, binary = binary, machine_config = machine_config, post_boot = post_boot, post_run = post_run)
+  for driver, id, path in storages:
+    machine_config.add_storage(driver, id, filepath = path)
+
+  for path, addr, size, offset, access, shared in mmaps:
+    machine_config.add_mmap(path, addr, size, offset = offset, access = access, shared = shared)
+
+  return run_machine(code = code, binary = binary, machine_config = machine_config, post_setup = post_setup, post_boot = post_boot, post_run = post_run, pokes = pokes)

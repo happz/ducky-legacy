@@ -1,12 +1,12 @@
-import unittest
 import os
 
-from tests import get_tempfile
 from ducky.tools import setup_logger
 from ducky.mm import MalformedBinaryError
 from ducky.mm.binary import File, SectionFlags
 
-class Tests(unittest.TestCase):
+from .. import TestCase, get_tempfile
+
+class Tests(TestCase):
   def test_bad_magic(self):
     tmp = get_tempfile()
     tmp.close()

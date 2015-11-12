@@ -1,10 +1,10 @@
 import sys
 
-from .. import TestCase, get_tempfile
-
 import ducky.errors
 import ducky.streams
 import ducky.tools
+
+from .. import TestCase, get_tempfile
 
 class Tests(TestCase):
   logger = ducky.tools.setup_logger()

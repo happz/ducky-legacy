@@ -1,31 +1,22 @@
-import unittest
 import random
 
-import ducky.config
-import ducky.snapshot
+from .. import TestCase, common_run_machine, assert_mm_pages
 
-from tests import common_run_machine, assert_mm_pages
-
-class Tests(unittest.TestCase):
-  def common_case(self, code = None, post_boot = None, post_run = None, **kwargs):
-    if code is None:
-      code = 'int 0'
-
-    machine_config = ducky.config.MachineConfig()
-
-    common_run_machine(code, machine_config = machine_config, post_boot = post_boot, post_run = post_run)
-
+class Tests(TestCase):
   def test_alloc_page(self, segment = None):
     def __test(M):
-      S = ducky.snapshot.VMState.capture_vm_state(M, suspend = False)
-      assert_mm_pages(S.get_child('machine').get_child('memory'), *[0, 256, 257, 512, 513])
+      S = M.capture_state()
+      S.print_node()
+      assert_mm_pages(S.get_child('machine').get_child('memory'), *[0, 256, 257])
 
       pg = M.memory.alloc_page(segment = segment)
 
-      S = ducky.snapshot.VMState.capture_vm_state(M, suspend = False)
-      assert_mm_pages(S.get_child('machine').get_child('memory'), *[0, 256, 257, 512, 513, pg.index])
+      S = M.capture_state()
+      assert_mm_pages(S.get_child('machine').get_child('memory'), *[0, 256, 257, pg.index])
 
-    self.common_case(post_boot = [__test])
+      return False
+
+    common_run_machine(post_boot = [__test])
 
   def test_alloc_page_segment_protected(self):
     self.test_alloc_page(segment = 0)
@@ -37,15 +28,17 @@ class Tests(unittest.TestCase):
     cnt = random.randint(1, 20)
 
     def __test(M):
-      S = ducky.snapshot.VMState.capture_vm_state(M, suspend = False)
-      assert_mm_pages(S.get_child('machine').get_child('memory'), *[0, 256, 257, 512, 513])
+      S = M.capture_state()
+      assert_mm_pages(S.get_child('machine').get_child('memory'), *[0, 256, 257])
 
       pgs = M.memory.alloc_pages(segment = segment, count = cnt)
 
-      S = ducky.snapshot.VMState.capture_vm_state(M, suspend = False)
-      assert_mm_pages(S.get_child('machine').get_child('memory'), *([0, 256, 257, 512, 513] + [pg.index for pg in pgs]))
+      S = M.capture_state()
+      assert_mm_pages(S.get_child('machine').get_child('memory'), *([0, 256, 257] + [pg.index for pg in pgs]))
 
-    self.common_case(post_boot = [__test])
+      return False
+
+    common_run_machine(post_boot = [__test])
 
   def test_alloc_pages_segment_protected(self):
     self.test_alloc_pages(segment = 0)
@@ -55,20 +48,22 @@ class Tests(unittest.TestCase):
 
   def test_free_page(self, segment = None):
     def __test(M):
-      S = ducky.snapshot.VMState.capture_vm_state(M, suspend = False)
-      assert_mm_pages(S.get_child('machine').get_child('memory'), *[0, 256, 257, 512, 513])
+      S = M.capture_state()
+      assert_mm_pages(S.get_child('machine').get_child('memory'), *[0, 256, 257])
 
       pg = M.memory.alloc_page(segment = segment)
 
-      S = ducky.snapshot.VMState.capture_vm_state(M, suspend = False)
-      assert_mm_pages(S.get_child('machine').get_child('memory'), *[0, 256, 257, 512, 513, pg.index])
+      S = M.capture_state()
+      assert_mm_pages(S.get_child('machine').get_child('memory'), *[0, 256, 257, pg.index])
 
       M.memory.free_page(pg)
 
-      S = ducky.snapshot.VMState.capture_vm_state(M, suspend = False)
-      assert_mm_pages(S.get_child('machine').get_child('memory'), *[0, 256, 257, 512, 513])
+      S = M.capture_state()
+      assert_mm_pages(S.get_child('machine').get_child('memory'), *[0, 256, 257])
 
-    self.common_case(post_boot = [__test])
+      return False
+
+    common_run_machine(post_boot = [__test])
 
   def test_free_page_segment_protected(self):
     self.test_free_page(segment = 0)
@@ -83,54 +78,59 @@ class Tests(unittest.TestCase):
     cnt3 = 15
 
     def __test(M):
-      pages = [0, 256, 257, 512, 513]
-      S = ducky.snapshot.VMState.capture_vm_state(M, suspend = False)
+      pages = [0, 256, 257]
+      S = M.capture_state()
       assert_mm_pages(S.get_child('machine').get_child('memory'), *pages)
 
       M.memory.alloc_pages(segment = 0, count = cnt1)
 
       pages += [i for i in range(1, 1 + cnt1)]
-      S = ducky.snapshot.VMState.capture_vm_state(M, suspend = False)
+      S = M.capture_state()
       assert_mm_pages(S.get_child('machine').get_child('memory'), *pages)
 
       M.memory.alloc_pages(segment = 0, count = cnt2)
 
       pages += [i for i in range(1 + cnt1, 1 + cnt1 + cnt2)]
-      S = ducky.snapshot.VMState.capture_vm_state(M, suspend = False)
+      S = M.capture_state()
       assert_mm_pages(S.get_child('machine').get_child('memory'), *pages)
 
       M.memory.free_pages(M.memory.page(start), count = cnt3)
 
       for i in range(start, start + cnt3):
         pages.remove(i)
-      S = ducky.snapshot.VMState.capture_vm_state(M, suspend = False)
+      S = M.capture_state()
       assert_mm_pages(S.get_child('machine').get_child('memory'), *pages)
 
-    self.common_case(post_boot = [__test])
+      return False
+
+    common_run_machine(post_boot = [__test])
 
   def test_alloc_pages_fit(self):
     def __test(M):
-      pages = [0, 256, 257, 512, 513]
-      S = ducky.snapshot.VMState.capture_vm_state(M, suspend = False)
+      pages = [0, 256, 257]
+
+      S = M.capture_state()
       assert_mm_pages(S.get_child('machine').get_child('memory'), *pages)
 
       M.memory.alloc_pages(segment = 0, count = 16)
 
       pages += [i for i in range(1, 17)]
-      S = ducky.snapshot.VMState.capture_vm_state(M, suspend = False)
+      S = M.capture_state()
       assert_mm_pages(S.get_child('machine').get_child('memory'), *pages)
 
       M.memory.free_pages(M.memory.page(1), 8)
 
       for i in range(1, 9):
         pages.remove(i)
-      S = ducky.snapshot.VMState.capture_vm_state(M, suspend = False)
+      S = M.capture_state()
       assert_mm_pages(S.get_child('machine').get_child('memory'), *pages)
 
       M.memory.alloc_pages(segment = 0, count = 4)
 
       pages += [i for i in range(1, 5)]
-      S = ducky.snapshot.VMState.capture_vm_state(M, suspend = False)
+      S = M.capture_state()
       assert_mm_pages(S.get_child('machine').get_child('memory'), *pages)
 
-    self.common_case(post_boot = [__test])
+      return False
+
+    common_run_machine(post_boot = [__test])

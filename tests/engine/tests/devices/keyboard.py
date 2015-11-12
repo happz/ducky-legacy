@@ -1,4 +1,3 @@
-from .. import TestCase, mock
 from six import iteritems
 
 import ducky.config
@@ -7,31 +6,31 @@ import ducky.errors
 import ducky.machine
 import ducky.streams
 
-from tests import get_tempfile
+from .. import TestCase, get_tempfile, common_run_machine, mock
+
+def common_case(**kwargs):
+  machine_config = ducky.config.MachineConfig()
+  section = machine_config.add_device('input', 'ducky.devices.keyboard.KeyboardController')
+
+  for name, value in iteritems(kwargs):
+    machine_config.set(section, name, value)
+
+  M = common_run_machine(machine_config = machine_config, post_setup = [lambda _M: False])
+
+  return M.get_device_by_name(section, klass = 'input')
 
 class Tests(TestCase):
-  def common_case(self, **kwargs):
-    machine = ducky.machine.Machine()
-    machine.reactor.add_fd = mock.MagicMock()
-
-    machine_config = ducky.config.MachineConfig()
-    section = machine_config.add_device('rtc', 'ducky.devices.keyboard.KeyboardController')
-
-    for name, value in iteritems(kwargs):
-      machine_config.set(section, name, value)
-
-    return ducky.devices.keyboard.KeyboardController.create_from_config(machine, machine_config, section)
-
   def test_default(self):
     f = get_tempfile()
     f.close()
 
-    kbd = self.common_case()
+    kbd = common_case()
+    kbd.machine.reactor.add_fd = mock.MagicMock()
     kbd.enqueue_input(ducky.streams.InputStream.create(kbd.machine.LOGGER, f.name))
-    kbd.open_input()
+    kbd.machine.boot()
 
     assert kbd.machine.reactor.add_fd.called_with(kbd.input.fd, on_read = kbd.handle_raw_input, on_error = kbd.handle_input_error)
 
   def test_read_unknown_port(self):
     with self.assertRaises(ducky.errors.InvalidResourceError):
-      self.common_case().read_u8(ducky.devices.keyboard.DEFAULT_PORT_RANGE - 1)
+      common_case().read_u8(ducky.devices.keyboard.DEFAULT_PORT_RANGE - 1)

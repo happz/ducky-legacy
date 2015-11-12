@@ -619,6 +619,7 @@ class Machine(ISnapshotable, IMachineWorker):
     """
 
     self.last_state = snapshot.VMState.capture_vm_state(self, suspend = suspend)
+    return self.last_state
 
 def cmd_boot(console, cmd):
   """
