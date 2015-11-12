@@ -25,7 +25,7 @@ from .console import ConsoleMaster
 from .errors import InvalidResourceError
 from .log import create_logger
 from .util import LRUCache, F
-from .mm import addr_to_segment, ADDR_FMT, segment_addr_to_addr, UInt16, UINT16_FMT
+from .mm import addr_to_segment, ADDR_FMT, segment_addr_to_addr, UInt8, UInt16, UInt32, UINT16_FMT, UINT32_FMT
 from .mm.binary import SectionFlags
 from .reactor import Reactor
 from .snapshot import SnapshotNode
@@ -369,6 +369,18 @@ class Machine(ISnapshotable, IMachineWorker):
       table.append([r.name, ADDR_FMT(r.address), r.size, r.flags, r.pages_start, r.pages_start + r.pages_cnt - 1])
 
     self.LOGGER.table(table, fn = self.DEBUG)
+
+  def poke(self, address, value, length):
+    self.DEBUG('poke: addr=%s, value=%s, length=%s', ADDR_FMT(address), UINT32_FMT(value), length)
+
+    if length == 1:
+      self.memory.write_u8(address, UInt8(value).u8, privileged = True)
+
+    elif length == 2:
+      self.memory.write_u16(address, UInt16(value).u16, privileged = True)
+
+    else:
+      self.memory.write_u32(address, UInt32(value).u32, privileged = True)
 
   def setup_interrupt_routines(self):
     if not self.config.has_option('machine', 'interrupt-routines'):

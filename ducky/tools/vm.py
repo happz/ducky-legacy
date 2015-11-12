@@ -1,4 +1,5 @@
-from ..import patch
+from .. import patch
+from ..util import str2int
 
 import optparse
 import signal
@@ -59,6 +60,7 @@ def main():
                        default = [],
                        metavar = 'DEVICE',
                        help = 'Disable device')
+  opt_group.add_option('--poke', dest = 'poke', action = 'append', default = [], metavar = 'ADDRESS:VALUE:<124>', help = 'Modify content of memory before running binaries')
 
   # Debug options
   opt_group = optparse.OptionGroup(parser, 'Debug options')
@@ -186,6 +188,14 @@ def main():
   signal.signal(signal.SIGSEGV, signal_handler)
 
   M.boot()
+
+  for poke in options.poke:
+    address, value, length = poke.split(':')
+
+    if length not in ('1', '2', '4'):
+      raise ValueError('Unknown poke size: poke=%s' % poke)
+
+    M.poke(str2int(address), str2int(value), str2int(length))
 
   if not options.go_on:
     input('Press Enter to start execution of loaded binaries')
