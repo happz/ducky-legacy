@@ -41,7 +41,6 @@ class Stream(object):
 
     self.logger = logger
     self.DEBUG = logger.debug
-    self.DEBUG = logger.info
 
     self.desc = desc
     self.stream = stream
