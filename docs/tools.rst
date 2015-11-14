@@ -13,12 +13,12 @@ All tools accept few common options:
 ``-q, --quiet``
 ^^^^^^^^^^^^^^^
 
-Lower verbosity level by one. By default, it is set to `warnings`, more quiet levels are `error` and `critical`.
+Lower verbosity level by one. By default, it is set to `info`, more quiet levels are `warnings, `error` and `critical`.
 
 
 ``-v, --verbose``
 
-Increase verbosity level by one. By default, it is set to `warnings`, more verbose levels are `info` and `debug`. `debug` level is not available for ``duckt-vm`` unless ``-d`` option is set.
+Increase verbosity level by one. By default, it is set to `info`, more verbose levels is `debug`. `debug` level is not available for ``duckt-vm`` unless ``-d`` option is set.
 
 
 ``-d, --debug``
