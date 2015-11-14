@@ -5,6 +5,17 @@ EXAMPLE := simple-loop
 TC_NAME    := $(EXAMPLE)
 TC_MACHINE := $(TC_DIR)/$(TC_NAME).$(DB_PID).machine
 
+
+POKES :=
+ifdef SIMPLE_LOOP_L1_ITERS
+  POKES := --poke=0x020000:$(SIMPLE_LOOP_L1_ITERS):2
+endif
+
+ifdef SIMPLE_LOOP_L2_ITERS
+  POKES := $(POKE) --poke=0x020002:$(SIMPLE_LOOP_L2_ITERS):2
+endif
+
+
 simple-loop.o: $(TOPDIR)/defs.asm simple-loop.asm
 simple-loop: simple-loop.o
 	$(run-linker)
@@ -17,7 +28,9 @@ run: simple-loop
 	     $(PYTHON) $(VMCOVERAGE_RUN) $(DVM) $(VMDEBUG) \
 			 --machine-config=$(CURDIR)/simple-loop.conf \
 			 --set-option=machine:interrupt-routines=$(INTERRUPTS) \
-			 --set-option=binary-0:file=$(CURDIR)/simple-loop -g &> $(TC_MACHINE); \
+			 --set-option=binary-0:file=$(CURDIR)/simple-loop -g \
+			 $(POKES) \
+			 $(VMPROFILE) &> $(TC_MACHINE); \
 			 if [[ $$? -ne 0 ]]; then \
 			   touch $(TESTSET_FAILED); \
 				 echo "$(CC_RED)FAIL$(CC_END)"; \

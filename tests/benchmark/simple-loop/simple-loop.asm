@@ -3,13 +3,25 @@
 .def L1_ITERS: 1000
 .def L2_ITERS: 1000
 
+  .data
 
-loop:
+  .type l1_iters, int
+  .int $L1_ITERS
+
+  .type l2_iters, int
+  .int $L1_ITERS
+
+  .text
+
+main:
   li r2, 0
-  li r0, $L1_ITERS
+  li r0, &l1_iters
+  lw r0, r0
+  li r3, &l2_iters
+  lw r3, r3
 .l1_loop:
   bz &.l1_quit
-  li r1, $L2_ITERS
+  mov r1, r3
 .l2_loop:
   bz &.l2_quit
   inc r2
@@ -20,8 +32,4 @@ loop:
   dec r0
   j &.l1_loop
 .l1_quit:
-  ret
-
-main:
-  call &loop
   int $INT_HALT
