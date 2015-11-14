@@ -37,17 +37,6 @@ def main():
                        action = 'append',
                        default = [],
                        metavar = 'SECTION:OPTION=VALUE')
-  opt_group.add_option('--set-device-option',
-                       dest = 'set_device_options',
-                       action = 'append',
-                       default = [],
-                       metavar = 'DEVICE:OPTION=VALUE',
-                       help = 'Set device options')
-  opt_group.add_option('--add-device-option',
-                       dest = 'add_device_options',
-                       action = 'append',
-                       default = [],
-                       metavar = 'DEVICE:OPTION=VALUE')
   opt_group.add_option('--enable-device',
                        dest = 'enable_devices',
                        action = 'append',
@@ -80,7 +69,6 @@ def main():
                        action = 'store',
                        default = None,
                        help = 'Store profiling data in this directory')
-  opt_group.add_option('--debug-open-files', dest = 'debug_open_files', action = 'store_true', default = False, help = 'List all open - not closed cleanly - files when VM quits')
   opt_group.add_option('--stdio-console',    dest = 'stdio_console',    action = 'store_true', default = False, help = 'Enable console terminal using stdin/stdout as IO streams')
 
   options, logger = parse_options(parser)
@@ -135,27 +123,6 @@ def main():
 
     option, value = option.split('=')
     machine_config.set(section, option, machine_config.get(section, option) + ', ' + value)
-
-  for option in options.set_device_options:
-    dev, option = option.split(':')
-
-    if not machine_config.has_section(dev):
-      logger.error('Unknown device %s', dev)
-      continue
-
-    option, value = option.split('=')
-
-    machine_config.set(dev, option, value)
-
-  for option in options.add_device_options:
-    dev, option = option.split(':')
-
-    if not machine_config.has_section(dev):
-      logger.error('Unknown device %s', dev)
-      continue
-
-    option, value = option.split('=')
-    machine_config.set(dev, option, machine_config.get(dev, option) + ', ' + value)
 
   for dev in options.enable_devices:
     machine_config.set(dev, 'enabled', True)

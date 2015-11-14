@@ -29,11 +29,11 @@ tests: $(TOPDIR)/interrupts $(FORTH_KERNEL)
 			 --machine-config=$(TC_CONFIG) \
 			 --set-option=machine:interrupt-routines=$(INTERRUPTS) \
 			 --set-option=binary-0:file=$(FORTH_KERNEL) \
-			 --set-device-option=device-3:streams_in=$(CURDIR)/../enable-test-mode.f \
-			 --add-device-option=device-3:streams_in=$(TOPDIR)/forth/ducky-forth.f \
-			 --add-device-option=device-3:streams_in=$(CURDIR)/tester.fr \
-			 $(foreach testfile,$(FORTH_ANS_TESTS),--add-device-option=device-3:streams_in=$(CURDIR)/$(testfile)) \
-			 --set-device-option=device-3:stream_out=$(TC_OUTPUT) \
+			 --set-option=device-3:streams_in=$(CURDIR)/../enable-test-mode.f \
+			 --add-option=device-3:streams_in=$(TOPDIR)/forth/ducky-forth.f \
+			 --add-option=device-3:streams_in=$(CURDIR)/tester.fr \
+			 $(foreach testfile,$(FORTH_ANS_TESTS),--add-option=device-3:streams_in=$(CURDIR)/$(testfile)) \
+			 --set-option=device-3:stream_out=$(TC_OUTPUT) \
 			 $(foreach device,$(DUCKY_ENABLE_DEVICES),--enable-device=$(device)) \
 			 $(foreach device,$(DUCKY_DISABLE_DEVICES),--disable-device=$(device)) \
 			 $(VMDEBUG) $(VMDEBUG_OPEN_FILES) &> $(TC_MACHINE); \

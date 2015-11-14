@@ -5,7 +5,7 @@ import sys
 
 from ..log import create_logger, StreamHandler
 
-def setup_logger(stream = None, debug = False, quiet = False):
+def setup_logger(stream = None, debug = False, quiet = None, verbose = None):
   stream = stream or sys.stdout
 
   logger = create_logger(handler = StreamHandler(stream = stream))
@@ -15,9 +15,15 @@ def setup_logger(stream = None, debug = False, quiet = False):
     logger.setLevel(logging.DEBUG)
 
   else:
-    levels = [logging.INFO, logging.WARNING, logging.ERROR, logging.CRITICAL]
+    levels = [logging.DEBUG, logging.INFO, logging.WARNING, logging.ERROR, logging.CRITICAL]
+    quiet = quiet or 0
+    verbose = verbose or 0
 
-    logger.setLevel(levels[min(quiet, len(levels))])
+    level = 2 + quiet - verbose
+    level = max(0, level)
+    level = min(4, level)
+
+    logger.setLevel(levels[level])
 
   return logger
 
@@ -27,6 +33,7 @@ def add_common_options(parser):
 
   group.add_option('-d', '--debug', dest = 'debug', action = 'store_true', default = False, help = 'Debug mode')
   group.add_option('-q', '--quiet', dest = 'quiet', action = 'count', default = 0, help = 'Decrease verbosity. This option can be used multiple times')
+  group.add_option('-v', '--verbose', dest = 'verbose', action = 'count', default = 0, help = 'Increase verbosity. This option can be used multiple times')
 
 def parse_options(parser):
   if isinstance(parser, argparse.ArgumentParser):
@@ -34,7 +41,7 @@ def parse_options(parser):
   else:
     options, args = parser.parse_args()
 
-  logger = setup_logger(stream = sys.stdout, debug = options.debug, quiet = options.quiet)
+  logger = setup_logger(stream = sys.stdout, debug = options.debug, quiet = options.quiet, verbose = options.verbose)
 
   from signal import signal, SIGPIPE, SIG_DFL
   signal(SIGPIPE, SIG_DFL)

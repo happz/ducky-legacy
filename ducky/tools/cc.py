@@ -64,6 +64,7 @@ def main():
   group = parser.add_argument_group('Tool verbosity')
   group.add_argument('-d', '--debug', dest = 'debug', action = 'store_true', default = False, help = 'Debug mode')
   group.add_argument('-q', '--quiet', dest = 'quiet', action = 'count',      default = 0,     help = 'Decrease verbosity. This option can be used multiple times')
+  group.add_argument('-v', '--verbose', dest = 'verbose', action = 'count',  default = 0,     help = 'Increase verbosity. This option can be used multiple times')
 
   group = parser.add_argument_group('File options')
   group.add_argument('-i', dest = 'file_in',  action = 'append',     default = [],    help = 'Input file')

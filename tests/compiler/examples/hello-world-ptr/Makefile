@@ -39,7 +39,7 @@ tests: build
 			  --set-option=machine:interrupt-routines=$(INTERRUPTS) \
 			  --set-option=binary-0:file=$(CURDIR)/hello-world \
 			  -g \
-			  --set-device-option=device-3:stream_out=$(TC_OUT) \
+			  --set-option=device-3:stream_out=$(TC_OUT) \
 			  $(foreach device,$(DUCKY_ENABLE_DEVICES),--enable-device=$(device)) \
 			  $(foreach device,$(DUCKY_DISABLE_DEVICES),--disable-device=$(device)) \
 	 	 	  $(VMDEBUG) $(VMDEBUG_OPEN_FILES) &> $(TC_MACHINE); \
