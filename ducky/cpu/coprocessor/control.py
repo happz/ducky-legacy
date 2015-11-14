@@ -10,23 +10,20 @@ from ctypes import c_ushort as u16
 
 class ReadOnlyRegisterError(CPUException):
   def __init__(self, r, *args, **kwargs):
-    super(ReadOnlyRegisterError, self).__init__('Register cr{:i} is read-only.'.format(r), *args, **kwargs)
+    super(ReadOnlyRegisterError, self).__init__('Register cr{:d} is read-only.'.format(r), *args, **kwargs)
 
 class WriteOnlyRegisterError(CPUException):
   def __init__(self, r, *args, **kwargs):
-    super(WriteOnlyRegisterError, self).__init__('Register cr{:i} is write-only.'.format(r), *args, **kwargs)
+    super(WriteOnlyRegisterError, self).__init__('Register cr{:d} is write-only.'.format(r), *args, **kwargs)
 
 class ControlRegisters(enum.IntEnum):
   CR0 = 0  # System ID (reserved)
   CR1 = 1  # Interrupt Vector Table address
   CR2 = 2  # Interrupt Vector Table segment
 
-class MathCoprocessor(ISnapshotable, Coprocessor):
+class ControlCoprocessor(ISnapshotable, Coprocessor):
   def read_cr0(self):
-    return u16(0)
-
-  def write_cr0(self, value):
-    raise ReadOnlyRegisterError('cr0')
+    return u16((self.core.cpu.id << 8) | self.core.id)
 
   def read_cr1(self):
     return u16(self.core.ivt_address & 0xFFFF)
@@ -49,7 +46,7 @@ class MathCoprocessor(ISnapshotable, Coprocessor):
     if not hasattr(self, handler):
       raise WriteOnlyRegisterError(r)
 
-    return getattr(self, handler)()
+    return getattr(self, handler)().value
 
   def write(self, r, value):
     if not self.core.privileged:

@@ -653,10 +653,15 @@ class CPUCore(ISnapshotable, IMachineWorker):
       self.MEM_OUT32 = self.memory.write_u32
 
     self.coprocessors = {}
+
     if self.cpu.machine.config.getbool('cpu', 'math-coprocessor', False):
       from .coprocessor import math_copro
 
       self.math_coprocessor = self.coprocessors['math'] = math_copro.MathCoprocessor(self)
+
+    if config.getbool('cpu', 'control-coprocessor', True):
+      from .coprocessor import control
+      self.control_coprocessor = self.coprocessors['control'] = control.ControlCoprocessor(self)
 
   def has_coprocessor(self, name):
     return hasattr(self, '{}_coprocessor'.format(name))

@@ -65,6 +65,14 @@ When set, each CPU core will have its own math coprocessor.
 ``bool``, default ``no``
 
 
+control-coprocessor
+^^^^^^^^^^^^^^^^^^^
+
+When set, each CPU core will have its own control coprocessor.
+
+``bool``, default ``yes``
+
+
 inst-cache
 ^^^^^^^^^^
 

@@ -197,11 +197,16 @@ def common_run_machine(code = None, binary = None, machine_config = None,
 
   machine_config = machine_config or ducky.config.MachineConfig()
 
-  machine_config.add_section('machine')
+  if not machine_config.has_section('machine'):
+    machine_config.add_section('machine')
+
   machine_config.set('machine', 'cpus', cpus)
   machine_config.set('machine', 'cores', cores)
   machine_config.set('machine', 'interrupt-routines', os.path.join(os.getenv('CURDIR'), irq_routines))
-  machine_config.add_section('cpu')
+
+  if not machine_config.has_section('cpu'):
+    machine_config.add_section('cpu')
+
   machine_config.set('cpu', 'math-coprocessor', 'yes')
 
   for driver, id, path in storages:
