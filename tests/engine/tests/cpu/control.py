@@ -24,14 +24,14 @@ class Tests(TestCase):
 
     core = M.cpus[0].cores[0]
 
-    assert core.privileged == False
+    assert core.privileged is False
 
     with self.assertRaises(ducky.errors.AccessViolationError):
       core.control_coprocessor.read(ControlRegisters.CR0)
 
     core.privileged = True
 
-    assert core.privileged == True
+    assert core.privileged is True
     core.control_coprocessor.read(ControlRegisters.CR0)
 
   def test_cpuid(self):
@@ -41,7 +41,7 @@ class Tests(TestCase):
       for j in range(0, 4):
         core = M.cpus[i].cores[j]
         core.privileged = True
-        assert core.privileged == True
+        assert core.privileged is True
 
         cpuid_expected = 0xFFFF & ((i << 8) | j)
         cpuid_read = core.control_coprocessor.read(ControlRegisters.CR0)
@@ -56,7 +56,7 @@ class Tests(TestCase):
     core = M.cpus[0].cores[0]
 
     core.privileged = True
-    assert core.privileged == True
+    assert core.privileged is True
 
     assert core.control_coprocessor.read(ControlRegisters.CR1) == 0xDEAD
     assert core.control_coprocessor.read(ControlRegisters.CR2) == 0x02
