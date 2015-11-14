@@ -5,7 +5,7 @@ import sys
 
 from ..log import create_logger, StreamHandler
 
-def setup_logger(stream = None, debug = False, quiet = None, verbose = None):
+def setup_logger(stream = None, debug = False, quiet = None, verbose = None, default_loglevel = logging.INFO):
   stream = stream or sys.stdout
 
   logger = create_logger(handler = StreamHandler(stream = stream))
@@ -19,7 +19,7 @@ def setup_logger(stream = None, debug = False, quiet = None, verbose = None):
     quiet = quiet or 0
     verbose = verbose or 0
 
-    level = 2 + quiet - verbose
+    level = levels.index(default_loglevel) + quiet - verbose
     level = max(0, level)
     level = min(4, level)
 
@@ -35,13 +35,13 @@ def add_common_options(parser):
   group.add_option('-q', '--quiet', dest = 'quiet', action = 'count', default = 0, help = 'Decrease verbosity. This option can be used multiple times')
   group.add_option('-v', '--verbose', dest = 'verbose', action = 'count', default = 0, help = 'Increase verbosity. This option can be used multiple times')
 
-def parse_options(parser):
+def parse_options(parser, default_loglevel = logging.INFO):
   if isinstance(parser, argparse.ArgumentParser):
     options = parser.parse_args()
   else:
     options, args = parser.parse_args()
 
-  logger = setup_logger(stream = sys.stdout, debug = options.debug, quiet = options.quiet, verbose = options.verbose)
+  logger = setup_logger(stream = sys.stdout, debug = options.debug, quiet = options.quiet, verbose = options.verbose, default_loglevel = default_loglevel)
 
   from signal import signal, SIGPIPE, SIG_DFL
   signal(SIGPIPE, SIG_DFL)
