@@ -5,6 +5,7 @@ from ..import CPUException
 from . import Coprocessor
 from ...mm import SEGMENT_SHIFT
 from ...errors import AccessViolationError
+from ..instructions import InstructionSet, Inst_SIS, INSTRUCTION_SETS, InstDescriptor_Generic_Binary_R_R
 
 from ctypes import c_ushort as u16
 
@@ -17,7 +18,7 @@ class WriteOnlyRegisterError(CPUException):
     super(WriteOnlyRegisterError, self).__init__('Register cr{:d} is write-only.'.format(r), *args, **kwargs)
 
 class ControlRegisters(enum.IntEnum):
-  CR0 = 0  # System ID (reserved)
+  CR0 = 0  # CPUID
   CR1 = 1  # Interrupt Vector Table address
   CR2 = 2  # Interrupt Vector Table segment
 
@@ -58,3 +59,45 @@ class ControlCoprocessor(ISnapshotable, Coprocessor):
       raise ReadOnlyRegisterError(r)
 
     return getattr(self, handler)(value)
+
+#
+# Instruction set
+#
+class ControlCoprocessorOpcodes(enum.IntEnum):
+  """
+  Control coprocessor instruction opcodes.
+  """
+
+  CTR = 0
+  CTW = 1
+
+  SIS = 63
+
+class ControlCoprocessorInstructionSet(InstructionSet):
+  instruction_set_id = 2
+
+  opcodes = ControlCoprocessorOpcodes
+
+class Inst_CTR(InstDescriptor_Generic_Binary_R_R):
+  mnemonic = 'ctr'
+  opcode = ControlCoprocessorOpcodes.CTR
+
+  @staticmethod
+  def execute(core, inst):
+    core.check_protected_reg(inst.reg1)
+    core.registers.map[inst.reg1].value = core.control_coprocessor.read(inst.reg2)
+
+class Inst_CTW(InstDescriptor_Generic_Binary_R_R):
+  mnemonic = 'ctw'
+  opcodes = ControlCoprocessorOpcodes.CTW
+
+  @staticmethod
+  def execute(core, inst):
+    core.control_coprocessor.write(inst.reg1, core.registers.map[inst.reg2].value)
+
+Inst_CTR(ControlCoprocessorInstructionSet)
+Inst_CTW(ControlCoprocessorInstructionSet)
+Inst_SIS(ControlCoprocessorInstructionSet)
+
+ControlCoprocessorInstructionSet.init()
+INSTRUCTION_SETS[ControlCoprocessorInstructionSet.instruction_set_id] = ControlCoprocessorInstructionSet

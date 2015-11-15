@@ -10,6 +10,7 @@ from six import iteritems, itervalues, integer_types, string_types, PY2
 from .. import cpu
 from .. import mm
 from ..cpu.coprocessor.math_copro import MathCoprocessorInstructionSet  # noqa - it's not unused, SIS instruction may need it but that's hidden from flake
+from ..cpu.coprocessor.control import ControlCoprocessorInstructionSet  # noqa - it's not unused, SIS instruction may need it but that's hidden from flake
 
 from ..mm import UInt8, UInt16, ADDR_FMT, PAGE_SIZE
 from ..mm.binary import SectionTypes, SectionFlags, SymbolFlags, RelocFlags
