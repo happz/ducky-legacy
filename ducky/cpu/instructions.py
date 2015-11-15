@@ -1342,6 +1342,7 @@ class Inst_MOV(InstDescriptor_Generic_Binary_R_R):
 
   @staticmethod
   def execute(core, inst):
+    core.check_protected_reg(inst.reg1)
     core.registers.map[inst.reg1].value = core.registers.map[inst.reg2].value
 
 class Inst_SWP(InstDescriptor_Generic_Binary_R_R):
@@ -1350,6 +1351,8 @@ class Inst_SWP(InstDescriptor_Generic_Binary_R_R):
 
   @staticmethod
   def execute(core, inst):
+    core.check_protected_reg(inst.reg1)
+    core.check_protected_reg(inst.reg2)
     v = core.registers.map[inst.reg1].value
     core.registers.map[inst.reg1].value = core.registers.map[inst.reg2].value
     core.registers.map[inst.reg2].value = v
