@@ -8,6 +8,9 @@ TC_OUT     := $(TESTSETDIR)/$(EXAMPLE).$(DB_PID).out
 TC_MACHINE_SCREEN := $(TESTSETDIR)/$(EXAMPLE)-screen.$(DB_PID).machine
 TC_OUT_SCREEN     := $(TESTSETDIR)/$(EXAMPLE)-screen.$(DB_PID).out
 
+TC_OBJDUMP_OUT := $(TESTSETDIR)/$(EXAMPLE).objdump.$(DB_PID).out
+TC_COREDUMP_OUT := $(TESTSETDIR)/$(EXAMPLE).coredump.$(DB_PID).out
+
 
 hello-world.o: $(TOPDIR)/defs.asm hello-world.asm
 hello-world: hello-world.o
@@ -35,6 +38,34 @@ run-screen: build
 			 -g
 
 tests-pre: build
+
+tests-objdump:
+	$(Q) echo -n "$(CC_YELLOW)[TEST]$(CC_END) objdump $(EXAMPLE) ... "
+	$(Q) COVERAGE_FILE=$(shell if [ "$(VMCOVERAGE)" = "yes" ]; then echo "$(TESTSETDIR)/coverage/.coverage.objdump.$(EXAMPLE).$(DB_PID)"; else echo ""; fi) \
+	     $(PYTHON) $(VMCOVERAGE_RUN) $(DOD) $(VMDEBUG) \
+			 -i hello-world.o -a &> $(TC_OBJDUMP_OUT); \
+			 if [[ $$? -ne 0 ]]; then \
+			   touch $(TESTSET_FAILED); \
+				 echo "$(CC_RED)FAIL$(CC_END)"; \
+			 else \
+			   echo "$(CC_GREEN)PASS$(CC_END)"; \
+			 fi; \
+			 cat $(TC_OBJDUMP_OUT); \
+			 exit 0;
+
+tests-coredump:
+	$(Q) echo -n "$(CC_YELLOW)[TEST]$(CC_END) coredump $(EXAMPLE) ... "
+	$(Q) COVERAGE_FILE=$(shell if [ "$(VMCOVERAGE)" = "yes" ]; then echo "$(TESTSETDIR)/coverage/.coverage.coredump.$(EXAMPLE).$(DB_PID)"; else echo ""; fi) \
+	     $(PYTHON) $(VMCOVERAGE_RUN) $(DCD) $(VMDEBUG) \
+			 -i ducky-snapshot.bin -a &> $(TC_COREDUMP_OUT); \
+			 if [[ $$? -ne 0 ]]; then \
+			   touch $(TESTSET_FAILED); \
+				 echo "$(CC_RED)FAIL$(CC_END)"; \
+			 else \
+			   echo "$(CC_GREEN)PASS$(CC_END)"; \
+			 fi; \
+			 cat $(TC_COREDUMP_OUT); \
+			 exit 0;
 
 test-run: build
 	$(Q) echo -n "$(CC_YELLOW)[TEST]$(CC_END) $(EXAMPLE) ... "
@@ -69,7 +100,7 @@ test-run-screen: build
 			 fi; \
 			 exit 0;
 
-tests: test-run test-run-screen
+tests: test-run test-run-screen tests-objdump tests-coredump
 
 tests-post:
 

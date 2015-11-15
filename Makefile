@@ -8,11 +8,15 @@ DCC := $(shell which ducky-cc)
 DAS := $(shell which ducky-as)
 DLD := $(shell which ducky-ld)
 DVM := $(shell which ducky-vm)
+DOD := $(shell which ducky-objdump)
+DCD := $(shell which ducky-coredump)
 
 export DAS
 export DCC
 export DLD
 export DVM
+export DOD
+export DCD
 
 
 include Makefile.inc
@@ -253,8 +257,10 @@ ifeq ($(VMCOVERAGE),yes)
 	$(Q) COVERAGE_FILE="$(TESTSETDIR)/coverage/.coverage" $(VMCOVERAGE_BIN) html --rcfile=$(CURDIR)/coveragerc -d $(TESTSETDIR)/coverage/
 endif
 
-tests-post: tests-post-master
+tests-stats:
 	$(Q) echo "$(CC_GREEN)Avg # of instructions: `grep Executed $(shell find $(TESTSETDIR) -name '*.machine') | awk '{print $$5, " ", $$6}' | python tests/sum`/sec$(CC_END)"
+
+tests-post: tests-post-master tests-stats
 
 tests-submit-results:
 ifdef CIRCLE_TEST_REPORTS
@@ -268,6 +274,12 @@ endif
 
 tests: tests-pre tests-in-subdirs tests-post tests-submit-results
 	$(Q) if [ -e $(TESTSET_FAILED) ]; then /bin/false; fi
+
+benchmark: tests-pre-master interrupts
+	$(Q) $(MAKE) -C tests/benchmark tests-pre
+	$(Q) $(MAKE) -C tests/benchmark tests
+	$(Q) $(MAKE) -C tests/benchmark tests-post
+	$(Q) $(MAKE) -C $(TOPDIR) tests-stats
 
 check: tests
 
