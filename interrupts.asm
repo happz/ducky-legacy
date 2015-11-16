@@ -35,8 +35,7 @@ irq_routine_0:
 ;
 ; Keyboard
 ;
-irq_routine_1:
-  retint
+$VIRTUAL_IRQ $IRQ_KEYBOARD
 
 ;
 ; Halt VM
@@ -48,3 +47,4 @@ $VIRTUAL_IRQ $INT_BLOCKIO
 $VIRTUAL_IRQ $INT_VMDEBUG
 $VIRTUAL_IRQ $INT_MM
 $VIRTUAL_IRQ $INT_MATH
+$VIRTUAL_IRQ $INT_NOP

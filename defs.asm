@@ -38,6 +38,7 @@
 .def INT_VMDEBUG: 34
 .def INT_MM:      35
 .def INT_MATH:    36
+.def INT_NOP:     63
 
 
 ;
