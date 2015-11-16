@@ -11,7 +11,7 @@ def common_case(mm_asserts = None, **kwargs):
 
 class Tests(TestCase):
   def test_nop(self):
-    common_case(binary = 'nop_1')
+    common_case(binary = 'nop_1', r0 = 0x100)
 
   def test_inc(self):
     common_case(binary = 'inc_1', r0 = 1)
@@ -200,21 +200,21 @@ class Tests(TestCase):
 
   def test_cli(self):
     fp = 0x1100 if os.getenv('MMAPABLE_SECTIONS')  == 'yes' else 0x0200
-    common_case(binary = 'cli_1', r1 = 0xFF, fp = fp, sp = fp, cs = 0x02, ds = 0x02, privileged = 0)
-    common_case(binary = 'cli_2', r1 = 0xFF, hwint = 0)
+    common_case(binary = 'cli_1', r0 = 0x100, r1 = 0xFF, fp = fp, sp = fp, cs = 0x02, ds = 0x02, privileged = 0)
+    common_case(binary = 'cli_2', r0 = 0x100, r1 = 0xFF, hwint = 0)
 
   def test_sti(self):
     # hwint is always 1... This is just a sanity test, nothing serious.
     # But it's better than nothing.
 
-    common_case(binary = 'sti_1')
+    common_case(binary = 'sti_1', r0 = 0x100)
 
   def test_cas(self):
     data_base = 0x1000 if os.getenv('MMAPABLE_SECTIONS') == 'yes' else 0x0100
     ph_data_base = segment_addr_to_addr(2, data_base)
 
-    common_case(binary  ='cas_1', r1 = data_base, r2 = 0x0A, r3 = 0x0B, e = 1, mm_asserts = [(ph_data_base, 0x0B)])
-    common_case(binary = 'cas_2', r1 = data_base, r2 = 0x0A, r3 = 0x0C, mm_asserts = [(ph_data_base, 0x0A)])
+    common_case(binary  ='cas_1', r0 = 0x100, r1 = data_base, r2 = 0x0A, r3 = 0x0B, e = 1, mm_asserts = [(ph_data_base, 0x0B)])
+    common_case(binary = 'cas_2', r0 = 0x100, r1 = data_base, r2 = 0x0A, r3 = 0x0C, mm_asserts = [(ph_data_base, 0x0A)])
 
   def test_sete(self):
     common_case(binary = 'sete_1', r0 = 0xFF, r1 = 1, e = 1, z = 1)
