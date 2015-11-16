@@ -680,7 +680,7 @@ class Machine(ISnapshotable, IMachineWorker):
 
     self.hdt.create()
 
-    pages = self.memory.alloc_pages(segment = 0x00, count = align(PAGE_SIZE, self.hdt.size()) / PAGE_SIZE)
+    pages = self.memory.alloc_pages(segment = 0x00, count = align(PAGE_SIZE, self.hdt.size()) // PAGE_SIZE)
     self.memory.update_pages_flags(pages[0].index, len(pages), 'read', True)
     self.hdt_address = pages[0].base_address
 
