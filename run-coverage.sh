@@ -26,7 +26,7 @@ function run_tests () {
   export MMAPABLE_SECTIONS=yes
   make tests-in-subdirs
 
-  make tests-post
+  make tests-post tests-submit
 }
 
 if [ "$1" = "--submit" ]; then
