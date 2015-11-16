@@ -1,6 +1,6 @@
 include $(TOPDIR)/Makefile.inc
 
-SUBDIRS := hello-world hello-world-lib clock vga
+SUBDIRS := hello-world hello-world-lib clock vga smp
 
 XUNIT := $(CURDIR)/xunit-record
 export XUNIT

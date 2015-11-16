@@ -11,6 +11,9 @@ from ..cpu.instructions import DuckyInstructionSet, get_instruction_set
 from ..mm import UInt16, ADDR_FMT, UINT16_FMT, SIZE_FMT, UINT32_FMT
 from ..mm.binary import File, SectionTypes, SECTION_TYPES, SYMBOL_DATA_TYPES, SymbolDataTypes
 
+from ..cpu.coprocessor.math_copro import MathCoprocessorInstructionSet  # noqa
+from ..cpu.coprocessor.control import ControlCoprocessorInstructionSet  # noqa
+
 def show_file_header(logger, f):
   f_header = f.get_header()
 

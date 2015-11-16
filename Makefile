@@ -209,6 +209,14 @@ run-vga: vga interrupts
 	$(Q) $(MAKE) -C examples/vga run
 
 
+# SMP show-off
+smp:
+	$(Q) $(MAKE) -C examples/smp build
+
+run-smp:
+	$(Q) $(MAKE) -C examples/smp run
+
+
 #
 # Common binaries
 #

@@ -11,6 +11,10 @@ import os
 import sys
 import time
 
+from ctypes import LittleEndianStructure, c_uint, c_ushort, sizeof
+from functools import partial
+from enum import IntEnum
+
 from six import itervalues, iteritems
 
 from . import mm
@@ -24,11 +28,133 @@ from .interfaces import IMachineWorker, ISnapshotable, IReactorTask
 from .console import ConsoleMaster
 from .errors import InvalidResourceError
 from .log import create_logger
-from .util import LRUCache, F
-from .mm import addr_to_segment, ADDR_FMT, segment_addr_to_addr, UInt8, UInt16, UInt32, UINT16_FMT, UINT32_FMT
+from .util import LRUCache, F, align, sizeof_fmt
+from .mm import addr_to_segment, ADDR_FMT, segment_addr_to_addr, UInt8, UInt16, UInt32, UINT16_FMT, UINT32_FMT, PAGE_SIZE
 from .mm.binary import SectionFlags
 from .reactor import Reactor
 from .snapshot import SnapshotNode
+
+HDT_MAGIC = 0x4D5E
+
+class HDTEntryTypes(IntEnum):
+  CPU    = 0
+  MEMORY = 1
+
+class HDTStructure(LittleEndianStructure):
+  _pack_ = 0
+
+  def write(self, machine, address):
+    write_u8  = partial(machine.memory.write_u8,  privileged = True)
+    write_u16 = partial(machine.memory.write_u16, privileged = True)
+    write_u32 = partial(machine.memory.write_u32, privileged = True)
+
+    for n, t in self._fields_:
+      if sizeof(t) == 1:
+        write_u8(address, getattr(self, n))
+        address += 1
+
+      elif sizeof(t) == 2:
+        write_u16(address, getattr(self, n))
+        address += 2
+
+      else:
+        write_u32(address, getattr(self, n))
+        address += 4
+
+    return address
+
+class HDTHeader(HDTStructure):
+  _pack_ = 0
+  _fields_ = [
+    ('magic',   c_ushort),
+    ('entries', c_ushort)
+  ]
+
+  @staticmethod
+  def create(machine):
+    machine.DEBUG('HDTHeader.create')
+
+    header = HDTHeader()
+
+    header.magic = 0x4D5E
+    header.entries = 0
+
+    return header
+
+class HDTEntry(HDTStructure):
+  @classmethod
+  def create(cls, entry_type):
+    entry = cls()
+
+    entry.type = entry_type
+    entry.length = sizeof(cls)
+
+    return entry
+
+class HDTEntry_CPU(HDTEntry):
+  _pack_ = 0
+  _fields_ = [
+    ('type',     c_ushort),
+    ('length',   c_ushort),
+    ('nr_cpus',  c_ushort),
+    ('nr_cores', c_ushort)
+  ]
+
+  @classmethod
+  def create(cls, machine):
+    machine.DEBUG('HDTEntry_CPU.create: nr_cpus=%s, nr_cores=%s', machine.nr_cpus, machine.nr_cores)
+
+    entry = super(HDTEntry_CPU, cls).create(HDTEntryTypes.CPU)
+    entry.nr_cpus = machine.nr_cpus
+    entry.nr_cores = machine.nr_cores
+
+    return entry
+
+class HDTEntry_Memory(HDTEntry):
+  _pack_ = 0
+  _fields_ = [
+    ('type',   c_ushort),
+    ('length', c_ushort),
+    ('size',   c_uint)
+  ]
+
+  @classmethod
+  def create(cls, machine):
+    machine.DEBUG('HDTEntry_Memory.create: size=%s', sizeof_fmt(machine.memory.size))
+
+    entry = super(HDTEntry_Memory, cls).create(HDTEntryTypes.MEMORY)
+    entry.size = machine.memory.size
+
+    return entry
+
+class HDT(object):
+  klasses = [
+    HDTEntry_Memory,
+    HDTEntry_CPU,
+  ]
+
+  def __init__(self, machine):
+    self.machine = machine
+
+    self.header = None
+    self.entries = []
+
+  def create(self):
+    self.header = HDTHeader.create(self.machine)
+
+    for klass in HDT.klasses:
+      self.entries.append(klass.create(self.machine))
+
+    self.header.entries = len(self.entries)
+
+  def size(self):
+    return sizeof(HDTHeader) + sum([sizeof(entry) for entry in self.entries])
+
+  def write(self, address):
+    address = self.header.write(self.machine, address)
+
+    for entry in self.entries:
+      address = entry.write(self.machine, address)
 
 class MachineState(SnapshotNode):
   def __init__(self):
@@ -37,8 +163,11 @@ class MachineState(SnapshotNode):
   def get_binary_states(self):
     return [__state for __name, __state in iteritems(self.get_children()) if __name.startswith('binary_')]
 
-  def get_core_states(self):
-    return [__state for __name, __state in iteritems(self.get_children()) if __name.startswith('core')]
+  def get_cpu_states(self):
+    return [__state for __name, __state in iteritems(self.get_children()) if __name.startswith('cpu')]
+
+  def get_cpu_state_by_id(self, cpuid):
+    return self.get_children()['cpu{}'.format(cpuid)]
 
 class SymbolCache(LRUCache):
   def __init__(self, machine, size, *args, **kwargs):
@@ -84,7 +213,7 @@ class BinaryState(SnapshotNode):
 class Binary(ISnapshotable, object):
   binary_id = 0
 
-  def __init__(self, path, run = True):
+  def __init__(self, path, run = True, cores = None):
     super(Binary, self).__init__()
 
     self.id = Binary.binary_id
@@ -98,6 +227,14 @@ class Binary(ISnapshotable, object):
     self.ip = None
     self.symbols = None
     self.regions = None
+    self.cores = None
+
+    if cores is not None:
+      self.cores = []
+
+      for core in cores.split(','):
+        cpuid, coreid = core.strip().split(':')
+        self.cores.append((int(cpuid), int(coreid)))
 
     self.raw_binary = None
 
@@ -119,7 +256,7 @@ class Binary(ISnapshotable, object):
     pass
 
   def get_init_state(self):
-    return (self.cs, self.ds, self.sp, self.ip, False)
+    return [self.cs, self.ds, self.sp, self.ip, False]
 
 class IRQRouterTask(IReactorTask):
   """
@@ -229,12 +366,16 @@ class Machine(ISnapshotable, IMachineWorker):
     self.cpu_cache_controller = CPUCacheController(self)
 
     self.binaries = []
+    self.init_states = []
 
     self.cpus = []
     self.memory = None
 
     self.devices = collections.defaultdict(dict)
     self.ports = {}
+
+    self.hdt = HDT(self)
+    self.hdt_address = None
 
     self.virtual_interrupts = {}
 
@@ -339,8 +480,8 @@ class Machine(ISnapshotable, IMachineWorker):
     for binary in self.binaries:
       binary.save_state(state)
 
-    for core in self.cores():
-      core.save_state(state)
+    for cpu in self.cpus:
+      cpu.save_state(state)
 
     self.memory.save_state(state)
 
@@ -418,12 +559,17 @@ class Machine(ISnapshotable, IMachineWorker):
 
   def setup_binaries(self):
     for binary_section in self.config.iter_binaries():
-      binary = Binary(self.config.get(binary_section, 'file'))
+      binary = Binary(self.config.get(binary_section, 'file'), cores = self.config.get(binary_section, 'cores', None))
       self.binaries.append(binary)
 
       self.INFO('binary: loading from from file %s', binary.path)
 
-      binary.cs, binary.ds, binary.sp, binary.ip, binary.symbols, binary.regions, binary.raw_binary = self.memory.load_file(binary.path)
+      if binary.cores is None:
+        binary.cs, binary.ds, binary.sp, binary.ip, binary.symbols, binary.regions, binary.raw_binary = self.memory.load_file(binary.path)
+
+      else:
+        binary.cs, binary.ds, binary.sp, binary.ip, binary.symbols, binary.regions, binary.raw_binary = self.memory.load_file(binary.path, stack = False)
+
       binary.load_symbols()
 
       entry_label = self.config.get(binary_section, 'entry', 'main')
@@ -436,6 +582,46 @@ class Machine(ISnapshotable, IMachineWorker):
       binary.ip = entry_addr.u16
 
       self.print_regions(binary.regions)
+
+    self.init_states = [[None for _ in range(0, self.nr_cores)] for _ in range(0, self.nr_cpus)]
+    self.DEBUG('Machine.setup_binaries: init_states=%s', self.init_states)
+
+    self.DEBUG('Machine.setup_binaries: solve core affinity')
+    for binary in self.binaries:
+      self.DEBUG('  binary #%i', binary.id)
+
+      if binary.cores is None:
+        self.DEBUG('    no cores set, skip')
+        continue
+
+      for cpuid, coreid in binary.cores:
+        if self.init_states[cpuid][coreid] != None:
+          raise Exception('Init state #%s:#%s already exists' % (cpuid, coreid))
+
+        self.init_states[cpuid][coreid] = binary.get_init_state()
+
+        sp = self.memory.create_binary_stack(binary.ds, binary.regions)
+        self.init_states[cpuid][coreid][2] = sp
+
+    self.DEBUG('Machine.setup_binaries: init_states=%s', self.init_states)
+
+    self.DEBUG('Machine.setup_binaries: fill empty spots')
+
+    for binary in self.binaries:
+      self.DEBUG('  binary #%i', binary.id)
+
+      if binary.cores is not None:
+        self.DEBUG('    cores set, skip')
+        continue
+
+      for cpuid in range(0, self.nr_cpus):
+        for coreid in range(0, self.nr_cores):
+          if self.init_states[cpuid][coreid] is not None:
+            continue
+
+          self.init_states[cpuid][coreid] = binary.get_init_state()
+
+    self.DEBUG('Machine.setup_binaries: init_states=%s', self.init_states)
 
   def setup_mmaps(self):
     for section in self.config.iter_mmaps():
@@ -486,6 +672,19 @@ class Machine(ISnapshotable, IMachineWorker):
 
       p = klass.create_from_config(core.debug, self.config, section)
       core.debug.add_point(p)
+
+  def setup_hdt(self):
+    self.DEBUG('Machine.setup_hdt')
+
+    self.hdt.create()
+
+    pages = self.memory.alloc_pages(segment = 0x00, count = align(PAGE_SIZE, self.hdt.size()) / PAGE_SIZE)
+    self.memory.update_pages_flags(pages[0].index, len(pages), 'read', True)
+    self.hdt_address = pages[0].base_address
+
+    self.DEBUG('Machine.setup_hdt: address=%s, size=%s (%s pages)', ADDR_FMT(self.hdt_address), self.hdt.size(), len(pages))
+
+    self.hdt.write(self.hdt_address)
 
   def hw_setup(self, machine_config):
     self.config = machine_config
@@ -552,10 +751,10 @@ class Machine(ISnapshotable, IMachineWorker):
     self.setup_binaries()
     self.setup_mmaps()
     self.setup_debugging()
+    self.setup_hdt()
 
-    init_states = [binary.get_init_state() for binary in self.binaries if binary.run]
     for __cpu in self.cpus:
-      __cpu.boot(init_states)
+      __cpu.boot()
 
   def run(self):
     self.DEBUG('Machine.run')

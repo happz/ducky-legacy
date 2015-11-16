@@ -2,7 +2,7 @@ import sys
 import optparse
 import string
 
-from six import itervalues
+from six import itervalues, print_
 
 from ..snapshot import CoreDumpFile
 from ..mm import ADDR_FMT, UINT16_FMT, UINT8_FMT, PAGE_SIZE, segment_addr_to_addr, addr_to_segment
@@ -45,22 +45,23 @@ def show_cores(logger, state):
   def __reg(index):
     return UINT16_FMT(cs.registers[index])
 
-  for cs in state.get_child('machine').get_core_states():
-    logger.info('Core #%i:#%i', cs.cpuid, cs.coreid)
+  for cpu_state in state.get_child('machine').get_cpu_states():
+    for cs in cpu_state.get_core_states():
+      logger.info('Core #%i:#%i', cs.cpuid, cs.coreid)
 
-    for i in range(0, Registers.REGISTER_SPECIAL, 4):
-      regs = [(i + j) for j in range(0, 4) if (i + j) < Registers.REGISTER_SPECIAL]
-      s = ['reg%02i=%s' % (reg, __reg(reg)) for reg in regs]
-      logger.info('  %s', ' '.join(s))
+      for i in range(0, Registers.REGISTER_SPECIAL, 4):
+        regs = [(i + j) for j in range(0, 4) if (i + j) < Registers.REGISTER_SPECIAL]
+        s = ['reg%02i=%s' % (reg, __reg(reg)) for reg in regs]
+        logger.info('  %s', ' '.join(s))
 
-    flags = FlagsRegister.from_uint16(cs.registers[Registers.FLAGS])
+      flags = FlagsRegister.from_uint16(cs.registers[Registers.FLAGS])
 
-    logger.info('  cs=%s    ds=%s', __reg(Registers.CS), __reg(Registers.DS))
-    logger.info('  fp=%s    sp=%s    ip=%s', __reg(Registers.FP), __reg(Registers.SP), __reg(Registers.IP))
-    logger.info('  flags=%s', flags.to_string())
-    logger.info('  cnt=%i, alive=%s, running=%s, idle=%s, exit=%i', cs.registers[Registers.CNT], cs.alive, cs.running, cs.idle, cs.exit_code)
+      logger.info('  cs=%s    ds=%s', __reg(Registers.CS), __reg(Registers.DS))
+      logger.info('  fp=%s    sp=%s    ip=%s', __reg(Registers.FP), __reg(Registers.SP), __reg(Registers.IP))
+      logger.info('  flags=%s', flags.to_string())
+      logger.info('  cnt=%i, alive=%s, running=%s, idle=%s, exit=%i', cs.registers[Registers.CNT], cs.alive, cs.running, cs.idle, cs.exit_code)
 
-    logger.info('')
+      logger.info('')
 
 def show_memory(logger, state):
   logger.info('=== Memory ===')
@@ -78,8 +79,9 @@ def show_stack(logger, state):
   stacks = [pg for pg in state.get_child('machine').get_child('memory').get_page_states() if pg.stack == 1]
 
   sps = {}
-  for cs in state.get_child('machine').get_core_states():
-    sps[segment_addr_to_addr(cs.registers[Registers.DS], cs.registers[Registers.SP])] = '#%i:#%i' % (cs.cpuid, cs.coreid)
+  for cpu_state in state.get_child('machine').get_cpu_states():
+    for cs in cpu_state.get_core_states():
+      sps[segment_addr_to_addr(cs.registers[Registers.DS], cs.registers[Registers.SP])] = '#%i:#%i' % (cs.cpuid, cs.coreid)
 
   for pg in stacks:
     pg_address = pg.index * PAGE_SIZE
@@ -209,6 +211,8 @@ def main():
   parser.add_option('-s',         dest = 'stack',    default = False, action = 'store_true', help = 'Show stack content')
   parser.add_option('-a',         dest = 'all',      default = False, action = 'store_true', help = 'All of above')
 
+  parser.add_option('-Q',         dest = 'queries',  default = [],    action = 'append',     help = 'Query snapshot')
+
   options, logger = parse_options(parser)
 
   if not options.file_in:
@@ -226,28 +230,33 @@ def main():
     for bs in state.get_child('machine').get_binary_states():
       load_binary_symbols(logger, state, bs)
 
-    logger.info('')
+    if not options.queries:
+      logger.info('')
 
-    if options.header:
-      show_header(logger, state)
+      if options.header:
+        show_header(logger, state)
 
-    if options.binaries:
-      show_binaries(logger, state)
+      if options.binaries:
+        show_binaries(logger, state)
 
-    if options.cores:
-      show_cores(logger, state)
+      if options.cores:
+        show_cores(logger, state)
 
-    if options.memory:
-      show_memory(logger, state)
+      if options.memory:
+        show_memory(logger, state)
 
-    if options.segments:
-      show_segments(logger, state)
+      if options.segments:
+        show_segments(logger, state)
 
-    if options.stack:
-      show_stack(logger, state)
+      if options.stack:
+        show_stack(logger, state)
 
-    if options.pages:
-      show_pages(logger, state)
+      if options.pages:
+        show_pages(logger, state)
+
+    else:
+      for query in options.queries:
+        print_(eval(query, {'STATE': state}), end = '')
 
 if __name__ == '__main__':
   main()

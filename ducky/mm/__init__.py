@@ -9,6 +9,7 @@ from ..interfaces import ISnapshotable
 from ..errors import AccessViolationError, InvalidResourceError
 from ..util import align, sizeof_fmt
 from ..snapshot import SnapshotNode
+from .binary import SectionFlags
 
 import enum
 
@@ -756,7 +757,7 @@ class MemoryController(object):
 
     self.force_aligned_access = self.machine.config.getbool('memory', 'force-aligned-access', default = False)
 
-    self.__size = size
+    self.size = size
     self.__pages_cnt = size // PAGE_SIZE
     self.__pages = {}
 
@@ -772,7 +773,7 @@ class MemoryController(object):
 
     state = parent.add_child('memory', MemoryState())
 
-    state.size = self.__size
+    state.size = self.size
 
     state.segments = []
     for segment in iterkeys(self.__segments):
@@ -1074,7 +1075,7 @@ class MemoryController(object):
 
     self.DEBUG('mc.pages_in_area: address=%s, size=%s', ADDR_FMT(address), size)
 
-    size = size or self.__size
+    size = size or self.size
     pages_start, pages_cnt = area_to_pages(address, size)
 
     return self.pages(pages_start = pages_start, pages_cnt = pages_cnt, ignore_missing = ignore_missing)
@@ -1087,7 +1088,7 @@ class MemoryController(object):
     # Reserve the first segment for system usage
     self.alloc_segment()
 
-    self.INFO('mm: %s, %s available', sizeof_fmt(self.__size, max_unit = 'Ki'), sizeof_fmt(self.__size - len(self.__pages) * PAGE_SIZE, max_unit = 'Ki'))
+    self.INFO('mm: %s, %s available', sizeof_fmt(self.size, max_unit = 'Ki'), sizeof_fmt(self.size - len(self.__pages) * PAGE_SIZE, max_unit = 'Ki'))
 
   def halt(self):
     for area in list(self.mmap_areas.values()):
@@ -1208,6 +1209,11 @@ class MemoryController(object):
     self.update_pages_flags(pages_start, pages_cnt, 'write', flags.writable == 1)
     self.update_pages_flags(pages_start, pages_cnt, 'execute', flags.executable == 1)
 
+  def create_binary_stack(self, segment, regions):
+    pg, sp = self.alloc_stack(segment = segment)
+    regions.append(MemoryRegion(self, 'stack', pg.base_address, PAGE_SIZE, SectionFlags.create(readable = True, writable = True)))
+    return sp
+
   def load_file(self, file_in, csr = None, dsr = None, stack = True):
     self.DEBUG('mc.load_file: file_in=%s, csr=%s, dsr=%s', file_in, csr, dsr)
 
@@ -1268,8 +1274,7 @@ class MemoryController(object):
         regions.append(MemoryRegion(self, f_in.string_table.get_string(s_header.name), s_base_addr, s_header.file_size, s_header.flags))
 
     if stack:
-      pg, sp = self.alloc_stack(segment = dsr)
-      regions.append(MemoryRegion(self, 'stack', pg.base_address, PAGE_SIZE, binary.SectionFlags.create(readable = True, writable = True)))
+      sp = self.create_binary_stack(dsr, regions)
 
     return (csr, dsr, sp, ip, symbols, regions, f_in)
 

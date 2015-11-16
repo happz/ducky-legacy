@@ -456,7 +456,7 @@ class InstDescriptor_Generic_Binary_A_R(InstDescriptor):
   def disassemble_operands(inst):
     operands = []
 
-    if inst.reg == 1:
+    if inst.is_reg == 1:
       p = '()' if inst.is_segment == 1 else '[]'
       operands.append('{}{}{}{}'.format(REGISTER_NAMES[inst.areg], p[0], REGISTER_NAMES[inst.oreg], p[1]))
 
@@ -646,6 +646,7 @@ class DuckyOpcodes(enum.IntEnum):
   SETG   =  7
   SETGE  =  7
 
+  IPI    = 62
   SIS    = 63
 
 
@@ -664,6 +665,20 @@ class Inst_INT(InstDescriptor_Generic_Unary_RI):
   @staticmethod
   def execute(core, inst):
     core.do_int(core.RI_VAL(inst))
+
+class Inst_IPI(InstDescriptor_Generic_Binary_R_RI):
+  mnemonic = 'ipi'
+  opcode = DuckyOpcodes.IPI
+
+  @staticmethod
+  def execute(core, inst):
+    core.check_protected_ins()
+
+    reg = core.registers.map[inst.reg].value
+    cpuid = reg >> 8
+    coreid = reg & 0xFF
+
+    core.cpu.machine.cpus[cpuid].cores[coreid].irq(core.RI_VAL(inst))
 
 class Inst_RETINT(InstDescriptor_Generic):
   mnemonic = 'retint'
@@ -1423,6 +1438,7 @@ class DuckyInstructionSet(InstructionSet):
 
 Inst_NOP(DuckyInstructionSet)
 Inst_INT(DuckyInstructionSet)
+Inst_IPI(DuckyInstructionSet)
 Inst_RETINT(DuckyInstructionSet)
 Inst_CALL(DuckyInstructionSet)
 Inst_RET(DuckyInstructionSet)

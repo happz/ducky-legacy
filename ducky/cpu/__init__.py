@@ -1,7 +1,7 @@
 import functools
 import sys
 
-from six import iterkeys, itervalues
+from six import iterkeys, itervalues, iteritems
 from six.moves import range
 
 from . import registers
@@ -31,7 +31,11 @@ DEFAULT_CORE_DATA_CACHE_LINE_LENGTH = 32
 DEFAULT_CORE_DATA_CACHE_LINE_ASSOC  = 4
 
 class CPUState(SnapshotNode):
-  pass
+  def get_core_states(self):
+    return [__state for __name, __state in iteritems(self.get_children()) if __name.startswith('core')]
+
+  def get_core_state_by_id(self, coreid):
+    return self.get_children()['core{}'.format(coreid)]
 
 class CPUCoreState(SnapshotNode):
   def __init__(self):
@@ -670,6 +674,8 @@ class CPUCore(ISnapshotable, IMachineWorker):
     return '#{}:#{}'.format(self.cpu.id, self.id)
 
   def save_state(self, parent):
+    self.DEBUG('save_state')
+
     state = parent.add_child('core{}'.format(self.id), CPUCoreState())
 
     state.cpuid = self.cpu.id
@@ -1253,19 +1259,23 @@ class CPUCore(ISnapshotable, IMachineWorker):
       e.exc_stack = sys.exc_info()
       self.die(e)
 
-  def boot(self, init_state):
+  def boot(self):
     self.DEBUG('CPUCore.boot')
 
     self.reset()
 
-    cs, ds, sp, ip, privileged = init_state
+    if self.cpu.machine.init_states[self.cpu.id][self.id] is not None:
+      cs, ds, sp, ip, privileged = self.cpu.machine.init_states[self.cpu.id][self.id]
 
-    self.registers.cs.value = cs
-    self.registers.ds.value = ds
-    self.registers.ip.value = ip
-    self.registers.sp.value = sp
-    self.registers.fp.value = sp
-    self.registers.flags.privileged = 1 if privileged else 0
+      self.registers.cs.value = cs
+      self.registers.ds.value = ds
+      self.registers.ip.value = ip
+      self.registers.sp.value = sp
+      self.registers.fp.value = sp
+      self.registers.flags.privileged = 1 if privileged else 0
+
+    self.registers.r0.value = self.cpu.machine.hdt_address
+    self.privileged = self.cpu.machine.config.getbool('cpu', 'privileged', False)
 
     log_cpu_core_state(self)
 
@@ -1405,12 +1415,11 @@ class CPU(ISnapshotable, IMachineWorker):
 
     self.INFO('CPU halted')
 
-  def boot(self, init_states):
+  def boot(self):
     self.DEBUG('CPU.boot')
 
     for core in self.cores:
-      if init_states:
-        core.boot(init_states.pop(0))
+      core.boot()
 
     self.INFO('CPU is up')
 
