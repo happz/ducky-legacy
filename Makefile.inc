@@ -27,7 +27,7 @@ $(Q) COVERAGE_FILE=$(shell if [ "$(VMCOVERAGE)" = "yes" ]; then echo "$(TESTSETD
 		 $(PYTHON) $(VMCOVERAGE_RUN) $(DAS) -i $< -o $@ \
 		   -f \
 		   $(shell if [ "$(MMAPABLE_SECTIONS)" = "yes" ]; then echo "--mmapable-sections"; else echo ""; fi) \
-		   -I $(CURDIR) -I $(TOPDIR) \
+		   -I $(CURDIR) -I $(TOPDIR) -I $(TOPDIR)/defs \
 		   $1 \
 		   $(VMDEBUG); \
 		 if [ "$$?" -eq 0 ]; then \
