@@ -110,15 +110,16 @@ ifndef PYPY
 endif
 
 ifeq ($(PYPY),yes)
+  PYTHON_INTERPRET := pypy
+
 ifdef CIRCLECI
-  PYTHON := PYTHONPATH="$(shell find $(VIRTUAL_ENV) -name 'ducky-*' -type d | head -1):$(shell find $(VIRTUAL_ENV) -name 'site-packages' | head -1):$(PYTHONPATH)" pypy
+  PYTHON := PYTHONPATH="$(shell find $(VIRTUAL_ENV) -name 'ducky-*' -type d | head -1):$(shell find $(VIRTUAL_ENV) -name 'site-packages' | head -1):$(PYTHONPATH)" $(PYTHON_INTERPRET)
 else
-  PYTHON := pypy
+  PYTHON := $(PYTHON_INTERPRET)
 endif
-  PYTHON_VERSION := $(shell $(PYTHON) --version | tr '\n' ' ')
 else
+  PYTHON_INTERPRET := python
   PYTHON :=
-  PYTHON_VERSION := $(shell python --version | tr '\n' ' ')
 endif
 
 # Use mmapable sections
@@ -249,7 +250,7 @@ tests-pre-master:
 	$(Q) mkdir -p $(TESTSETDIR)/tmp
 	$(Q) echo "$(CC_GREEN)PASS$(CC_END)"
 	$(Q) echo "$(CC_YELLOW)Using python:$(CC_END) $(CC_GREEN)$(PYTHON)$(CC_END)"
-	$(Q) echo "$(CC_YELLOW)Python version:$(CC_END) $(CC_GREEN)$(PYTHON_VERSION)$(CC_END)"
+	$(Q) echo "$(CC_YELLOW)Python version:$(CC_END) $(CC_GREEN)$(shell $(PYTHON_INTERPRET) --version 2>&1 | tr '\n' ' ')$(CC_END)"
 	$(Q) echo "$(CC_YELLOW)Test set directory:$(CC_END) $(CC_GREEN)$(TESTSETDIR)$(CC_END)"
 
 tests-pre: tests-pre-master
