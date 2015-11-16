@@ -586,8 +586,10 @@ class Machine(ISnapshotable, IMachineWorker):
     self.init_states = [[None for _ in range(0, self.nr_cores)] for _ in range(0, self.nr_cpus)]
     self.DEBUG('Machine.setup_binaries: init_states=%s', self.init_states)
 
+    binaries = self.binaries[1:] if self.config.has_option('machine', 'interrupt-routines') else self.binaries
+
     self.DEBUG('Machine.setup_binaries: solve core affinity')
-    for binary in self.binaries:
+    for binary in binaries:
       self.DEBUG('  binary #%i', binary.id)
 
       if binary.cores is None:
@@ -607,7 +609,7 @@ class Machine(ISnapshotable, IMachineWorker):
 
     self.DEBUG('Machine.setup_binaries: fill empty spots')
 
-    for binary in self.binaries:
+    for binary in binaries:
       self.DEBUG('  binary #%i', binary.id)
 
       if binary.cores is not None:
