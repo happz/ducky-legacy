@@ -108,8 +108,8 @@ def common_asserts(M, S, mm_asserts = None, file_asserts = None, **kwargs):
   mm_asserts = mm_asserts or {}
   file_asserts = file_asserts or []
 
-  assert_registers(S.get_child('machine').get_child('core0'), **kwargs)
-  assert_flags(S.get_child('machine').get_child('core0'), **kwargs)
+  assert_registers(S.get_child('machine').get_child('cpu0').get_child('core0'), **kwargs)
+  assert_flags(S.get_child('machine').get_child('cpu0').get_child('core0'), **kwargs)
 
   assert_mm(S.get_child('machine').get_child('memory'), mm_asserts)
 
