@@ -1,5 +1,5 @@
 from .. import patch
-from ..util import str2int
+from ..util import str2int, UINT16_FMT
 
 import optparse
 import signal
@@ -184,7 +184,7 @@ def main():
   ]
 
   def __check_stats(core):
-    table_exits.append([str(core), core.exit_code])
+    table_exits.append([str(core), UINT16_FMT(core.exit_code)])
 
     table_inst_caches.append([
       str(core),
