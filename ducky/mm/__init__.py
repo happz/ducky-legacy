@@ -9,7 +9,6 @@ from ..interfaces import ISnapshotable
 from ..errors import AccessViolationError, InvalidResourceError
 from ..util import align, sizeof_fmt
 from ..snapshot import SnapshotNode
-from .binary import SectionFlags
 
 import enum
 
@@ -1210,6 +1209,8 @@ class MemoryController(object):
     self.update_pages_flags(pages_start, pages_cnt, 'execute', flags.executable == 1)
 
   def create_binary_stack(self, segment, regions):
+    from .binary import SectionFlags
+
     pg, sp = self.alloc_stack(segment = segment)
     regions.append(MemoryRegion(self, 'stack', pg.base_address, PAGE_SIZE, SectionFlags.create(readable = True, writable = True)))
     return sp
