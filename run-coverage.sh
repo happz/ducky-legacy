@@ -8,13 +8,14 @@ function run_tests () {
   local interpret="$1"
 
   local pypy="no"
-  [ $interpret == pypy-* ] && pypy="yes"
+  [[ "$interpret" == pypy-* ]] && pypy="yes"
 
   pyenv global "$1"
 
   export Q=@
   export TESTSET=coverage-${interpret}
   export VMCOVERAGE=yes
+  export PYPY=$pypy
 
   make tests-interim-clean tests-pre
 
@@ -26,7 +27,7 @@ function run_tests () {
   export MMAPABLE_SECTIONS=yes
   make tests-in-subdirs
 
-  make tests-post tests-submit
+  make tests-post tests-submit-results
 }
 
 if [ "$1" = "--submit" ]; then
