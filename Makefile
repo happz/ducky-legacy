@@ -115,8 +115,10 @@ ifdef CIRCLECI
 else
   PYTHON := pypy
 endif
+  PYTHON_VERSION := $(shell $(PYTHON) --version | tr '\n' ' ')
 else
   PYTHON :=
+  PYTHON_VERSION := $(shell python --version | tr '\n' ' ')
 endif
 
 # Use mmapable sections
@@ -247,6 +249,7 @@ tests-pre-master:
 	$(Q) mkdir -p $(TESTSETDIR)/tmp
 	$(Q) echo "$(CC_GREEN)PASS$(CC_END)"
 	$(Q) echo "$(CC_YELLOW)Using python:$(CC_END) $(CC_GREEN)$(PYTHON)$(CC_END)"
+	$(Q) echo "$(CC_YELLOW)Python version:$(CC_END) $(CC_GREEN)$(PYTHON_VERSION)$(CC_END)"
 	$(Q) echo "$(CC_YELLOW)Test set directory:$(CC_END) $(CC_GREEN)$(TESTSETDIR)$(CC_END)"
 
 tests-pre: tests-pre-master
