@@ -1,10 +1,13 @@
 tmp
 *.bin
-*.testbin
-*.o
 lse
 .noseids
 .coveralls-token
+
+# Global wildcards
+*.o
+*.swp
+*.testbin
 
 forth/ducky-forth
 interrupts
