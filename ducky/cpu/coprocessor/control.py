@@ -86,6 +86,7 @@ class Inst_CTR(InstDescriptor_Generic_Binary_R_R):
   def execute(core, inst):
     core.check_protected_reg(inst.reg1)
     core.registers.map[inst.reg1].value = core.control_coprocessor.read(inst.reg2)
+    core.update_arith_flags(core.registers.map[inst.reg1])
 
 class Inst_CTW(InstDescriptor_Generic_Binary_R_R):
   mnemonic = 'ctw'
