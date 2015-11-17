@@ -21,6 +21,21 @@ function run_tests () {
   pyenv global "$1"
   pyenv versions
 
+  pip install --upgrade pip
+  pip install tabulate
+  pip install colorama
+  pip install six
+  pip install lxml
+  pip install beautifulsoup4
+  pip install nose-timer
+  pip install pycparser
+  pip install sphinx
+
+  if [[ "$interpret" != 3.* ]]; then
+    pip install mock
+    pip install enum34
+  fi
+
   export Q=@
   export TESTSET="${interpret}${mmap_postfix}"
   export PYPY="$pypy"
