@@ -30,10 +30,8 @@ function run_tests () {
   pip install pycparser
   pip install sphinx
 
-  if [[ "$interpret" != 3.* ]]; then
-    pip install mock
-    pip install enum34
-  fi
+  pip install mock   # since 3.3
+  pip install enum34 # since 3.4
 
   export Q=@
   export TESTSET="${interpret}${mmap_postfix}"
