@@ -5,6 +5,8 @@ set -x
 PASSED=yes
 VERSIONS="${1:-2.7.10 3.4.3 3.5.0 pypy-2.5.0}"
 
+eval "$(pyenv init -)"
+
 
 function run_tests () {
   local interpret="$1"
@@ -16,11 +18,8 @@ function run_tests () {
   local pypy="no"
   [[ "$interpret" == pypy-* ]] && pypy="yes"
 
-  pyenv versions
   pyenv global "$1"
   pyenv versions
-  python --version
-  pypy --version
 
   export Q=@
   export TESTSET="${interpret}${mmap_postfix}"
