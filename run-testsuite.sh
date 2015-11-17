@@ -27,7 +27,6 @@ function run_tests () {
   pip install six
   pip install lxml
   pip install beautifulsoup4
-  pip install nose-timer
   pip install pycparser
   pip install sphinx
 

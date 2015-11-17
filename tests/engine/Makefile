@@ -39,7 +39,7 @@ tests: tests/instructions/interrupts-basic $(ENGINE_TESTS:%.asm=%.testbin)
 	-$(Q) echo "$(CC_YELLOW)[TEST]$(CC_END) Engine unit tests"
 	-$(Q) $(PYTHON) $(VIRTUAL_ENV)/bin/nosetests -v --all-modules $(COVERAGE_NOSE_FLAG) \
 	      --with-xunit --xunit-file=$(TC_RESULTS) \
-			  --no-path-adjustment --with-timer \
+			  --no-path-adjustment \
 			  -w tests 2>&1 | stdbuf -o L -eL tee $(TC_OUTPUT) | grep -v -e '\[INFO\] ' -e '#> '; \
 				if [[ $$? -ne 0 ]]; then touch $(TESTSET_FAILED); fi
 	-$(Q) sed -i 's/<testsuite name="nosetests"/<testsuite name="nosetests-$(TESTSET)"/' $(TC_RESULTS)
