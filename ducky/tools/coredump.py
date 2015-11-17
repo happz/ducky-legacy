@@ -134,7 +134,7 @@ def show_pages(logger, state):
 
     CPR = 32
 
-    for i in range(0, 256 / CPR):
+    for i in range(0, 256 // CPR):
       s = []
       t = []
 
