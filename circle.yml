@@ -6,7 +6,6 @@ test:
   override:
     - make clean
     - ./run-testsuite.sh 2.7.10
-    - ./run-testsuite.sh 3.1.5
     - ./run-testsuite.sh 3.2.5
     - ./run-testsuite.sh 3.3.3
     - ./run-testsuite.sh 3.4.3
