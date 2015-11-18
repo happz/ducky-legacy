@@ -90,7 +90,7 @@ class Inst_CTR(InstDescriptor_Generic_Binary_R_R):
 
 class Inst_CTW(InstDescriptor_Generic_Binary_R_R):
   mnemonic = 'ctw'
-  opcodes = ControlCoprocessorOpcodes.CTW
+  opcode = ControlCoprocessorOpcodes.CTW
 
   @staticmethod
   def execute(core, inst):

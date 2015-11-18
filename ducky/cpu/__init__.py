@@ -116,7 +116,11 @@ def do_log_cpu_core_state(core, logger = None, disassemble = True):
 
   if hasattr(core, 'math_coprocessor'):
     for index, v in enumerate(core.math_coprocessor.registers.stack):
-      logger('MS: %02i: %s', index, UINT32_FMT(v.value))
+      logger('MC: %02i: %s', index, UINT32_FMT(v.value))
+
+  if hasattr(core, 'control_coprocessor'):
+    cp = core.control_coprocessor
+    logger('CC: cr0=%s, cr1=%s, cr2=%s', UINT16_FMT(cp.read_cr0().value), UINT16_FMT(cp.read_cr1().value), UINT16_FMT(cp.read_cr2().value))
 
   if disassemble is True:
     if core.current_instruction:
