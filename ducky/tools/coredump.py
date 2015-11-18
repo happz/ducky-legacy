@@ -5,7 +5,7 @@ import string
 from six import itervalues, print_
 
 from ..snapshot import CoreDumpFile
-from ..mm import ADDR_FMT, UINT16_FMT, UINT8_FMT, PAGE_SIZE, segment_addr_to_addr, addr_to_segment
+from ..mm import ADDR_FMT, UINT16_FMT, UINT8_FMT, PAGE_SIZE, segment_addr_to_addr, addr_to_segment, UINT32_FMT
 from ..mm.binary import SectionFlags, File, SectionTypes
 from ..cpu.registers import FlagsRegister, Registers
 from ..log import WHITE, GREEN
@@ -60,6 +60,7 @@ def show_cores(logger, state):
       logger.info('  fp=%s    sp=%s    ip=%s', __reg(Registers.FP), __reg(Registers.SP), __reg(Registers.IP))
       logger.info('  flags=%s', flags.to_string())
       logger.info('  cnt=%i, alive=%s, running=%s, idle=%s, exit=%i', cs.registers[Registers.CNT], cs.alive, cs.running, cs.idle, cs.exit_code)
+      logger.info('  ivt=%s', UINT32_FMT(cs.ivt_address))
 
       logger.info('')
 
