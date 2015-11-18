@@ -1,6 +1,43 @@
 from setuptools import setup, Extension
+from setuptools.command.test import test as TestCommand
+import sys
 
 mod_native_data_cache = Extension('ducky.native.data_cache', sources = ['ducky/native/data_cache.c'])
+
+install_requires = [
+  'colorama',
+  'enum34',
+  'tabulate',
+  'pycparser',
+  'six'
+]
+
+tests_requires = [
+  'tox'
+]
+
+class Tox(TestCommand):
+  user_options = [('tox-args=', 'a', 'Arguments to pass to tox')]
+
+  def initialize_options(self):
+    TestCommand.initialize_options(self)
+    self.tox_args = None
+
+  def finalize_options(self):
+    TestCommand.finalize_options(self)
+    self.test_args = []
+    self.test_suite = True
+
+  def run_tests(self):
+    import tox
+    import shlex
+
+    args = self.tox_args
+    if args:
+      args = shlex.split(self.tox_args)
+
+    errno = tox.cmdline(args=args)
+    sys.exit(errno)
 
 setup(name = 'ducky',
       version = '1.0.1',
@@ -56,13 +93,11 @@ setup(name = 'ducky',
       },
       package_dir = {'ducky': 'ducky'},
       zip_safe = False,
-      install_requires = [
-        'enum34',
-        'tabulate',
-        'colorama',
-        'pycparser',
-        'six'
-      ],
+      install_requires = install_requires,
+      tests_require = tests_requires,
+      cmdclass = {
+        'test': Tox
+      },
       ext_modules = [
         #mod_native_data_cache
       ]
