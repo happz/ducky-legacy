@@ -2,12 +2,24 @@ machine:
   python:
     version: 2.7.10
 
+dependencies:
+  pre:
+    - if [[ $CIRCLE_NODE_INDEX == "1" ]] ; then pyenv global 3.2.5 ; fi
+    - if [[ $CIRCLE_NODE_INDEX == "2" ]] ; then pyenv global 3.3.3 ; fi
+    - if [[ $CIRCLE_NODE_INDEX == "3" ]] ; then pyenv global 3.4.3 ; fi
+    - if [[ $CIRCLE_NODE_INDEX == "4" ]] ; then pyenv global 3.5.0 ; fi
+    - if [[ $CIRCLE_NODE_INDEX == "5" ]] ; then pyenv global pypy-2.5.0 ; fi
+    - pip install enum34
+    - pip install tabulate
+    - pip install colorama
+    - pip install six
+    - pip install lxml
+    - pip install beautifulsoup4
+    - pip install pycparser
+    - pip install mock
+    - pip install sphinx
+
 test:
   override:
-    - make clean
-    - ./run-testsuite.sh 2.7.10
-    - ./run-testsuite.sh 3.2.5
-    - ./run-testsuite.sh 3.3.3
-    - ./run-testsuite.sh 3.4.3
-    - ./run-testsuite.sh 3.5.0
-    - ./run-testsuite.sh pypy-2.5.0
+    - ./run-testsuite.sh:
+      parallel: true

@@ -3,35 +3,43 @@
 set -x
 
 PASSED=yes
-VERSIONS="${1:-2.7.10 3.4.3 3.5.0 pypy-2.5.0}"
 
-eval "$(pyenv init -)"
+# If run without any params, scripts runs as a part of CI job
+# Guess versions according to a CIRCLE_NODE_INDEX
+if [[ "$1" = "" ]]; then
+  Q=@ make clean
 
+  if [[ $CIRCLE_NODE_INDEX == "0" ]]; then
+    VERSIONS="2.7.10"
+
+  elif [[ $CIRCLE_NODE_INDEX == "1" ]]; then
+    VERSIONS="3.2.5"
+
+  elif [[ $CIRCLE_NODE_INDEX == "2" ]]; then
+    VERSIONS="3.3.3"
+
+  elif [[ $CIRCLE_NODE_INDEX == "3" ]]; then
+    VERSIONS="3.4.3"
+
+  elif [[ $CIRCLE_NODE_INDEX == "4" ]]; then
+    VERSIONS="3.5.0"
+
+  elif [[ $CIRCLE_NODE_INDEX == "5" ]]; then
+    VERSIONS="pypy-2.5.0"
+  fi
+else
+  VERSIONS="${1:-2.7.10 pypy-2.5.0}"
+fi
 
 function run_tests () {
   local interpret="$1"
   local mmap="$2"
 
   local mmap_postfix=""
-  [ "$mmap" = "yes" ] && mmap_postfix="-mmap"
+  [[ "$mmap" == "yes" ]] && mmap_postfix="-mmap"
 
   local pypy="no"
   [[ "$interpret" == pypy-* ]] && pypy="yes"
-
-  pyenv global "$1"
-  pyenv versions
-
-  pip install --upgrade pip
-  pip install tabulate
-  pip install colorama
-  pip install six
-  pip install lxml
-  pip install beautifulsoup4
-  pip install pycparser
-  pip install sphinx
-
-  pip install mock   # since 3.3
-  pip install enum34 # since 3.4
 
   export Q=@
   export TESTSET="${interpret}${mmap_postfix}"
