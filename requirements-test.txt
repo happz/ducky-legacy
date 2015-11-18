@@ -2,7 +2,6 @@ enum34
 tabulate
 colorama
 six
-lxml
 beautifulsoup4
 pycparser
 mock

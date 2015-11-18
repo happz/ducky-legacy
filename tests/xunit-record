@@ -46,7 +46,7 @@ def main():
   soup = None
 
   if options.action == 'init':
-    soup = BeautifulSoup('', 'xml')
+    soup = BeautifulSoup('', 'html.parser')
 
     for ts_name in options.testsuites:
       ts_tag = soup.new_tag('testsuite', tests = '0', errors = '0', failures = '0', skip = '0')
@@ -56,7 +56,7 @@ def main():
 
   elif options.action == 'add':
     with open(options.file, 'r') as f:
-      soup = BeautifulSoup(f, 'xml')
+      soup = BeautifulSoup(f, 'html.parser')
 
     tc_tag = soup.new_tag('testcase')
     if options.name:
