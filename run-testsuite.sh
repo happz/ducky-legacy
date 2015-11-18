@@ -15,7 +15,7 @@ function run_tests () {
   local pypy="no"
   [[ "$interpret" == pypy* ]] && pypy="yes"
 
-  #export Q=@
+  export Q=@
   export TESTSET="${interpret}${mmap_postfix}"
   export PYPY="$pypy"
   export MMAPABLE_SECTIONS="$mmap"
