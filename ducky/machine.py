@@ -597,7 +597,7 @@ class Machine(ISnapshotable, IMachineWorker):
         continue
 
       for cpuid, coreid in binary.cores:
-        if self.init_states[cpuid][coreid] != None:
+        if self.init_states[cpuid][coreid] is not None:
           raise Exception('Init state #%s:#%s already exists' % (cpuid, coreid))
 
         self.init_states[cpuid][coreid] = binary.get_init_state()
