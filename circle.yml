@@ -5,12 +5,13 @@ machine:
 dependencies:
   pre:
     - pip install --upgrade pip
-    - pip install tox
+    - pip install tox tox-pyenv
+    - pyenv local 2.7.10 3.2.5 3.3.3 3.4.3 3.5.0
 
 test:
   override:
     - make clean
-    - tox -e py27
+#    - tox -e py27
     - tox -e py32
     - tox -e py33
     - tox -e py34
