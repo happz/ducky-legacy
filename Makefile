@@ -111,12 +111,7 @@ endif
 
 ifeq ($(PYPY),yes)
   PYTHON_INTERPRET := pypy
-
-ifdef CIRCLECI
-  PYTHON := PYTHONPATH="$(shell find $(VIRTUAL_ENV) -name 'ducky-*' -type d | head -1):$(shell find $(VIRTUAL_ENV) -name 'site-packages' | head -1):$(PYTHONPATH)" $(PYTHON_INTERPRET)
-else
-  PYTHON := $(PYTHON_INTERPRET)
-endif
+	PYTHON := pypy
 else
   PYTHON_INTERPRET := python
   PYTHON :=

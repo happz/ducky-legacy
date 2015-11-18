@@ -11,9 +11,9 @@ dependencies:
 test:
   override:
     - Q=@ make clean
-#    - tox -e py27
-#    - tox -e py32
-#    - tox -e py33
-#    - tox -e py34
-#    - tox -e py35
+    - tox -e py27
+    - tox -e py32
+    - tox -e py33
+    - tox -e py34
+    - tox -e py35
     - tox -e pypy
