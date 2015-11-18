@@ -8,6 +8,14 @@
   .section .cwt, rwbl
   .space $CWT_SIZE
 
+
+  .data
+
+  ; keep it at the beggining to have IVT page-aligned
+  .type ivt_base, space
+  .space $PAGE_SIZE
+
+
   .text
 
   .global main
@@ -30,6 +38,32 @@ main:
 __primary_boot:
   ; r0 - HDT
   ; r1 - CPUID
+
+  ; setup IVT
+  ; copy it first
+  sis $INST_SET_CONTROL
+  ; IVT segment
+  ctr r3, $CONTROL_IVT_SEGMENT
+  ; IVT address - src pointer
+  ctr r4, $CONTROL_IVT_ADDRESS
+  sis $INST_SET_DUCKY
+
+  ; dst pointer
+  li r5, &ivt_base
+  ; stopper
+  mov r6, r5
+  add r6, $PAGE_SIZE
+
+__ivt_copy_loop:
+  cmp r5, r6
+  be &__ivt_copy_finished
+  lw r7, r3(r4)
+  stw r5, r7
+  add r4, 2
+  add r5, 2
+  j &__ivt_copy_loop
+
+__ivt_copy_finished:
 
   ; save HDT base
   mov r12, r0
@@ -104,6 +138,15 @@ __primary_boot_fail:
 __secondary_thread:
   ; r0 - HDT
   ; r1 - CPUID
+
+  ; setup IVT
+  li r2, &ivt_base
+  cli
+  sis $INST_SET_CONTROL
+  ctw $CONTROL_IVT_SEGMENT, ds
+  ctw $CONTROL_IVT_ADDRESS, r2
+  sis $INST_SET_DUCKY
+  sti
 
   ; just quit with our CPUID as exit value
   mov r0, r1
