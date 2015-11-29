@@ -42,7 +42,7 @@ class ControlCoprocessor(ISnapshotable, Coprocessor):
     if not self.core.privileged:
       raise AccessViolationError('It is not allowed to read control registers in non-privileged mode')
 
-    handler = 'read_cr%i' % r
+    handler = 'read_cr%i' % (r.value if isinstance(r, ControlRegisters) else r)
 
     if not hasattr(self, handler):
       raise WriteOnlyRegisterError(r)
@@ -53,7 +53,7 @@ class ControlCoprocessor(ISnapshotable, Coprocessor):
     if not self.core.privileged:
       raise AccessViolationError('It is not allowed to modify control registers in non-privileged mode')
 
-    handler = 'write_cr%i' % r
+    handler = 'write_cr%i' % (r.value if isinstance(r, ControlRegisters) else r)
 
     if not hasattr(self, handler):
       raise ReadOnlyRegisterError(r)
