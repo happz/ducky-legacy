@@ -8,9 +8,7 @@ function run_tests () {
   local interpret="$1"
 
   local pypy="no"
-  [[ "$interpret" == pypy-* ]] && pypy="yes"
-
-  pyenv global "$1"
+  [[ "$interpret" == pypy* ]] && pypy="yes"
 
   export Q=@
   export TESTSET=coverage-${interpret}
