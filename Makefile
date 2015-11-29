@@ -298,8 +298,9 @@ check: tests
 # Clean
 clean-master:
 	$(Q) rm -rf build dist
-	$(Q) rm -f $(shell find $(TOPDIR) -name 'ducky-snapshot.bin')
-	$(Q) rm -f $(shell find $(TOPDIR) -name '*.pyc' -o -name '*.o')
+	$(Q) find $(TOPDIR) -name 'ducky-snapshot.bin' -print0 | xargs -0 rm -f
+	$(Q) find $(TOPDIR) -name '*.pyc' -print0 | xargs -0 rm -f
+	$(Q) find $(TOPDIR) -name '*.o' -print0 | xargs -0 rm -f
 	$(Q) rm -f interrupts
 
 clean-testsets:
