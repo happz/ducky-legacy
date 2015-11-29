@@ -5,9 +5,6 @@ EXAMPLE := smp
 TC_MACHINE := $(TESTSETDIR)/$(EXAMPLE).$(DB_PID).machine
 TC_OUT     := $(TESTSETDIR)/$(EXAMPLE).$(DB_PID).out
 
-TC_OBJDUMP_OUT := $(TESTSETDIR)/$(EXAMPLE).objdump.$(DB_PID).out
-TC_COREDUMP_OUT := $(TESTSETDIR)/$(EXAMPLE).coredump.$(DB_PID).out
-					 
 
 smp.o: $(TOPDIR)/defs.asm smp.asm
 smp: smp.o
