@@ -13,7 +13,8 @@ install_requires = [
 ]
 
 tests_requires = [
-  'tox'
+  'tox',
+  'virtualenv'
 ]
 
 class Tox(TestCommand):
