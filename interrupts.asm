@@ -21,7 +21,7 @@ irq_routine_#index:
 ;
 ; Increment jiffies counter, nothing else to do
 ;
-irq_routine_0:
+irq_routine_$IRQ_TIMER:
   push r0
   push r1
   li r0, &jiffies
@@ -40,7 +40,7 @@ $VIRTUAL_IRQ $IRQ_KEYBOARD
 ;
 ; Halt VM
 ;
-irq_routine_32:
+irq_routine_$INT_HALT:
   hlt r0
 
 $VIRTUAL_IRQ $INT_BLOCKIO

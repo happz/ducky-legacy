@@ -1,4 +1,6 @@
-irq_routine_32:
+.include "defs.asm"
+
+irq_routine_$INT_HALT:
   hlt r0
 
 irq_routine_10:
