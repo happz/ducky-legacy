@@ -187,20 +187,20 @@ class Tests(TestCase):
 
   def test_stw(self):
     data_base = 0x1000 if os.getenv('MMAPABLE_SECTIONS')  == 'yes' else 0x0100
-    ph_data_base = segment_addr_to_addr(2, data_base)
+    ph_data_base = segment_addr_to_addr(3, data_base)
 
     common_case(binary = 'stw_1', r0 = data_base, r1 = 0xF00, r2 = 0xDEAD, s = 1, mm_asserts = [(ph_data_base, 0xDEAD), (ph_data_base + 2, 0)])
 
   def test_stb(self):
     data_base = 0x1000 if os.getenv('MMAPABLE_SECTIONS')  == 'yes' else 0x0100
-    ph_data_base = segment_addr_to_addr(2, data_base)
+    ph_data_base = segment_addr_to_addr(3, data_base)
 
     common_case(binary = 'stb_1', r0 = data_base, r2 = 0xDEAD, s = 1, mm_asserts = [(ph_data_base, 0xAD), (ph_data_base + 2, 0)])
     common_case(binary = 'stb_2', r0 = data_base + 1, r2 = 0xDE,      mm_asserts = [(ph_data_base, 0xDE00)])
 
   def test_cli(self):
     fp = 0x1100 if os.getenv('MMAPABLE_SECTIONS')  == 'yes' else 0x0200
-    common_case(binary = 'cli_1', r0 = 0x100, r1 = 0xFF, fp = fp, sp = fp, cs = 0x02, ds = 0x02, privileged = 0)
+    common_case(binary = 'cli_1', r0 = 0x100, r1 = 0xFF, fp = fp, sp = fp, cs = 0x03, ds = 0x03, privileged = 0)
     common_case(binary = 'cli_2', r0 = 0x100, r1 = 0xFF, hwint = 0)
 
   def test_sti(self):
@@ -211,7 +211,7 @@ class Tests(TestCase):
 
   def test_cas(self):
     data_base = 0x1000 if os.getenv('MMAPABLE_SECTIONS') == 'yes' else 0x0100
-    ph_data_base = segment_addr_to_addr(2, data_base)
+    ph_data_base = segment_addr_to_addr(3, data_base)
 
     common_case(binary  ='cas_1', r0 = 0x100, r1 = data_base, r2 = 0x0A, r3 = 0x0B, e = 1, mm_asserts = [(ph_data_base, 0x0B)])
     common_case(binary = 'cas_2', r0 = 0x100, r1 = data_base, r2 = 0x0A, r3 = 0x0C, mm_asserts = [(ph_data_base, 0x0A)])

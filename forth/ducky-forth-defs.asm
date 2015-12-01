@@ -13,6 +13,9 @@
 .def TEXT_OFFSET:    0x0000
 .def USERSPACE_BASE: 0x5000
 
+; RTC frequency - 1 tick per second is good enough for us.
+.def RTC_FREQ:        0x0001
+
 ; One cell is 16 bits, 2 bytes, this is 16-bit FORTH. I hope it's clear now :)
 .def CELL:               2
 

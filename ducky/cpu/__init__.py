@@ -8,7 +8,7 @@ from . import registers
 from .. import profiler
 
 from ..interfaces import IMachineWorker, ISnapshotable
-from ..mm import ADDR_FMT, UINT8_FMT, UINT16_FMT, UINT32_FMT, SEGMENT_SIZE, PAGE_SIZE, PAGE_MASK, PAGE_SHIFT, i16, addr_to_page
+from ..mm import ADDR_FMT, UINT8_FMT, UINT16_FMT, UINT32_FMT, SEGMENT_SIZE, PAGE_SIZE, PAGE_MASK, PAGE_SHIFT, i16, PageTableEntry
 from .registers import Registers, REGISTER_NAMES, FlagsRegister
 from .instructions import DuckyInstructionSet
 from ..errors import AccessViolationError, InvalidResourceError
@@ -17,6 +17,9 @@ from ..snapshot import SnapshotNode
 
 #: Default IVT address
 DEFAULT_IVT_ADDRESS = 0x000000
+
+#: Default PT address
+DEFAULT_PT_ADDRESS = 0x010000
 
 #: Default size of core instruction cache, in instructions.
 DEFAULT_CORE_INST_CACHE_SIZE = 256
@@ -39,19 +42,23 @@ class CPUState(SnapshotNode):
 
 class CPUCoreState(SnapshotNode):
   def __init__(self):
-    super(CPUCoreState, self).__init__('cpuid', 'coreid', 'registers', 'exit_code', 'alive', 'running', 'idle', 'ivt_address')
+    super(CPUCoreState, self).__init__('cpuid', 'coreid', 'registers', 'exit_code', 'alive', 'running', 'idle', 'ivt_address', 'pt_address')
 
 class InterruptVector(object):
   """
   Interrupt vector table entry.
   """
 
-  SIZE = 4
+  SIZE = 8
 
-  def __init__(self, cs = 0x00, ds = 0x00, ip = 0x0000):
+  def __init__(self, cs = 0x00, ds = 0x00, ip = 0x0000, sp = 0x0000):
     self.cs = cs
     self.ds = ds
     self.ip = ip
+    self.sp = sp
+
+  def __repr__(self):
+    return '<InterruptVector: cs=%s, ds=%s, ip=%s, sp=%s>' % (UINT8_FMT(self.cs), UINT8_FMT(self.ds), UINT16_FMT(self.ip), UINT16_FMT(self.sp))
 
 class CPUException(Exception):
   """
@@ -120,7 +127,7 @@ def do_log_cpu_core_state(core, logger = None, disassemble = True):
 
   if hasattr(core, 'control_coprocessor'):
     cp = core.control_coprocessor
-    logger('CC: cr0=%s, cr1=%s, cr2=%s', UINT16_FMT(cp.read_cr0().value), UINT16_FMT(cp.read_cr1().value), UINT16_FMT(cp.read_cr2().value))
+    logger('CC: cr0=%s, cr1=%s, cr2=%s, cr3=%s, cr4=%s', UINT16_FMT(cp.read_cr0().value), UINT16_FMT(cp.read_cr1().value), UINT16_FMT(cp.read_cr2().value),  UINT16_FMT(cp.read_cr3().value),  UINT16_FMT(cp.read_cr4().value))
 
   if disassemble is True:
     if core.current_instruction:
@@ -170,10 +177,11 @@ class InstructionCache(LRUCache):
   :param int size: maximal number of entries this cache can store.
   """
 
-  def __init__(self, core, size, *args, **kwargs):
-    super(InstructionCache, self).__init__(core.cpu.machine.LOGGER, size, *args, **kwargs)
+  def __init__(self, mmu, size, *args, **kwargs):
+    super(InstructionCache, self).__init__(mmu.core.cpu.machine.LOGGER, size, *args, **kwargs)
 
-    self.core = core
+    self.mmu = mmu
+    self.core = mmu.core
 
   def get_object(self, addr):
     """
@@ -187,7 +195,7 @@ class InstructionCache(LRUCache):
 
     core = self.core
 
-    inst = core.instruction_set.decode_instruction(core.memory.read_u32(addr, not_execute = False))
+    inst = core.instruction_set.decode_instruction(core.mmu.MEM_IN32(addr, not_execute = False))
     opcode = inst.opcode
 
     if opcode not in core.instruction_set.opcode_desc_map:
@@ -223,11 +231,12 @@ class CPUDataCache(LRUCache):
   :param int size: maximal number of entries this cache can store.
   """
 
-  def __init__(self, controller, core, size, *args, **kwargs):
-    super(CPUDataCache, self).__init__(core.cpu.machine.LOGGER, size, *args, **kwargs)
+  def __init__(self, controller, mmu, size, *args, **kwargs):
+    super(CPUDataCache, self).__init__(mmu.core.cpu.machine.LOGGER, size, *args, **kwargs)
 
     self.controller = controller
-    self.core = core
+    self.mmu = mmu
+    self.core = mmu.core
 
     self.forced_writes = 0
 
@@ -246,7 +255,7 @@ class CPUDataCache(LRUCache):
     self.core.DEBUG('%s.make_space: addr=%s, value=%s', self.__class__.__name__, ADDR_FMT(addr), UINT16_FMT(value))
 
     if dirty:
-      self.core.memory.write_u16(addr, value)
+      self.mmu.MEM_OUT16(addr, value)
 
     self.prunes += 1
 
@@ -264,7 +273,7 @@ class CPUDataCache(LRUCache):
 
     self.controller.flush_entry_references(addr, caller = self.core)
 
-    return [False, self.core.memory.read_u16(addr)]
+    return [False, self.mmu.MEM_IN16(addr)]
 
   def read_u8(self, addr):
     """
@@ -313,9 +322,9 @@ class CPUDataCache(LRUCache):
 
     self.core.DEBUG('%s.read_u16: addr=%s', self.__class__.__name__, ADDR_FMT(addr))
 
-    if self.core.memory.page((addr & PAGE_MASK) >> PAGE_SHIFT).cache is False:
+    if self.mmu.get_pte(addr).cache != 1:
       self.core.DEBUG('%s.read_u16: read directly from uncacheable page', self.__class__.__name__)
-      return self.core.memory.read_u16(addr)
+      return self.mmu.MEM_IN16(addr)
 
     return self[addr][1]
 
@@ -330,9 +339,9 @@ class CPUDataCache(LRUCache):
 
     self.core.DEBUG('%s.write_u16: addr=%s, value=%s', self.__class__.__name__, ADDR_FMT(addr), UINT16_FMT(value))
 
-    if self.core.memory.page((addr & PAGE_MASK) >> PAGE_SHIFT).cache is False:
+    if self.mmu.get_pte(addr).cache != 1:
       self.core.DEBUG('%s.write_u16: write directly to uncacheable page', self.__class__.__name__)
-      self.core.memory.write_u16(addr, value)
+      self.mmu.MEM_OUT16(addr, value)
       return
 
     if addr not in self:
@@ -362,7 +371,7 @@ class CPUDataCache(LRUCache):
 
       if dirty:
         self.core.DEBUG('%s.release_entry_reference: write back', self.__class__.__name__)
-        self.core.memory.write_u16(addr, value)
+        self.mmu.MEM_OUT16(addr, value)
 
       if not remove:
         self[addr] = (False, value)
@@ -472,7 +481,7 @@ class CPUCacheController(object):
     self.machine.DEBUG('%s.flush_entry_references: caller=%s, address=%s', self.__class__.__name__, caller, ADDR_FMT(address))
 
     for core in [core for core in self.cores if core is not caller]:
-      core.data_cache.release_entry_references(address, writeback = True, remove = False)
+      core.mmu.data_cache.release_entry_references(address, writeback = True, remove = False)
 
   def release_entry_references(self, address, caller = None):
     """
@@ -489,7 +498,7 @@ class CPUCacheController(object):
 
     writeback = True if caller is None else False
     for core in [core for core in self.cores if core is not caller]:
-      core.data_cache.release_entry_references(address, writeback = writeback, remove = True)
+      core.mmu.data_cache.release_entry_references(address, writeback = writeback, remove = True)
 
   def release_page_references(self, pg, caller = None):
     """
@@ -506,7 +515,7 @@ class CPUCacheController(object):
 
     writeback = True if caller is None else False
     for core in [core for core in self.cores if core is not caller]:
-      core.data_cache.release_page_references(pg, writeback = writeback, remove = True)
+      core.mmu.data_cache.release_page_references(pg, writeback = writeback, remove = True)
 
   def release_area_references(self, address, size, caller = None):
     """
@@ -524,7 +533,7 @@ class CPUCacheController(object):
 
     writeback = True if caller is None else False
     for core in [core for core in self.cores if core is not caller]:
-      core.data_cache.release_area_references(address, size, writeback = writeback, remove = True)
+      core.mmu.data_cache.release_area_references(address, size, writeback = writeback, remove = True)
 
   def release_references(self, caller = None):
     """
@@ -540,8 +549,206 @@ class CPUCacheController(object):
 
     writeback = True if caller is None else False
     for core in [core for core in self.cores if core is not caller]:
-      core.data_cache.release_references(writeback = writeback, remove = True)
+      core.mmu.data_cache.release_references(writeback = writeback, remove = True)
 
+
+class MMU(ISnapshotable):
+  """
+  Memory management unit (aka MMU) provides a single point handling all core's memory operations.
+  All memory reads and writes must go through this unit, which is then responsible for all
+  translations, access control, and caching.
+
+  :param ducky.cpu.CPUCore core: parent core.
+  :param ducky.mm.MemoryController memory_controller: memory controller that provides access
+    to the main memory.
+  :param ducky.cpu.CPUCacheController cache_controller: cache controller that provides
+    access to cache coherency mechanisms.
+  """
+
+  def __init__(self, core, memory_controller, cache_controller):
+    super(MMU, self).__init__()
+
+    config = core.cpu.machine.config
+
+    self.core = core
+    self.memory = memory_controller
+    self.cache_controller = cache_controller
+
+    self.force_aligned_access = config.getbool('memory', 'force-aligned-access', default = False)
+    self.pt_address = config.getint('cpu', 'pt-address', DEFAULT_PT_ADDRESS)
+
+    self.pte_cache = {}
+
+    self.DEBUG = core.DEBUG
+
+    self.instruction_cache = InstructionCache(self, config.getint('cpu', 'inst-cache', default = DEFAULT_CORE_INST_CACHE_SIZE))
+
+    self.data_cache = None
+    if config.getbool('cpu', 'data-cache-enabled', True):
+      driver = config.get('cpu', 'data-cache-driver', 'python')
+
+      import platform
+
+      if platform.python_implementation() == 'PyPy':
+        if driver != 'python':
+          self.WARN('Running on PyPy, forcing Python data cache implementation')
+          driver = 'python'
+
+      elif platform.python_implementation() == 'CPython':
+        pass
+
+      elif driver != 'python':
+        self.WARN('Running on unsupported platform, forcing Python data cache implementation')
+        driver = 'python'
+
+      if driver == 'native':
+        from ..native.data_cache import CPUDataCache as DC
+
+        self.data_cache = DC(cache_controller, self,
+                             config.getint('cpu', 'data-cache-size', DEFAULT_CORE_DATA_CACHE_SIZE),
+                             config.getint('cpu', 'data-cache-line', DEFAULT_CORE_DATA_CACHE_LINE_LENGTH),
+                             config.getint('cpu', 'data-cache-assoc', DEFAULT_CORE_DATA_CACHE_LINE_ASSOC))
+
+      elif driver == 'python':
+        self.data_cache = CPUDataCache(cache_controller, self, config.getint('cpu', 'data-cache-size', default = DEFAULT_CORE_DATA_CACHE_SIZE))
+
+      else:
+        raise InvalidResourceError('Unknown data cache driver: driver=%s' % driver)
+
+      cache_controller.register_core(core)
+
+    self.set_access_methods()
+
+  def set_access_methods(self):
+    """
+    Set parent core's memory-access methods to proper shortcuts.
+    """
+
+    self.DEBUG('MMU.set_access_methods')
+
+    if self.data_cache is None:
+      self.core.MEM_IN8   = self.full_read_u8
+      self.core.MEM_IN16  = self.full_read_u16
+      self.core.MEM_OUT8  = self.full_write_u8
+      self.core.MEM_OUT16 = self.full_write_u16
+
+    else:
+      self.core.MEM_IN8   = self.data_cache.read_u8
+      self.core.MEM_IN16  = self.data_cache.read_u16
+      self.core.MEM_OUT8  = self.data_cache.write_u8
+      self.core.MEM_OUT16 = self.data_cache.write_u16
+
+    self.core.MEM_IN32  = self.full_read_u32
+    self.core.MEM_OUT32 = self.full_write_u32
+
+    self.MEM_IN8   = self.full_read_u8
+    self.MEM_IN16  = self.full_read_u16
+    self.MEM_IN32  = self.full_read_u32
+    self.MEM_OUT8  = self.full_write_u8
+    self.MEM_OUT16 = self.full_write_u16
+    self.MEM_OUT32 = self.full_write_u32
+
+  def reset(self):
+    self.instruction_cache.clear()
+
+    if self.data_cache is not None:
+      self.data_cache.clear()
+
+    self.pte_cache = {}
+
+  def halt(self):
+    if self.data_cache is not None:
+      self.data_cache.release_references()
+      self.core.cpu.machine.cpu_cache_controller.unregister_core(self.core)
+
+  def release_ptes(self):
+    self.DEBUG('MMU.release_ptes')
+
+    self.pte_cache = {}
+
+  def get_pte(self, addr):
+    """
+    Find out PTE for particular physical address. If PTE is not in internal PTE cache, it is
+    fetched from PTE table.
+
+    :param u24 addr: memory address.
+    """
+
+    pg_index = (addr & PAGE_MASK) >> PAGE_SHIFT
+
+    self.DEBUG('MMU.get_pte: addr=%s, pte-address=%s', ADDR_FMT(addr), ADDR_FMT(self.pt_address + pg_index))
+
+    if pg_index not in self.pte_cache:
+      self.pte_cache[pg_index] = pte = PageTableEntry.from_uint16(self.memory.read_u8(self.pt_address + pg_index))
+
+    else:
+      pte = self.pte_cache[pg_index]
+
+    self.DEBUG('  pte=%s (%s)', pte.to_string(), pte.to_uint16())
+
+    return pte
+
+  def check_access(self, access, addr, align = None):
+    """
+    Check attempted access against PTE. Be aware that each check can be turned off by configuration file.
+
+    :param access: ``read``, ``write`` or ``execute``.
+    :param u24 addr: memory address.
+    :param int align: if set, operation is expected to be aligned to this boundary.
+    :raises ducky.errors.AccessViolationError: when access is denied.
+    """
+
+    self.DEBUG('MMU.check_access: access=%s, addr=%s', access, ADDR_FMT(addr))
+
+    if self.force_aligned_access and align is not None and addr % align:
+      raise AccessViolationError('Not allowed to access unaligned memory: access=%s, address=%s, align=%s' % (access, ADDR_FMT(addr), align))
+
+    pg_index = (addr & PAGE_MASK) >> PAGE_SHIFT
+
+    if self.core.privileged:
+      return self.memory.page(pg_index)
+
+    pte = self.get_pte(addr)
+
+    if getattr(pte, access) == 1:
+      return self.memory.page(pg_index)
+
+    raise AccessViolationError('Not allowed to access memory: access=%s, address=%s, pte=%s' % (access, ADDR_FMT(addr), pte.to_string()))
+
+  def full_read_u8(self, addr):
+    self.DEBUG('MMU.raw_read_u8: addr=%s', ADDR_FMT(addr))
+
+    return self.check_access('read', addr).read_u8(addr & (PAGE_SIZE - 1))
+
+  def full_read_u16(self, addr):
+    self.DEBUG('MMU.raw_read_u16: addr=%s', ADDR_FMT(addr))
+
+    return self.check_access('read', addr, align = 2).read_u16(addr & (PAGE_SIZE - 1))
+
+  def full_read_u32(self, addr, not_execute = True):
+    self.DEBUG('MMU.raw_read_u32: addr=%s', ADDR_FMT(addr))
+
+    pg = self.check_access('read', addr, align = 4)
+
+    if not_execute is not True:
+      pg = self.check_access('execute', addr)
+
+    return pg.read_u32(addr & (PAGE_SIZE - 1))
+
+  def full_write_u8(self, addr, value):
+    self.DEBUG('MMU.raw_write_u8: addr=%s, value=%s', ADDR_FMT(addr), UINT8_FMT(value))
+
+    return self.check_access('write', addr).write_u8(addr & (PAGE_SIZE - 1), value)
+
+  def full_write_u16(self, addr, value):
+    self.DEBUG('MMU.raw_write_u16: addr=%s, value=%s', ADDR_FMT(addr), UINT16_FMT(value))
+
+    return self.check_access('write', addr).write_u16(addr & (PAGE_SIZE - 1), value)
+
+  def full_write_u32(self, addr, value):
+    self.DEBUG('MMU.raw_write_u32: addr=%s, value=%s', ADDR_FMT(addr), UINT32_FMT(value))
+
+    return self.check_access('write', addr).write_u32(addr & (PAGE_SIZE - 1), value)
 
 class CPUCore(ISnapshotable, IMachineWorker):
   """
@@ -581,7 +788,8 @@ class CPUCore(ISnapshotable, IMachineWorker):
 
     self.id = coreid
     self.cpu = cpu
-    self.memory = memory_controller
+
+    self.mmu = MMU(self, memory_controller, cache_controller)
 
     self.registers = registers.RegisterSet()
 
@@ -605,60 +813,6 @@ class CPUCore(ISnapshotable, IMachineWorker):
     self.check_frames = cpu.machine.config.getbool('cpu', 'check-frames', default = False)
 
     self.debug = None
-
-    self.cache_controller = cache_controller
-
-    self.instruction_cache = InstructionCache(self, config.getint('cpu', 'inst-cache', default = DEFAULT_CORE_INST_CACHE_SIZE))
-
-    self.data_cache = None
-    if config.getbool('cpu', 'data-cache-enabled', True):
-      driver = config.get('cpu', 'data-cache-driver', 'python')
-
-      import platform
-
-      if platform.python_implementation() == 'PyPy':
-        if driver != 'python':
-          self.WARN('Running on PyPy, forcing Python data cache implementation')
-          driver = 'python'
-
-      elif platform.python_implementation() == 'CPython':
-        pass
-
-      elif driver != 'python':
-        self.WARN('Running on unsupported platform, forcing Python data cache implementation')
-        driver = 'python'
-
-      if driver == 'native':
-        from ..native.data_cache import CPUDataCache as DC
-
-        self.data_cache = DC(cache_controller, self,
-                             config.getint('cpu', 'data-cache-size', DEFAULT_CORE_DATA_CACHE_SIZE),
-                             config.getint('cpu', 'data-cache-line', DEFAULT_CORE_DATA_CACHE_LINE_LENGTH),
-                             config.getint('cpu', 'data-cache-assoc', DEFAULT_CORE_DATA_CACHE_LINE_ASSOC))
-
-      elif driver == 'python':
-        self.data_cache = CPUDataCache(cache_controller, self, config.getint('cpu', 'data-cache-size', default = DEFAULT_CORE_DATA_CACHE_SIZE))
-
-      else:
-        raise InvalidResourceError('Unknown data cache driver: driver=%s' % driver)
-
-      self.cache_controller.register_core(self)
-
-    if self.data_cache is not None:
-      self.MEM_IN8   = self.data_cache.read_u8
-      self.MEM_IN16  = self.data_cache.read_u16
-      self.MEM_IN32  = self.memory.read_u32
-      self.MEM_OUT8  = self.data_cache.write_u8
-      self.MEM_OUT16 = self.data_cache.write_u16
-      self.MEM_OUT32 = self.memory.write_u32
-
-    else:
-      self.MEM_IN8   = self.memory.read_u8
-      self.MEM_IN16  = self.memory.read_u16
-      self.MEM_IN32  = self.memory.read_u32
-      self.MEM_OUT8  = self.memory.write_u8
-      self.MEM_OUT16 = self.memory.write_u16
-      self.MEM_OUT32 = self.memory.write_u32
 
     self.coprocessors = {}
 
@@ -697,6 +851,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
       state.registers.append(value)
 
     state.ivt_address = self.ivt_address
+    state.pt_address = self.mmu.pt_address
 
     state.exit_code = self.exit_code
     state.idle = self.idle
@@ -715,6 +870,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
         self.registers.map[reg].value = state.registers[i]
 
     self.ivt_address = state.ivt_address
+    self.mmu.pt_address = state.pt_address
 
     self.exit_code = state.exit_code
     self.idle = state.idle
@@ -777,9 +933,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
 
     self.registers.ip.value = new_ip
 
-    self.instruction_cache.clear()
-    if self.data_cache:
-      self.data_cache.clear()
+    self.mmu.reset()
 
   def __symbol_for_ip(self):
     ip = self.registers.ip
@@ -805,7 +959,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
     bt = []
 
     for frame_index, frame in enumerate(self.frames):
-      ip = self.memory.read_u16(frame.address + 2, privileged = True)
+      ip = self.mmu.memory.read_u16(frame.address + 2)
       symbol, offset = self.cpu.machine.get_symbol_by_addr(frame.CS, ip)
 
       bt.append((ip, symbol, offset))
@@ -902,6 +1056,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
     desc.cs = self.MEM_IN8(vector_address)
     desc.ds = self.MEM_IN8(vector_address + 1)
     desc.ip = self.MEM_IN16(vector_address + 2)
+    desc.sp = self.MEM_IN16(vector_address + 4)
 
     return desc
 
@@ -920,13 +1075,13 @@ class CPUCore(ISnapshotable, IMachineWorker):
 
     iv = self.__load_interrupt_vector(index)
 
-    stack_pg, sp = self.memory.alloc_stack(segment = iv.ds)
+    self.DEBUG('__enter_interrupt: desc=%s', iv)
 
-    old_SP = self.registers.sp.value
     old_DS = self.registers.ds.value
+    old_SP = self.registers.sp.value
 
     self.registers.ds.value = iv.ds
-    self.registers.sp.value = sp
+    self.registers.sp.value = iv.sp
 
     self.raw_push(old_DS)
     self.raw_push(old_SP)
@@ -955,17 +1110,11 @@ class CPUCore(ISnapshotable, IMachineWorker):
     self.destroy_frame()
     self.pop(Registers.FLAGS, Registers.CS)
 
-    stack_page = self.memory.page(addr_to_page(self.DS_ADDR(self.registers.sp.value)))
-
     old_SP = self.raw_pop()
     old_DS = self.raw_pop()
 
     self.registers.ds.value = old_DS
     self.registers.sp.value = old_SP
-
-    if self.data_cache:
-      self.data_cache.release_page_references(stack_page, writeback = False)
-    self.memory.free_page(stack_page)
 
     self.instruction_set = self.instruction_set_stack.pop(0)
 
@@ -1168,7 +1317,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
     self.DEBUG('fetch instruction: cs=%s, ip=%s', UINT8_FMT(self.registers.cs.value), ADDR_FMT(ip.value))
 
     try:
-      self.current_instruction, opcode, execute = self.instruction_cache[self.CS_ADDR(ip.value)]
+      self.current_instruction, opcode, execute = self.mmu.instruction_cache[self.CS_ADDR(ip.value)]
       ip.value += 4
 
       self.DEBUG('"EXECUTE" phase: %s %s', UINT16_FMT(self.current_ip), self.instruction_set.disassemble_instruction(self.current_instruction))
@@ -1237,9 +1386,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
   def halt(self):
     self.DEBUG('CPUCore.halt')
 
-    if self.data_cache is not None:
-      self.data_cache.release_references()
-      self.cpu.machine.cpu_cache_controller.unregister_core(self)
+    self.mmu.halt()
 
     self.change_runnable_state(alive = False, running = False)
     self.cpu.core_suspended()
@@ -1292,10 +1439,10 @@ class CPUCore(ISnapshotable, IMachineWorker):
       self.core_profiler.enable()
 
     self.INFO('CPU core is up')
-    if self.data_cache is not None:
-      self.INFO('  {}'.format(repr(self.data_cache)))
-    if self.instruction_cache is not None:
-      self.INFO('  {} IC slots'.format(self.instruction_cache.size))
+    if self.mmu.data_cache is not None:
+      self.INFO('  {}'.format(repr(self.mmu.data_cache)))
+    if self.mmu.instruction_cache is not None:
+      self.INFO('  {} IC slots'.format(self.mmu.instruction_cache.size))
     self.INFO('  check-frames: %s', 'yes' if self.check_frames else 'no')
     if self.coprocessors:
       self.INFO('  coprocessor: %s', ' '.join(sorted(iterkeys(self.coprocessors))))
@@ -1319,12 +1466,9 @@ class CPU(ISnapshotable, IMachineWorker):
     self.machine = machine
     self.id = cpuid
 
-    self.memory = memory_controller
-    self.cache_controller = cache_controller
-
     self.cores = []
     for i in range(0, cores):
-      __core = CPUCore(i, self, self.memory, self.cache_controller)
+      __core = CPUCore(i, self, memory_controller, cache_controller)
       self.cores.append(__core)
 
     self.cnt_living_cores = 0

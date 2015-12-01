@@ -188,21 +188,21 @@ def main():
 
     table_inst_caches.append([
       str(core),
-      core.instruction_cache.reads,
-      core.instruction_cache.inserts,
-      core.instruction_cache.hits,
-      core.instruction_cache.misses,
-      core.instruction_cache.prunes
+      core.mmu.instruction_cache.reads,
+      core.mmu.instruction_cache.inserts,
+      core.mmu.instruction_cache.hits,
+      core.mmu.instruction_cache.misses,
+      core.mmu.instruction_cache.prunes
     ])
 
-    if core.data_cache is not None:
+    if core.mmu.data_cache is not None:
       table_data_caches.append([
         str(core),
-        core.data_cache.reads,
-        core.data_cache.hits,
-        core.data_cache.misses,
-        core.data_cache.prunes,
-        core.data_cache.forced_writes
+        core.mmu.data_cache.reads,
+        core.mmu.data_cache.hits,
+        core.mmu.data_cache.misses,
+        core.mmu.data_cache.prunes,
+        core.mmu.data_cache.forced_writes
       ])
 
     table_cnts.append([

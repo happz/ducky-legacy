@@ -47,7 +47,7 @@ class Tests(TestCase):
     storage_desc = ('ducky.devices.storage.FileBackedStorage', 1, f_tmp.name)
 
     data_base = 0x1000 if os.getenv('MMAPABLE_SECTIONS') == 'yes' else 0x0100
-    ph_data_base = segment_addr_to_addr(2, data_base)
+    ph_data_base = segment_addr_to_addr(3, data_base)
 
     # prepare mm assert dict, and insert message and redzones in front and after the buffer
     mm_assert = [
@@ -88,7 +88,7 @@ class Tests(TestCase):
     storage_desc = ('ducky.devices.storage.FileBackedStorage', 1, f_tmp.name)
 
     data_base = 0x1000 if os.getenv('MMAPABLE_SECTIONS') == 'yes' else 0x0100
-    ph_data_base = segment_addr_to_addr(2, data_base)
+    ph_data_base = segment_addr_to_addr(3, data_base)
 
     mm_assert = []
 

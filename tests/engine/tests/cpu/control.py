@@ -7,12 +7,17 @@ from ducky.cpu.coprocessor.control import ControlRegisters
 
 from .. import TestCase, common_run_machine
 
-def create_machine(ivt_address = None, privileged = True, **kwargs):
+def create_machine(ivt_address = None, pt_address = None, privileged = True, **kwargs):
   machine_config = ducky.config.MachineConfig()
 
-  if ivt_address is not None:
+  if ivt_address is not None or pt_address is not None:
     machine_config.add_section('cpu')
-    machine_config.set('cpu', 'ivt-address', ivt_address)
+
+    if ivt_address is not None:
+      machine_config.set('cpu', 'ivt-address', ivt_address)
+
+    if pt_address is not None:
+      machine_config.set('cpu', 'pt-address', pt_address)
 
   M = common_run_machine(machine_config = machine_config, post_setup = [lambda _M: False], **kwargs)
 
@@ -66,3 +71,20 @@ class Tests(TestCase):
 
     assert core.control_coprocessor.read(ControlRegisters.CR1) == 0xF00D
     assert core.control_coprocessor.read(ControlRegisters.CR2) == 0xF0
+
+  def test_pt(self):
+    M = create_machine(pt_address = 0x020000)
+
+    core = M.cpus[0].cores[0]
+
+    core.privileged = True
+    assert core.privileged is True
+
+    assert core.control_coprocessor.read(ControlRegisters.CR3) == 0x0000
+    assert core.control_coprocessor.read(ControlRegisters.CR4) == 0x02
+
+    core.control_coprocessor.write(ControlRegisters.CR3, 0xF00D)
+    core.control_coprocessor.write(ControlRegisters.CR4, 0xF0)
+
+    assert core.control_coprocessor.read(ControlRegisters.CR3) == 0xF00D
+    assert core.control_coprocessor.read(ControlRegisters.CR4) == 0xF0

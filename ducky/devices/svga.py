@@ -369,13 +369,11 @@ class SimpleVGA(IOProvider, Device):
 
     for i in range(pages_start, pages_start + self.pages_per_bank):
       pg = SimpleVGAMemoryPage(self, self.machine.memory, i, self.memory, offset = (i - pages_start) * PAGE_SIZE)
-      pg.flags_reset()
-      pg.read = True
-      pg.write = True
-      pg.cache = False
-
       self.machine.memory.register_page(pg)
       self.pages.append(pg)
+
+    if self.machine.config.getbool('machine', 'setup-pte', True):
+      self.machine.set_pages_ptes(self.machine.pt_address, pages_start, self.pages_per_bank, read = True, write = True, cache = False)
 
     self.reset()
     self.set_mode(self.boot_mode)

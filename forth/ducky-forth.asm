@@ -7,6 +7,8 @@
 ;
 
 .include "ducky-forth-defs.asm"
+.include "control.asm"
+.include "rtc.asm"
 
 
 .ifndef FORTH_TEXT_WRITABLE
@@ -191,99 +193,89 @@ write_word_buffer:
 mm_area_remove_flag:
   ; r0 - start address
   ; r1 - end address
-  ; r2 - segment
-  ; r3 - flag to remove
+  ; r2 - flag to remove
+
+  push r3
   push r4
   push r5
 
-  ; align addresses...
-  $align_page r0
-  $align_page r1
-  ; and save them for later
-  push r0
-  push r1
-  push r2
-  push r3
+  ; create flag mask
+  not r2
+  ; mask out not-page-aligned addresses
+  and r0, $PAGE_MASK
+  and r1, $PAGE_MASK
 
-  ; shift args and make space for operation argument
-  mov r3, r2 ; segment -> r3
-  mov r2, r1 ; end -> r2
-  mov r1, r0 ; start -> r1
-  li r0, $MM_OP_MTELL
-  int $INT_MM
+  ; get PT segment
+  li r3, &pt_segment
+  lw r3, r3
 
-  cmp r0, 0
-  bnz &halt
+  ; get area offset in PT into r4
+  ; subtract beginning from the end, to get number of bytes in area
+  sub r1, r0
+  ; and get number of pages in area
+  div r1, $PAGE_SIZE
+  ; add byte for each page in segments before ours DS
+  mov r4, ds
+  mul r4, $PAGES_PER_SEGMENT
+  ; get number of pages before start of the area
+  div r0, $PAGE_SIZE
+  ; and add it to our offset
+  add r4, r0
 
-  ; save returned flags
-  mov r4, r1
-
-  pop r5 ; flag to remove
-  pop r3 ; segment
-  pop r2 ; end
-  pop r1 ; start
-  li r0, $MM_OP_MPROTECT
-  ; add returned flags to segment
-  or r3, r4
-  ; and flags argument with all flags except the one we should remove
-  not r5
-  and r3, r5
-  int $INT_MM
-
-  cmp r0, 0
-  bnz &halt
+__mm_area_remove_flag_loop:
+  lb r5, r3(r4)
+  and r5, r2
+  stb r3(r4), r5
+  inc r4
+  dec r1
+  bnz &__mm_area_remove_flag_loop
 
   pop r5
   pop r4
+  pop r3
   ret
-
 
 mm_area_add_flag:
   ; r0 - start address
   ; r1 - end address
-  ; r2 - segment
-  ; r3 - flag to add
+  ; r2 - flag to add
+
+  push r3
   push r4
   push r5
 
-  ; align addresses...
-  $align_page r0
-  $align_page r1
-  ; and save them for later
-  push r0
-  push r1
-  push r2
-  push r3
+  ; get PT segment
+  li r3, &pt_segment
+  lw r3, r3
 
-  ; shift args and make space for operation argument
-  mov r3, r2 ; segment -> r3
-  mov r2, r1 ; end -> r2
-  mov r1, r0 ; start -> r1
-  li r0, $MM_OP_MTELL
-  int $INT_MM
+  ; mask out not-page-aligned addresses
+  and r0, $PAGE_MASK
+  and r1, $PAGE_MASK
 
-  cmp r0, 0
-  bnz &halt
+  ; get area offset in PT into r4
+  ; subtract beginning from the end, to get number of bytes in area
+  sub r1, r0
+  ; and get number of pages in area
+  div r1, $PAGE_SIZE
+  ; add byte for each page in segments before ours DS
+  mov r4, ds
+  mul r4, $PAGES_PER_SEGMENT
+  ; get number of pages before start of the area
+  div r0, $PAGE_SIZE
+  ; and add it to our offset
+  add r4, r0
 
-  ; save returned flags
-  mov r4, r1
-
-  pop r5 ; flag to add
-  pop r3 ; segment
-  pop r2 ; end
-  pop r1 ; start
-  li r0, $MM_OP_MPROTECT
-  ; add returned flags to segment
-  or r3, r4
-  ; and add our flag
-  or r3, r5
-  int $INT_MM
-
-  cmp r0, 0
-  bnz &halt
+__mm_area_add_flag_loop:
+  lb r5, r3(r4)
+  or r5, r2
+  stb r3(r4), r5
+  inc r4
+  dec r1
+  bnz &__mm_area_add_flag_loop
 
   pop r5
   pop r4
+  pop r3
   ret
 
 mm_area_alloc:
@@ -302,13 +294,13 @@ mm_area_alloc:
 
   ; call mprotect
   push r0 ; save area address
-  mul r2, $PAGE_SIZE
-  add r2, r0
-  mov r1, r2
-  li r2, $MM_FLAG_DS
-  li r3, $MM_FLAG_READ
-  or r3, $MM_FLAG_WRITE
-  call &mm_area_add_flag
+  ;mul r2, $PAGE_SIZE
+  ;add r2, r0
+  ;mov r1, r2
+  ;li r2, $MM_FLAG_DS
+  ;li r3, $MM_FLAG_READ
+  ;or r3, $MM_FLAG_WRITE
+  ;call &mm_area_add_flag
 
   pop r0 ; pop area address
   pop r2
@@ -334,17 +326,22 @@ mm_area_free:
 
 
 init_crcs:
+  ; Since, by default, we're still in privileged mode, it's not
+  ; necessarry to disable read-only protection of .text and .rodata.
+  ; But lets do it anyway, as a) excercise, b) safety measurement,
+  ; in case this privileged startup changes in a future. It may also
+  ; be configurable in compile time, or optional, enabled by detecting
+  ; if binary started in privileged mode or not.
+
 .ifndef FORTH_TEXT_WRITABLE
   li r0, $TEXT_OFFSET
   li r1, &text_boundary_last
-  li r2, $MM_FLAG_CS
-  li r3, $MM_FLAG_WRITE
+  li r2, $MM_FLAG_WRITE
   call &mm_area_add_flag
 
   li r0, &rodata_boundary_first
   li r1, &rodata_boundary_last
-  li r2, $MM_FLAG_DS
-  li r3, $MM_FLAG_WRITE
+  li r2, $MM_FLAG_WRITE
   call &mm_area_add_flag
 .endif
 
@@ -380,25 +377,40 @@ init_crcs:
   pop r0
 
 .ifndef FORTH_TEXT_WRITABLE
-  li r0, 0
+  li r0, $TEXT_OFFSET
   li r1, &text_boundary_last
-  li r2, $MM_FLAG_CS
-  li r3, $MM_FLAG_WRITE
+  li r2, $MM_FLAG_WRITE
   call &mm_area_remove_flag
 
   li r0, &rodata_boundary_first
   li r1, &rodata_boundary_last
-  li r2, $MM_FLAG_DS
-  li r3, $MM_FLAG_WRITE
+  li r2, $MM_FLAG_WRITE
   call &mm_area_remove_flag
 .endif
+
+  ; Flush data and PTE caches
+  ; It is possible to flush data cache *after* enabling
+  ; read-only access because we're still in privileged mode,
+  ; but if this changes, it would cause an access violation.
+  sis $INST_SET_CONTROL
+  fdc
+  fptc
+  sis $INST_SET_DUCKY
 
   ret
 
 
 main:
-  li r0, 5
-  outb 0x0300, r0
+  ; set RTC frequency
+  li r0, $RTC_FREQ
+  outb $RTC_PORT_FREQ, r0
+
+  ; save PT segment for later use
+  sis $INST_SET_CONTROL
+  ctr r0, $CONTROL_PT_SEGMENT
+  sis $INST_SET_DUCKY
+  li r1, &pt_segment
+  stw r1, r0
 
   ; init RSP
   li $RSP, &rstack_top
@@ -409,6 +421,9 @@ main:
 
   ; init words' crcs
   call &init_crcs
+
+  ; give up the privileged mode
+  ;lpm
 
 .ifdef FORTH_WELCOME
   ; print welcome message
@@ -598,6 +613,9 @@ cold_start:
 
   .type input_buffer_address, int
   .int &input_buffer
+
+  .type pt_segment, int
+  .int 0x0000
 
   ; when EVALUATE is called, current input source specification
   ; is saved on top of this stack

@@ -71,7 +71,7 @@ T{ 50 ALLOCATE SWAP addr1 ! -> 0 }T
    DROP
 ;
 
-addr1 @ 50 writemem addr1 @ 50 checkmem
+\ addr1 @ 50 writemem addr1 @ 50 checkmem
 (
 T{ addr1 @ 28 RESIZE SWAP addr1 ! -> 0 }T
 addr1 @ 28 checkmem

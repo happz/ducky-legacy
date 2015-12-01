@@ -646,6 +646,7 @@ class DuckyOpcodes(enum.IntEnum):
   SETG   =  7
   SETGE  =  7
 
+  LPM    = 61
   IPI    = 62
   SIS    = 63
 
@@ -717,6 +718,15 @@ class Inst_RET(InstDescriptor_Generic):
 #
 # CPU
 #
+class Inst_LPM(InstDescriptor_Generic):
+  mnemonic = 'lpm'
+  opcode = DuckyOpcodes.LPM
+
+  @staticmethod
+  def execute(core, inst):
+    core.check_protected_ins()
+    core.privileged = False
+
 class Inst_CLI(InstDescriptor_Generic):
   mnemonic = 'cli'
   opcode = DuckyOpcodes.CLI
@@ -1507,6 +1517,8 @@ Inst_SETG(DuckyInstructionSet)
 Inst_SETGE(DuckyInstructionSet)
 Inst_SETL(DuckyInstructionSet)
 Inst_SETLE(DuckyInstructionSet)
+
+Inst_LPM(DuckyInstructionSet)
 
 DuckyInstructionSet.init()
 

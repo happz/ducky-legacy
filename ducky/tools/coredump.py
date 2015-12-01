@@ -61,6 +61,7 @@ def show_cores(logger, state):
       logger.info('  flags=%s', flags.to_string())
       logger.info('  cnt=%i, alive=%s, running=%s, idle=%s, exit=%i', cs.registers[Registers.CNT], cs.alive, cs.running, cs.idle, cs.exit_code)
       logger.info('  ivt=%s', UINT32_FMT(cs.ivt_address))
+      logger.info('  pt=%s', UINT32_FMT(cs.pt_address))
 
       logger.info('')
 
@@ -75,9 +76,10 @@ def show_memory(logger, state):
   logger.info('')
 
 def show_stack(logger, state):
+  return
   logger.info('=== Stack ===')
 
-  stacks = [pg for pg in state.get_child('machine').get_child('memory').get_page_states() if pg.stack == 1]
+  stacks = [pg for pg in state.get_child('machine').get_child('memory').get_page_states() if pg.flags.stack == 1]
 
   sps = {}
   for cpu_state in state.get_child('machine').get_cpu_states():
@@ -117,10 +119,13 @@ def show_segments(logger, state):
 
   logger.info('')
 
-def show_pages(logger, state):
+def show_pages(logger, state, empty_pages = False):
   logger.info('=== Memory pages ===')
 
   for pg in sorted(state.get_child('machine').get_child('memory').get_page_states(), key = lambda x: x.index):
+    if not empty_pages and all([i == 0 for i in pg.content]):
+      continue
+
     pg_addr = pg.index * PAGE_SIZE
     pg_segment = addr_to_segment(pg_addr)
 
@@ -131,7 +136,7 @@ def show_pages(logger, state):
         break
 
     logger.info('  Page #%i (segment %s)', pg.index, UINT8_FMT(pg_segment))
-    logger.info('    Flags: %s%s%s%s%s', 'r' if pg.read == 1 else '-', 'w' if pg.write == 1 else '-', 'x' if pg.execute == 1 else '-', 'd' if pg.dirty == 1 else '-', 'c' if pg.cache == 1 else '-')
+    # logger.info('    Flags: %s', pg.flags.to_string())
 
     CPR = 32
 
@@ -208,6 +213,7 @@ def main():
   parser.add_option('-M',         dest = 'memory',   default = False, action = 'store_true', help = 'Show memory')
   parser.add_option('--segments', dest = 'segments', default = False, action = 'store_true', help = 'Show segments')
   parser.add_option('--pages',    dest = 'pages',    default = False, action = 'store_true', help = 'Show pages')
+  parser.add_option('--empty-pages', dest = 'empty_pages', default = False, action = 'store_true', help = 'Show empty pages')
   parser.add_option('-b',         dest = 'binaries', default = False, action = 'store_true', help = 'Show binaries')
   parser.add_option('-s',         dest = 'stack',    default = False, action = 'store_true', help = 'Show stack content')
   parser.add_option('-a',         dest = 'all',      default = False, action = 'store_true', help = 'All of above')
@@ -253,7 +259,7 @@ def main():
         show_stack(logger, state)
 
       if options.pages:
-        show_pages(logger, state)
+        show_pages(logger, state, empty_pages = options.empty_pages)
 
     else:
       for query in options.queries:

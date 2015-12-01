@@ -27,9 +27,9 @@ class Tests(TestCase):
     f_tmp = prepare_file(mmap_size, messages = [(msg_offset, msg)])
 
     data_base = 0x1000 if os.getenv('MMAPABLE_SECTIONS') == 'yes' else 0x0100
-    ph_data_base = segment_addr_to_addr(2, data_base)
+    ph_data_base = segment_addr_to_addr(3, data_base)
 
-    mmap_desc = (f_tmp.name, segment_addr_to_addr(2, mmap_offset), mmap_size, 0, 'r', False)
+    mmap_desc = (f_tmp.name, segment_addr_to_addr(3, mmap_offset), mmap_size, 0, 'r', False)
 
     # prepare mm assert dict, and insert message and redzones in front and after the buffer
     mm_assert = [
@@ -70,9 +70,9 @@ class Tests(TestCase):
     f_tmp = prepare_file(mmap_size)
 
     data_base = 0x1000 if os.getenv('MMAPABLE_SECTIONS') == 'yes' else 0x0100
-    ph_data_base = segment_addr_to_addr(2, data_base)
+    ph_data_base = segment_addr_to_addr(3, data_base)
 
-    mmap_desc = (f_tmp.name, segment_addr_to_addr(2, mmap_offset), mmap_size, 0, 'rw', True)
+    mmap_desc = (f_tmp.name, segment_addr_to_addr(3, mmap_offset), mmap_size, 0, 'rw', True)
 
     mm_assert = []
 

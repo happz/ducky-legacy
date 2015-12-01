@@ -12,8 +12,8 @@
 .def PAGE_SIZE: 256
 .def PAGE_MASK: 0xFF00
 
-.def MM_OP_MPROTECT: 1
-.def MM_OP_MTELL:    2
+.def PAGES_PER_SEGMENT: 256
+
 .def MM_OP_ALLOC:    3
 .def MM_OP_FREE:     4
 .def MM_OP_UNUSED:   5
@@ -33,12 +33,12 @@
 .def IRQ_TIMER:     0
 .def IRQ_KEYBOARD:  1
 
-.def INT_HALT:    32
-.def INT_BLOCKIO: 33
-.def INT_VMDEBUG: 34
-.def INT_MM:      35
-.def INT_MATH:    36
-.def INT_NOP:     63
+.def INT_HALT:    16
+.def INT_BLOCKIO: 17
+.def INT_VMDEBUG: 18
+.def INT_MM:      19
+.def INT_MATH:    20
+.def INT_NOP:     31
 
 
 ;

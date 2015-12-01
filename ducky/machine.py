@@ -12,7 +12,6 @@ import sys
 import time
 
 from ctypes import LittleEndianStructure, c_uint, c_ushort, sizeof
-from functools import partial
 from enum import IntEnum
 
 from six import itervalues, iteritems
@@ -29,7 +28,7 @@ from .console import ConsoleMaster
 from .errors import InvalidResourceError
 from .log import create_logger
 from .util import LRUCache, F, align, sizeof_fmt
-from .mm import addr_to_segment, ADDR_FMT, segment_addr_to_addr, UInt8, UInt16, UInt32, UINT16_FMT, UINT32_FMT, PAGE_SIZE
+from .mm import addr_to_segment, ADDR_FMT, segment_addr_to_addr, UInt8, UInt16, UInt32, UINT16_FMT, UINT32_FMT, PAGE_SIZE, PageTableEntry, SEGMENT_SIZE, addr_to_page, UINT8_FMT, area_to_pages
 from .mm.binary import SectionFlags
 from .reactor import Reactor
 from .snapshot import SnapshotNode
@@ -44,9 +43,9 @@ class HDTStructure(LittleEndianStructure):
   _pack_ = 0
 
   def write(self, machine, address):
-    write_u8  = partial(machine.memory.write_u8,  privileged = True)
-    write_u16 = partial(machine.memory.write_u16, privileged = True)
-    write_u32 = partial(machine.memory.write_u32, privileged = True)
+    write_u8  = machine.memory.write_u8
+    write_u16 = machine.memory.write_u16
+    write_u32 = machine.memory.write_u32
 
     for n, t in self._fields_:
       if sizeof(t) == 1:
@@ -515,13 +514,59 @@ class Machine(ISnapshotable, IMachineWorker):
     self.DEBUG('poke: addr=%s, value=%s, length=%s', ADDR_FMT(address), UINT32_FMT(value), length)
 
     if length == 1:
-      self.memory.write_u8(address, UInt8(value).u8, privileged = True)
+      self.memory.write_u8(address, UInt8(value).u8)
 
     elif length == 2:
-      self.memory.write_u16(address, UInt16(value).u16, privileged = True)
+      self.memory.write_u16(address, UInt16(value).u16)
 
     else:
-      self.memory.write_u32(address, UInt32(value).u32, privileged = True)
+      self.memory.write_u32(address, UInt32(value).u32)
+
+  def reset_pages_ptes(self, pt_address, pages_start, pages_cnt):
+    self.DEBUG('reset_pages_ptes: pt_address=%s, pages_start=%s, pages_cnt=%s', pt_address, pages_start, pages_cnt)
+
+    for pg_index in range(pages_start, pages_start + pages_cnt):
+      self.memory.write_u8(pt_address + pg_index, PageTableEntry.default().to_uint16())
+
+  def reset_area_ptes(self, pt_address, address, size):
+    self.DEBUG('reset_pages_ptes: pt_address=%s, address=%s, size=%s', pt_address, ADDR_FMT(address), size)
+
+    pages_start, pages_cnt = area_to_pages(address, size)
+
+    self.reset_pages_ptes(pt_address, pages_start, pages_cnt)
+
+  def update_pages_ptes(self, pt_address, pages_start, pages_cnt, **flags):
+    self.DEBUG('update_pages_ptes: pt_address=%s, pages_start=%s, pages_cnt=%s, flags=%s', ADDR_FMT(pt_address), pages_start, pages_cnt, ', '.join(['%s=%s' % (flag, value) for flag, value in iteritems(flags)]))
+
+    for pg_index in range(pages_start, pages_start + pages_cnt):
+      pte = PageTableEntry.from_uint16(self.memory.read_u8(pt_address + pg_index))
+
+      self.DEBUG('update_pages_ptes:   pg_index=%s, pte=%s (%s)', pg_index, pte.to_string(), UINT8_FMT(pte.to_uint16()))
+
+      for flag, value in iteritems(flags):
+        setattr(pte, flag, 1 if value is True else 0)
+
+      self.DEBUG('update_pages_ptes:     pte=%s (%s)', pte.to_string(), UINT8_FMT(pte.to_uint16()))
+      self.memory.write_u8(pt_address + pg_index, pte.to_uint16())
+
+  def update_area_ptes(self, pt_address, address, size, **flags):
+    self.DEBUG('update_area_ptes: pt_address=%s, address=%s, size=%s, flag=%s, value=%s', ADDR_FMT(pt_address), address, size, ', '.join(['%s=%s' % (flag, value) for flag, value in iteritems(flags)]))
+
+    pages_start, pages_cnt = area_to_pages(address, size)
+
+    self.update_pages_ptes(pt_address, pages_start, pages_cnt, **flags)
+
+  def set_pages_ptes(self, pt_address, pages_start, pages_cnt, **flags):
+    self.DEBUG('set_pages_ptes: pt_address=%s, pages_start=%s, pages_cnt=%s, flags=%s', ADDR_FMT(pt_address), pages_start, pages_cnt, ', '.join(['%s=%s' % (flag, value) for flag, value in iteritems(flags)]))
+
+    self.reset_pages_ptes(pt_address, pages_start, pages_cnt)
+    self.update_pages_ptes(pt_address, pages_start, pages_cnt, **flags)
+
+  def set_area_ptes(self, pt_address, address, size, **flags):
+    self.DEBUG('set_area_ptes: pt_address=%s, address=%s, size=%s, flag=%s, value=%s', ADDR_FMT(pt_address), address, size, ', '.join(['%s=%s' % (flag, value) for flag, value in iteritems(flags)]))
+
+    pages_start, pages_cnt = area_to_pages(address, size)
+    self.set_pages_ptes(pt_address, pages_start, pages_cnt, **flags)
 
   def setup_interrupt_routines(self):
     if not self.config.has_option('machine', 'interrupt-routines'):
@@ -535,13 +580,15 @@ class Machine(ISnapshotable, IMachineWorker):
     binary.cs, binary.ds, binary.sp, binary.ip, binary.symbols, binary.regions, binary.raw_binary = self.memory.load_file(binary.path)
     binary.load_symbols()
 
-    ivt_address = self.config.getint('machine', 'interrupt-table', 0x000000)
-    self.DEBUG('IVT: address=%s', ADDR_FMT(ivt_address))
+    self.DEBUG('IVT: address=%s', ADDR_FMT(self.ivt_address))
 
-    self.memory.alloc_ivt(ivt_address)
+    ivt_pg = self.memory.alloc_specific_page(addr_to_page(self.ivt_address))
+
+    if self.config.getbool('machine', 'setup-pte', True):
+      self.set_pages_ptes(self.pt_address, ivt_pg.index, 1, read = True)
 
     from .cpu import InterruptVector
-    desc = InterruptVector(cs = binary.cs, ds = binary.ds)
+    desc = InterruptVector(cs = binary.cs, ds = binary.ds, sp = binary.sp)
 
     def __save_iv(name, index):
       if name not in binary.symbols:
@@ -549,7 +596,7 @@ class Machine(ISnapshotable, IMachineWorker):
         return
 
       desc.ip = binary.symbols[name].u16
-      self.memory.save_interrupt_vector(ivt_address, index, desc)
+      self.memory.save_interrupt_vector(self.ivt_address, index, desc)
 
     from .devices import IRQList
     for i in range(0, IRQList.IRQ_COUNT):
@@ -564,11 +611,13 @@ class Machine(ISnapshotable, IMachineWorker):
 
       self.INFO('binary: loading from from file %s', binary.path)
 
+      csr = self.config.getint(binary_section, 'segment', None)
+
       if binary.cores is None:
-        binary.cs, binary.ds, binary.sp, binary.ip, binary.symbols, binary.regions, binary.raw_binary = self.memory.load_file(binary.path)
+        binary.cs, binary.ds, binary.sp, binary.ip, binary.symbols, binary.regions, binary.raw_binary = self.memory.load_file(binary.path, csr = csr)
 
       else:
-        binary.cs, binary.ds, binary.sp, binary.ip, binary.symbols, binary.regions, binary.raw_binary = self.memory.load_file(binary.path, stack = False)
+        binary.cs, binary.ds, binary.sp, binary.ip, binary.symbols, binary.regions, binary.raw_binary = self.memory.load_file(binary.path, csr = csr, stack = False)
 
       binary.load_symbols()
 
@@ -631,12 +680,15 @@ class Machine(ISnapshotable, IMachineWorker):
 
       access = _get('access', 'r')
       flags = SectionFlags(readable = 'r' in access, writable = 'w' in access, executable = 'x' in access)
-      self.memory.mmap_area(_get('file'),
-                            _getint('address'),
-                            _getint('size'),
-                            offset = _getint('offset', 0),
-                            flags = flags,
-                            shared = _getbool('shared', False))
+      area = self.memory.mmap_area(_get('file'),
+                                   _getint('address'),
+                                   _getint('size'),
+                                   offset = _getint('offset', 0),
+                                   flags = flags,
+                                   shared = _getbool('shared', False))
+
+      if self.config.getbool('machine', 'setup-pte', True):
+        self.set_pages_ptes(self.pt_address, area.pages_start, area.pages_cnt, read = area.flags.readable == 1, write = area.flags.writable == 1, execute = area.flags.executable == 1)
 
   def setup_devices(self):
     for section in self.config.iter_devices():
@@ -681,7 +733,10 @@ class Machine(ISnapshotable, IMachineWorker):
     self.hdt.create()
 
     pages = self.memory.alloc_pages(segment = 0x00, count = align(PAGE_SIZE, self.hdt.size()) // PAGE_SIZE)
-    self.memory.update_pages_flags(pages[0].index, len(pages), 'read', True)
+
+    if self.config.getbool('machine', 'setup-pte', True):
+      self.set_pages_ptes(self.pt_address, pages[0].index, len(pages), read = True)
+
     self.hdt_address = pages[0].base_address
 
     self.DEBUG('Machine.setup_hdt: address=%s, size=%s (%s pages)', ADDR_FMT(self.hdt_address), self.hdt.size(), len(pages))
@@ -694,7 +749,26 @@ class Machine(ISnapshotable, IMachineWorker):
     self.nr_cpus = self.config.getint('machine', 'cpus')
     self.nr_cores = self.config.getint('machine', 'cores')
 
+    from .cpu import DEFAULT_PT_ADDRESS, DEFAULT_IVT_ADDRESS
+
+    self.ivt_address = machine_config.getint('cpu', 'ivt-address', DEFAULT_IVT_ADDRESS)
+    self.pt_address = machine_config.getint('cpu', 'pt-address', DEFAULT_PT_ADDRESS)
+
     self.memory = mm.MemoryController(self, size = machine_config.getint('memory', 'size', 0x1000000))
+
+    # Alloc system segments
+    # Interrupts
+    self.memory.alloc_specific_segment(addr_to_segment(self.ivt_address))
+
+    # Default Page Table
+    if self.pt_address & 0x00FFFF != 0:
+      raise InvalidResourceError('PT address must be segment-aligned: pt-address=%s' % ADDR_FMT(self.pt_address))
+
+    if self.config.getbool('machine', 'setup-pte', True):
+      self.memory.alloc_specific_segment(addr_to_segment(self.pt_address))
+      self.memory.alloc_pages(segment = addr_to_segment(self.pt_address), count = SEGMENT_SIZE)
+
+      self.set_pages_ptes(self.pt_address, addr_to_page(self.pt_address), SEGMENT_SIZE, read = True, cache = True)
 
     self.setup_devices()
 

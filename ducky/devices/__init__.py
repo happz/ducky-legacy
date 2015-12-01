@@ -15,13 +15,13 @@ class IRQList(enum.IntEnum):
   KEYBOARD = 1
 
   # SW interrupts and exceptions
-  HALT    = 32
-  BLOCKIO = 33
-  VMDEBUG = 34
-  MM      = 35
-  MATH    = 36
+  HALT    = 16
+  BLOCKIO = 17
+  VMDEBUG = 18
+  MM      = 19
+  MATH    = 20
 
-  IRQ_COUNT = 64
+  IRQ_COUNT = 32
 
 
 class IOPorts(enum.IntEnum):
