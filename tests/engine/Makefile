@@ -47,7 +47,8 @@ tests: tests/instructions/interrupts-basic $(ENGINE_TESTS:%.asm=%.testbin)
 tests-post:
 
 clean:
-	$(Q) rm -f tests/instructions/interrupts-basic.o tests/instructions/interrupts-basic $(ENGINE_TESTS:%.asm=%.testbin)
+	$(Q) rm -f tests/instructions/interrupts-basic.o tests/instructions/interrupts-basic
+	$(Q) find $(CURDIR) -name '*.testbin' -print0 | xargs -0 rm -f
 
 %.testbin: %.o
 	$(call run-linker,--section-base=.text=0x0000)
