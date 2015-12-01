@@ -39,7 +39,7 @@ test-run: build
 			 -Q "STATE.get_child('machine').get_cpu_state_by_id(0).get_core_state_by_id(1).registers[0]" \
 			 -Q "STATE.get_child('machine').get_cpu_state_by_id(1).get_core_state_by_id(0).registers[0]" \
 			 -Q "STATE.get_child('machine').get_cpu_state_by_id(1).get_core_state_by_id(1).registers[0]" &> $(TC_OUT); \
-			 if [[ "$$(cat $(TC_OUT))" != $$'0409743524353' ]]; then echo touch $(TESTSET_FAILED); "$(CC_RED)FAIL$(CC_END)"; else echo "$(CC_GREEN)PASS$(CC_END)"; fi; \
+			 if [[ "$$(cat $(TC_OUT))" != $$'0409743524353' ]]; then touch $(TESTSET_FAILED); echo "$(CC_RED)FAIL$(CC_END)"; else echo "$(CC_GREEN)PASS$(CC_END)"; fi; \
 			 exit 0;
 
 tests-pre: build
