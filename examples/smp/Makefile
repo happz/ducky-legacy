@@ -28,7 +28,7 @@ test-run: build
 			 --machine-config=$(CURDIR)/smp.conf \
 			 --set-option=machine:interrupt-routines=$(INTERRUPTS) \
 			 --set-option=binary-0:file=$(CURDIR)/smp \
-			 -g &> $(TC_MACHINE); \
+			 -g -d &> $(TC_MACHINE); \
 			 if [[ $$? -ne 1 ]]; then touch $(TESTSET_FAILED); echo "$(CC_RED)FAIL$(CC_END)"; else echo "$(CC_GREEN)PASS$(CC_END)"; fi; \
 			 exit 0;
 	$(Q) echo -n "[TEST] $(EXAMPLE) coredump ... "
