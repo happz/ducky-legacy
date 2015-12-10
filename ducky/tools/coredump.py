@@ -123,7 +123,7 @@ def show_pages(logger, state, empty_pages = False):
   logger.info('=== Memory pages ===')
 
   for pg in sorted(state.get_child('machine').get_child('memory').get_page_states(), key = lambda x: x.index):
-    if not empty_pages and all([i == 0 for i in pg.content]):
+    if not empty_pages and all( i == 0 for i in pg.content):
       continue
 
     pg_addr = pg.index * PAGE_SIZE

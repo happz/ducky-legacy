@@ -364,7 +364,7 @@ def main():
     parser.print_help()
     sys.exit(1)
 
-  if any([not file_in.endswith('.o') for file_in in options.file_in]):
+  if any( not file_in.endswith('.o') for file_in in options.file_in):
     logger.error('All input files must be object files')
     sys.exit(1)
 
@@ -374,7 +374,7 @@ def main():
       f_in.load()
       files_in.append(f_in)
 
-  if not all([f.get_header().flags.mmapable == files_in[0].get_header().flags.mmapable for f in files_in]):
+  if not all( f.get_header().flags.mmapable == files_in[0].get_header().flags.mmapable for f in files_in):
     logger.error('All input files must have the same mmapable setting')
     sys.exit(1)
 
