@@ -680,9 +680,9 @@ class Machine(ISnapshotable, IMachineWorker):
 
       access = _get('access', 'r')
       flags = SectionFlags(readable = 'r' in access, writable = 'w' in access, executable = 'x' in access)
-      area = self.memory.mmap_area(_get('file'),
-                                   _getint('address'),
-                                   _getint('size'),
+      area = self.memory.mmap_area(filepath = _get('file'),
+                                   address = _getint('address'),
+                                   size = _getint('size'),
                                    offset = _getint('offset', 0),
                                    flags = flags,
                                    shared = _getbool('shared', False))

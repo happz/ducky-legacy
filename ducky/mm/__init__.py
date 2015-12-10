@@ -466,23 +466,24 @@ class MMapMemoryPage(ExternalMemoryPage):
 
 class MMapAreaState(SnapshotNode):
   def __init__(self):
-    super(MMapAreaState, self).__init__('address', 'size', 'path', 'offset')
+    super(MMapAreaState, self).__init__('address', 'size', 'path', 'offset', 'fd')
 
 class MMapArea(object):
-  def __init__(self, ptr, address, size, file_path, offset, pages_start, pages_cnt, flags):
+  def __init__(self, ptr, address, size, filepath, fd, offset, pages_start, pages_cnt, flags):
     super(MMapArea, self).__init__()
 
     self.ptr = ptr
     self.address = address
     self.size = size
-    self.file_path = file_path
+    self.filepath = filepath
+    self.fd = fd
     self.offset = offset
     self.pages_start = pages_start
     self.pages_cnt = pages_cnt
     self.flags = flags
 
   def __repr__(self):
-    return '<MMapArea: address=%s, size=%s, filepath=%s, pages-start=%s, pages-cnt=%i, flags=%s>' % (ADDR_FMT(self.address), self.size, self.file_path, self.pages_start, self.pages_cnt, self.flags.to_string())
+    return '<MMapArea: address=%s, size=%s, filepath=%s, fd=%s, pages-start=%s, pages-cnt=%i, flags=%s>' % (ADDR_FMT(self.address), self.size, self.filepath, self.fd, self.pages_start, self.pages_cnt, self.flags.to_string())
 
   def save_state(self, parent):
     pass
@@ -1001,7 +1002,12 @@ class MemoryController(object):
           # Always mmap sections as RW, and disable W if section' flags requires that
           # Otherwise, when program asks Vm to enable W, any access would fail because
           # the underlying mmap area was not mmaped as writable
-          self.mmap_area(f_in.name, s_base_addr, s_header.file_size, offset = s_header.offset, flags = s_header.flags, shared = False)
+
+          if s_header.flags.bss == 1:
+            self.mmap_area(address = s_base_addr, size = s_header.file_size, offset = s_header.offset, flags = s_header.flags, shared = False, empty = True)
+
+          else:
+            self.mmap_area(filepath = f_in.name, address = s_base_addr, size = s_header.file_size, offset = s_header.offset, flags = s_header.flags, shared = False)
 
         else:
           for i in range(pages_start, pages_start + pages_cnt):
@@ -1027,30 +1033,30 @@ class MemoryController(object):
 
     return (csr, dsr, sp, ip, symbols, regions, f_in)
 
-  def __get_mmap_fileno(self, file_path):
-    if file_path not in self.opened_mmap_files:
-      self.opened_mmap_files[file_path] = [0, open(file_path, 'r+b')]
+  def __get_mmap_fileno(self, filepath):
+    if filepath not in self.opened_mmap_files:
+      self.opened_mmap_files[filepath] = [0, open(filepath, 'r+b')]
 
-    desc = self.opened_mmap_files[file_path]
+    desc = self.opened_mmap_files[filepath]
 
     desc[0] += 1
     return desc[1].fileno()
 
-  def __put_mmap_fileno(self, file_path):
-    desc = self.opened_mmap_files[file_path]
+  def __put_mmap_fileno(self, filepath):
+    desc = self.opened_mmap_files[filepath]
 
     desc[0] -= 1
     if desc[0] > 0:
       return
 
     desc[1].close()
-    del self.opened_mmap_files[file_path]
+    del self.opened_mmap_files[filepath]
 
-  def mmap_area(self, file_path, address, size, offset = 0, flags = None, shared = False):
+  def mmap_area(self, filepath = None, fd = None, address = None, size = None, offset = 0, flags = None, shared = False, empty = False):
     """
     Assign set of memory pages to mirror external file, mapped into memory.
 
-    :param string file_path: path of external file, whose content new area
+    :param string filepath: path of external file, whose content new area
       should reflect.
     :param u24 address: address where new area should start.
     :param u24 size: length of area, in bytes.
@@ -1068,13 +1074,26 @@ class MemoryController(object):
       is already allocated.
     """
 
-    self.DEBUG('mc.mmap_area: file=%s, offset=%s, size=%s, address=%s, flags=%s, shared=%s', file_path, offset, size, ADDR_FMT(address), flags.to_string(), shared)
+    self.DEBUG('mc.mmap_area: file=%s, fd=%s, offset=%s, size=%s, address=%s, flags=%s, shared=%s', filepath, fd, offset, size, ADDR_FMT(address), flags.to_string(), shared)
+
+    if address is None or size is None:
+      raise InvalidResourceError('Size and address are required arguments')
 
     if size % PAGE_SIZE != 0:
       raise InvalidResourceError('Memory size must be multiple of PAGE_SIZE')
 
     if address % PAGE_SIZE != 0:
       raise InvalidResourceError('MMap area address must be multiple of PAGE_SIZE')
+
+    if fd is None:
+      if empty is True:
+        fd = -1
+
+      else:
+        if filepath is None:
+          raise InvalidResourceError('Filepath or fd are required arguments')
+
+        fd = self.__get_mmap_fileno(filepath)
 
     pages_start, pages_cnt = area_to_pages(address, size)
 
@@ -1083,6 +1102,9 @@ class MemoryController(object):
         raise InvalidResourceError('MMap request overlaps with existing pages: page=%s, area=%s' % (self.__pages[i], self.__pages[i].area))
 
     mmap_flags = mmap.MAP_SHARED if shared else mmap.MAP_PRIVATE
+
+    if empty is True:
+      mmap_flags |= mmap.MAP_ANONYMOUS
 
     # Always mmap as writable - VM will force read-only access using
     # page flags. But since it is possible to change page flags
@@ -1093,13 +1115,13 @@ class MemoryController(object):
     mmap_prot = mmap.PROT_READ | mmap.PROT_WRITE
 
     ptr = mmap.mmap(
-      self.__get_mmap_fileno(file_path),
+      fd,
       size,
       flags = mmap_flags,
       prot = mmap_prot,
       offset = offset)
 
-    area = MMapArea(ptr, address, size, file_path, ptr, pages_start, pages_cnt, flags)
+    area = MMapArea(ptr, address, size, filepath, fd, ptr, pages_start, pages_cnt, flags)
 
     for i in range(pages_start, pages_start + pages_cnt):
       self.register_page(MMapMemoryPage(area, self, i, ptr, offset = (i - pages_start) * PAGE_SIZE))
@@ -1118,7 +1140,8 @@ class MemoryController(object):
 
     mmap_area.ptr.close()
 
-    self.__put_mmap_fileno(mmap_area.file_path)
+    if mmap_area.filepath is not None:
+      self.__put_mmap_fileno(mmap_area.filepath)
 
   def read_u8(self, addr):
     self.DEBUG('mc.read_u8: addr=%s', ADDR_FMT(addr))
