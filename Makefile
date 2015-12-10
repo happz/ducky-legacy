@@ -352,7 +352,7 @@ install-edit:
 	$(Q) pip install -e .
 
 uninstall:
-	$(Q) rm -rf $(shell find $(VIRTUAL_ENV) -name 'ducky-*' -type d)
+	$(Q) rm -rf $(shell find $(VIRTUAL_ENV) -name 'ducky-*' -type d | grep -v "^$(VIRTUAL_ENV)$$")
 	$(Q) rm -f  $(shell find $(VIRTUAL_ENV) -name 'ducky.egg-link')
 
 publish:
