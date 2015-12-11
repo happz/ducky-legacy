@@ -157,7 +157,7 @@ def run_machine(code = None, binary = None, machine_config = None, coredump_file
 
   M.hw_setup(machine_config)
 
-  if not all([fn(M) in (True, None) for fn in post_setup]):
+  if not all( fn(M) in (True, None) for fn in post_setup):
     if code is not None:
       os.unlink(binary)
 
@@ -168,7 +168,7 @@ def run_machine(code = None, binary = None, machine_config = None, coredump_file
   if code is not None:
     os.unlink(binary)
 
-  if not all([fn(M) in (True, None) for fn in post_boot]):
+  if not all( fn(M) in (True, None) for fn in post_boot):
     return M
 
   for address, value, length in pokes:
