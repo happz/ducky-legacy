@@ -82,7 +82,7 @@ def fix_section_bases(logger, info, f_out, required_bases):
 
   D('Fixing base addresses of sections')
 
-  required_bases = dict([(e.split('=')[0], str2int(e.split('=')[1])) for e in required_bases])
+  required_bases = {e.split('=')[0]: str2int(e.split('=')[1]) for e in required_bases}
 
   sections_to_fix = {}
 
