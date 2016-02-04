@@ -1,16 +1,22 @@
-class InvalidResourceError(Exception):
+class BaseException(Exception):
+  def __init__(self, message = None):
+    super(BaseException, self).__init__()
+
+    self.message = message or ''
+
+class InvalidResourceError(BaseException):
   pass
 
-class AccessViolationError(Exception):
+class AccessViolationError(BaseException):
   pass
 
-class AssemblerError(Exception):
+class AssemblerError(BaseException):
   def __init__(self, filename, lineno, msg, line):
-    super(AssemblerError, self).__init__('{}:{}: {}'.format(filename, lineno, msg))
+    super(AssemblerError, self).__init__(message = '{}:{}: {}'.format(filename, lineno, msg))
 
     self.filename = filename
     self.lineno   = lineno
-    self.msg      = msg
+    self._msg     = msg
     self.line     = line
 
 class IncompleteDirectiveError(AssemblerError):
@@ -33,5 +39,5 @@ class EncodingLargeValueError(AssemblerError):
   def __init__(self, filename, lineno, msg, line):
     super(EncodingLargeValueError, self).__init__(filename, lineno, 'Value cannot fit into field: %s' % msg, line)
 
-class IncompatibleLinkerFlagsError(Exception):
+class IncompatibleLinkerFlagsError(BaseException):
   pass
