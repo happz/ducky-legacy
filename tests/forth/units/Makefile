@@ -9,9 +9,9 @@ TC_DIR := $(TC_DIR)/unit
 tests-pre:
 	$(Q) mkdir -p $(TC_DIR)
 
-tests: $(TOPDIR)/interrupts $(FORTH_KERNEL) $(FORTH_TESTS_OUT)
+tests: $(FORTH_KERNEL) $(FORTH_TESTS_OUT)
 
-%.f.out: %.f $(TOPDIR)/interrupts $(FORTH_KERNEL)
+%.f.out: %.f $(FORTH_KERNEL)
 	$(eval TC_NAME     := $(notdir $(<:%.f=%)))
 	$(eval TC_OUTPUT   := $(TC_DIR)/$(TC_NAME).$(DB_PID).out)
 	$(eval TC_COVERAGE := $(TESTSETDIR)/coverage/.coverage.forth-unit.$(TC_NAME).$(DB_PID))
