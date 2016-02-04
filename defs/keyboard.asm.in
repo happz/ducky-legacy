@@ -1,0 +1,12 @@
+;
+; Keyboard controller defines
+;
+
+<%
+  import ducky.devices.keyboard
+%>
+
+
+.def KBD_IRQ:            ${X2(ducky.devices.keyboard.DEFAULT_IRQ)}
+
+.def KBD_PORT_DATA:      ${X(ducky.devices.keyboard.DEFAULT_PORT_RANGE)}

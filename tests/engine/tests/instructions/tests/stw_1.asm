@@ -1,13 +1,14 @@
-  .include "defs.asm"
   .data
 
   .type foo, int
-  .int 0xF00
+  .int 0xDEADBEEF
 
   .text
-main:
-  li r0, &foo
+
+  la r0, &foo
   lw r1, r0
-  li r2, 0xDEAD
+
+  li r2, 0xADDE
+  liu r2, 0xFD0C
   stw r0, r2
-  int $INT_HALT
+  hlt 0x00

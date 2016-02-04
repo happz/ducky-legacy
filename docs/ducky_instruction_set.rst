@@ -1,13 +1,40 @@
 Ducky instruction set
 =====================
 
-This page descriped the main instruction set of Ducky VM.
+
+Design principles
+^^^^^^^^^^^^^^^^^
+
+ - basic data unit is `a word`, 4 bytes, 32 bits. Other units are `short` and `byte`. Instructions often have variants for different data units, distinguished by a suffix (`w` for words, `s` for shorts, and `b` for single bytes)
+ - load and store operations are performed by dedicated instructions
+ - memory-register transfers work with addresses that are aligned to the size of their operands (1 byte alignment - so no alignment at all - for byte operands)
+ - in most cases, destination operand is the first one. Exceptions are instructions that work with IO ports.
+ - when content of a register is changed by instruction, several flags can be modified subsequently. E.g. when new value of register is zero, ``z`` flag is set.
+
+Notes on documentation
+^^^^^^^^^^^^^^^^^^^^^^
+
+ - ``rN`` refers to generaly any register, from ``r0`` up to ``r28`` - special registers are refered to by their common names (e.g. ``SP``).
+ - ``rA``, ``rB`` refer to the first and the second instruction operand respectively and stand for any register.
+ - ``<value>`` means immediate, absolute value. This covers both integers (specified as base 10 or base 16 integers, both positive and negative), and labels and addresses, specified as ``&label``
+ - when instruction accepts more than one operand type, it is documented using ``|`` character, e.g. ``(rA|<value>)`` means either register or immediate value
+
+Stack frames
+^^^^^^^^^^^^
+
+Several instructions transfer control to other routines, with possibility of returning back to previous spot. It is done by creating a `stack frame`. When stack frame is created, CPU performs these steps:
+
+ - ``IP`` is pushed onto the stack
+ - ``FP`` is pushed onto the stack
+ - ``FP`` is loaded with value of ``SP``
+
+Destroying stack frame - reverting the steps above - effectively transfers control back to the point where the subroutine was called from.
 
 
 Arithmetic
 ^^^^^^^^^^
 
-All arithmetic instructions take at least one operand, register. In case of binary operations, the second operand can be a register or an immediate value. The result is always stored in the first operand.
+All arithmetic instructions take at least one operand, a register. In case of binary operations, the second operand can be a register, or an immediate value (15 bits wide, sign-extended to 32 bits). The result is always stored in the first operand.
 
 ``add rA, (rB|<value>)``
 
@@ -23,7 +50,7 @@ All arithmetic instructions take at least one operand, register. In case of bina
 Bitwise operations
 ^^^^^^^^^^^^^^^^^^
 
-All bitwise operations - with exception of ``not`` - take two operands: register and either register or immediate value. The result if always stored in the first operand.
+All bitwise operations - with exception of ``not`` - take two operands, a register, and either another register or an immediate value (15 bits wide, sign-extended to 32 bits). The result if always stored in the first operand.
 
 ``and rA, (rB|<value>)``
 
@@ -41,6 +68,10 @@ All bitwise operations - with exception of ``not`` - take two operands: register
 Branching instructions
 ^^^^^^^^^^^^^^^^^^^^^^
 
+Branching instructions come in form ``<inst> (rA|<address>)``. If certain conditions are met, branching instruction will perform jump by adding value of the operand to the current value of ``PC`` (which, when instruction is being executed, points *to the next instruction* already). If the operand is an immediate address, it is encoded in the instruction as an immediate value (16 bit wide, sign-extended to 32 bits). This limits range of addresses that can be reached using this form of branching instructions.
+
+Branching instructions do not create new stack frame.
+
 Unconditional branching
 """""""""""""""""""""""
 
@@ -48,11 +79,8 @@ Unconditional branching
 
 Conditional branching
 """""""""""""""""""""
-
-All conditional branching instructions come in form ``<inst> rA`` or ``<inst> <address>``. Depending on relevant flags, jump is performed to specified address.
-
 +-------------+-------------------------+
-| Instruction | Relevant flags          |
+| Instruction | Jump when ...           |
 +-------------+-------------------------+
 | ``be``      | ``e = 1``               |
 | ``bne``     | ``e = 0``               |
@@ -96,11 +124,11 @@ For flags relevant for each instruction, see branching instruction with the same
 Comparing
 """""""""
 
-Two instructions are available for comparing of values. Compare their operands and sets corresponding flags.
+Two instructions are available for comparing of values. Compare their operands and sets corresponding flags. The second operand can be either a register or an immediate value (15 bits wide).
 
-``cmp rA, (rB|<value>)``
+``cmp rA, (rB|<value>)`` - immediate value is sign-extended to 32 bits.
 
-``cmpu rA, (rB|<value>)`` - treat operands as unsigned values
+``cmpu rA, (rB|<value>)`` - treat operands as unsigned values, immediate value is zero-extended to 32 bits.
 
 
 Port IO
@@ -108,13 +136,17 @@ Port IO
 
 All IO instructions take two operands: port number, specified by register or immediate value, and register.
 
-``in (rA|<port>), rB`` - read 16-bit value from port and store it in ``rB``
+``inw (rA|<port>), rB`` - read word from port and store it in ``rB``
 
-``inb (rA|<port>), rB`` - read 8-bit value from port and store it in ``rB``
+``ins (rA|<port>), rB`` - read short from port and store it in ``rB``
 
-``out (rA|<port>), rB`` - write value from ``rB`` to port
+``inb (rA|<port>), rB`` - read byte from port and store it in ``rB``
 
-``outb (rA|<port>), rB`` - write lower byte of ``rB`` to port
+``outw (rA|<port>), rB`` - write value from ``rB`` to port
+
+``outs (rA|<port>), rB`` - write lower short of ``rB`` to port
+
+``outb (rA|<port>), rB`` - write lowest byte of ``rB`` to port
 
 
 Interrupts
@@ -123,7 +155,7 @@ Interrupts
 Delivery
 """"""""
 
-If flag ``hwint`` is unset, no hardware IRQ can be accepted by CPU and stays queued. All queued IRQs will be delivered as soon as flag is set.
+If flag ``hwint_allowed`` is unset, no hardware IRQ can be accepted by CPU and stays queued. All queued IRQs will be delivered as soon as flag is set.
 
 ``cli`` - clear ``hwint`` flag
 
@@ -138,22 +170,28 @@ Invocation
 
 Any interrupt service routine can be invoked by means of special instruction. When invoked several events take place:
 
- - new stack page is allocated for interrupt routine ("interrupt stack")
- - ``ds``, ``sp``, ``cs``, and ``flags`` are stored on interrupt stack
+ - ``SP`` is saved in temporary space
+ - ``IP`` and ``SP`` are set to values that are stored in ``IVT`` in the corresponding entry
+ - important registers are pushed onto new stack (in this order): old ``SP``, ``flags``
+ - new stack frame is created
  - privileged mode is enabled
- - ``ip``, ``cs`` and ``ds`` are set to values stored in interrupt vector table
 
-When routine ends (via ``retint``) all these steps are undone, content of saved registers is restored, and possible return value can be found in ``r0``.
+When routine ends (via ``retint``), these steps are undone, and content of saved registers is restored.
 
 ``int (rA|<index>)``
 
 ``retint`` - return from interrupt routine
 
 
+Inter-processor interrupts (``IPI``) can be delivered to other processors, via dedicated instruction, similar to ``int`` but specifying CPUID of target core in the first operand.
+
+``ipi rA, (rB|<index>)``
+
+
 Routines
 ^^^^^^^^
 
-When routine is called, new stack frame is created. This step is undone when routines returns.
+When routine is called, new stack frame is created, and CPU continues with instructions pointed to by the first operand. For its meaning (and limitations) see `Branching instructions`.
 
 ``call (rA|<address>)``
 
@@ -175,7 +213,7 @@ Miscellaneous
 
 ``hlt (rA|<value>)`` - Halt CPU and set its exit code to specified value.
 
-``rst`` - reset CPU state. All flags cleared, ``privileged = 1``, all registers set to ``0``
+``rst`` - reset CPU state. All flags cleared, ``privileged = 1``, ``hwint_allowed = 0``, all registers set to ``0``
 
 ``mov rA, rB`` - copy value of ``rB`` into ``rA``
 
@@ -190,17 +228,16 @@ Memory access
 Address operand - ``{address}`` - can be specified in different ways:
 
  - ``rA`` - address is stored in register
- - ``rA[<offset>]`` - address is computed by addition of ``rA`` and ``offset``. ``offset`` can be both positive and negative. ``fp`` and ``sp`` can be also used as ``rA``.
- - ``rA(rO)`` - address is computed by using ``rO`` as a segment register, and value of ``rA`` is interpreted as a address in this segment.
+ - ``rA[<offset>]`` - address is computed by addition of ``rA`` and ``offset``. ``offset`` can be both positive and negative. ``fp`` and ``sp`` can be also used as ``rA``. ``<offset>`` is an immediate value, 15 bits wide, sign-extended to 32 bits.
 
 Read
 """"
 
-``lw rA, {address}``
+``lw rA, {address}`` - load word from memory
 
-``lb rA, {address}`` - load 1 byte from memory
+``ls rA, {address}`` - load short from memory
 
-``li rA, <constant>`` - load ``constant`` into register
+``lb rA, {address}`` - load byte from memory
 
 Write
 """""
@@ -209,7 +246,18 @@ Write
 
 ``stb {addres}, rA`` - store lower byte of ``rA``
 
+Constants
+^^^^^^^^^
+
+Instructions for filling registers with values known in compile time.
+
+``li rA, <constant>`` - load ``constant`` into register. ``constant`` is encoded into instruction as an immediate value (20 bits wide, sign-extended to 32 bits)
+
+``liu rA, <constant>`` - load ``constant`` into the upper half of register. ``constant`` is encoded into instruction as an immediate value (20 bits wide immediate, only lower 16 bits are used)
+
+``la rA, <constant>`` - load ``constant`` into the register. ``constant`` is an immediate value (20 bits wide, sign-extended to 32 bits), and is treated as an offset from the current value of ``PC`` - register is loaded with the result of ``PC + constant``.
+
 Compare-and-swap
 """"""""""""""""
 
-``cas rA, rB, rC`` - read 16-bit value from address in register ``rA``. Compare it with value in register ``rB`` - if both are equal, take content of ``rC`` and store it in memory on address from ``rA``, else store memory value in ``rB``.
+``cas rA, rB, rC`` - read word from address in register ``rA``. Compare it with value in register ``rB`` - if both are equal, take content of ``rC`` and store it in memory on address ``rA``, else store memory value in ``rB``.

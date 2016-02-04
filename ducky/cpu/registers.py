@@ -1,10 +1,9 @@
 import enum
 
-from ctypes import c_ushort, c_uint
-from ..util import Flags
+from ..mm import u32_t
 
 class Registers(enum.IntEnum):
-  # 16 16bit registers available
+  # General purpose registers
   R00   =  0
   R01   =  1
   R02   =  2
@@ -18,47 +17,50 @@ class Registers(enum.IntEnum):
   R10   = 10
   R11   = 11
   R12   = 12
+  R13   = 13
+  R14   = 14
+  R15   = 15
+  R16   = 16
+  R17   = 17
+  R18   = 18
+  R19   = 19
+  R20   = 20
+  R21   = 21
+  R22   = 22
+  R23   = 23
+  R24   = 24
+  R25   = 25
+  R26   = 26
+  R27   = 27
+  R28   = 28
+  R29   = 29
 
-  # Some registers have special meaning and/or usage
-  FP    = 13  # Frame Pointer
-  SP    = 14  # Stack Pointer
-  DS    = 15  # Data Segment Register
-  CS    = 16  # Code Segment register
-  IP    = 17  # Instruction pointer
-  FLAGS = 18  # Flags
-  CNT   = 19  # Instruction counter
+  # Special registers
+  FP    = 30  # Frame Pointer
+  SP    = 31  # Stack Pointer
+
+  # Inaccessible registers
+  IP    = 32  # Instruction pointer
+  CNT   = 33  # Instruction counter
 
   # First special register
-  REGISTER_SPECIAL = 13
+  REGISTER_SPECIAL = 30
 
   # How many registers do we have? This many...
-  REGISTER_COUNT = 20
+  REGISTER_COUNT = 34
 
 PROTECTED_REGISTERS = [
   Registers.FP,
-  Registers.DS,
-  Registers.CS,
   Registers.IP,
-  Registers.FLAGS,
   Registers.CNT
 ]
 
+FLAGS = Registers.REGISTER_COUNT.value + 100
+
 GENERAL_REGISTERS   = [r for r in Registers if r.value < Registers.REGISTER_SPECIAL.value]
-RESETABLE_REGISTERS = [r for r in Registers if r not in (Registers.FLAGS, Registers.REGISTER_SPECIAL, Registers.REGISTER_COUNT)]
+RESETABLE_REGISTERS = [r for r in Registers if r not in (Registers.REGISTER_SPECIAL, Registers.REGISTER_COUNT)]
 
-REGISTER_NAMES = ['r{}'.format(r.value) for r in Registers if r.value < Registers.REGISTER_SPECIAL.value] + ['fp', 'sp', 'ds', 'cs', 'ip', 'flags', 'cnt']
-
-class FlagsRegister(Flags):
-  _fields_ = [
-    ('privileged', c_ushort, 1),
-    ('hwint',      c_ushort, 1),
-    ('e',          c_ushort, 1),
-    ('z',          c_ushort, 1),
-    ('o',          c_ushort, 1),
-    ('s',          c_ushort, 1)
-  ]
-
-  flag_labels = 'PHEZOS'
+REGISTER_NAMES = ['r{}'.format(r.value) for r in Registers if r.value < Registers.REGISTER_SPECIAL.value] + ['fp', 'sp', 'ip', 'cnt']
 
 class RegisterSet(object):
   def __init__(self):
@@ -67,16 +69,7 @@ class RegisterSet(object):
     self.map = {}
 
     for register_name, register_id in zip(REGISTER_NAMES, Registers):
-      if register_name == 'cnt':
-        register_class = c_uint
-
-      elif register_name == 'flags':
-        register_class = FlagsRegister
-
-      else:
-        register_class = c_ushort
-
-      register = register_class()
+      register = u32_t(0)
 
       setattr(self, register_name, register)
       self.map[register_name] = register

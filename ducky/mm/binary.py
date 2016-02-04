@@ -5,22 +5,25 @@ from six.moves import range
 
 from .. import cpu
 
-from ..mm import UInt8, UInt32, ADDR_FMT
+from ..mm import u8_t, u16_t, u32_t, UINT32_FMT
 from ..util import BinaryFile, StringTable, align, Flags, str2bytes, bytes2str
-from ctypes import LittleEndianStructure, c_uint, c_ushort, c_ubyte, sizeof
+from ctypes import LittleEndianStructure, sizeof
 
-class SectionFlags(Flags):
+class SectionFlagsEncoding(LittleEndianStructure):
   _fields_ = [
-    ('readable',   c_ubyte, 1),
-    ('writable',   c_ubyte, 1),
-    ('executable', c_ubyte, 1),
-    ('loadable',   c_ubyte, 1),
-    ('bss',        c_ubyte, 1),
-    ('mmapable',   c_ubyte, 1),
-    ('globally_visible', c_ubyte, 1),
+    ('readable',         u8_t, 1),
+    ('writable',         u8_t, 1),
+    ('executable',       u8_t, 1),
+    ('loadable',         u8_t, 1),
+    ('bss',              u8_t, 1),
+    ('mmapable',         u8_t, 1),
+    ('globally_visible', u8_t, 1),
   ]
 
-  flag_labels = 'RWELBMG'
+class SectionFlags(Flags):
+  _encoding = SectionFlagsEncoding
+  _flags = [field[0] for field in SectionFlagsEncoding._fields_]
+  _labels = 'RWELBMG'
 
 class SectionTypes(enum.IntEnum):
   UNKNOWN = 0
@@ -35,96 +38,108 @@ SECTION_TYPES = [
 ]
 
 class SymbolDataTypes(enum.IntEnum):
-  INT    = 0
-  CHAR   = 1
-  STRING = 2
-  FUNCTION = 3
-  ASCII  = 4
-  BYTE   = 5
-  UNKNOWN = 6
+  INT      = 0
+  SHORT    = 1
+  CHAR     = 2
+  BYTE     = 3
+  STRING   = 4
+  ASCII    = 5
+  FUNCTION = 6
+  UNKNOWN  = 7
 
-SYMBOL_DATA_TYPES = 'ICSFABU'
+SYMBOL_DATA_TYPES = 'ISCBTAFU'
 
-class FileFlags(Flags):
+class FileFlagsEncoding(LittleEndianStructure):
   _fields_ = [
-    ('mmapable', c_ushort, 1)
+    ('mmapable', u16_t, 1)
   ]
 
-  flag_labels = 'M'
+class FileFlags(Flags):
+  _encoding = FileFlagsEncoding
+  _flags = [field[0] for field in FileFlagsEncoding._fields_]
+  _labels = 'M'
 
 class FileHeader(LittleEndianStructure):
   _pack_ = 0
   _fields_ = [
-    ('magic',    c_ushort),
-    ('version',  c_ushort),
-    ('flags',    FileFlags),
-    ('sections', c_ushort)
+    ('magic',    u16_t),
+    ('version',  u16_t),
+    ('flags',    FileFlagsEncoding),
+    ('sections', u16_t)
   ]
 
 class SectionHeader(LittleEndianStructure):
   _pack_ = 0
   _fields_ = [
-    ('index',   c_ubyte),
-    ('name',    c_uint),
-    ('type',    c_ubyte),
-    ('flags',   SectionFlags),
-    ('padding', c_ubyte),
-    ('base',    c_ushort),
-    ('items',   c_ushort),
-    ('data_size', c_ushort),
-    ('file_size', c_ushort),
-    ('offset',  c_uint)
+    ('index',     u8_t),
+    ('name',      u32_t),
+    ('type',      u8_t),
+    ('flags',     SectionFlagsEncoding),
+    ('padding',   u8_t),
+    ('base',      u32_t),
+    ('items',     u32_t),
+    ('data_size', u32_t),
+    ('file_size', u32_t),
+    ('offset',    u32_t)
   ]
 
   def __repr__(self):
-    return '<SectionHeader: index={}, name={}, type={}, flags={}, base={}, items={}, data_size={}, file_size={}, offset={}>'.format(self.index, self.name, self.type, self.flags.to_string(), ADDR_FMT(self.base), self.items, self.data_size, self.file_size, self.offset)
+    return '<SectionHeader: index={}, name={}, type={}, flags={}, base={}, items={}, data_size={}, file_size={}, offset={}>'.format(self.index, self.name, self.type, SectionFlags.from_encoding(self.flags).to_string(), UINT32_FMT(self.base), self.items, self.data_size, self.file_size, self.offset)
 
-class SymbolFlags(Flags):
+class SymbolFlagsEncoding(LittleEndianStructure):
   _fields_ = [
-    ('globally_visible', c_ushort, 1)
+    ('globally_visible', u16_t, 1)
   ]
 
-  flag_labels = 'G'
+class SymbolFlags(Flags):
+  _encoding = SymbolFlagsEncoding
+  _flags = [field[0] for field in SymbolFlagsEncoding._fields_]
+  _labels = 'G'
 
 class SymbolEntry(LittleEndianStructure):
   _pack_ = 0
   _fields_ = [
-    ('flags',        SymbolFlags),
-    ('name',         c_uint),
-    ('address',      c_ushort),
-    ('size',         c_ushort),
-    ('section',      c_ubyte),
-    ('type',         c_ubyte),
-    ('filename',     c_uint),
-    ('lineno',       c_uint)
+    ('flags',        SymbolFlagsEncoding),
+    ('name',         u32_t),
+    ('address',      u32_t),
+    ('size',         u32_t),
+    ('section',      u8_t),
+    ('type',         u8_t),
+    ('filename',     u32_t),
+    ('lineno',       u32_t)
   ]
 
   def __repr__(self):
-    return '<SymbolEntry: section={}, name={}, type={}, addr={}, flags={}>'.format(self.section, self.name, SYMBOL_DATA_TYPES[self.type], ADDR_FMT(self.address), self.flags.to_string())
+    return '<SymbolEntry: section={}, name={}, type={}, addr={}, flags={}>'.format(self.section, self.name, SYMBOL_DATA_TYPES[self.type], UINT32_FMT(self.address), SymbolFlags.from_encoding(self.flags).to_string())
 
-class RelocFlags(Flags):
+class RelocFlagsEncoding(LittleEndianStructure):
   _fields_ = [
-    ('relative', c_ushort, 1)
+    ('relative',     u16_t, 1),
+    ('inst_aligned', u16_t, 1)
   ]
 
-  flag_labels = 'R'
+class RelocFlags(Flags):
+  _encoding = RelocFlagsEncoding
+  _flags = [field[0] for field in RelocFlagsEncoding._fields_]
+  _labels = 'RI'
 
 class RelocEntry(LittleEndianStructure):
   _pack_ = 0
   _fields_ = [
-    ('flags',         RelocFlags),
-    ('name',          c_uint),
-    ('patch_section', c_ubyte),
-    ('patch_address', c_ushort),
-    ('patch_offset',  c_ubyte),
-    ('patch_size',    c_ubyte),
+    ('flags',         RelocFlagsEncoding),
+    ('name',          u32_t),
+    ('patch_add',     u32_t),
+    ('patch_address', u32_t),
+    ('patch_section', u8_t),
+    ('patch_offset',  u8_t),
+    ('patch_size',    u8_t)
   ]
 
   def __repr__(self):
-    return '<RelocEntry: flags=%s, name=%s, section=%s, address=%s, offset=%s, size=%s>' % (self.flags.to_string(), self.name, self.patch_section, ADDR_FMT(self.patch_address), self.patch_offset, self.patch_size)
+    return '<RelocEntry: flags=%s, name=%s, section=%s, address=%s, offset=%s, size=%s, add=%s>' % (RelocFlags.from_encoding(self.flags).to_string(), self.name, self.patch_section, UINT32_FMT(self.patch_address), self.patch_offset, self.patch_size, self.patch_add)
 
 SECTION_ITEM_SIZE = [
-  0, 4, sizeof(UInt8), sizeof(SymbolEntry)
+  0, 4, sizeof(u8_t), sizeof(SymbolEntry)
 ]
 
 class File(BinaryFile):
@@ -218,7 +233,7 @@ class File(BinaryFile):
       else:
         if header.type == SectionTypes.DATA:
           count = header.data_size
-          st_class = UInt8
+          st_class = u8_t
 
         elif header.type == SectionTypes.SYMBOLS:
           count = header.items
@@ -226,7 +241,7 @@ class File(BinaryFile):
 
         elif header.type == SectionTypes.TEXT:
           count = header.items
-          st_class = UInt32
+          st_class = u32_t
 
         elif header.type == SectionTypes.RELOC:
           count = header.items
@@ -293,8 +308,8 @@ class File(BinaryFile):
       else:
         for item in content:
           if type(item) == cpu.assemble.SpaceSlot:
-            self.DEBUG('write_space: %s bytes', item.size.u16)
-            self.write(str2bytes('\x00' * item.size.u16))
+            self.DEBUG('write_space: %s bytes', item.size)
+            self.write(str2bytes('\x00' * item.size))
 
           else:
             self.write_struct(item)

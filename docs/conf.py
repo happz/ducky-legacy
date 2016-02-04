@@ -50,7 +50,7 @@ master_doc = 'index'
 
 # General information about the project.
 project = u'Ducky'
-copyright = u'2014, 2015 Milos Prchlik'
+copyright = u'2014 - 2016 Milos Prchlik'
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the
@@ -73,7 +73,7 @@ release = '1.0'
 
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
-exclude_patterns = ['_build']
+exclude_patterns = ['_build', '**/vhdl/**']
 
 # The reST default role (used for this markup: `text`) to use for all
 # documents.
@@ -266,3 +266,12 @@ texinfo_documents = [
 #texinfo_no_detailmenu = False
 
 autodoc_default_flags = ['members', 'undoc-members', 'show-inheritance']
+
+import sphinx.environment
+from docutils.utils import get_source_line
+
+def _warn_node(self, msg, node):
+  if not msg.startswith('nonlocal image URI found:'):
+    self._warnfunc(msg, '%s:%s' % get_source_line(node))
+
+sphinx.environment.BuildEnvironment.warn_node = _warn_node

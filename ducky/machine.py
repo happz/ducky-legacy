@@ -11,14 +11,11 @@ import os
 import sys
 import time
 
-from ctypes import LittleEndianStructure, c_uint, c_ushort, sizeof
-from enum import IntEnum
-
 from six import itervalues, iteritems
+from collections import defaultdict, OrderedDict
 
 from . import mm
 from . import snapshot
-from . import util
 
 from . import __version__
 
@@ -27,235 +24,21 @@ from .interfaces import IMachineWorker, ISnapshotable, IReactorTask
 from .console import ConsoleMaster
 from .errors import InvalidResourceError
 from .log import create_logger
-from .util import LRUCache, F, align, sizeof_fmt
-from .mm import addr_to_segment, ADDR_FMT, segment_addr_to_addr, UInt8, UInt16, UInt32, UINT16_FMT, UINT32_FMT, PAGE_SIZE, PageTableEntry, SEGMENT_SIZE, addr_to_page, UINT8_FMT, area_to_pages
-from .mm.binary import SectionFlags
+from .mm import UINT16_FMT
 from .reactor import Reactor
 from .snapshot import SnapshotNode
-
-HDT_MAGIC = 0x4D5E
-
-class HDTEntryTypes(IntEnum):
-  CPU    = 0
-  MEMORY = 1
-
-class HDTStructure(LittleEndianStructure):
-  _pack_ = 0
-
-  def write(self, machine, address):
-    write_u8  = machine.memory.write_u8
-    write_u16 = machine.memory.write_u16
-    write_u32 = machine.memory.write_u32
-
-    for n, t in self._fields_:
-      if sizeof(t) == 1:
-        write_u8(address, getattr(self, n))
-        address += 1
-
-      elif sizeof(t) == 2:
-        write_u16(address, getattr(self, n))
-        address += 2
-
-      else:
-        write_u32(address, getattr(self, n))
-        address += 4
-
-    return address
-
-class HDTHeader(HDTStructure):
-  _pack_ = 0
-  _fields_ = [
-    ('magic',   c_ushort),
-    ('entries', c_ushort)
-  ]
-
-  @staticmethod
-  def create(machine):
-    machine.DEBUG('HDTHeader.create')
-
-    header = HDTHeader()
-
-    header.magic = 0x4D5E
-    header.entries = 0
-
-    return header
-
-class HDTEntry(HDTStructure):
-  @classmethod
-  def create(cls, entry_type):
-    entry = cls()
-
-    entry.type = entry_type
-    entry.length = sizeof(cls)
-
-    return entry
-
-class HDTEntry_CPU(HDTEntry):
-  _pack_ = 0
-  _fields_ = [
-    ('type',     c_ushort),
-    ('length',   c_ushort),
-    ('nr_cpus',  c_ushort),
-    ('nr_cores', c_ushort)
-  ]
-
-  @classmethod
-  def create(cls, machine):
-    machine.DEBUG('HDTEntry_CPU.create: nr_cpus=%s, nr_cores=%s', machine.nr_cpus, machine.nr_cores)
-
-    entry = super(HDTEntry_CPU, cls).create(HDTEntryTypes.CPU)
-    entry.nr_cpus = machine.nr_cpus
-    entry.nr_cores = machine.nr_cores
-
-    return entry
-
-class HDTEntry_Memory(HDTEntry):
-  _pack_ = 0
-  _fields_ = [
-    ('type',   c_ushort),
-    ('length', c_ushort),
-    ('size',   c_uint)
-  ]
-
-  @classmethod
-  def create(cls, machine):
-    machine.DEBUG('HDTEntry_Memory.create: size=%s', sizeof_fmt(machine.memory.size))
-
-    entry = super(HDTEntry_Memory, cls).create(HDTEntryTypes.MEMORY)
-    entry.size = machine.memory.size
-
-    return entry
-
-class HDT(object):
-  klasses = [
-    HDTEntry_Memory,
-    HDTEntry_CPU,
-  ]
-
-  def __init__(self, machine):
-    self.machine = machine
-
-    self.header = None
-    self.entries = []
-
-  def create(self):
-    self.header = HDTHeader.create(self.machine)
-
-    for klass in HDT.klasses:
-      self.entries.append(klass.create(self.machine))
-
-    self.header.entries = len(self.entries)
-
-  def size(self):
-    return sizeof(HDTHeader) + sum([sizeof(entry) for entry in self.entries])
-
-  def write(self, address):
-    address = self.header.write(self.machine, address)
-
-    for entry in self.entries:
-      address = entry.write(self.machine, address)
+from .util import F
+from .boot import ROMLoader
 
 class MachineState(SnapshotNode):
   def __init__(self):
     super(MachineState, self).__init__('nr_cpus', 'nr_cores')
-
-  def get_binary_states(self):
-    return [__state for __name, __state in iteritems(self.get_children()) if __name.startswith('binary_')]
 
   def get_cpu_states(self):
     return [__state for __name, __state in iteritems(self.get_children()) if __name.startswith('cpu')]
 
   def get_cpu_state_by_id(self, cpuid):
     return self.get_children()['cpu{}'.format(cpuid)]
-
-class SymbolCache(LRUCache):
-  def __init__(self, machine, size, *args, **kwargs):
-    super(SymbolCache, self).__init__(machine.LOGGER, size, *args, **kwargs)
-
-    self.machine = machine
-
-  def get_object(self, address):
-    cs = addr_to_segment(address)
-    address = address & 0xFFFF
-
-    self.machine.DEBUG('SymbolCache.get_object: cs=%s, address=%s', cs, address)
-
-    for binary in self.machine.binaries:
-      if binary.cs != cs:
-        continue
-
-      return binary.symbol_table[address]
-
-    return (None, None)
-
-class AddressCache(LRUCache):
-  def __init__(self, machine, size, *args, **kwargs):
-    super(AddressCache, self).__init__(machine.LOGGER, size, *args, **kwargs)
-
-    self.machine = machine
-
-  def get_object(self, symbol):
-    self.machine.DEBUG('AddressCache.get_object: symbol=%s', symbol)
-
-    for csr, dsr, sp, ip, symbols in self.machine.binaries:
-      if symbol not in symbols:
-        continue
-
-      return (csr, symbols[symbol])
-
-    return None
-
-class BinaryState(SnapshotNode):
-  def __init__(self):
-    super(BinaryState, self).__init__('path', 'cs', 'ds')
-
-class Binary(ISnapshotable, object):
-  binary_id = 0
-
-  def __init__(self, path, run = True, cores = None):
-    super(Binary, self).__init__()
-
-    self.id = Binary.binary_id
-    Binary.binary_id += 1
-
-    self.run = run
-
-    self.path = path
-    self.cs = None
-    self.ds = None
-    self.ip = None
-    self.symbols = None
-    self.regions = None
-    self.cores = None
-
-    if cores is not None:
-      self.cores = []
-
-      for core in cores.split(','):
-        cpuid, coreid = core.strip().split(':')
-        self.cores.append((int(cpuid), int(coreid)))
-
-    self.raw_binary = None
-
-  def load_symbols(self):
-    self.raw_binary.load_symbols()
-    self.symbol_table = util.SymbolTable(self.raw_binary)
-
-  def save_state(self, parent):
-    state = parent.add_child('binary_{}'.format(self.id), BinaryState())
-
-    state.path = self.path
-    state.cs = self.cs
-    state.ds = self.ds
-
-    for region in self.regions:
-      region.save_state(state)
-
-  def load_state(self, state):
-    pass
-
-  def get_init_state(self):
-    return [self.cs, self.ds, self.sp, self.ip, False]
 
 class IRQRouterTask(IReactorTask):
   """
@@ -283,9 +66,12 @@ class IRQRouterTask(IReactorTask):
         continue
 
       self.machine.DEBUG('irq: triggered %i', irq)
-      for core in self.machine.cores():
-        if core.registers.flags.hwint != 1:
+      for core in self.machine.living_cores:
+        if core.hwint_allowed is not True:
+          self.machine.DEBUG('irq: %s hwint not allowed', core.cpuid)
           continue
+
+        self.machine.DEBUG('irq: interrupt %s', core.cpuid)
 
         self.queue[irq] = False
         core.irq(irq)
@@ -297,19 +83,39 @@ class IRQRouterTask(IReactorTask):
     if not any(self.queue):
       self.machine.reactor.task_suspended(self)
 
-class CheckLivingCoresTask(IReactorTask):
-  """
-  This task checks number of living cores in the VM. If there are no living
-  cores, it's safe to halt the VM.
-
-  :param ducky.machine.Machine machine: machine this task belongs to.
-  """
-
+class HaltMachineTask(IReactorTask):
   def __init__(self, machine):
     self.machine = machine
 
   def run(self):
     self.machine.halt()
+
+class EventBus(object):
+  def __init__(self, machine):
+    super(EventBus, self).__init__()
+
+    self.machine = machine
+
+    self.listeners = defaultdict(OrderedDict)
+
+  def add_listener(self, event, callback, *args, **kwargs):
+    self.machine.DEBUG('%s.add_listener: event=%s, callback=%s, args=%s, kwargs=%s', self.__class__.__name__, event, callback, args, kwargs)
+
+    self.listeners[event][callback] = (args, kwargs)
+
+  def remove_listener(self, event, callback):
+    self.machine.DEBUG('%s.remove_listener: event=%s, callback=%s', self.__class__.__name__, event, callback)
+
+    del self.listeners[event][callback]
+
+  def trigger(self, event, *args, **kwargs):
+    self.machine.DEBUG('%s.trigger: event=%s, args=%s, kwargs=%s', self.__class__.__name__, event, args, kwargs)
+
+    for listener, (_args, _kwargs) in iteritems(self.listeners[event]):
+      _args = _args + args
+      _kwargs = _kwargs.copy()
+      _kwargs.update(kwargs)
+      listener(*args, **kwargs)
 
 class Machine(ISnapshotable, IMachineWorker):
   """
@@ -353,19 +159,14 @@ class Machine(ISnapshotable, IMachineWorker):
     self.irq_router_task = IRQRouterTask(self)
     self.reactor.add_task(self.irq_router_task)
 
-    self.cnt_living_cores = 0
+    self.check_living_cores_task = HaltMachineTask(self)
 
-    self.check_living_cores_task = CheckLivingCoresTask(self)
-    self.reactor.add_task(self.check_living_cores_task)
+    self.events = EventBus(self)
 
-    self.symbol_cache = SymbolCache(self, 256)
-    self.address_cache = AddressCache(self, 256)
+    self.living_cores = []
 
     from .cpu import CPUCacheController
     self.cpu_cache_controller = CPUCacheController(self)
-
-    self.binaries = []
-    self.init_states = []
 
     self.cpus = []
     self.memory = None
@@ -373,13 +174,11 @@ class Machine(ISnapshotable, IMachineWorker):
     self.devices = collections.defaultdict(dict)
     self.ports = {}
 
-    self.hdt = HDT(self)
-    self.hdt_address = None
-
     self.virtual_interrupts = {}
 
     self.last_state = None
 
+  @property
   def cores(self):
     """
     Get list of all cores in the machine.
@@ -390,33 +189,23 @@ class Machine(ISnapshotable, IMachineWorker):
 
     return [c for c in itertools.chain(*[__cpu.cores for __cpu in self.cpus])]
 
-  def core_alive(self):
+  def on_core_alive(self, core):
     """
     Signal machine that one of CPU cores is now alive.
     """
 
-    self.cnt_living_cores += 1
+    self.living_cores.append(core)
 
-  def core_halted(self):
+  def on_core_halted(self, core):
     """
     Signal machine that one of CPU cores is no longer alive.
     """
 
-    self.cnt_living_cores -= 1
+    self.living_cores.remove(core)
 
-    if self.cnt_living_cores == 0:
+    if not self.living_cores:
+      self.reactor.add_task(self.check_living_cores_task)
       self.reactor.task_runnable(self.check_living_cores_task)
-
-  @property
-  def living_cores(self):
-    """
-    List of all living cores in the machine.
-
-    :rtype: list
-    :returns: `list` of :py:class:`ducky.cpu.CPUCore` instances
-    """
-
-    return [c for c in itertools.chain(*[__cpu.living_cores for __cpu in self.cpus])]
 
   def get_device_by_name(self, name, klass = None):
     """
@@ -464,20 +253,11 @@ class Machine(ISnapshotable, IMachineWorker):
 
     raise InvalidResourceError(F('No such storage: sid={sid:d}', sid = sid))
 
-  def get_addr_by_symbol(self, symbol):
-    return self.address_cache[symbol]
-
-  def get_symbol_by_addr(self, cs, address):
-    return self.symbol_cache[segment_addr_to_addr(cs, address)]
-
   def save_state(self, parent):
     state = parent.add_child('machine', MachineState())
 
     state.nr_cpus = self.nr_cpus
     state.nr_cores = self.nr_cores
-
-    for binary in self.binaries:
-      binary.save_state(state)
 
     for cpu in self.cpus:
       cpu.save_state(state)
@@ -488,8 +268,6 @@ class Machine(ISnapshotable, IMachineWorker):
     self.nr_cpus = state.nr_cpus
     self.nr_cores = state.nr_cores
 
-    # ignore binary states
-
     for __cpu in self.cpus:
       cpu_state = state.get_children().get('cpu{}'.format(__cpu.id))
       if cpu_state is None:
@@ -499,196 +277,6 @@ class Machine(ISnapshotable, IMachineWorker):
       __cpu.load_state(cpu_state)
 
     self.memory.load_state(state.get_children()['memory'])
-
-  def print_regions(self, regions):
-    table = [
-      ['Section', 'Address', 'Size', 'Flags', 'First page', 'Last page']
-    ]
-
-    for r in regions:
-      table.append([r.name, ADDR_FMT(r.address), r.size, r.flags, r.pages_start, r.pages_start + r.pages_cnt - 1])
-
-    self.LOGGER.table(table, fn = self.DEBUG)
-
-  def poke(self, address, value, length):
-    self.DEBUG('poke: addr=%s, value=%s, length=%s', ADDR_FMT(address), UINT32_FMT(value), length)
-
-    if length == 1:
-      self.memory.write_u8(address, UInt8(value).u8)
-
-    elif length == 2:
-      self.memory.write_u16(address, UInt16(value).u16)
-
-    else:
-      self.memory.write_u32(address, UInt32(value).u32)
-
-  def reset_pages_ptes(self, pt_address, pages_start, pages_cnt):
-    self.DEBUG('reset_pages_ptes: pt_address=%s, pages_start=%s, pages_cnt=%s', pt_address, pages_start, pages_cnt)
-
-    for pg_index in range(pages_start, pages_start + pages_cnt):
-      self.memory.write_u8(pt_address + pg_index, PageTableEntry.default().to_uint16())
-
-  def reset_area_ptes(self, pt_address, address, size):
-    self.DEBUG('reset_pages_ptes: pt_address=%s, address=%s, size=%s', pt_address, ADDR_FMT(address), size)
-
-    pages_start, pages_cnt = area_to_pages(address, size)
-
-    self.reset_pages_ptes(pt_address, pages_start, pages_cnt)
-
-  def update_pages_ptes(self, pt_address, pages_start, pages_cnt, **flags):
-    self.DEBUG('update_pages_ptes: pt_address=%s, pages_start=%s, pages_cnt=%s, flags=%s', ADDR_FMT(pt_address), pages_start, pages_cnt, ', '.join(['%s=%s' % (flag, value) for flag, value in iteritems(flags)]))
-
-    for pg_index in range(pages_start, pages_start + pages_cnt):
-      pte = PageTableEntry.from_uint16(self.memory.read_u8(pt_address + pg_index))
-
-      self.DEBUG('update_pages_ptes:   pg_index=%s, pte=%s (%s)', pg_index, pte.to_string(), UINT8_FMT(pte.to_uint16()))
-
-      for flag, value in iteritems(flags):
-        setattr(pte, flag, 1 if value is True else 0)
-
-      self.DEBUG('update_pages_ptes:     pte=%s (%s)', pte.to_string(), UINT8_FMT(pte.to_uint16()))
-      self.memory.write_u8(pt_address + pg_index, pte.to_uint16())
-
-  def update_area_ptes(self, pt_address, address, size, **flags):
-    self.DEBUG('update_area_ptes: pt_address=%s, address=%s, size=%s, flag=%s, value=%s', ADDR_FMT(pt_address), address, size, ', '.join(['%s=%s' % (flag, value) for flag, value in iteritems(flags)]))
-
-    pages_start, pages_cnt = area_to_pages(address, size)
-
-    self.update_pages_ptes(pt_address, pages_start, pages_cnt, **flags)
-
-  def set_pages_ptes(self, pt_address, pages_start, pages_cnt, **flags):
-    self.DEBUG('set_pages_ptes: pt_address=%s, pages_start=%s, pages_cnt=%s, flags=%s', ADDR_FMT(pt_address), pages_start, pages_cnt, ', '.join(['%s=%s' % (flag, value) for flag, value in iteritems(flags)]))
-
-    self.reset_pages_ptes(pt_address, pages_start, pages_cnt)
-    self.update_pages_ptes(pt_address, pages_start, pages_cnt, **flags)
-
-  def set_area_ptes(self, pt_address, address, size, **flags):
-    self.DEBUG('set_area_ptes: pt_address=%s, address=%s, size=%s, flag=%s, value=%s', ADDR_FMT(pt_address), address, size, ', '.join(['%s=%s' % (flag, value) for flag, value in iteritems(flags)]))
-
-    pages_start, pages_cnt = area_to_pages(address, size)
-    self.set_pages_ptes(pt_address, pages_start, pages_cnt, **flags)
-
-  def setup_interrupt_routines(self):
-    if not self.config.has_option('machine', 'interrupt-routines'):
-      return
-
-    binary = Binary(self.config.get('machine', 'interrupt-routines'), run = False)
-    self.binaries.append(binary)
-
-    self.INFO('irq: loading routines from file %s', binary.path)
-
-    binary.cs, binary.ds, binary.sp, binary.ip, binary.symbols, binary.regions, binary.raw_binary = self.memory.load_file(binary.path)
-    binary.load_symbols()
-
-    self.DEBUG('IVT: address=%s', ADDR_FMT(self.ivt_address))
-
-    ivt_pg = self.memory.alloc_specific_page(addr_to_page(self.ivt_address))
-
-    if self.config.getbool('machine', 'setup-pte', True):
-      self.set_pages_ptes(self.pt_address, ivt_pg.index, 1, read = True)
-
-    from .cpu import InterruptVector
-    desc = InterruptVector(cs = binary.cs, ds = binary.ds, sp = binary.sp)
-
-    def __save_iv(name, index):
-      if name not in binary.symbols:
-        self.DEBUG('irq: routine %s not found', name)
-        return
-
-      desc.ip = binary.symbols[name].u16
-      self.memory.save_interrupt_vector(self.ivt_address, index, desc)
-
-    from .devices import IRQList
-    for i in range(0, IRQList.IRQ_COUNT):
-      __save_iv('irq_routine_{}'.format(i), i)
-
-    self.print_regions(binary.regions)
-
-  def setup_binaries(self):
-    for binary_section in self.config.iter_binaries():
-      binary = Binary(self.config.get(binary_section, 'file'), cores = self.config.get(binary_section, 'cores', None))
-      self.binaries.append(binary)
-
-      self.INFO('binary: loading from from file %s', binary.path)
-
-      csr = self.config.getint(binary_section, 'segment', None)
-
-      if binary.cores is None:
-        binary.cs, binary.ds, binary.sp, binary.ip, binary.symbols, binary.regions, binary.raw_binary = self.memory.load_file(binary.path, csr = csr)
-
-      else:
-        binary.cs, binary.ds, binary.sp, binary.ip, binary.symbols, binary.regions, binary.raw_binary = self.memory.load_file(binary.path, csr = csr, stack = False)
-
-      binary.load_symbols()
-
-      entry_label = self.config.get(binary_section, 'entry', 'main')
-      entry_addr = binary.symbols.get(entry_label)
-
-      if entry_addr is None:
-        self.WARN('binary: entry point "%s" not found', entry_label)
-        entry_addr = UInt16(0)
-
-      binary.ip = entry_addr.u16
-
-      self.print_regions(binary.regions)
-
-    self.init_states = [[None for _ in range(0, self.nr_cores)] for _ in range(0, self.nr_cpus)]
-    self.DEBUG('Machine.setup_binaries: init_states=%s', self.init_states)
-
-    binaries = self.binaries[1:] if self.config.has_option('machine', 'interrupt-routines') else self.binaries
-
-    self.DEBUG('Machine.setup_binaries: solve core affinity')
-    for binary in binaries:
-      self.DEBUG('  binary #%i', binary.id)
-
-      if binary.cores is None:
-        self.DEBUG('    no cores set, skip')
-        continue
-
-      for cpuid, coreid in binary.cores:
-        if self.init_states[cpuid][coreid] is not None:
-          raise Exception('Init state #%s:#%s already exists' % (cpuid, coreid))
-
-        self.init_states[cpuid][coreid] = binary.get_init_state()
-
-        sp = self.memory.create_binary_stack(binary.ds, binary.regions)
-        self.init_states[cpuid][coreid][2] = sp
-
-    self.DEBUG('Machine.setup_binaries: init_states=%s', self.init_states)
-
-    self.DEBUG('Machine.setup_binaries: fill empty spots')
-
-    for binary in binaries:
-      self.DEBUG('  binary #%i', binary.id)
-
-      if binary.cores is not None:
-        self.DEBUG('    cores set, skip')
-        continue
-
-      for cpuid in range(0, self.nr_cpus):
-        for coreid in range(0, self.nr_cores):
-          if self.init_states[cpuid][coreid] is not None:
-            continue
-
-          self.init_states[cpuid][coreid] = binary.get_init_state()
-
-    self.DEBUG('Machine.setup_binaries: init_states=%s', self.init_states)
-
-  def setup_mmaps(self):
-    for section in self.config.iter_mmaps():
-      _get, _getbool, _getint = self.config.create_getters(section)
-
-      access = _get('access', 'r')
-      flags = SectionFlags(readable = 'r' in access, writable = 'w' in access, executable = 'x' in access)
-      area = self.memory.mmap_area(filepath = _get('file'),
-                                   address = _getint('address'),
-                                   size = _getint('size'),
-                                   offset = _getint('offset', 0),
-                                   flags = flags,
-                                   shared = _getbool('shared', False))
-
-      if self.config.getbool('machine', 'setup-pte', True):
-        self.set_pages_ptes(self.pt_address, area.pages_start, area.pages_cnt, read = area.flags.readable == 1, write = area.flags.writable == 1, execute = area.flags.executable == 1)
 
   def setup_devices(self):
     for section in self.config.iter_devices():
@@ -714,63 +302,20 @@ class Machine(ISnapshotable, IMachineWorker):
       if _get('master', None) is not None:
         dev.master = _get('master')
 
-  def setup_debugging(self):
-    for section in self.config.iter_breakpoints():
-      _get, _getint, _getbool = self.config.create_getters(section)
-
-      core = self.core(_get('core', '#0:#0'))
-      core.init_debug_set()
-
-      klass = _get('klass', 'ducky.debugging.BreakPoint').split('.')
-      klass = getattr(importlib.import_module('.'.join(klass[0:-1])), klass[-1])
-
-      p = klass.create_from_config(core.debug, self.config, section)
-      core.debug.add_point(p)
-
-  def setup_hdt(self):
-    self.DEBUG('Machine.setup_hdt')
-
-    self.hdt.create()
-
-    pages = self.memory.alloc_pages(segment = 0x00, count = align(PAGE_SIZE, self.hdt.size()) // PAGE_SIZE)
-
-    if self.config.getbool('machine', 'setup-pte', True):
-      self.set_pages_ptes(self.pt_address, pages[0].index, len(pages), read = True)
-
-    self.hdt_address = pages[0].base_address
-
-    self.DEBUG('Machine.setup_hdt: address=%s, size=%s (%s pages)', ADDR_FMT(self.hdt_address), self.hdt.size(), len(pages))
-
-    self.hdt.write(self.hdt_address)
-
   def hw_setup(self, machine_config):
     self.config = machine_config
 
     self.nr_cpus = self.config.getint('machine', 'cpus')
     self.nr_cores = self.config.getint('machine', 'cores')
 
-    from .cpu import DEFAULT_PT_ADDRESS, DEFAULT_IVT_ADDRESS
-
-    self.ivt_address = machine_config.getint('cpu', 'ivt-address', DEFAULT_IVT_ADDRESS)
-    self.pt_address = machine_config.getint('cpu', 'pt-address', DEFAULT_PT_ADDRESS)
+    # self.ivt_address = machine_config.getint('cpu', 'ivt-address', DEFAULT_IVT_ADDRESS)
+    # self.pt_address = machine_config.getint('cpu', 'pt-address', DEFAULT_PT_ADDRESS)
 
     self.memory = mm.MemoryController(self, size = machine_config.getint('memory', 'size', 0x1000000))
 
-    # Alloc system segments
-    # Interrupts
-    self.memory.alloc_specific_segment(addr_to_segment(self.ivt_address))
-
-    # Default Page Table
-    if self.pt_address & 0x00FFFF != 0:
-      raise InvalidResourceError('PT address must be segment-aligned: pt-address=%s' % ADDR_FMT(self.pt_address))
-
-    if self.config.getbool('machine', 'setup-pte', True):
-      self.memory.alloc_specific_segment(addr_to_segment(self.pt_address))
-      self.memory.alloc_pages(segment = addr_to_segment(self.pt_address), count = SEGMENT_SIZE)
-
-      self.set_pages_ptes(self.pt_address, addr_to_page(self.pt_address), SEGMENT_SIZE, read = True, cache = True)
-
     self.setup_devices()
+
+    self.rom_loader = ROMLoader(self)
 
     from .cpu import CPU
     for cpuid in range(0, self.nr_cpus):
@@ -782,14 +327,7 @@ class Machine(ISnapshotable, IMachineWorker):
 
   @property
   def exit_code(self):
-    self.__exit_code = 0
-
-    for __cpu in self.cpus:
-      for __core in __cpu.cores:
-        if __core.exit_code != 0:
-          self.__exit_code = __core.exit_code
-
-    return self.__exit_code
+    return max([c.exit_code for c in itertools.chain(*[__cpu.cores for __cpu in self.cpus])])
 
   def register_port(self, port, handler):
     self.DEBUG('Machine.register_port: port=%s, handler=%s', UINT16_FMT(port), handler)
@@ -816,6 +354,9 @@ class Machine(ISnapshotable, IMachineWorker):
 
     self.DEBUG('Machine.boot')
 
+    self.events.add_listener('on-core-alive', self.on_core_alive)
+    self.events.add_listener('on-core-halted', self.on_core_halted)
+
     self.memory.boot()
     self.console.boot()
 
@@ -823,11 +364,7 @@ class Machine(ISnapshotable, IMachineWorker):
       for dev in [dev for dev in itervalues(devs) if not dev.is_slave()]:
         dev.boot()
 
-    self.setup_interrupt_routines()
-    self.setup_binaries()
-    self.setup_mmaps()
-    self.setup_debugging()
-    self.setup_hdt()
+    self.rom_loader.boot()
 
     for __cpu in self.cpus:
       __cpu.boot()
@@ -877,12 +414,17 @@ class Machine(ISnapshotable, IMachineWorker):
       for dev in [dev for dev in itervalues(devs) if not dev.is_slave()]:
         dev.halt()
 
+    self.rom_loader.halt()
+
     self.memory.halt()
 
     self.console.halt()
 
     self.reactor.remove_task(self.irq_router_task)
     self.reactor.remove_task(self.check_living_cores_task)
+
+    self.events.remove_listener('on-core-alive', self.on_core_alive)
+    self.events.remove_listener('on-core-halted', self.on_core_halted)
 
     self.INFO('Halted.')
 

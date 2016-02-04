@@ -28,14 +28,10 @@ export COVERAGE_FILE
 export DEBUG_OPEN_FILES
 
 
-tests/instructions/interrupts-basic.o: tests/instructions/interrupts-basic.asm $(TOPDIR)/defs.asm
-tests/instructions/interrupts-basic:   tests/instructions/interrupts-basic.o
-	$(run-linker)
-
 tests-pre:
 	$(Q) mkdir -p $(TC_DIR)
 
-tests: tests/instructions/interrupts-basic $(ENGINE_TESTS:%.asm=%.testbin)
+tests: $(ENGINE_TESTS:%.asm=%.testbin)
 	-$(Q) echo "$(CC_YELLOW)[TEST]$(CC_END) Engine unit tests"
 	-$(Q) $(PYTHON) $(VIRTUAL_ENV)/bin/nosetests -v --all-modules $(COVERAGE_NOSE_FLAG) \
 	      --with-xunit --xunit-file=$(TC_RESULTS) \
@@ -47,8 +43,7 @@ tests: tests/instructions/interrupts-basic $(ENGINE_TESTS:%.asm=%.testbin)
 tests-post:
 
 clean:
-	$(Q) rm -f tests/instructions/interrupts-basic.o tests/instructions/interrupts-basic
 	$(Q) find $(CURDIR) -name '*.testbin' -print0 | xargs -0 rm -f
 
 %.testbin: %.o
-	$(call run-linker,--section-base=.text=0x0000)
+	$(call run-linker,--section-base=.text=0x00000000)

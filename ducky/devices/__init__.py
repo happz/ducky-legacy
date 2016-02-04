@@ -2,6 +2,7 @@ import enum
 
 from ..interfaces import IMachineWorker
 from ..mm import UINT16_FMT
+from ..errors import InvalidResourceError
 
 VIRTUAL_INTERRUPTS = {}
 
@@ -13,13 +14,12 @@ class IRQList(enum.IntEnum):
   # HW devices
   TIMER    = 0
   KEYBOARD = 1
+  BIO      = 2
 
   # SW interrupts and exceptions
   HALT    = 16
   BLOCKIO = 17
   VMDEBUG = 18
-  MM      = 19
-  MATH    = 20
 
   IRQ_COUNT = 32
 
@@ -58,17 +58,19 @@ class IOProvider(object):
     return False
 
   def read_u8(self, port):
-    self.machine.WARN('Unhandled port: %s', UINT16_FMT(port))
-
-    return None
+    raise InvalidResourceError('Unhandled port: port={}'.format(UINT16_FMT(port)))
 
   def read_u16(self, port):
-    self.machine.WARN('Unhandled port: %s', UINT16_FMT(port))
+    raise InvalidResourceError('Unhandled port: port={}'.format(UINT16_FMT(port)))
 
-    return None
+  def read_u32(self, port):
+    raise InvalidResourceError('Unhandled port: port={}'.format(UINT16_FMT(port)))
 
   def write_u8(self, port, value):
-    self.machine.WARN('Unhandled port: %s', UINT16_FMT(port))
+    raise InvalidResourceError('Unhandled port: port={}'.format(UINT16_FMT(port)))
 
   def write_u16(self, port, value):
-    self.machine.WARN('Unhandled port: %s', UINT16_FMT(port))
+    raise InvalidResourceError('Unhandled port: port={}'.format(UINT16_FMT(port)))
+
+  def write_u32(self, port, value):
+    raise InvalidResourceError('Unhandled port: port={}'.format(UINT16_FMT(port)))

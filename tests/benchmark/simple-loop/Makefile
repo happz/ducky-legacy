@@ -16,9 +16,9 @@ ifdef SIMPLE_LOOP_L2_ITERS
 endif
 
 
-simple-loop.o: $(TOPDIR)/defs.asm simple-loop.asm
+simple-loop.o: $(DEFSDIR)/ducky.asm simple-loop.asm
 simple-loop: simple-loop.o
-	$(run-linker)
+	$(call run-linker,--section-base=.text=0x000000)
 
 build: simple-loop
 
@@ -27,8 +27,7 @@ run: simple-loop
 	$(Q) COVERAGE_FILE=$(shell if [ "$(VMCOVERAGE)" = "yes" ]; then echo "$(TESTSETDIR)/coverage/.coverage.$(EXAMPLE).$(DB_PID)"; else echo ""; fi) \
 	     $(PYTHON) $(VMCOVERAGE_RUN) $(DVM) $(VMDEBUG) \
 			 --machine-config=$(CURDIR)/simple-loop.conf \
-			 --set-option=machine:interrupt-routines=$(INTERRUPTS) \
-			 --set-option=binary-0:file=$(CURDIR)/simple-loop -g \
+			 --set-option=bootloader:file=$(CURDIR)/simple-loop -g \
 			 $(POKES) \
 			 $(VMPROFILE) &> $(TC_MACHINE); \
 			 if [[ $$? -ne 0 ]]; then \

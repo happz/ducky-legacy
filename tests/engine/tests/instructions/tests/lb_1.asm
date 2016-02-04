@@ -1,17 +1,16 @@
-  .include "defs.asm"
   .data
 
   .type redzone_pre, int
-  .int 0xBFBF
+  .int 0xBFBFBFBF
 
   .type foo, int
-  .int 0xDEAD
+  .int 0xDEADBEEF
 
   .type redzone_post, int
-  .int 0xBFBF
+  .int 0xBFBFBFBF
 
   .text
-main:
-  li r0, &foo
+
+  la r0, &foo
   lb r1, r0
-  int $INT_HALT
+  hlt 0x00

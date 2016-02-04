@@ -1,4 +1,4 @@
-.include "defs.asm"
+.include "tty.asm"
 
   .global outb
 outb:
@@ -16,9 +16,8 @@ writesn:
   ;   r2: string ptr
   push r1
   push r2
-  push r0
-  pop r2
-  li r0, $PORT_TTY_OUT
+  mov r2, r0
+  li r0, $TTY_PORT_DATA
 .__fn_writesn_loop:
   lb r1, r2
   bz &.__fn_writesn_write_nl
@@ -36,4 +35,3 @@ writesn:
   pop r2
   pop r1
   ret
-

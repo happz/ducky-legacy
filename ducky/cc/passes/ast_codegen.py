@@ -94,16 +94,18 @@ class CodegenVisitor(ASTVisitor):
   def get_new_local_storage(self, size):
     assert self.FN is not None
 
-    self.FN.fp_offset -= size
-    if self.FN.fp_offset % 2:
-      self.FN.fp_offset -= 1
+    if size <= 4:
+      self.FN.fp_offset -= 4
+
+    else:
+      self.WARN('Unhandled get_new_local_storage branch: size=%s', size)
 
     return StackSlotStorage(None, self.FN.fp_offset)
 
   def emit_string_literals(self):
-    B = self.block(stage = 'prolog', comment = 'global prolog')
+    B = self.block(stage = 'prolog', comment = 'string literals block')
 
-    B.emit(Directive('.include "defs.asm"'))
+    B.emit(Directive('.include "ducky.asm"'))
     B.emit(Directive('.section .rodata'))
 
     for label, s in iteritems(self.string_literals):
@@ -111,13 +113,23 @@ class CodegenVisitor(ASTVisitor):
       B.emit(Directive('.string %s' % s))
 
   def emit_trampoline(self):
-    trampoline = self.block(stage = 'epilog', name = '_start', comment = 'global epilog')
-
-    trampoline.emit(CALL('&main'))
-    trampoline.emit(INT('$INT_HALT'))
-    trampoline.emit(Directive('.global _start'))
+    pass
 
   def emit_prolog(self):
+    B = self.block(stage = 'prolog', comment = 'global pre-prolog')
+    B.emit(Directive('.data'))
+    B.emit(Directive('.type __global_stack, space'))
+    B.emit(Directive('.space 256'))
+    B.emit(Directive('.text'))
+
+    B = self.block(stage = 'prolog', name = '_start', comment = 'global prolog')
+    B.emit(LA('sp', '&__global_stack'))
+    B.emit(ADD('sp', 256))
+    B.emit(MOV('fp', 'sp'))
+    B.emit(CALL('&main'))
+    B.emit(HLT('r0'))
+    B.emit(Directive('.global _start'))
+
     self.emit_string_literals()
 
   def emit_epilog(self):
@@ -177,7 +189,7 @@ class CodegenVisitor(ASTVisitor):
       label = self.get_new_literal_label()
       self.string_literals[label] = node.value
 
-      return RValueExpression(value = ConstantValue('&%s' % label), type = CType.get_from_desc(self, 'char *'))
+      return RValueExpression(value = StringConstantValue('&%s' % label), type = CType.get_from_desc(self, 'char *'))
 
     if node.type == 'int':
       return RValueExpression(value = ConstantValue(node.value), type = CType.get_from_desc(self, 'int'))
@@ -428,6 +440,9 @@ class CodegenVisitor(ASTVisitor):
 
       if isinstance(LE.value, RegisterValue):
         self.EMIT(MOV(E.value.name, LE.value.name))
+
+      elif isinstance(LE.value, StringConstantValue):
+        self.EMIT(LA(E.value.name, LE.value.name))
 
       elif isinstance(LE.value, ConstantValue):
         self.EMIT(LI(E.value.name, LE.value.name))
@@ -723,8 +738,14 @@ class CodegenVisitor(ASTVisitor):
           if isinstance(A.value, RegisterValue) and A.value.register.index != R.index:
             self.EMIT(MOV(R.name, A.value.name))
 
-        elif not isinstance(A.value, RegisterValue):
+        elif isinstance(A.value, StringConstantValue):
+          self.EMIT(LA(R.name, A.value.name))
+
+        elif isinstance(A.value, ConstantValue):
           self.EMIT(LI(R.name, A.value.name))
+
+        else:
+          self.WARN('Unahndled func call arg load branch')
 
         if FE.value.storage.symbol.type.args[i] != A.type:
           A, old_A = self._perform_implicit_conversion(node.coord, A, FE.value.storage.symbol.type.args[i])
@@ -933,6 +954,10 @@ class CodegenVisitor(ASTVisitor):
       else:
         pass
 
+    elif isinstance(E.value, StringConstantValue):
+      R = __free_r0()
+      self.EMIT(LA(R.name, E.value.name))
+
     elif isinstance(E.value, ConstantValue):
       R = __free_r0()
       self.EMIT(LI(R.name, E.value.name))
@@ -1122,7 +1147,10 @@ class CodegenVisitor(ASTVisitor):
       else:
         RE = RValueExpression(value = RegisterValue(self.GET_REG()), type = E.type)
 
-      if isinstance(E.value, ConstantValue):
+      if isinstance(E.value, StringConstantValue):
+        self.EMIT(LA(RE.value.name, E.value.name))
+
+      elif isinstance(E.value, ConstantValue):
         self.EMIT(LI(RE.value.name, E.value.name))
 
       self.EMIT(NOT(RE.value.name))

@@ -26,15 +26,19 @@
 .macro ENV_ENTRY name, str, len:
   .section .rodata
 
+  .align 4
+
   .type ENV_ENTRY_NAME_#name, ascii
   .ascii #str
+
+  .align 4
 
   .type ENV_ENTRY_LEN_#name, int
   .int #len
 
   .text
 
-.__ENV_ENTRY_HANDLER_#name:
+__ENV_ENTRY_HANDLER_#name:
 .end
 
 .macro ENV_ENTRY_CHECK name:
@@ -42,8 +46,8 @@
   push r0
   push r1
   ; load entry string info
-  li r2, &ENV_ENTRY_NAME_#name
-  li r3, &ENV_ENTRY_LEN_#name
+  la r2, &ENV_ENTRY_NAME_#name
+  la r3, &ENV_ENTRY_LEN_#name
   lw r3, r3
   ; compare strings
   call &strcmp
@@ -52,74 +56,84 @@
   pop r2 ; r0 => r2 - pop it from stack, we'll need it later
   ; did strings match?
   cmp r0, 0
-  bnz &.__ENVIRONMENT_QUERY_next_#name
-  push $FORTH_TRUE
-  j &.__ENV_ENTRY_HANDLER_#name
-.__ENVIRONMENT_QUERY_next_#name:
+  bnz &__ENVIRONMENT_QUERY_next_#name
+  $push_true r0
+  j &__ENV_ENTRY_HANDLER_#name
+__ENVIRONMENT_QUERY_next_#name:
   mov r0, r2 ; restore string ptr
 .end
 
 $ENV_ENTRY COUNTED_STRING, "/COUNTED-STRING", 15
   push $STRING_SIZE
-  j &.__ENVIRONMENT_QUERY_next
+  j &__ENVIRONMENT_QUERY_next
 
 $ENV_ENTRY CORE, "CORE", 4
   push $FORTH_FALSE
-  j &.__ENVIRONMENT_QUERY_next
+  j &__ENVIRONMENT_QUERY_next
 
 $ENV_ENTRY CORE_EXT, "CORE-EXT", 8
   push $FORTH_FALSE
-  j &.__ENVIRONMENT_QUERY_next
+  j &__ENVIRONMENT_QUERY_next
 
 $ENV_ENTRY FLOORED, "FLOORED", 7
-  push $FORTH_TRUE
-  j &.__ENVIRONMENT_QUERY_next
+  $push_true $W
+  j &__ENVIRONMENT_QUERY_next
 
 $ENV_ENTRY MAX_CHAR, "MAX-CHAR", 8
   push 127
-  j &.__ENVIRONMENT_QUERY_next
+  j &__ENVIRONMENT_QUERY_next
 
 $ENV_ENTRY RETURN_STACK_CELLS, "RETURN-STACK-CELLS", 18
   li r0, $RSTACK_SIZE
   div r0, $CELL
   push r0
-  j &.__ENVIRONMENT_QUERY_next
+  j &__ENVIRONMENT_QUERY_next
 
 $ENV_ENTRY STACK_CELLS, "STACK-CELLS", 11
   li r0, $PAGE_SIZE
   div r0, $CELL
   push r0
-  j &.__ENVIRONMENT_QUERY_next
+  j &__ENVIRONMENT_QUERY_next
 
 $ENV_ENTRY ADDRESS_UNIT_BITS, "ADDRESS-UNIT-BITS", 17
   push 8
-  j &.__ENVIRONMENT_QUERY_next
+  j &__ENVIRONMENT_QUERY_next
 
 $ENV_ENTRY MAX_D, "MAX-D", 5
-  push 0xFFFF
-  push 0x7FFF
-  j &.__ENVIRONMENT_QUERY_next
+  li $W, 0xFFFF
+  liu $W, 0xFFFF
+  push $W
+  li $W, 0xFFFF
+  liu $W, 0x7FFF
+  push $W
+  j &__ENVIRONMENT_QUERY_next
 
 $ENV_ENTRY MAX_UD, "MAX-UD", 6
-  push 0xFFFF
-  push 0xFFFF
-  j &.__ENVIRONMENT_QUERY_next
+  li $W, 0xFFFF
+  liu $W, 0xFFFF
+  push $W
+  push $W
+  j &__ENVIRONMENT_QUERY_next
 
 $ENV_ENTRY MAX_N, "MAX-N", 5
-  push 0x7FFF
-  j &.__ENVIRONMENT_QUERY_next
+  li $W, 0xFFFF
+  liu $W, 0x7FFF
+  push $W
+  j &__ENVIRONMENT_QUERY_next
 
 $ENV_ENTRY MAX_U, "MAX-U", 5
-  push 0xFFFF
-  j &.__ENVIRONMENT_QUERY_next
+  li $W, 0xFFFF
+  liu $W, 0xFFFF
+  push $W
+  j &__ENVIRONMENT_QUERY_next
 
 $ENV_ENTRY ENV_MEMORY_ALLOC, "MEMORY-ALLOC", 12
-  push $FORTH_TRUE
-  j &.__ENVIRONMENT_QUERY_next
+  $push_true $W
+  j &__ENVIRONMENT_QUERY_next
 
 $ENV_ENTRY ENV_MEMORY_ALLOC_EXT, "MEMORY-ALLOC-EXT", 16
-  push $FORTH_TRUE
-  j &.__ENVIRONMENT_QUERY_next
+  $push_true $W
+  j &__ENVIRONMENT_QUERY_next
 
 $DEFCODE "ENVIRONMENT?", 12, 0, ENVIRONMENT_QUERY
   ; ( c-addr u -- false | i*x true )
@@ -142,14 +156,14 @@ $DEFCODE "ENVIRONMENT?", 12, 0, ENVIRONMENT_QUERY
   $ENV_ENTRY_CHECK ENV_MEMORY_ALLOC_EXT
 
   push $FORTH_FALSE
-  j &.__ENVIRONMENT_QUERY_next
+  j &__ENVIRONMENT_QUERY_next
 
-.__ENVIRONMENT_QUERY_next:
+__ENVIRONMENT_QUERY_next:
   $NEXT
 
 
 $DEFWORD "[COMPILE]", 9, $F_IMMED, BCOMPILE
-  .int &WORD
+  .int &DWORD
   .int &FIND
   .int &DROP
   .int &COMMA
@@ -157,42 +171,55 @@ $DEFWORD "[COMPILE]", 9, $F_IMMED, BCOMPILE
 
 
   .section .rodata
+  .align 4
   .type word_not_found_msg, string
   .string "Word not found: "
 
 word_not_found:
-  li r0, &word_not_found_msg
+  la r0, &word_not_found_msg
   call &writes
   call &write_word_buffer
   call &halt
 
 
 $DEFCODE "POSTPONE", 8, $F_IMMED, POSTPONE
-  call &.__WORD
+  call &__DWORD
   $unpack_word_for_find
-  call &.__FIND
+  call &__FIND
   cmp r0, r0
   bz &word_not_found
-  call &.__TCFA
-  call &.__COMMA
+  call &__TCFA
+  call &__COMMA
   $NEXT
 
 
 $DEFCODE "(", 1, $F_IMMED, PAREN
   li $W, 1 ; depth counter
-.__PAREN_loop:
-  call &.__KEY
-  cmp r0, 0x28
-  be &.__PAREN_enter
-  cmp r0, 0x29
-  be &.__PAREN_exit
-  j &.__PAREN_loop
-.__PAREN_enter:
+
+__PAREN_loop:
+;  call &__KEY
+;  cmp r0, 0x28
+;  be &__PAREN_enter
+;  cmp r0, 0x29
+;  be &__PAREN_exit
+
+  call &__DWORD ; r0 - counted string
+  lb $X, r0
+  cmp $X, 0x0001
+  bne &__PAREN_loop
+  inc r0
+  lb $X, r0
+  cmp $X, 0x28
+  be &__PAREN_enter
+  cmp $X, 0x29
+  be &__PAREN_exit
+  j &__PAREN_loop
+__PAREN_enter:
   inc $W
-  j &.__PAREN_loop
-.__PAREN_exit:
+  j &__PAREN_loop
+__PAREN_exit:
   dec $W
-  bnz &.__PAREN_loop
+  bnz &__PAREN_loop
   $NEXT
 
 
@@ -272,18 +299,22 @@ $DEFWORD "CR", 2, 0, CR
 
 $DEFCODE "SPACE", 5, 0, SPACE
   ; ( -- )
-  call &.__SPACE
+  call &__SPACE
   $NEXT
 
-.__SPACE:
+__SPACE:
   li r0, 32
-  j &.__EMIT
+  j &__EMIT
 
 
-$DEFWORD "NOT", 3, 0, NOT
+$DEFCODE "NOT", 3, 0, NOT
   ; ( flag -- flag )
-  .int &ZEQU
-  .int &EXIT
+  li $W, 0xFFFF
+  liu $W, 0xFFFF
+  pop $X
+  xor $X, $W
+  push $X
+  $NEXT
 
 
 $DEFCODE "NEGATE", 6, 0, NEGATE
@@ -310,44 +341,44 @@ $DEFCODE "WITHIN", 6, 0, WITHIN
   pop $Y ; c
 
   cmp $X, $W
-  bl &.__WITHIN_L_LOWER_R
-  bg &.__WITHIN_R_LOWER_L
-  j &.__CMP_false
+  bl &__WITHIN_L_LOWER_R
+  bg &__WITHIN_R_LOWER_L
+  j &__CMP_false
 
-.__WITHIN_L_LOWER_R:
+__WITHIN_L_LOWER_R:
   cmp $Y, $X
-  bl &.__CMP_false
+  bl &__CMP_false
   cmp $Y, $W
-  bge &.__CMP_false
-  j &.__CMP_true
+  bge &__CMP_false
+  j &__CMP_true
 
-.__WITHIN_R_LOWER_L:
+__WITHIN_R_LOWER_L:
   cmp $Y, $W
-  bl &.__CMP_false
+  bl &__CMP_false
   cmp $Y, $X
-  bge &.__CMP_false
-  j &.__CMP_true
+  bge &__CMP_false
+  j &__CMP_true
 
-  j &.__CMP_true
+  j &__CMP_true
 
 
 $DEFCODE "ALIGNED", 7, 0, ALIGNED
   ; ( addr -- addr )
   pop $W
-  $align2 $W
+  $align4 $W
   push $W
   $NEXT
 
 
 $DEFCODE "DECIMAL", 7, 0, DECIMAL
-  li $W, &var_BASE
+  la $W, &var_BASE
   li $X, 10
   stw $W, $X
   $NEXT
 
 
 $DEFCODE "HEX", 3, 0, HEX
-  li $W, &var_BASE
+  la $W, &var_BASE
   li $X, 16
   stw $W, $X
   $NEXT
@@ -356,22 +387,22 @@ $DEFCODE "HEX", 3, 0, HEX
 $DEFCODE "SPACES", 6, 0, SPACES
   pop $W
   li r0, 32
-.__SPACES_loop:
+__SPACES_loop:
   cmp $W, 0
-  ble &.__SPACES_next
+  ble &__SPACES_next
   call &writec
   dec $W
-  j &.__SPACES_loop
-.__SPACES_next:
+  j &__SPACES_loop
+__SPACES_next:
   $NEXT
 
 
 $DEFCODE "FORGET", 6, 0, FORGET
-  call &.__WORD
+  call &__DWORD
   $unpack_word_for_find
-  call &.__FIND
-  li $W, &var_LATEST
-  li $X, &var_DP
+  call &__FIND
+  la $W, &var_LATEST
+  la $X, &var_DP
   lw $Y, r0
   stw $W, $Y
   stw $X, r0
@@ -383,8 +414,8 @@ $DEFCODE "?HIDDEN", 7, 0, ISHIDDEN
   add $W, $wr_flags
   lb $W, $W
   and $W, $F_HIDDEN
-  bz &.__CMP_false
-  j &.__CMP_true
+  bz &__CMP_false
+  j &__CMP_true
 
 
 $DEFCODE "?IMMEDIATE", 10, 0, ISIMMEDIATE
@@ -392,8 +423,8 @@ $DEFCODE "?IMMEDIATE", 10, 0, ISIMMEDIATE
   add $W, $wr_flags
   lb $W, $W
   and $W, $F_IMMED
-  bz &.__CMP_false
-  j &.__CMP_true
+  bz &__CMP_false
+  j &__CMP_true
 
 
 $DEFCODE "ROLL", 4, 0, ROLL
@@ -429,7 +460,7 @@ $DEFCODE "2>R", 3, 0, TWOTOR
 $DEFCODE "2R@", 3, 0, TWORFETCH
   ; ( -- x1 x2 ) ( R:  x1 x2 -- x1 x2 )
   lw $W, $RSP
-  lw $X, $RSP[2]
+  lw $X, $RSP[$CELL]
   push $X
   push $W
   $NEXT
@@ -489,16 +520,16 @@ $DEFWORD "THEN", 4, $F_IMMED, THEN
 
 
 $DEFCODE "RECURSE", 7, $F_IMMED, RECURSE
-  li r0, &var_LATEST
+  la r0, &var_LATEST
   lw r0, r0
-  call &.__TCFA
-  call &.__COMMA
+  call &__TCFA
+  call &__COMMA
   $NEXT
 
 
 $DEFCODE "BEGIN", 5, $F_IMMED, BEGIN
   ; ( -- HERE )
-  li $W, &var_DP
+  la $W, &var_DP
   lw $W, $W
   push $W
   $NEXT
@@ -506,13 +537,13 @@ $DEFCODE "BEGIN", 5, $F_IMMED, BEGIN
 
 $DEFCODE "WHILE", 5, $F_IMMED, WHILE
   ; ( -- HERE )
-  li r0, &ZBRANCH
-  call &.__COMMA
-  li $W, &var_DP
+  la r0, &ZBRANCH
+  call &__COMMA
+  la $W, &var_DP
   lw $W, $W
   push $W
   li r0, 0
-  call &.__COMMA
+  call &__COMMA
   $NEXT
 
 
@@ -530,10 +561,9 @@ $DEFWORD "UNTIL", 5, $F_IMMED, UNTIL
 
 $DEFCODE "DEPTH", 5, 0, DEPTH
   ; ( -- n )
-  li $W, &var_SZ
+  la $W, &var_SZ
   lw $W, $W
-  push sp
-  pop $X
+  mov $X, sp
   sub $W, $X
   div $W, $CELL
   push $W
@@ -556,8 +586,8 @@ $DEFWORD "TUCK", 4, 0, TUCK
 
 $DEFCODE "2OVER", 5, 0, TWOOVER
   ; ( a b c d -- a b c d a b )
-  lw $W, sp[4]
-  lw $X, sp[6]
+  lw $W, sp[8]
+  lw $X, sp[12]
   push $X
   push $W
   $NEXT
@@ -566,8 +596,7 @@ $DEFCODE "2OVER", 5, 0, TWOOVER
 $DEFCODE "PICK", 4, 0, PICK
   ; ( x_n ... x_1 x_0 n -- x_u ... x_1 x_0 x_n )
   pop $W
-  push sp
-  pop $X
+  mov $X, sp
   mul $W, $CELL
   add $X, $W
   lw $W, $W
@@ -578,42 +607,53 @@ $DEFCODE "PICK", 4, 0, PICK
 ; - Strings -----------------------------------------------------------------------------
 
 
+;
+; u32_t __string_read_and_store(char *ptr)
+;
+; Read characters from a position in input buffer by calling __KEY, and copy them
+; to a buffer PTR. When quote (") is encountered, returns number of copied characters.
+;
 __string_read_and_store:
-  ; > r0 - ptr
-  ; < r0 - length
-  push r1 ; ptr
-  push r2 ; length
-  mov r1, r0 ; save ptr - r0 is used by __KEY
-  li r2, 0
-.__string_read_and_store_loop:
-  call &.__KEY
+  ; save working registers
+  push r1
+  push r2
+  ; save buffer pointer because r0 is used by __KEY
+  mov r1, r0
+  ; copy buffer address for later use
+  mov r2, r0
+  ; copy loop
+__string_read_and_store_loop:
+  call &__KEY
+  ; is new character "?
   cmp r0, 0x22
-  be &.__string_read_and_store_finish
+  be &__string_read_and_store_finish
+  ; store and iterate
   stb r1, r0
   inc r1
-  inc r2
-  j &.__string_read_and_store_loop
-.__string_read_and_store_finish:
-  mov r0, r2
+  j &__string_read_and_store_loop
+__string_read_and_store_finish:
+  ; compute number of copied characters
+  mov r0, r1
+  sub r0, r2
   pop r2
   pop r1
   ret
 
 
-.__string_quote:
+__string_quote:
   ; r0 contains LITSTRING variant this routine should push
   push r1
   push r4
   push r5
 
-  li r1, &var_STATE
+  la r1, &var_STATE
   lw r1, r1
 
-  li r4, &var_DP
+  la r4, &var_DP
   lw r5, r4
 
   cmp r1, 0
-  be &.__string_quote_exec
+  be &__string_quote_exec
 
   ; r6 - &length
   ; r7 - length
@@ -625,16 +665,16 @@ __string_read_and_store:
   call &__string_read_and_store
   stb r6, r0
   add r5, r0
-  $align2 r5
+  $align4 r5
   stw r4, r5
 
-.__string_quote_quit:
+__string_quote_quit:
   pop r5
   pop r4
   pop r1
   ret
 
-.__string_quote_exec:
+__string_quote_exec:
   mov r4, r0
   mov r0, r5
   call &__string_read_and_store
@@ -642,28 +682,28 @@ __string_read_and_store:
   ; r5 = HERE before storing string, i.e. its length cell, c-addr
   ; r4 = original LITSTRING variant
   cmp r4, &SQUOTE_LITSTRING
-  bne &.__string_quote_cquote_litstring
+  bne &__string_quote_cquote_litstring
   ; r5 points to HERE before storing string, i.e. its length cell, c-addr
   inc r5 ; now it points to string itself
   push r5 ; push it
   push r0 ; and push string length
-  j &.__string_quote_quit
-.__string_quote_cquote_litstring:
+  j &__string_quote_quit
+__string_quote_cquote_litstring:
   push r5 ; push c-addr
-  j &.__string_quote_quit
+  j &__string_quote_quit
 
 
 $DEFCODE "S\"", 2, $F_IMMED, SQUOTE
   ; ( -- c-addr u )
-  li r0, &SQUOTE_LITSTRING
-  call &.__string_quote
+  la r0, &SQUOTE_LITSTRING
+  call &__string_quote
   $NEXT
 
 
 $DEFCODE "C\"", 2, $F_IMMED, CQUOTE
   ; ( -- c-addr )
-  li r0, &CQUOTE_LITSTRING
-  call &.__string_quote
+  la r0, &CQUOTE_LITSTRING
+  call &__string_quote
   $NEXT
 
 
@@ -671,28 +711,28 @@ $DEFCODE "UWIDTH", 6, 0, UWIDTH
   ; ( u -- width )
   ; Returns the width (in characters) of an unsigned number in the current base
   pop r0
-  call &.__UWIDTH
+  call &__UWIDTH
   push r0
   $NEXT
 
-.__UWIDTH:
-  li $W, &var_BASE
+__UWIDTH:
+  la $W, &var_BASE
   lw $W, $W
   mov $X, r0
   li r0, 1
-.__UWIDTH_loop:
+__UWIDTH_loop:
   div $X, $W
-  bz &.__UWIDTH_quit
+  bz &__UWIDTH_quit
   inc r0
-  j &.__UWIDTH_loop
-.__UWIDTH_quit:
+  j &__UWIDTH_loop
+__UWIDTH_quit:
   ret
 
 
 $DEFCODE "C,", 2, 0, CSTORE
   ; ( char -- )
   pop $W
-  li $X, &var_DP
+  la $X, &var_DP
   lw $Y, $X
   stb $Y, $W
   inc $Y
@@ -717,13 +757,13 @@ $DEFCODE "COUNT", 5, 0, COUNT
 
 
 $DEFCODE ".(", 2, $F_IMMED, DOT_PAREN
-.__DOT_PAREN_loop:
-  call &.__KEY
+__DOT_PAREN_loop:
+  call &__KEY
   cmp r0, 41 ; cmp with ')'
-  be &.__DOT_PAREN_quit
-  call &.__EMIT
-  j &.__DOT_PAREN_loop
-.__DOT_PAREN_quit:
+  be &__DOT_PAREN_quit
+  call &__EMIT
+  j &__DOT_PAREN_loop
+__DOT_PAREN_quit:
   $NEXT
 
 
@@ -786,7 +826,7 @@ $DEFCODE "2!", 2, 0, TWOSTORE
 $DEFCODE "ALLOT", 5, 0, ALLOT
   ; (n -- )
   pop $W ; amount
-  li $X, &var_DP
+  la $X, &var_DP
   lw $Y, $X
   add $Y, $W
   stw $X, $Y
@@ -795,18 +835,18 @@ $DEFCODE "ALLOT", 5, 0, ALLOT
 
 $DEFCODE "ALIGN", 5, 0, ALIGN
   ; ( -- )
-  li $W, &var_DP
+  la $W, &var_DP
   lw $X, $W
-  $align2 $X
+  $align4 $X
   stw $W, $X
   $NEXT
 
 
 $DEFCODE "UNUSED", 6, 0, UNUSED
   ; ( -- u )
-  li $W, &var_UP
+  la $W, &var_UP
   lw $W, $W
-  li $X, &var_DP
+  la $X, &var_DP
   lw $X, $X
   sub $X, $W
   li $W, $USERSPACE_SIZE
@@ -823,46 +863,54 @@ $DEFCODE "FILL", 4, 0, FILL
   pop $Y ; c-addr
 
   cmp $W, 0
-  ble &.__FILL_next
+  ble &__FILL_next
 
-.__FILL_loop:
+__FILL_loop:
   cmp $X, 0
-  bz &.__FILL_next
+  bz &__FILL_next
   stb $Y, $W
   inc $Y
   dec $X
-  j &.__FILL_loop
+  j &__FILL_loop
 
-.__FILL_next:
+__FILL_next:
   $NEXT
 
 
+;
+; void memcpy(void *src, void *dst, u32_t length)
+;
+; Copy content of memory at SRC, of length of LENGTH bytes, to address DST.
+; Source and destination areas should not overlap, otherwise memcpy could
+; lead to unpredicted results.
+;
 memcpy:
-  ; r0 - src
-  ; r1 - dst
-  ; r2 - length
   cmp r2, 0
-  bz &.__memcpy_quit
+  bz &__memcpy_quit
   push r3
-.__memcpy_loop:
+__memcpy_loop:
   lb r3, r0
   stb r1, r3
   inc r0
   inc r1
   dec r2
-  bnz &.__memcpy_loop
+  bnz &__memcpy_loop
   pop r3
-.__memcpy_quit:
+__memcpy_quit:
   ret
 
+
+;
+; void memmove(void *src, void *dst, u32_t length)
+;
+; Copy content of memory at SRC, of length of LENGTH bytes, to address DST.
+; Source and destination areas can overlap, transfer uses a temporary storage.
+;
 memmove:
-  ; r0 - src
-  ; r1 - dst
-  ; r2 - length
   ; r3 - tmp ptr
 
   push r3
-  li r3, &var_DP
+  la r3, &var_DP
   lw r3, r3
 
   push r0
@@ -903,7 +951,7 @@ mm_alloc:
   $align_page r0
   div r0, $PAGE_SIZE
   mov r1, r0 ; save pages count
-  call &mm_area_alloc
+  ; call &mm_area_alloc
   stw r0, r1 ; save pages count at the beggining of the area
   add r0, $CELL ; and return the rest of the area to the caller
   pop r1
@@ -914,7 +962,7 @@ mm_free:
   push r1
   sub r0, $CELL
   lw r1, r0
-  call &mm_area_free
+  ; call &mm_area_free
   pop r1
   ret
 
@@ -923,11 +971,11 @@ $DEFCODE "ALLOCATE", 8, 0, ALLOCATE
   ; ( u -- a-addr ior )
   pop $W
 
-  li r0, $MM_OP_UNUSED
-  int $INT_MM
-  mul r0, $PAGE_SIZE
-  cmpu $W, r0
-  bg &.__ALLOCATE_oom
+  ;li r0, $MM_OP_UNUSED
+  ;int $INT_MM
+  ;mul r0, $PAGE_SIZE
+  ;cmpu $W, r0
+  ;bg &__ALLOCATE_oom
 
   mov r0, $W
   call &mm_alloc
@@ -935,9 +983,9 @@ $DEFCODE "ALLOCATE", 8, 0, ALLOCATE
   push 0
   $NEXT
 
-.__ALLOCATE_oom:
-  push 0xFFFF ; address
-  push 0xFFFF ; 'failed' IOR
+__ALLOCATE_oom:
+  $push_true $W ; address
+  $push_true $W ; 'failed' IOR
   $NEXT
 
 
@@ -954,11 +1002,11 @@ $DEFCODE "RESIZE", 6, 0, RESIZE
   pop $W ; u
   pop $X ; a-addr
 
-  li r0, $MM_OP_UNUSED
-  int $INT_MM
-  mul r0, $PAGE_SIZE
-  cmpu $W, r0
-  bg &.__RESIZE_oom
+  ;li r0, $MM_OP_UNUSED
+  ;int $INT_MM
+  ;mul r0, $PAGE_SIZE
+  ;cmpu $W, r0
+  ;bg &__RESIZE_oom
 
   ; allocate new area
   mov r0, $W
@@ -975,15 +1023,15 @@ $DEFCODE "RESIZE", 6, 0, RESIZE
   lw r3, r0 ; save old memory area size
 
   cmp r4, r3
-  ble &.__RESIZE_new_smaller
+  ble &__RESIZE_new_smaller
 
   mov r2, r3
-  j &.__RESIZE_copy
+  j &__RESIZE_copy
 
-.__RESIZE_new_smaller:
+__RESIZE_new_smaller:
   mov r2, r4
 
-.__RESIZE_copy:
+__RESIZE_copy:
   mul r2, $PAGE_SIZE
   sub r2, $CELL
 
@@ -996,13 +1044,13 @@ $DEFCODE "RESIZE", 6, 0, RESIZE
 
   push r5
   push 0
-  j &.__RESIZE_next
+  j &__RESIZE_next
 
-.__RESIZE_oom:
+__RESIZE_oom:
   push $X
-  push 0xFFFF
+  $push_true $W
 
-.__RESIZE_next:
+__RESIZE_next:
   $NEXT
 
 ; - Arithmetics -------------------------------------------------------------------------
@@ -1037,11 +1085,13 @@ $DEFCODE "2/", 2, 0, TWOSLASH
   ; ( n -- n )
   pop $W
   mov $X, $W
+  li $Y, 0x0000
+  liu $Y, 0x8000
   shiftr $W, 1
-  and $X, 0x8000
-  bz &.__TWOSLASH_next
-  or $W, 0x8000
-.__TWOSLASH_next:
+  and $X, $Y
+  bz &__TWOSLASH_next
+  or $W, $Y
+__TWOSLASH_next:
   push $W
   $NEXT
 
@@ -1051,8 +1101,8 @@ $DEFCODE "U<", 2, 0, ULT
   pop $W
   pop $X
   cmpu $X, $W
-  bl &.__CMP_true
-  j &.__CMP_false
+  bl &__CMP_true
+  j &__CMP_false
 
 
 $DEFCODE "U>", 2, 0, UGT
@@ -1060,8 +1110,8 @@ $DEFCODE "U>", 2, 0, UGT
   pop $W
   pop $X
   cmpu $X, $W
-  bg &.__CMP_true
-  j &.__CMP_false
+  bg &__CMP_true
+  j &__CMP_false
 
 
 $DEFCODE "MAX", 3, 0, MAX
@@ -1069,12 +1119,12 @@ $DEFCODE "MAX", 3, 0, MAX
   pop $W
   pop $X
   cmp $W, $X
-  bg &.__MIN_greater
+  bg &__MIN_greater
   push $X
-  j &.__MIN_next
-.__MIN_greater:
+  j &__MIN_next
+__MIN_greater:
   push $W
-.__MIN_next:
+__MIN_next:
   $NEXT
 
 
@@ -1083,12 +1133,12 @@ $DEFCODE "MIN", 3, 0, MIN
   pop $W
   pop $X
   cmp $W, $X
-  bl &.__MIN_lower
+  bl &__MIN_lower
   push $X
-  j &.__MIN_next
-.__MIN_lower:
+  j &__MIN_next
+__MIN_lower:
   push $W
-.__MIN_next:
+__MIN_next:
   $NEXT
 
 
@@ -1096,149 +1146,10 @@ $DEFCODE "ABS", 3, 0, ABS
   ; ( n -- n )
   pop $W
   cmp $W, 0
-  bge &.__ABS_next
+  bge &__ABS_next
   mul $W, -1
-.__ABS_next:
+__ABS_next:
   push $W
-  $NEXT
-
-
-;
-; Double-cell integer operations
-;
-$DEFCODE "S>D", 3, 0, STOD
-  ; ( n -- d )
-  sis $INST_SET_MATH
-  pop r1
-  itol
-  ltoii
-  push r1
-  push r2
-  sis $INST_SET_DUCKY
-  $NEXT
-
-
-$DEFCODE "M*", 2, 0, MSTAR
-  ; ( n1 n2 -- d )
-  sis $INST_SET_MATH
-  pop r1
-  itol
-  pop r1
-  itol
-  mull
-  ltoii
-  push r1
-  push r2
-  sis $INST_SET_DUCKY
-  $NEXT
-
-
-$DEFCODE "FM/MOD", 6, 0, FMMOD
-  ; ( d1 n1 -- n2 n3 )
-  sis $INST_SET_MATH
-  pop $W
-  pop r2
-  pop r1
-  iitol
-  dupl
-  mov r1, $W
-  itol
-  modl
-  ltoi
-  push r1
-  mov r1, $W
-  itol
-  divl
-  ltoi
-  push r1
-  sis $INST_SET_DUCKY
-  $NEXT
-
-
-$DEFCODE "SM/REM", 6, 0, SMMOD
-  ; ( d1 n1 -- n2 n3 )
-  sis $INST_SET_MATH
-  pop $W
-  pop r2
-  pop r1
-  iitol
-  dupl
-  mov r1, $W
-  itol
-  symmodl
-  ltoi
-  push r1
-  mov r1, $W
-  itol
-  symdivl
-  ltoi
-  push r1
-  sis $INST_SET_DUCKY
-  $NEXT
-
-
-$DEFCODE "UM/MOD", 6, 0, UMMOD
-  j &code_FMMOD
-
-
-$DEFCODE "*/", 2, 0, STARSLASH
-  ; ( n1 n2 n3 -- n4 )
-  sis $INST_SET_MATH
-  pop $W
-  pop $X
-  pop $Y
-  mov r1, $Y
-  itol
-  mov r1, $X
-  itol
-  mull
-  mov r1, $W
-  itol
-  divl
-  ltoi
-  push r1
-  sis $INST_SET_DUCKY
-  $NEXT
-
-
-$DEFCODE "*/MOD", 5, 0, STARMOD
-  ; ( n1 n2 n3 -- n4 n5 )
-  sis $INST_SET_MATH
-  pop $W
-  pop $X
-  pop $Y
-  mov r1, $Y
-  itol
-  mov r1, $X
-  itol
-  mull
-  dupl
-  mov r1, $W
-  itol
-  modl
-  ltoi
-  push r1
-  mov r1, $W
-  itol
-  divl
-  ltoi
-  push r1
-  sis $INST_SET_DUCKY
-  $NEXT
-
-
-$DEFCODE "UM*", 3, 0, UMSTAR
-  ; ( u1 u2 -- ud )
-  sis $INST_SET_MATH
-  pop r1
-  utol
-  pop r1
-  utol
-  mull
-  ltoii
-  push r1
-  push r2
-  sis $INST_SET_DUCKY
   $NEXT
 
 
@@ -1246,51 +1157,88 @@ $DEFCODE "UM*", 3, 0, UMSTAR
 
 $DEFCODE "U.", 2, 0, UDOT
   pop r0
-  call &.__UDOT
+  call &__UDOT
   $NEXT
 
-.__UDOT:
+__UDOT:
   ; BASE
   push r1
-  li r1, &var_BASE
+  la r1, &var_BASE
   lw r1, r1
 
   push r0 ; save r0 for mod later
   udiv r0, r1
-  bz &.__UDOT_print
-  call &.__UDOT
+  bz &__UDOT_print
+  call &__UDOT
 
-.__UDOT_print:
+__UDOT_print:
   pop r0 ; restore saved number and mod it
   mod r0, r1
   cmp r0, 10
-  bge &.__UDOT_print_letters
+  bge &__UDOT_print_letters
   add r0, 48
 
-.__UDOT_emit:
-  call &.__EMIT
+__UDOT_emit:
+  call &__EMIT
   pop r1 ; restore saved r1 (BASE)
   ret
 
-.__UDOT_print_letters:
+__UDOT_print_letters:
   sub r0, 10
   add r0, 65
-  j &.__UDOT_emit
+  j &__UDOT_emit
 
 
 $DEFCODE ".S", 2, 0, DOTS
   mov $W, sp
-  li $X, &var_SZ
+  la $X, &var_SZ
   lw $X, $X
 
-.__DOTS_loop:
+__DOTS_loop:
   lw r0, $W
-  call &.__UDOT
-  call &.__SPACE
+  call &__UDOT
+  call &__SPACE
   add $W, $CELL
   cmp $W, $X
-  bl &.__DOTS_loop
+  bl &__DOTS_loop
   $NEXT
+
+
+$DEFCODE "ID.", 3, 0, IDDOT
+  ; ( a-addr -- )
+  pop r0
+  call &__IDDOT
+  $NEXT
+
+__IDDOT:
+  ; void __IDDOT(void *ptr)
+  ; it's just about constructing arguments for write()
+  push r1
+  add r0, $wr_namelen
+  lb r1, r0
+  inc r0
+  call &write ; tail call
+  pop r1
+  ret
+
+
+$DEFCODE "WORDS", 5, 0, WORDS
+  ; ( -- )
+  call &__WORDS
+  $NEXT
+
+__WORDS:
+  push r0
+  la r0, &var_LATEST
+  lw r0, r0
+__WORDS_loop:
+  bz &__WORDS_quit
+  call &__IDDOT
+  lw r0, r0
+  j &__WORDS_loop
+__WORDS_quit:
+  pop r0
+  ret
 
 
 ; This is fake - exceptions are not implemented yet

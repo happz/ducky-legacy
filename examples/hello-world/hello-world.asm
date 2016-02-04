@@ -1,19 +1,31 @@
+.include "tty.asm"
+
+  .data
+
+  .type stack, space
+  .space 64
+
   .type message, string
   .string "Hello, world!"
 
-.include "defs.asm"
+
+  .text
 
 main:
-  li r0, &message
+  la sp, &stack
+  add sp, 64
+
+  la r0, &message
   call &writesn
-  li r0, 0
-  int $INT_HALT
+  hlt 0x00
+
 
 outb:
   ; > r0: port
   ; > r1: byte
   outb r0, r1
   ret
+
 
 writesn:
   ; > r0: string address
@@ -23,24 +35,22 @@ writesn:
   ;   r2: string ptr
   push r1
   push r2
-  push r0
-  pop r2
-  li r0, $PORT_TTY_OUT
-.__fn_writesn_loop:
+  mov r2, r0
+  li r0, $TTY_PORT_DATA
+.__writesn_loop:
   lb r1, r2
-  bz &.__fn_writesn_write_nl
+  bz &.__writesn_write_nl
   call &outb
   inc r2
-  j &.__fn_writesn_loop
-.__fn_writesn_write_nl:
+  j &.__writesn_loop
+.__writesn_write_nl:
   ; \n
-  li r1, 0xA
+  li r1, 0x0000000A
   call &outb
   ; \r
-  li r1, 0xD
+  li r1, 0x0000000D
   call &outb
-  li r0, 0
+  li r0, 0x00000000
   pop r2
   pop r1
   ret
-

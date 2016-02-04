@@ -1,6 +1,7 @@
 include $(TOPDIR)/Makefile.inc
 
-SUBDIRS := units ans
+SUBDIRS := units forth2012-test-suite
+#SUBDIRS := forth2012-test-suite
 
 TC_DIR       := $(TESTSETDIR)/forth
 TC_CONFIG    := $(CURDIR)/test-machine.conf

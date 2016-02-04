@@ -10,11 +10,12 @@ from six import iteritems, itervalues, integer_types, string_types, PY2
 from .. import cpu
 from .. import mm
 from ..cpu.coprocessor.math_copro import MathCoprocessorInstructionSet  # noqa - it's not unused, SIS instruction may need it but that's hidden from flake
-from ..cpu.coprocessor.control import ControlCoprocessorInstructionSet  # noqa - it's not unused, SIS instruction may need it but that's hidden from flake
+from ..cpu.instructions import encoding_to_u32
 
-from ..mm import UInt8, UInt16, ADDR_FMT, PAGE_SIZE
+from ..mm import u8_t, u16_t, u32_t, PAGE_SIZE, UINT32_FMT
 from ..mm.binary import SectionTypes, SectionFlags, SymbolFlags, RelocFlags
 from ..util import align, str2bytes
+from ..errors import AssemblerError, IncompleteDirectiveError, UnknownFileError, DisassembleMismatchError
 
 align_to_next_page = functools.partial(align, PAGE_SIZE)
 align_to_next_mmap = functools.partial(align, mmap.PAGESIZE)
@@ -26,37 +27,22 @@ RE_IFNDEF = re.compile(r'^\s*\.ifndef\s+(?P<var>[a-zA-Z0-9_]+)\s*$', re.MULTILIN
 RE_ELSE = re.compile(r'^\s*\.else\s*$', re.MULTILINE)
 RE_ENDIF = re.compile(r'^\s*\.endif\s*$', re.MULTILINE)
 RE_VAR_DEF = re.compile(r'^\s*\.def\s+(?P<var_name>[a-zA-Z][a-zA-Z0-9_]*):\s*(?P<var_body>.*?)$', re.MULTILINE)
-RE_MACRO_DEF = re.compile(r'^\s*\.macro\s+(?P<macro_name>[a-zA-Z][a-zA-Z0-9_]*)(?:\s+(?P<macro_params>.*?))?:$', re.MULTILINE | re.DOTALL)
+RE_MACRO_DEF = re.compile(r'^\s*\.macro\s+(?P<macro_name>[a-zA-Z_][a-zA-Z0-9_]*)(?:\s+(?P<macro_params>.*?))?:$', re.MULTILINE | re.DOTALL)
 RE_MACRO_END = re.compile(r'^\s*\.end\s*$', re.MULTILINE)
 RE_ASCII = re.compile(r'^\s*\.ascii\s+"(?P<value>.*?)"\s*$', re.MULTILINE)
 RE_BYTE = re.compile(r'^\s*\.byte\s+(?:(?P<value_hex>-?0x[a-fA-F0-9]+)|(?P<value_dec>(?:0)|(?:-?[1-9][0-9]*))|(?P<value_var>[a-zA-Z][a-zA-Z0-9_]*))\s*$', re.MULTILINE)
 RE_DATA = re.compile(r'^\s*\.data(?:\s+(?P<name>\.[a-z][a-z0-9_]*))?\s*$', re.MULTILINE)
-RE_INT = re.compile(r'^\s*\.int\s+(?:(?P<value_hex>-?0x[a-fA-F0-9]+)|(?P<value_dec>0|(?:-?[1-9][0-9]*))|(?P<value_var>[a-zA-Z][a-zA-Z0-9_]*)|(?P<value_label>&[a-zA-Z_\.][a-zA-Z0-9_]*))\s*$', re.MULTILINE)
+RE_SHORT = re.compile(r'^\s*\.short\s+(?:(?P<value_hex>-?0x[a-fA-F0-9]+)|(?P<value_dec>0|(?:-?[1-9][0-9]*))|(?P<value_var>[a-zA-Z][a-zA-Z0-9_]*))\s*$', re.MULTILINE)
+RE_INT = re.compile(r'^\s*\.int\s+(?:(?P<value_hex>-?0x[a-fA-F0-9]+)|(?P<value_dec>0|(?:-?[1-9][0-9]*))|(?P<value_var>[a-zA-Z][a-zA-Z0-9_]*(?:.*?)?)|(?P<value_label>&[a-zA-Z_\.][a-zA-Z0-9_]*))\s*$', re.MULTILINE)
 RE_SECTION = re.compile(r'^\s*\.section\s+(?P<name>\.[a-zA-z0-9_]+)(?:,\s*(?P<flags>[rwxlbmg]*))?\s*$', re.MULTILINE)
 RE_SET = re.compile(r'^\s*\.set\s+(?P<name>[a-zA-Z_][a-zA-Z0-9_]*),\s*(?:(?P<current>\.)|(?P<value_hex>-?0x[a-fA-F0-9]+)|(?P<value_dec>0|(?:-?[1-9][0-9]*))|(?P<value_label>&[a-zA-Z][a-zA-Z0-9_]*))\s*$', re.MULTILINE)
 RE_SIZE = re.compile(r'^\s*\.size\s+(?P<size>[1-9][0-9]*)\s*$', re.MULTILINE)
 RE_SPACE = re.compile(r'^\s*\.space\s+(?P<size>[1-9][0-9]*)\s*$', re.MULTILINE)
 RE_STRING = re.compile(r'^\s*\.string\s+"(?P<value>.*?)"\s*$', re.MULTILINE)
 RE_TEXT = re.compile(r'^\s*\.text(?:\s+(?P<name>\.[a-z][a-z0-9_]*))?\s*$', re.MULTILINE)
-RE_TYPE = re.compile(r'^\s*\.type\s+(?P<name>[a-zA-Z_\.][a-zA-Z0-9_]*),\s*(?P<type>(?:char|byte|int|ascii|string|space))\s*$', re.MULTILINE)
-RE_GLOBAL = re.compile(r'^\s*.global\s+(?P<name>[a-zA-Z_][a-zA-Z0-9_]*)\s*$', re.MULTILINE)
-
-class AssemblerError(Exception):
-  def __init__(self, filename, lineno, msg, line):
-    super(AssemblerError, self).__init__('{}:{}: {}'.format(filename, lineno, msg))
-
-    self.filename = filename
-    self.lineno   = lineno
-    self.msg      = msg
-    self.line     = line
-
-class IncompleteDirectiveError(AssemblerError):
-  def __init__(self, filename, lineno, msg, line):
-    super(IncompleteDirectiveError, self).__init__(filename, lineno, 'Incomplete directive: %s' % msg, line)
-
-class UnknownFileError(AssemblerError):
-  def __init__(self, filename, lineno, msg, line):
-    super(UnknownFileError, self).__init__(filename, lineno, 'Unknown file: %s' % msg, line)
+RE_TYPE = re.compile(r'^\s*\.type\s+(?P<name>[a-zA-Z_\.][a-zA-Z0-9_]*),\s*(?P<type>(?:char|byte|short|int|ascii|string|space))\s*$', re.MULTILINE)
+RE_GLOBAL = re.compile(r'^\s*\.global\s+(?P<name>[a-zA-Z_][a-zA-Z0-9_]*)\s*$', re.MULTILINE)
+RE_ALIGN  = re.compile(r'^\s*\.align\s+(?P<boundary>[0-9]+)\s*$', re.MULTILINE)
 
 class Buffer(object):
   def __init__(self, logger, filename, buff):
@@ -131,7 +117,7 @@ class Section(object):
     self.content = []
 
     self.base = None
-    self.ptr  = UInt16(0)
+    self.ptr  = 0
 
   def __getattr__(self, name):
     if name == 'data_size':
@@ -144,7 +130,7 @@ class Section(object):
       return len(self.content)
 
   def __repr__(self):
-    return '<Section: name={}, type={}, flags={}, base={}, ptr={}, items={}, data_size={}, file_size={}>'.format(self.name, self.type, self.flags.to_string(), self.base, self.ptr, self.items, self.data_size, self.file_size)
+    return '<Section: name=%s, type=%s, flags=%s, base=%s, ptr=%s, items=%s, data_size=%s, file_size=%s>' % (self.name, self.type, self.flags.to_string(), UINT32_FMT(self.base), UINT32_FMT(self.ptr), self.items, self.data_size, self.file_size)
 
 class TextSection(Section):
   def __init__(self, s_name, flags = None, **kwargs):
@@ -183,21 +169,30 @@ class Label(object):
   def __repr__(self):
     return '<label {} in section {} ({}:{})>'.format(self.name, self.section.name if self.section else None, self.filename, self.lineno)
 
+class Reference(object):
+  def __init__(self, add = None, label = None):
+    self.add = add or 0
+    self.label = label
+
+  def __repr__(self):
+    return '<Reference: label=%s, add=%s>' % (self.label, self.add)
+
 class RelocSlot(object):
-  def __init__(self, name, flags = None, patch_section = None, patch_address = None, patch_offset = None, patch_size = None):
+  def __init__(self, name, flags = None, patch_section = None, patch_address = None, patch_offset = None, patch_size = None, patch_add = None):
     super(RelocSlot, self).__init__()
 
     self.name = name
-    self.flags = flags or RelocFlags()
+    self.flags = flags or RelocFlags.create()
     self.patch_section = patch_section
     self.patch_address = patch_address
     self.patch_offset = patch_offset
     self.patch_size = patch_size
+    self.patch_add = patch_add
 
-    self.size = UInt16(0)
+    self.size = 0
 
   def __repr__(self):
-    return '<RelocSlot: name=%s, flags=%s, section=%s, address=%s, offset=%s, size=%s>' % (self.name, self.flags.to_string(), self.patch_section, ADDR_FMT(self.patch_address), self.patch_offset, self.patch_size)
+    return '<RelocSlot: name=%s, flags=%s, section=%s, address=%s, offset=%s, size=%s, add=%s>' % (self.name, self.flags.to_string(), self.patch_section, UINT32_FMT(self.patch_address), self.patch_offset, self.patch_size, self.patch_add)
 
 class DataSlot(object):
   def __init__(self):
@@ -208,7 +203,7 @@ class DataSlot(object):
     self.refers_to = None
     self.value = None
 
-    self.flags = SymbolFlags()
+    self.flags = SymbolFlags.create()
 
     self.section = None
     self.section_ptr = None
@@ -223,27 +218,40 @@ class ByteSlot(DataSlot):
   symbol_type = mm.binary.SymbolDataTypes.CHAR
 
   def close(self):
-    self.size = UInt16(1)
+    self.size = 1
 
     if self.refers_to:
       return
 
-    self.value = UInt8(self.value or 0)
+    self.value = u8_t(self.value or 0)
 
   def __repr__(self):
     return '<ByteSlot: name={}, size={}, section={}, value={}>'.format(self.name, self.size, self.section.name if self.section else '', self.value)
+
+class ShortSlot(DataSlot):
+  symbol_type = mm.binary.SymbolDataTypes.SHORT
+
+  def close(self):
+    self.size = 2
+
+    if self.refers_to:
+      return
+
+    self.value = u16_t(self.value or 0)
+
+  def __repr__(self):
+    return '<ShortSlot: name={}, size={}, section={}, value={}, refers_to={}>'.format(self.name, self.size, self.section.name if self.section else '', self.value, self.refers_to)
 
 class IntSlot(DataSlot):
   symbol_type = mm.binary.SymbolDataTypes.INT
 
   def close(self):
-    self.size = UInt16(2)
+    self.size = 4
 
     if self.refers_to:
       return
 
-    self.value = UInt16(self.value or 0)
-    self.size = UInt16(2)
+    self.value = u32_t(self.value or 0)
 
   def __repr__(self):
     return '<IntSlot: name={}, size={}, section={}, value={}, refers_to={}>'.format(self.name, self.size, self.section.name if self.section else '', self.value, self.refers_to)
@@ -252,8 +260,8 @@ class CharSlot(DataSlot):
   symbol_type = mm.binary.SymbolDataTypes.CHAR
 
   def close(self):
-    self.value = UInt8(ord(self.value or '\0'))
-    self.size = UInt16(1)
+    self.size = 1
+    self.value = u8_t(ord(self.value or '\0'))
 
   def __repr__(self):
     return '<CharSlot: name={}, section={}, value={}>'.format(self.name, self.section.name if self.section else '', self.value)
@@ -263,7 +271,7 @@ class SpaceSlot(DataSlot):
 
   def close(self):
     self.value = None
-    self.size = UInt16(self.size)
+    self.size = self.size
 
   def __repr__(self):
     return '<SpaceSlot: name={}, size={}, section={}>'.format(self.name, self.size, self.section.name if self.section else '')
@@ -273,8 +281,8 @@ class AsciiSlot(DataSlot):
 
   def close(self):
     self.value = self.value or ''
-    self.value = [UInt8(ord(c)) for c in self.value]
-    self.size = UInt16(len(self.value))
+    self.value = [u8_t(ord(c)) for c in self.value]
+    self.size = len(self.value)
 
   def __repr__(self):
     return '<AsciiSlot: name={}, size={}, section={}, value={}>'.format(self.name, self.size, self.section.name if self.section else '', self.value)
@@ -284,17 +292,26 @@ class StringSlot(DataSlot):
 
   def close(self):
     self.value = self.value or ''
-    self.value = [UInt8(ord(c)) for c in self.value] + [UInt8(0)]
-    self.size = UInt16(len(self.value))
+    self.value = [u8_t(ord(c)) for c in self.value] + [u8_t(0)]
+    self.size = len(self.value)
 
   def __repr__(self):
     return '<StringSlot: name={}, size={}, section={}, value={}>'.format(self.name, self.size, self.section.name if self.section else '', self.value)
+
+class AlignSlot(DataSlot):
+  def __init__(self, boundary):
+    super(AlignSlot, self).__init__()
+
+    self.boundary = boundary
+
+  def __repr__(self):
+    return '<AlignSlot: boundary={}>'.format(self.boundary)
 
 class FunctionSlot(DataSlot):
   symbol_type = mm.binary.SymbolDataTypes.FUNCTION
 
   def close(self):
-    self.size = UInt16(0)
+    self.size = 0
 
   def __repr__(self):
     return '<FunctionSlot: name={}, section={}>'.format(self.name, self.section.name if self.section else '')
@@ -304,12 +321,12 @@ def sizeof(o):
     return 0
 
   if isinstance(o, DataSlot):
-    return o.size.u16
+    return o.size
 
   if isinstance(o, ctypes.LittleEndianStructure):
     return ctypes.sizeof(o)
 
-  return None
+  return ctypes.sizeof(o)
 
 if PY2:
   def decode_string(s):
@@ -319,7 +336,7 @@ else:
   def decode_string(s):
     return str2bytes(s).decode('unicode_escape')
 
-def translate_buffer(logger, buff, base_address = None, mmapable_sections = False, writable_sections = False, filename = None, defines = None, includes = None):
+def translate_buffer(logger, buff, base_address = None, mmapable_sections = False, writable_sections = False, filename = None, defines = None, includes = None, verify_disassemble = False):
   DEBUG = logger.debug
 
   filename = filename or '<unknown>'
@@ -329,7 +346,7 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
 
   buff = Buffer(logger, filename, buff.split('\n'))
 
-  base_address = base_address or UInt16(0)
+  base_address = base_address or 0
 
   sections_pass1 = collections.OrderedDict([
     ('.text',   TextSection('.text')),
@@ -342,11 +359,11 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
 
   if mmapable_sections:
     for section in itervalues(sections_pass1):
-      section.flags.mmapable = 1
+      section.flags.mmapable = True
 
   if writable_sections:
     for section in [_section for _section in itervalues(sections_pass1) if _section.name in ('.text', '.rodata', '.data', '.bss')]:
-      section.flags.writable = 1
+      section.flags.writable = True
 
   DEBUG('Pass #1')
 
@@ -398,98 +415,64 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
 
     return False
 
-  def __get_refers_to_operand(inst):
-    r_address = references[inst.refers_to].section_ptr.u16
+  def __get_variable(name):
+    if name not in variables:
+      raise buff.get_error(IncompleteDirectiveError, 'unknown variable named "%s"' % name)
 
-    if inst.refers_to.startswith(''):
-      r_address -= (inst.address.u16 + 4)
+    return variables[name]
 
-    return r_address
+  def __eval_expression(expr):
+    return (__get_variable(expr), None)
 
-  def __parse_byte(var, matches):
+  def __parse_integer(var, matches, max):
     if not var.lineno:
       var.filename = buff.filename
       var.lineno = buff.lineno
 
     matches = matches.groupdict()
 
+    DEBUG('__parse_integer: var=%s, matches=%s, max=%s', var, matches, max)
+
     v_value = matches.get('value_dec')
     if v_value:
       var.value = int(v_value)
+
+      DEBUG('__parse_integer: var=%s', var)
       return
 
     v_value = matches.get('value_hex')
     if v_value:
       var.value = int(v_value, base = 16)
+
+      DEBUG('__parse_integer: var=%s', var)
       return
 
     v_value = matches.get('value_var')
     if v_value:
-      referred_var = variables[matches['value_var']]
+      variable, addition = __eval_expression(matches['value_var'])
 
-      if isinstance(referred_var, integer_types):
-        var.value = referred_var
+      DEBUG('__parse_integer: variable: variable=%s, addition=%s', variable, addition)
+
+      if isinstance(variable, integer_types):
+        var.value = variable
+
+        if addition is not None:
+          var.value += addition
+
       else:
-        var.refers_to = referred_var
+        var.refers_to = Reference(label = variable, add = addition)
 
-      return
-
-    raise buff.get_error(IncompleteDirectiveError, '.byte directive without a meaningful value')
-
-  def __parse_int(var, matches):
-    if not var.lineno:
-      var.filename = buff.filename
-      var.lineno = buff.lineno
-
-    matches = matches.groupdict()
-
-    v_value = matches.get('value_dec')
-    if v_value:
-      var.value = int(v_value)
-      return
-
-    v_value = matches.get('value_hex')
-    if v_value:
-      var.value = int(v_value, base = 16)
-      return
-
-    v_value = matches.get('value_var')
-    if v_value:
-      if matches['value_var'] not in variables:
-        raise buff.get_error(IncompleteDirectiveError, 'unknown variable named "%s"' % matches['value_var'])
-
-      referred_var = variables[matches['value_var']]
-
-      if isinstance(referred_var, integer_types):
-        var.value = referred_var
-      else:
-        var.refers_to = referred_var
-
+      DEBUG('__parse_integer: var=%s', var)
       return
 
     v_value = matches.get('value_label')
     if v_value:
-      var.refers_to = v_value
+      var.refers_to = Reference(label = v_value)
+
+      DEBUG('__parse_integer: var=%s', var)
       return
 
-    raise buff.get_error(IncompleteDirectiveError, '.byte directive without a meaningful value')
-
-  def __parse_ascii(var, matches):
-    if not var.lineno:
-      var.filename = buff.filename
-      var.lineno = lineno
-
-    matches = matches.groupdict()
-
-    v_value = matches.get('value')
-    if not v_value:
-      raise buff.get_error(IncompleteDirectiveError, '.ascii directive without a string')
-
-    DEBUG('Pre-decode: (%s) %s', type(v_value), ', '.join([str(ord(c)) for c in v_value]))
-    s = decode_string(v_value)
-    DEBUG('Pre-decode: (%s) %s', type(s), ', '.join([str(ord(c)) for c in s]))
-
-    var.value = decode_string(v_value)
+    raise buff.get_error(IncompleteDirectiveError, '.int directive without a meaningful value')
 
   def __parse_string(var, matches):
     if not var.lineno:
@@ -503,10 +486,8 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
       raise buff.get_error(IncompleteDirectiveError, '.string directive without a string')
 
     DEBUG('Pre-decode: (%s) %s', type(v_value), ', '.join([str(ord(c)) for c in v_value]))
-    s = decode_string(v_value)
-    DEBUG('Pre-decode: (%s) %s', type(s), ', '.join([str(ord(c)) for c in s]))
-
     var.value = decode_string(v_value)
+    DEBUG('Post-decode: (%s) %s', type(var.value), ', '.join([str(ord(c)) for c in var.value]))
 
   def __parse_space(var, matches):
     if not var.lineno:
@@ -527,6 +508,9 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
     elif v_type == 'byte':
       var = ByteSlot()
 
+    elif v_type == 'short':
+      var = ShortSlot()
+
     elif v_type == 'int':
       var = IntSlot()
 
@@ -543,7 +527,7 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
     var.filename = buff.filename
     var.lineno = buff.lineno
 
-    while buff.has_lines():
+    while buff.has_lines() and var.value is None and var.refers_to is None:
       line = buff.get_line()
 
       if line is None:
@@ -575,17 +559,22 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
         if 'size' not in matches:
           raise buff.get_error(IncompleteDirectiveError, '.size directive without a size')
 
-        var.size = UInt16(int(matches['size']))
+        var.size = int(matches['size'])
+        continue
+
+      matches = RE_SHORT.match(line)
+      if matches:
+        __parse_integer(var, matches, 0xFFFF)
         continue
 
       matches = RE_INT.match(line)
       if matches:
-        __parse_int(var, matches)
+        __parse_integer(var, matches, 0xFFFFFFFF)
         continue
 
       matches = RE_ASCII.match(line)
       if matches:
-        __parse_ascii(var, matches)
+        __parse_string(var, matches)
         continue
 
       matches = RE_STRING.match(line)
@@ -600,7 +589,7 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
 
       matches = RE_BYTE.match(line)
       if matches:
-        __parse_byte(var, matches)
+        __parse_integer(var, matches, 0xFF)
         continue
 
       buff.put_line(line)
@@ -850,7 +839,7 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
 
       if s_name not in sections_pass1:
         section_flags = SectionFlags.from_string(matches.get('flags') or '')
-        section_type = SectionTypes.TEXT if section_flags.executable == 1 else SectionTypes.DATA
+        section_type = SectionTypes.TEXT if section_flags.executable is True else SectionTypes.DATA
 
         section = sections_pass1[s_name] = Section(s_name, section_type, section_flags)
         DEBUG(msg_prefix + 'section %s created', s_name)
@@ -899,7 +888,24 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
     matches = RE_BYTE.match(line)
     if matches:
       var = ByteSlot()
-      __parse_byte(var, matches)
+      __parse_integer(var, matches, 0xFF)
+
+      if len(labels) > 1:
+        raise buff.get_error(AssemblerError, 'Too many data labels: {}'.format(labels))
+
+      var.name = labels[0] if labels else None
+      var.close()
+
+      DEBUG(msg_prefix + 'record byte value: name=%s, value=%s', var.name, var.value)
+      data_section.content.append(var)
+
+      labels = []
+      continue
+
+    matches = RE_SHORT.match(line)
+    if matches:
+      var = ShortSlot()
+      __parse_integer(var, matches, 0xFFFF)
 
       if len(labels) > 1:
         raise buff.get_error(AssemblerError, 'Too many data labels: {}'.format(labels))
@@ -916,7 +922,7 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
     matches = RE_INT.match(line)
     if matches:
       var = IntSlot()
-      __parse_int(var, matches)
+      __parse_integer(var, matches, 0xFFFFFFFF)
 
       if len(labels) > 1:
         raise buff.get_error(AssemblerError, 'Too many data labels: {}'.format(labels))
@@ -933,7 +939,7 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
     matches = RE_ASCII.match(line)
     if matches:
       var = AsciiSlot()
-      __parse_ascii(var, matches)
+      __parse_string(var, matches)
 
       if len(labels) > 1:
         raise buff.get_error(AssemblerError, 'Too many data labels: {}'.format(labels))
@@ -981,6 +987,19 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
       labels = []
       continue
 
+    matches = RE_ALIGN.match(line)
+    if matches:
+      matches = matches.groupdict()
+
+      if 'boundary' not in matches:
+        raise buff.get_error(IncompleteDirectiveError, '.align directive without boundary')
+
+      var = AlignSlot(int(matches['boundary']))
+
+      DEBUG(msg_prefix + 'align: boundary=%s', var.boundary)
+      data_section.content.append(var)
+      continue
+
     matches = RE_GLOBAL.match(line)
     if matches:
       matches = matches.groupdict()
@@ -1003,7 +1022,7 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
       name = matches['name']
 
       if matches.get('current'):
-        value = (curr_section.name, UInt16(curr_section.ptr.u16))
+        value = (curr_section.name, curr_section.ptr)
 
       elif matches.get('value_dec'):
         value = int(matches['value_dec'])
@@ -1037,8 +1056,10 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
     # Find instruction descriptor
     line = line.strip()
 
+    DEBUG(msg_prefix + 'instr set: %s', instruction_set)
+
     for desc in instruction_set.instructions:
-      DEBUG(msg_prefix + 'pattern: %s', desc.pattern.pattern)
+      # print desc.pattern.pattern
       if not desc.pattern.match(line):
         continue
       break
@@ -1046,7 +1067,7 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
     else:
       raise buff.get_error(AssemblerError, 'Unknown pattern: line="{}"'.format(line))
 
-    emited_inst = desc.emit_instruction(logger, line)
+    emited_inst = desc.emit_instruction(logger, buff, line)
     emited_inst.desc = desc
 
     if labels:
@@ -1057,9 +1078,13 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
 
     labels = []
 
-    DEBUG(msg_prefix + 'emitted instruction: %s', emited_inst.desc.instruction_set.disassemble_instruction(emited_inst))
+    emited_inst_disassemble = emited_inst.desc.instruction_set.disassemble_instruction(logger, emited_inst)
+    DEBUG(msg_prefix + 'emitted instruction: %s (%s)', emited_inst_disassemble, UINT32_FMT(encoding_to_u32(emited_inst)))
 
-    if isinstance(desc, cpu.instructions.Inst_SIS):
+    if verify_disassemble and line != emited_inst_disassemble:
+      raise buff.get_error(DisassembleMismatchError, 'input="%s", emitted="%s"' % (line, emited_inst_disassemble))
+
+    if isinstance(desc, cpu.instructions.SIS):
       DEBUG(msg_prefix + 'switching istruction set: inst_set=%s', emited_inst.immediate)
 
       instruction_set = cpu.instructions.get_instruction_set(emited_inst.immediate)
@@ -1079,7 +1104,7 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
 
   sections_pass2 = collections.OrderedDict()
   references = {}
-  base_ptr = UInt16(base_address.u16)
+  base_ptr = base_address
 
   for s_name, p1_section in iteritems(sections_pass1):
     section = sections_pass2[s_name] = Section(s_name, p1_section.type, p1_section.flags)
@@ -1090,86 +1115,114 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
   for s_name, section in iteritems(sections_pass2):
     p1_section = sections_pass1[s_name]
 
-    section.base = UInt16(base_ptr.u16)
-    section.ptr  = UInt16(base_ptr.u16)
+    section.base = base_ptr
+    section.ptr  = base_ptr
 
-    DEBUG('pass #2: section %s - base=%s', section.name, ADDR_FMT(section.base.u16))
+    DEBUG('pass #2: section %s - base=%s', section.name, UINT32_FMT(section.base))
 
     if section.type == SectionTypes.SYMBOLS or section.type == SectionTypes.RELOC:
       continue
 
     if section.type == SectionTypes.DATA:
       for var in p1_section.content:
-        ptr_prefix = 'pass #2: ' + ADDR_FMT(section.ptr.u16) + ': '
+        ptr_prefix = 'pass #2: ' + UINT32_FMT(section.ptr) + ': '
 
         DEBUG(ptr_prefix + str(var))
 
+        if isinstance(var, AlignSlot):
+          aligned_ptr = align(var.boundary, section.ptr)
+          padding_bytes = aligned_ptr - section.ptr
+
+          if padding_bytes == 0:
+            DEBUG(ptr_prefix + '  align %s to multiple of %s: aligned already, ignore', UINT32_FMT(section.ptr), var.boundary)
+            continue
+
+          padding = SpaceSlot()
+          padding.size = padding_bytes
+
+          DEBUG(ptr_prefix + '  align %s to multiple of %s: %s padding bytes => %s', UINT32_FMT(section.ptr), var.boundary, padding.size, UINT32_FMT(section.ptr + padding.size))
+          DEBUG(ptr_prefix + '  %s', padding)
+
+          section.content.append(padding)
+          section.ptr += padding.size
+          DEBUG(ptr_prefix + '  padding stored')
+
+          continue
+
         if var.name:
           var.section = section
-          var.section_ptr = UInt16(section.ptr.u16)
+          var.section_ptr = section.ptr
           references['&' + var.name.name] = var
 
           symtab.content.append(var)
 
-        if var.refers_to:
-          refers_to = var.refers_to
+        if var.refers_to is not None:
+          reference = var.refers_to
 
-          if isinstance(refers_to, tuple):
-            reloc = RelocSlot(refers_to[0], patch_section = section, patch_address = section.ptr.u16, patch_offset = 0, patch_size = 16)
-            DEBUG(ptr_prefix + 'reloc slot created: %s', reloc)
+          DEBUG(ptr_prefix + '  refers to: %s', reference)
+
+          if reference.label is not None:
+            reloc = RelocSlot(reference.label[1:], patch_section = section, patch_address = section.ptr, patch_offset = 0, patch_size = 16, patch_add = reference.add)
+            DEBUG(ptr_prefix + '  reloc slot created: %s', reloc)
 
           else:
-            reloc = RelocSlot(refers_to[1:], patch_section = section, patch_address = section.ptr.u16, patch_offset = 0, patch_size = 16)
-            DEBUG(ptr_prefix + 'reloc slot created: %s', reloc)
+            raise Exception()
 
           reloctab.content.append(reloc)
           var.refers_to = None
 
-        if type(var) == IntSlot:
-          if var.value:
-            section.content.append(UInt8(var.value.u16 & 0x00FF))
-            section.content.append(UInt8((var.value.u16 & 0xFF00) >> 8))
-            DEBUG(ptr_prefix + 'value stored')
+        if isinstance(var, IntSlot):
+          if var.value is not None:
+            section.content.append(u8_t(var.value.value & 0xFF))
+            section.content.append(u8_t(var.value.value >> 8))
+            section.content.append(u8_t(var.value.value >> 16))
+            section.content.append(u8_t(var.value.value >> 24))
+            DEBUG(ptr_prefix + '  value stored')
 
           else:
             section.content.append(var)
-            DEBUG(ptr_prefix + 'value missing - reserve space, fix in next pass')
+            DEBUG(ptr_prefix + '  value missing - reserve space, fix in next pass')
 
-          section.ptr.u16 += 2
+          section.ptr += 4
 
-        elif type(var) == ByteSlot:
-          section.content.append(UInt8(var.value.u8))
-          section.ptr.u16 += var.size.u16
-          DEBUG(ptr_prefix + 'value stored')
+        elif isinstance(var, ShortSlot):
+          section.content.append(u8_t(var.value.value & 0xFF))
+          section.content.append(u8_t(var.value.value >> 8))
+          section.ptr += var.size
+          DEBUG(ptr_prefix + '  value stored')
+
+        elif isinstance(var, ByteSlot):
+          section.content.append(u8_t(var.value.value))
+          section.ptr += var.size
+          DEBUG(ptr_prefix + '  value stored')
 
         elif type(var) == AsciiSlot or type(var) == StringSlot:
-          for i in range(0, var.size.u16):
-            section.content.append(var.value[i])
-            section.ptr.u16 += 1
+          for b in var.value:
+            section.content.append(b)
 
-          if var.size.u16 % 2 != 0:
-            section.content.append(UInt8(0))
-            section.ptr.u16 += 1
+          section.ptr += var.size
 
-          DEBUG(ptr_prefix + 'value stored')
+          DEBUG(ptr_prefix + '  value stored')
 
         elif type(var) == SpaceSlot:
           section.content.append(var)
-          section.ptr.u16 += var.size.u16
-          DEBUG(ptr_prefix + 'value stored')
+          section.ptr += var.size
+          DEBUG(ptr_prefix + '  value stored')
 
     if section.type == SectionTypes.TEXT:
       for labeled, inst in p1_section.content:
-        ptr_prefix = 'pass #2: ' + ADDR_FMT(section.ptr.u16) + ': '
+        ptr_prefix = 'pass #2: ' + UINT32_FMT(section.ptr) + ': '
 
-        inst.address = UInt16(section.ptr.u16)
+        DEBUG(ptr_prefix + '%s (%s)', inst.desc.instruction_set.disassemble_instruction(logger, inst), UINT32_FMT(encoding_to_u32(inst)))
+
+        inst.address = section.ptr
 
         if labeled:
           for label in labeled:
             var = FunctionSlot()
             var.name = label
             var.section = section
-            var.section_ptr = UInt16(section.ptr.u16)
+            var.section_ptr = section.ptr
 
             var.filename = label.filename
             var.lineno = label.lineno
@@ -1181,9 +1234,12 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
             references['&' + label.name] = var
             DEBUG(ptr_prefix + 'label entry "%s" created', label)
 
-        if inst.desc.operands and ('i' in inst.desc.operands or 'j' in inst.desc.operands) and hasattr(inst, 'refers_to') and inst.refers_to:
-          reloc = RelocSlot(inst.refers_to[1:], flags = RelocFlags(relative = inst.desc.relative_address), patch_section = section, patch_address = section.ptr.u16)
-          inst.desc.fill_reloc_slot(logger, inst, reloc)
+        if inst.desc.operands and ('i' in inst.desc.operands or 'j' in inst.desc.operands) and hasattr(inst, 'refers_to') and inst.refers_to is not None:
+          DEBUG(ptr_prefix + 'refers to: label=%s, relative=%s, inst_aligned=%s', inst.refers_to, inst.desc.relative_address, inst.desc.inst_aligned)
+          DEBUG(ptr_prefix + 'refers to: %s', inst.refers_to)
+
+          reloc = RelocSlot(inst.refers_to.label[1:], flags = RelocFlags.create(relative = inst.desc.relative_address, inst_aligned = inst.desc.inst_aligned), patch_section = section, patch_address = section.ptr)
+          inst.fill_reloc_slot(logger, inst, reloc)
           sections_pass2['.reloc'].content.append(reloc)
 
           if inst.refers_to in references:
@@ -1193,10 +1249,9 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
           inst.refers_to = None
 
         section.content.append(inst)
-        DEBUG(ptr_prefix + inst.desc.instruction_set.disassemble_instruction(inst))
-        section.ptr.u16 += 4
+        section.ptr += 4
 
-    base_ptr.u16 = align_to_next_mmap(section.ptr.u16) if mmapable_sections else align_to_next_page(section.ptr.u16)
+    base_ptr = align_to_next_mmap(section.ptr) if mmapable_sections else align_to_next_page(section.ptr)
 
   DEBUG('Pass #3')
 
@@ -1205,8 +1260,8 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
   for s_name, p2_section in iteritems(sections_pass2):
     section = Section(s_name, p2_section.type, p2_section.flags)
     sections_pass3[s_name] = section
-    section.base = UInt16(p2_section.base.u16)
-    section.ptr  = UInt16(section.base.u16)
+    section.base = p2_section.base
+    section.ptr  = section.base
 
   symtab = sections_pass3['.symtab']
   reloctab = sections_pass3['.reloc']
@@ -1223,40 +1278,36 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
       reloctab = section
 
     for item in p2_section.content:
-      ptr_prefix = 'pass #3: ' + ADDR_FMT(section.ptr.u16) + ': '
+      ptr_prefix = 'pass #3: ' + UINT32_FMT(section.ptr) + ': '
 
       if section.type == SectionTypes.SYMBOLS:
         if (type(item.name) is Label and item.name.name in global_symbols) or item.name in global_symbols:
-          item.flags.globally_visible = 1
+          item.flags.globally_visible = True
 
       elif type(item) == IntSlot:
         if item.refers_to:
-          refers_to = item.refers_to
+          reference, item.refers_to = item.refers_to, None
 
-          if isinstance(refers_to, tuple):
-            referred_section = sections_pass2[item.refers_to[0]]
+          DEBUG(ptr_prefix + 'refers to: %s', reference)
 
-            reloc = RelocSlot(refers_to[0], patch_section = referred_section, patch_address = section.ptr.u16, patch_offset = 0, patch_size = 16)
-            DEBUG(ptr_prefix + 'reloc slot created: %s', reloc)
-
-          else:
-            reloc = RelocSlot(refers_to[1:], patch_section = references[item.refers_to].section, patch_address = section.ptr.u16, patch_offset = 0, patch_size = 16)
-            DEBUG(ptr_prefix + 'reloc slot created: %s', reloc)
+          reloc = RelocSlot(reference.label[1:], patch_section = references[item.refers_to].section, patch_address = section.ptr, patch_offset = 0, patch_size = 16, patch_add = reference.add)
+          DEBUG(ptr_prefix + 'reloc slot created: %s', reloc)
 
           reloctab.content.append(reloc)
 
-          item.value = 0x7979
-          item.refers_to = None
+          item.value = 0x79797979
 
         item.close()
 
-        item = [UInt8(item.value.u16 & 0x00FF), UInt8((item.value.u16 & 0xFF00) >> 8)]
+        item = [u8_t(item.value.value), u8_t((item.value.value >> 8)), u8_t((item.value.value >> 16)), u8_t((item.value.value >> 24))]
 
       elif hasattr(item, 'refers_to') and item.refers_to:
-        DEBUG(ptr_prefix + 'fix reference: %s', item)
+        reference, item.refers_to = item.refers_to, None
 
-        reloc = RelocSlot(item.refers_to[1:], flags = RelocFlags(relative = item.desc.relative_address), patch_section = section, patch_address = section.ptr.u16)
-        item.desc.fill_reloc_slot(logger, item, reloc)
+        DEBUG(ptr_prefix + 'refers to: label=%s, relative=%s, inst_aligned=%s', reference, item.desc.relative_address, item.desc.inst_aligned)
+
+        reloc = RelocSlot(reference.label[1:], flags = RelocFlags.create(relative = item.desc.relative_address, inst_aligned = item.desc.inst_aligned), patch_section = section, patch_address = section.ptr, patch_add = reference.add)
+        item.fill_reloc_slot(logger, item, reloc)
         DEBUG(ptr_prefix + 'reloc slot created: %s', reloc)
         reloctab.content.append(reloc)
 
@@ -1267,7 +1318,7 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
 
       for i in item:
         section.content.append(i)
-        section.ptr.u16 += sizeof(i)
+        section.ptr += sizeof(i)
 
     DEBUG('pass #3: section %s finished: %s', section.name, section)
 

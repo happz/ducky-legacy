@@ -1,6 +1,7 @@
 include $(TOPDIR)/Makefile.inc
 
 SUBDIRS := engine forth compiler benchmark
+#SUBDIRS := forth
 
 XUNIT := $(CURDIR)/xunit-record
 export XUNIT

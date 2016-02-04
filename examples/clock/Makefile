@@ -6,9 +6,9 @@ TC_OUT := $(TESTSETDIR)/$(EXAMPLE).$(DB_PID).out
 TC_MACHINE := $(TESTSETDIR)/$(EXAMPLE).$(DB_PID).machine
 
 
-clock.o: $(TOPDIR)/defs.asm clock.asm
+clock.o: $(DEFSDIR)/ducky.asm $(DEFSDIR)/rtc.asm $(DEFSDIR)/svga.asm clock.asm
 clock: clock.o
-	$(run-linker)
+	$(call run-linker,--section-base=.text=0x00000000)
 
 build: clock
 
@@ -17,9 +17,8 @@ run: build
 	$(Q) COVERAGE_FILE=$(shell if [ "$(VMCOVERAGE)" = "yes" ]; then echo "$(TESTSETDIR)/coverage/.coverage.clock.$(DB_PID)"; else echo ""; fi) \
 	     $(PYTHON) $(VMCOVERAGE_RUN) $(DVM) $(VMDEBUG) $(VMDEBUG_OPEN_FILES) \
 			 --machine-config=$(CURDIR)/clock.conf \
-			 --set-option=machine:interrupt-routines=$(CURDIR)/clock \
-			 --set-option=binary-0:file=$(CURDIR)/clock \
-			 -g
+			 --set-option=bootloader:file=$(CURDIR)/clock \
+			 -g $(VMPROFILE)
 
 tests-pre: build
 
@@ -28,10 +27,9 @@ tests: build
 	$(Q) COVERAGE_FILE=$(shell if [ "$(VMCOVERAGE)" = "yes" ]; then echo "$(TESTSETDIR)/coverage/.coverage.clock.$(DB_PID)"; else echo ""; fi) \
 	     $(PYTHON) $(VMCOVERAGE_RUN) $(DVM) $(VMDEBUG) \
 			 --machine-config=$(CURDIR)/clock.conf \
-			 --set-option=machine:interrupt-routines=$(CURDIR)/clock \
-			 --set-option=binary-0:file=$(CURDIR)/clock \
+			 --set-option=bootloader:file=$(CURDIR)/clock \
 			 --set-option=device-6:stream_out=$(TC_OUT) \
-			 -g &> $(TC_MACHINE); \
+			 $(VMPROFILE) -g &> $(TC_MACHINE); \
 			 if [[ $$? -ne 0 ]]; then \
 			   touch $(TESTSET_FAILED); \
 				 echo "$(CC_RED)FAIL$(CC_END)"; \

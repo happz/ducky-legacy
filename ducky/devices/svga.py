@@ -13,8 +13,8 @@ from ctypes import c_ushort, LittleEndianStructure
 
 from . import Device, IOProvider
 from ..errors import InvalidResourceError
-from ..mm import PAGE_SIZE, ExternalMemoryPage, addr_to_page, UInt8
-from ..util import sizeof_fmt, F, UINT16_FMT, ADDR_FMT
+from ..mm import PAGE_SIZE, ExternalMemoryPage, addr_to_page, u8_t
+from ..util import sizeof_fmt, F, UINT16_FMT, UINT32_FMT
 from ..reactor import RunInIntervalTask
 from ..streams import OutputStream
 
@@ -106,8 +106,11 @@ class Char(LittleEndianStructure):
     ('blink',     c_ushort, 1)
   ]
 
+  def __repr__(self):
+    return '<Char: cp=%s, fg=%s, bg=%s, bl=%s>' % (self.codepoint, self.fg, self.bg, self.blink)
+
   def to_u8(self):
-    return (UInt8(self.codepoint | self.unused << 7).value, UInt8(self.fg | self.bg << 4 | self.blink << 7).value)
+    return (u8_t(self.codepoint | self.unused << 7).value, u8_t(self.fg | self.bg << 4 | self.blink << 7).value)
 
   @staticmethod
   def from_u8(l, h):
@@ -158,6 +161,8 @@ class DisplayRefreshTask(RunInIntervalTask):
 
           else:
             c = Char.from_u8(gpu.memory[(row * mode.width + col) * 2], gpu.memory[(row * mode.width + col) * 2 + 1])
+
+          self.display.machine.DEBUG('  c=%s', c)
 
           char = F('\033[{blink:d};{fg:d};{bg:d}m{char}\033[0m',
                    blink = 5 if c.blink == 1 else 0,
@@ -311,7 +316,7 @@ class SimpleVGA(IOProvider, Device):
     self.bank_offsets = list(range(0, self.memory_size, self.memory_size // self.memory_banks))
     self.pages_per_bank = self.memory_size // PAGE_SIZE // self.memory_banks
 
-    self.machine.DEBUG(F('sVGA: memory-size={memory_size:d}, memory-banks={memory_banks:d}, offsets=[{bank_offsets}], pages-per-bank={pages_per_bank:d}, address={address:A}', memory_size = self.memory_size, memory_banks = self.memory_banks, bank_offsets = ', '.join([ADDR_FMT(o) for o in self.bank_offsets]), pages_per_bank = self.pages_per_bank, address = self.memory_address))
+    self.machine.DEBUG(F('sVGA: memory-size={memory_size:d}, memory-banks={memory_banks:d}, offsets=[{bank_offsets}], pages-per-bank={pages_per_bank:d}, address={address:A}', memory_size = self.memory_size, memory_banks = self.memory_banks, bank_offsets = ', '.join([UINT32_FMT(o) for o in self.bank_offsets]), pages_per_bank = self.pages_per_bank, address = self.memory_address))
 
   @staticmethod
   def create_from_config(machine, config, section):
@@ -342,7 +347,7 @@ class SimpleVGA(IOProvider, Device):
              name = self.name,
              memory_size = sizeof_fmt(self.memory_size),
              memory_banks = self.memory_banks,
-             memory_address = ADDR_FMT(self.memory_address),
+             memory_address = UINT32_FMT(self.memory_address),
              ports = ', '.join([UINT16_FMT(port) for port in self.ports]),
              mode = self.active_mode.to_pretty_string() if self.active_mode is not None else (self.boot_mode.to_pretty_string() + ' boot')
              )
@@ -372,9 +377,6 @@ class SimpleVGA(IOProvider, Device):
       self.machine.memory.register_page(pg)
       self.pages.append(pg)
 
-    if self.machine.config.getbool('machine', 'setup-pte', True):
-      self.machine.set_pages_ptes(self.machine.pt_address, pages_start, self.pages_per_bank, read = True, write = True, cache = False)
-
     self.reset()
     self.set_mode(self.boot_mode)
 
@@ -394,7 +396,7 @@ class SimpleVGA(IOProvider, Device):
     self.machine.DEBUG('SimpleVGA: halted')
 
   def read_u16(self, port):
-    self.machine.DEBUG(F('{method}.read_u16: port={port:W}', method = self.__class__.__name__, port = port))
+    self.machine.DEBUG(F('{method}.read_u16: port={port:S}', method = self.__class__.__name__, port = port))
 
     if port != self.ports[1]:
       raise InvalidResourceError('Unable to read from command register')
@@ -422,10 +424,10 @@ class SimpleVGA(IOProvider, Device):
     raise InvalidResourceError(F('Invalid internal state: state={state}', state = self.state))
 
   def write_u16(self, port, value):
-    self.machine.DEBUG(F('{method}.write_u16: port={port:W}, value={value:W}', method = self.__class__.__name__, port = port, value = value))
+    self.machine.DEBUG(F('{method}.write_u16: port={port:S}, value={value:S}', method = self.__class__.__name__, port = port, value = value))
 
     if port not in self.ports:
-      raise InvalidResourceError(F('Unhandled port: port={port:W}', port = port))
+      raise InvalidResourceError(F('Unhandled port: port={port:S}', port = port))
 
     if self.ports.index(port) == 0:
       # command port

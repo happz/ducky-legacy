@@ -5,10 +5,11 @@ from six.moves import range
 
 from . import Device, IRQProvider, IOProvider, IRQList
 from ..errors import InvalidResourceError
-from ..mm import UInt8, UINT16_FMT
+from ..mm import u8_t, UINT16_FMT
 from ..reactor import RunInIntervalTask
 from ..util import F
 
+DEFAULT_IRQ  = 0x00
 DEFAULT_FREQ = 100
 DEFAULT_PORT_RANGE = 0x300
 PORT_RANGE = 0x0007
@@ -49,7 +50,7 @@ class RTC(IRQProvider, IOProvider, Device):
     self.frequency = frequency or DEFAULT_FREQ
     self.port = port or DEFAULT_PORT_RANGE
     self.ports = list(range(port, port + PORT_RANGE))
-    self.irq = irq or IRQList.TIMER
+    self.irq = irq or DEFAULT_IRQ
     self.timer_task = RTCTask(machine, self)
 
     if self.frequency >= 256:
@@ -89,34 +90,34 @@ class RTC(IRQProvider, IOProvider, Device):
     port -= self.port
 
     if port == 0x0000:
-      return UInt8(self.frequency).u8
+      return u8_t(self.frequency).value
 
     now = datetime.datetime.now()
 
     if port == 0x0001:
-      return UInt8(now.second).u8
+      return u8_t(now.second).value
 
     if port == 0x0002:
-      return UInt8(now.minute).u8
+      return u8_t(now.minute).value
 
     if port == 0x0003:
-      return UInt8(now.hour).u8
+      return u8_t(now.hour).value
 
     if port == 0x0004:
-      return UInt8(now.day).u8
+      return u8_t(now.day).value
 
     if port == 0x0005:
-      return UInt8(now.month).u8
+      return u8_t(now.month).value
 
     if port == 0x0006:
-      return UInt8(now.year - 2000).u8
+      return u8_t(now.year - 2000).value
 
   def write_u8(self, port, value):
     if port not in self.ports:
-      raise InvalidResourceError(F('Unhandled port: {port:W}', port = port))
+      raise InvalidResourceError(F('Unhandled port: {port:S}', port = port))
 
     if port != self.ports[0]:
-      raise InvalidResourceError(F('Unable to write to read-only port: port={port:W}, value={value:B}', port = port, value = value))
+      raise InvalidResourceError(F('Unable to write to read-only port: port={port:S}, value={value:B}', port = port, value = value))
 
     self.frequency = value
     self.timer_task.update_tick()

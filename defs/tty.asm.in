@@ -1,0 +1,9 @@
+;
+; TTY device defines
+;
+
+<%
+  import ducky.devices.tty
+%>
+
+.def TTY_PORT_DATA: ${X(ducky.devices.tty.DEFAULT_PORT_RANGE + 0x00)}

@@ -8,19 +8,44 @@
 
 .include "ducky-forth-defs.asm"
 .include "control.asm"
+.include "keyboard.asm"
 .include "rtc.asm"
+.include "boot.asm"
+.include "tty.asm"
 
 
-.ifndef FORTH_TEXT_WRITABLE
-  ; mprotect boundary pivots
-  .section .text
-text_boundary_first:
+  .text
+
+  ; This is where bootloader jump to, main entry point
+_entry:
+  $boot_progress
+  j &boot_phase1
+
+
+__vmdebug_on:
+  push r0
+  push r1
+  li r0, 0x00
+  li r1, 0x00
+  int 18
+  pop r1
+  pop r0
+  ret
+
+__vmdebug_off:
+  push r0
+  push r1
+  li r0, 0x00
+  li r1, 0x01
+  int 18
+  pop r1
+  pop r0
   ret
 
   .section .rodata
+
   .type rodata_boundary_first, int
-  .int 0xDEAD
-.endif
+  .int 0xDEADBEEF
 
 
   ; Welcome and bye messages
@@ -37,43 +62,97 @@ text_boundary_first:
   .text
 
 
+;
+; void halt(u32_t exit_code)
+;
 halt:
-  ; r0 - exit code
-  int $INT_HALT
+  hlt r0
 
 
+;
+; void memcpy(void *src, void *dst, u32_t length)
+;
+; Copy content of memory at SRC, of length of LENGTH bytes, to address DST.
+; Source and destination areas should not overlap, otherwise memcpy could
+; lead to unpredicted results.
+;
+memcpy:
+  cmp r2, 0
+  bz &__memcpy_quit
+  push r3
+__memcpy_loop:
+  lb r3, r0
+  stb r1, r3
+  inc r0
+  inc r1
+  dec r2
+  bnz &__memcpy_loop
+  pop r3
+__memcpy_quit:
+  ret
+
+
+;
+; void memcpy4(void *src, void *dst, u32_t length)
+;
+; Copy content of memory at SRC, of length of LENGTH bytes, to address DST.
+; Length of area must be multiply of 4. Source and destination areas should
+; not overlap, otherwise memcpy could lead to unpredicted results.
+;
+memcpy4:
+  cmp r2, 0
+  bz &__memcpy4_quit
+  push r3
+__memcpy4_loop:
+  lw r3, r0
+  stw r1, r3
+  add r0, 4
+  add r1, 4
+  sub r2, 4
+  bnz &__memcpy4_loop
+  pop r3
+__memcpy4_quit:
+  ret
+
+
+;
+; u32_t strcmp(char *s1, u32_t s1_length, char *s2, u32_t s2_length)
+;
+; Returns 0 if string are equal, 1 otherwise
+;
 strcmp:
-  ; r0: s1 addr, r1: s1 len, r2: s2 addr, r3 s2 len
   cmp r1, r3
-  bne &.strcmp_neq
-  bz &.strcmp_eq
+  bne &__strcmp_neq
+  bz &__strcmp_eq
   ; save working registers
   push r4 ; curr s1 char
   push r5 ; curr s2 char
-.strcmp_loop:
+__strcmp_loop:
   lb r4, r0
   lb r5, r2
   inc r0
   inc r2
   cmp r4, r5
-  be &.strcmp_next
+  be &__strcmp_next
   pop r5
   pop r4
-.strcmp_neq:
+__strcmp_neq:
   li r0, 1
   ret
-.strcmp_next:
+__strcmp_next:
   dec r1
-  bnz &.strcmp_loop
+  bnz &__strcmp_loop
   pop r5
   pop r4
-.strcmp_eq:
+__strcmp_eq:
   li r0, 0
   ret
 
 
+;
+; u32_t strcrc(char *s, u32_t len)
+;
 strcrc:
-  ; r0: str addr, r1: str len
   push r1 ; original len
   push r2 ; saved str ptr
   push r3 ; current char
@@ -91,66 +170,94 @@ strcrc:
   ret
 
 
+;
+; void write(char *s, u32_t len)
+;
+; Write string S of length LEN to standard terminal output.
+;
 write:
-  ; r0 - ptr
-  ; r1 - size
   cmp r1, r1
-  bz &.__write_quit
+  bz &__write_quit
   push r2
-.__write_loop:
+__write_loop:
   lb r2, r0
   inc r0
-  outb $PORT_TTY_OUT, r2
+  outb $TTY_PORT_DATA, r2
   dec r1
-  bnz &.__write_loop
+  bnz &__write_loop
   pop r2
-.__write_quit:
+__write_quit:
   ret
 
 
+;
+; void writec(u8_t c)
+;
+; Write character C to standard terminal output.
+;
 writec:
-  ; r0 - char
-  outb $PORT_TTY_OUT, r0
+  outb $TTY_PORT_DATA, r0
   ret
 
 
+;
+; void writes(char *s)
+;
+; Write null-terminated string S to standard terminal output.
+;
 writes:
-  ; r0 - ptr
   push r1
-.__writes_loop:
+__writes_loop:
   lb r1, r0
-  bz &.__writes_quit
-  outb $PORT_TTY_OUT, r1
+  bz &__writes_quit
+  outb $TTY_PORT_DATA, r1
   inc r0
-  j &.__writes_loop
-.__writes_quit:
+  j &__writes_loop
+__writes_quit:
   pop r1
   ret
 
 
+;
+; void writeln(char *s, u32_t len)
+;
+; Write string S of length LEN to standard terminal output, and move cursor to a new line.
+;
 writeln:
-  ; r0 - ptr
-  ; r1 - size
   call &write
   j &write_new_line ; tail call
 
 
+;
+; void writesln(char *s)
+;
+; Write null-terminated string S to standard terminal output, and move cursor to a new line.
+;
 writesln:
-  ; r0 - ptr
   call &writes
   j &write_new_line ; tail call
 
 
+;
+; void write_new_line(void)
+;
+; Emit control characters to force new line (\r\n).
+;
 write_new_line:
   push r0
   li r0, 0xD
-  outb $PORT_TTY_OUT, r0
+  outb $TTY_PORT_DATA, r0
   li r0, 0xA
-  outb $PORT_TTY_OUT, r0
+  outb $TTY_PORT_DATA, r0
   pop r0
   ret
 
 
+;
+; void write_word_name(void *ptr)
+;
+; Write name of word, pointed to by PTR, to standard terminal output, and move cursor to new line.
+;
 write_word_name:
   push r1
   push r2
@@ -159,202 +266,59 @@ write_word_name:
   add r1, $wr_namelen
   lb r1, r1
   add r2, $wr_name
-.__write_word_name_loop:
+__write_word_name_loop:
   lb r0, r2
-  outb $PORT_TTY_OUT, r0
+  outb $TTY_PORT_DATA, r0
   inc r2
   dec r1
-  bnz &.__write_word_name_loop
+  bnz &__write_word_name_loop
   call &write_new_line
   pop r2
   pop r1
   ret
 
 
+;
+; void write_word_buffer(void)
+;
+; Write content of internal word buffer to standard terminal output, surrounded
+; by pre- and post-fix for better readability.
+;
 write_word_buffer:
   push r0
   push r1
   ; prefix
-  li r0, &buffer_print_prefix
+  la r0, &buffer_print_prefix
   call &writes
   ; word buffer
-  li r0, &word_buffer
-  li r1, &word_buffer_length
+  la r0, &word_buffer
+  la r1, &word_buffer_length
   lb r1, r1
   call &write
   ; postfix + new line
-  li r0, &buffer_print_postfix
+  la r0, &buffer_print_postfix
   call &writesln
   pop r1
   pop r0
   ret
 
 
-mm_area_remove_flag:
-  ; r0 - start address
-  ; r1 - end address
-  ; r2 - flag to remove
-
-  push r3
-  push r4
-  push r5
-
-  ; create flag mask
-  not r2
-  ; mask out not-page-aligned addresses
-  and r0, $PAGE_MASK
-  and r1, $PAGE_MASK
-
-  ; get PT segment
-  li r3, &pt_segment
-  lw r3, r3
-
-  ; get area offset in PT into r4
-  ; subtract beginning from the end, to get number of bytes in area
-  sub r1, r0
-  ; and get number of pages in area
-  div r1, $PAGE_SIZE
-  ; add byte for each page in segments before ours DS
-  mov r4, ds
-  mul r4, $PAGES_PER_SEGMENT
-  ; get number of pages before start of the area
-  div r0, $PAGE_SIZE
-  ; and add it to our offset
-  add r4, r0
-
-__mm_area_remove_flag_loop:
-  lb r5, r3(r4)
-  and r5, r2
-  stb r3(r4), r5
-  inc r4
-  dec r1
-  bnz &__mm_area_remove_flag_loop
-
-  pop r5
-  pop r4
-  pop r3
-  ret
-
-mm_area_add_flag:
-  ; r0 - start address
-  ; r1 - end address
-  ; r2 - flag to add
-
-  push r3
-  push r4
-  push r5
-
-  ; get PT segment
-  li r3, &pt_segment
-  lw r3, r3
-
-  ; mask out not-page-aligned addresses
-  and r0, $PAGE_MASK
-  and r1, $PAGE_MASK
-
-  ; get area offset in PT into r4
-  ; subtract beginning from the end, to get number of bytes in area
-  sub r1, r0
-  ; and get number of pages in area
-  div r1, $PAGE_SIZE
-  ; add byte for each page in segments before ours DS
-  mov r4, ds
-  mul r4, $PAGES_PER_SEGMENT
-  ; get number of pages before start of the area
-  div r0, $PAGE_SIZE
-  ; and add it to our offset
-  add r4, r0
-
-__mm_area_add_flag_loop:
-  lb r5, r3(r4)
-  or r5, r2
-  stb r3(r4), r5
-  inc r4
-  dec r1
-  bnz &__mm_area_add_flag_loop
-
-  pop r5
-  pop r4
-  pop r3
-  ret
-
-mm_area_alloc:
-  ; r0 - pages count
-  push r1
-  push r2
-
-  mov r2, r0 ; save pages count
-  ; call alloc
-  mov r1, r0
-  li r0, $MM_OP_ALLOC
-  int $INT_MM
-
-  cmp r0, 0xFFFF
-  be &halt
-
-  ; call mprotect
-  push r0 ; save area address
-  ;mul r2, $PAGE_SIZE
-  ;add r2, r0
-  ;mov r1, r2
-  ;li r2, $MM_FLAG_DS
-  ;li r3, $MM_FLAG_READ
-  ;or r3, $MM_FLAG_WRITE
-  ;call &mm_area_add_flag
-
-  pop r0 ; pop area address
-  pop r2
-  pop r1
-  ret
-
-
-mm_area_free:
-  ; r0 - address
-  ; r1 - pages count
-  push r2
-
-  mov r2, r1
-  mov r1, r0
-  li r0, $MM_OP_FREE
-  int $INT_MM
-
-  cmp r0, 0
-  bne &halt
-
-  pop r2
-  ret
-
-
+;
+; void init_crcs(void)
+;
+; Compute name CRC for each exisitng word.
+;
 init_crcs:
   ; Since, by default, we're still in privileged mode, it's not
   ; necessarry to disable read-only protection of .text and .rodata.
-  ; But lets do it anyway, as a) excercise, b) safety measurement,
-  ; in case this privileged startup changes in a future. It may also
-  ; be configurable in compile time, or optional, enabled by detecting
-  ; if binary started in privileged mode or not.
+  ; There's also no PT anyway...
 
-.ifndef FORTH_TEXT_WRITABLE
-  li r0, $TEXT_OFFSET
-  li r1, &text_boundary_last
-  li r2, $MM_FLAG_WRITE
-  call &mm_area_add_flag
+  la r2, &var_LATEST
 
-  li r0, &rodata_boundary_first
-  li r1, &rodata_boundary_last
-  li r2, $MM_FLAG_WRITE
-  call &mm_area_add_flag
-.endif
-
-  push r0 ; str ptr, crc
-  push r1 ; str len
-  push r2 ; link
-
-  li r2, &var_LATEST
-
-.__init_crcs_loop:
+__init_crcs_loop:
   lw r2, r2
   cmp r2, r2
-  bz &.__init_crcs_quit
+  bz &__init_crcs_quit
 
   mov r0, r2
   add r0, $wr_name
@@ -367,101 +331,197 @@ init_crcs:
 
   mov r1, r2
   add r1, $wr_namecrc
-  stw r1, r0
+  sts r1, r0
 
-  j &.__init_crcs_loop
+  j &__init_crcs_loop
 
-.__init_crcs_quit:
-  pop r2
-  pop r1
-  pop r0
-
-.ifndef FORTH_TEXT_WRITABLE
-  li r0, $TEXT_OFFSET
-  li r1, &text_boundary_last
-  li r2, $MM_FLAG_WRITE
-  call &mm_area_remove_flag
-
-  li r0, &rodata_boundary_first
-  li r1, &rodata_boundary_last
-  li r2, $MM_FLAG_WRITE
-  call &mm_area_remove_flag
-.endif
-
+__init_crcs_quit:
   ; Flush data and PTE caches
   ; It is possible to flush data cache *after* enabling
   ; read-only access because we're still in privileged mode,
   ; but if this changes, it would cause an access violation.
-  sis $INST_SET_CONTROL
-  fdc
   fptc
-  sis $INST_SET_DUCKY
 
   ret
 
 
-main:
+;
+; void __relocate_section(u32_t *first, u32_t *last)
+;
+__relocate_section:
+  ; we're moving section to the beggining of the address space,
+  ; basically subtracting BOOT_LOADER_ADDRESS from its start
+  li r10, $BOOT_LOADER_ADDRESS
+  mov r2, r1
+
+  ; construct arguments for memcpy4
+  ; src: first, no change necessary
+  ; length: last - first
+  sub r2, r0
+
+  ; dst: start - BOOT_LOADER_ADDRESS
+  mov r1, r0
+  sub r1, r10
+
+  call &memcpy4
+
+  ret
+
+
+;
+; void __relocate_sections(void)
+;
+; FORTH image is loaded by bootloader to address BOOT_LOADER_ADDRESS. This is
+; unfortunate because - thanks to way how threaded code is implemented here -
+; this offset breaks all absolute, compile-time references, hardcoded into
+; links between words. Most of the other code would not care about running
+; with a different base address but this breaks. I can't find other way how
+; to deal with this, therefore the first think kernel does is relocating
+; itself to the beggining of the address space.
+;
+; Unfortunatelly, there are some obstackles in the way - IVT, HDT, CWT, maybe
+; even some mmaped IO ports, ... IVT and HDT can be moved, devices can be
+; convinced to move ports to differet offsets, but CWT is bad - if we want to
+; use more than one CPU core... Which we don't want to \o/
+__relocate_sections:
+  li r0, $BOOT_LOADER_ADDRESS
+  la r1, &text_boundary_last
+  call &__relocate_section
+  $boot_progress
+
+  la r0, &rodata_boundary_first
+  la r1, &rodata_boundary_last
+  call &__relocate_section
+  $boot_progress
+
+  la r0, &data_boundary_first
+  la r1, &data_boundary_last
+  call &__relocate_section
+  $boot_progress
+
+  li r0, $USERSPACE_BASE
+  li r1, $BOOT_LOADER_ADDRESS
+  add r0, r1
+  mov r1, r0
+  add r1, $USERSPACE_SIZE
+  call &__relocate_section
+  $boot_progress
+
+  ret
+
+
+;
+; void boot_phase1(void) __attribute__((noreturn))
+;
+; This is the first phae of kernel booting process. Its main goal is to
+; relocate kernel sections to the beggining of the address space.
+;
+; Until the stack is initialized, and because of the nature of things,
+; it's not necessary to honor callee-saved registers in routines.
+;
+boot_phase1:
+  call &__vmdebug_off
+
+  ; relocate image to more convenient place
+  call &__relocate_sections
+
+  $boot_progress
+
+  ; now do long jump to new, relocated version of boot_phase2
+  la r0, &boot_phase2
+  li r1, $BOOT_LOADER_ADDRESS
+  sub r0, r1
+  j r0
+
+
+;
+; void boot_phase2(void) __attribute__((noreturn))
+;
+; This is the second phase of kernel booting process. It does the rest of
+; necessary work before handing over to FORTH words.
+;
+boot_phase2:
   ; set RTC frequency
   li r0, $RTC_FREQ
   outb $RTC_PORT_FREQ, r0
 
-  ; save PT segment for later use
-  sis $INST_SET_CONTROL
-  ctr r0, $CONTROL_PT_SEGMENT
-  sis $INST_SET_DUCKY
-  li r1, &pt_segment
-  stw r1, r0
+  ; IVT - use the last page
+  li r0, 0xFF00
+  liu r0, 0xFFFF
+  ctw $CONTROL_IVT, r0
 
-  ; init RSP
-  li $RSP, &rstack_top
-
-  ; save stack base
-  li r0, &var_SZ
+  ; init stack - the next-to-last page is our new stack
+  li sp, 0xFF00
+  liu sp, 0xFFFF
+  la r0, &var_SZ
   stw r0, sp
+
+  ; init return stack - the next-to-next-to-last page is our new return stack
+  li $RSP, 0xFE00
+  liu $RSP, 0xFFFF
+
+.ifdef FORTH_DEBUG
+  ; init log stack
+  li $LSP, 0xFD00
+  liu $LSP, 0xFFFF
+.endif
+
+  ; init LATEST
+  la r0, &var_LATEST
+  la r1, &name_BYE
+  stw r0, r1
 
   ; init words' crcs
   call &init_crcs
 
   ; give up the privileged mode
-  ;lpm
+  ; lpm
+  ; sti
 
 .ifdef FORTH_WELCOME
   ; print welcome message
-  li r0, &welcome_message
+  la r0, &welcome_message
   call &writes
 .endif
 
-  ; and boot...
-  li $FIP, &cold_start ; boot
+  ; and boot the FORTH itself...
+  la $FIP, &cold_start
   $NEXT
 
 
+;
+; void readline(void)
+;
+; Read characters from keyboard, store them in input buffer. When \n or \r are
+; encountered, return back to caller, signalising new lien is ready in buffer.
+; Input buffer index variables are set properly.
+;
 readline:
   push r0 ; &input_buffer_length
   push r1 ; input_buffer_length
   push r2 ; input_buffer
   push r3 ; current input char
   ; now init variables
-  li r0, &input_buffer_length
+  la r0, &input_buffer_length
   li r1, 0 ; clear input buffer
-  li r2, &input_buffer_address
+  la r2, &input_buffer_address
   lw r2, r2
-.__readline_loop:
-  inb r3, $PORT_KEYBOARD_IN
+__readline_loop:
+  inb r3, $KBD_PORT_DATA
   cmp r3, 0xFF
-  be &.__readline_wait_for_input
+  be &__readline_wait_for_input
   stb r2, r3
   inc r1
   inc r2
   cmp r3, 0x0A ; nl
-  be &.__readline_quit
+  be &__readline_quit
   cmp r3, 0x0D ; cr
-  be &.__readline_quit
-  j &.__readline_loop
-.__readline_quit:
+  be &__readline_quit
+  j &__readline_loop
+__readline_quit:
   stw r0, r1 ; save input_buffer_length
   ; reset input_buffer_index
-  li r0, &input_buffer_index
+  la r0, &input_buffer_index
   li r1, 0
   stw r0, r1
   pop r3
@@ -469,13 +529,13 @@ readline:
   pop r1
   pop r0
   ret
-.__readline_wait_for_input:
+__readline_wait_for_input:
   ; This is a small race condition... What if new key
   ; arrives after inb and before idle? We would be stuck until
   ; the next key arrives (and it'd be Enter, nervously pressed
   ; by programmer while watching machine "doing nothing"
   idle
-  j &.__readline_loop
+  j &__readline_loop
 
 
 input_stack_push:
@@ -483,26 +543,26 @@ input_stack_push:
   push r1 ; address
   push r2 ; value
 
-  li r0, &input_stack_ptr
+  la r0, &input_stack_ptr
   lw r1, r0
 
   ; input buffer address
-  li r2, &input_buffer_address
+  la r2, &input_buffer_address
   lw r2, r2
   stw r1, r2
   add r1, $CELL
   ; input buffer index
-  li r2, &input_buffer_index
+  la r2, &input_buffer_index
   lw r2, r2
   stw r1, r2
   add r1, $CELL
   ; input buffer length
-  li r2, &input_buffer_length
+  la r2, &input_buffer_length
   lw r2, r2
   stw r1, r2
   add r1, $CELL
   ; state
-  li r2, &var_STATE
+  la r2, &var_STATE
   lw r2, r2
   stw r1, r2
   add r1, $CELL
@@ -521,27 +581,27 @@ input_stack_pop:
   push r2
   push r3
 
-  li r0, &input_stack_ptr
+  la r0, &input_stack_ptr
   lw r1, r0
 
   ; state
   sub r1, $CELL
-  li r2, &var_STATE
+  la r2, &var_STATE
   lw r3, r1
   stw r2, r3
   ; input buffer length
   sub r1, $CELL
-  li r2, &input_buffer_length
+  la r2, &input_buffer_length
   lw r3, r1
   stw r2, r3
   ; input buffer index
   sub r1, $CELL
-  li r2, &input_buffer_index
+  la r2, &input_buffer_index
   lw r3, r1
   stw r2, r3
   ; input buffer address
   sub r1, $CELL
-  li r2, &input_buffer_address
+  la r2, &input_buffer_address
   lw r3, r1
   stw r2, r3
 
@@ -574,18 +634,19 @@ DODOES:
 
   add $W, $CELL           ; W points to Param Field #0 - behavior cell
   lw $Z, $W
-  bz &.__DODOES_push
+  bz &__DODOES_push
 
   $pushrsp $FIP
   mov $FIP, $W
 
-.__DODOES_push:
+__DODOES_push:
   add $W, $CELL           ; W points to Param Field #1 - payload address
   push $W
   $NEXT
 
 
   .section .rodata
+  .align 4
 cold_start:
   ;.int &BYE
   .int &QUIT
@@ -593,18 +654,23 @@ cold_start:
 
   .section .data
 
-  .type __unused__, byte
-  .byte 0
+  .align 4
+  .type data_boundary_first, int
+  .int 0xDEADBEEF
 
   .type word_buffer_length, byte
   .byte 0
 
+  ; word_buffer lies right next to word_buffer_length, pretending it's
+  ; a standard counted string <length><chars...>
   .type word_buffer, space
-  .space $WORD_SIZE
+  .space $WORD_BUFFER_SIZE
 
+  .align 4
   .type input_buffer, space
   .space $INPUT_BUFFER_SIZE
 
+  .align 4
   .type input_buffer_length, int
   .int 0
 
@@ -614,15 +680,13 @@ cold_start:
   .type input_buffer_address, int
   .int &input_buffer
 
-  .type pt_segment, int
-  .int 0x0000
-
   ; when EVALUATE is called, current input source specification
   ; is saved on top of this stack
   .type input_stack, space
   .space $INPUT_STACK_SIZE
 
   ; the first free position in input_stack
+  .align 4
   .type input_stack_ptr, int
   .int &input_stack
 
@@ -630,11 +694,8 @@ cold_start:
   .type input_stack_restorable, int
   .int 0
 
-  .type rstack, space
-  .space $RSTACK_SIZE
-
   .type rstack_top, int
-  .int 0xFFFF
+  .int 0xFFFFFE00
 
   ; User data area
   ; Keep it in separate section to keep it aligned, clean, unpoluted
@@ -655,31 +716,26 @@ $DEFVAR "S0", 2, 0, SZ, 0
 $DEFVAR "BASE", 4, 0, BASE, 10
 
 
+$DEFCODE "VMDEBUGON", 9, $F_IMMED, VMDEBUGON
+  call &__vmdebug_on
+  $NEXT
+
+$DEFCODE "VMDEBUGOFF", 10, $F_IMMED, VMDEBUGOFF
+  call &__vmdebug_off
+  $NEXT
+
+
 ;
 ; Kernel words
 ;
 
-$DEFCODE "VMDEBUGON", 9, 0, VMDEBUGON
-  ; ( -- )
-  li r0, $VMDEBUG_LOGGER_VERBOSITY
-  li r1, $VMDEBUG_VERBOSITY_DEBUG
-  int $INT_VMDEBUG
-  $NEXT
-
-$DEFCODE "VMDEBUGOFF", 10, 0, VMDEBUGOFF
-  ; ( -- )
-  li r0, $VMDEBUG_LOGGER_VERBOSITY
-  li r1, $VMDEBUG_VERBOSITY_INFO
-  int $INT_VMDEBUG
-  $NEXT
-
-
 $DEFCODE "INTERPRET", 9, 0, INTERPRET
-  call &.__WORD
+  li r0, 0x20 ; space as delimiter
+  call &__WORD
 
   push r6
   push r5
-  li r5, &var_STATE
+  la r5, &var_STATE
   lw r5, r5
   li r6, 0 ; interpret_as_lit?
 
@@ -687,72 +743,74 @@ $DEFCODE "INTERPRET", 9, 0, INTERPRET
   push r0
   push r1
   $unpack_word_for_find
-  call &.__FIND
+  call &__FIND
   cmp r0, r0
-  bz &.__INTERPRET_as_lit
+  bz &__INTERPRET_as_lit
   pop r1
   pop r6 ; pop r0
   li r6, 0 ; restore interpret_as_lit
   mov r1, r0
   add r1, $wr_flags
-  call &.__TCFA
+  call &__TCFA
   lb r1, r1
   and r1, $F_IMMED
   cmp r1, r1
-  bnz &.__INTERPRET_execute
-  j &.__INTERPRET_state_check
+  bnz &__INTERPRET_execute
+  j &__INTERPRET_state_check
 
-.__INTERPRET_as_lit:
+__INTERPRET_as_lit:
   pop r1
   pop r0
   inc r6
   $unpack_word_for_find
-  call &.__NUMBER
+  call &__NUMBER
   ; r0 - number, r1 - unparsed chars
   cmp r1, r1
-  bnz &.__INTERPRET_parse_error
+  bnz &__INTERPRET_parse_error
   mov r1, r0  ; save number
-  li r0, &LIT ; and replace with LIT
+  la r0, &LIT ; and replace with LIT
 
-.__INTERPRET_state_check:
+__INTERPRET_state_check:
   cmp r5, r5
-  bz &.__INTERPRET_execute
-  call &.__COMMA ; append r0 (aka word) to current definition
+  bz &__INTERPRET_execute
+  call &__COMMA ; append r0 (aka word) to current definition
   cmp r6, r6
-  bz &.__INTERPRET_next ; if not LIT, just leave
+  bz &__INTERPRET_next ; if not LIT, just leave
   mov r0, r1
-  call &.__COMMA ; append r0 (aka number) to current definition
-  j &.__INTERPRET_next
+  call &__COMMA ; append r0 (aka number) to current definition
+  j &__INTERPRET_next
 
-.__INTERPRET_execute:
+__INTERPRET_execute:
   cmp r6, r6
-  bnz &.__INTERPRET_execute_lit
+  bnz &__INTERPRET_execute_lit
   pop r5
   pop r6
   mov $W, r0
   lw $X, r0
+  $log_word $W
+  $log_word $X
   j $X
 
-.__INTERPRET_execute_lit:
+__INTERPRET_execute_lit:
   pop r5
   pop r6
   push r1
   $NEXT
 
-.__INTERPRET_parse_error:
+__INTERPRET_parse_error:
   ; error message
-  li r0, &parse_error_msg
+  la r0, &parse_error_msg
   call &writes
   ; input buffer label
-  li r0, &parse_error_input_buffer_prefix
+  la r0, &parse_error_input_buffer_prefix
   call &writes
   ; prefix
-  li r0, &buffer_print_prefix
+  la r0, &buffer_print_prefix
   call &writes
   ; input buffer
-  li r0, &input_buffer_address
+  la r0, &input_buffer_address
   lw r0, r0
-  li r1, &input_buffer_length
+  la r1, &input_buffer_length
   lw r1, r1
   call &write
   ; new line
@@ -760,12 +818,12 @@ $DEFCODE "INTERPRET", 9, 0, INTERPRET
   li r1, 0
   call &writeln
   ; word buffer label
-  li r0, &parse_error_word_buffer_prefix
+  la r0, &parse_error_word_buffer_prefix
   call &writes
   call &write_word_buffer
   call &halt
 
-.__INTERPRET_next:
+__INTERPRET_next:
   pop r5
   pop r6
   $NEXT
@@ -795,58 +853,59 @@ $DEFCODE "INTERPRET", 9, 0, INTERPRET
 $DEFCODE "EVALUATE", 8, 0, EVALUATE
   pop r1 ; length
   pop r0 ; address
-  call &.__EVALUATE
+  call &__EVALUATE
   $NEXT
 
-.__EVALUATE:
+__EVALUATE:
   ; save current input state
   call &input_stack_push
   push r2
   ; load new input buffer address
-  li r2, &input_buffer_address
+  la r2, &input_buffer_address
   stw r2, r0
   ; load new input buffer length
-  li r2, &input_buffer_length
+  la r2, &input_buffer_length
   stw r2, r1
   li r0, 0
   ; reset input buffer index
-  li r2, &input_buffer_index
+  la r2, &input_buffer_index
   stw r2, r0
   ; set STATE to "interpret"
-  ;li r2, &var_STATE
+  ;la r2, &var_STATE
   ;stw r2, r0
   pop r2
   ret
 
 
 $DEFCODE ">IN", 3, 0, TOIN
-  push &input_buffer_index
+  la $W, &input_buffer_index
+  push $W
   $NEXT
 
 
 $DEFCODE "KEY", 3, 0, KEY
   ; ( -- n )
-  call &.__KEY
+  call &__KEY
   push r0
   $NEXT
 
-.__KEY:
+__KEY:
   ; r0 - input char
   push r1 ; &input_buffer_length
   push r2 ; input_buffer_length
   push r3 ; &input_buffer_index
   push r4 ; input_buffer_index
   push r5 ; index_buffer ptr
-  li r1, &input_buffer_length
-  li r3, &input_buffer_index
-.__KEY_start_again:
+  la r1, &input_buffer_length
+  la r3, &input_buffer_index
+__KEY_start_again:
   lw r2, r1
   lw r4, r3
   cmp r2, r4
-  be &.__KEY_read_line
-.__KEY_read_char:
+  be &__KEY_read_line
+__KEY_read_char:
   ; get char ptr
-  li r5, &input_buffer_address
+  la r5, &input_buffer_address
   lw r5, r5
   add r5, r4
   ; read char
@@ -854,35 +913,35 @@ $DEFCODE "KEY", 3, 0, KEY
   ; and update vars
   inc r4
   stw r3, r4
-.__KEY_ret:
+__KEY_ret:
   pop r5
   pop r4
   pop r3
   pop r2
   pop r1
   ret
-.__KEY_read_line:
-  li r2, &input_stack_ptr
+__KEY_read_line:
+  la r2, &input_stack_ptr
   lw r2, r2
-  li r4, &input_stack
+  la r4, &input_stack
   cmp r2, r4
-  be &.__KEY_do_read_line
+  be &__KEY_do_read_line
   call &input_stack_pop
   li r0, 0x0A
-  j &.__KEY_ret
-.__KEY_do_read_line:
+  j &__KEY_ret
+__KEY_do_read_line:
   call &readline
-  j &.__KEY_start_again
+  j &__KEY_start_again
 
 
 $DEFCODE "EMIT", 4, 0, EMIT
   ; ( n -- )
   pop r0
-  call &.__EMIT
+  call &__EMIT
   $NEXT
 
-.__EMIT:
-  outb $PORT_TTY_OUT, r0
+__EMIT:
+  outb $TTY_PORT_DATA, r0
   ret
 
 
@@ -895,46 +954,69 @@ $DEFCODE "TYPE", 4, 0, TYPE
 
 
 $DEFCODE "WORD", 4, 0, WORD
-  ; ( -- c-addr )
-  call &.__WORD
+  ; ( char "<chars>ccc<char>" -- c-addr )
+  pop r0
+  call &__WORD
   push r0
   $NEXT
 
-.__WORD:
-  call &.__KEY
-  ; if key's lower or eaqual to space, it's considered as a white space, and ignored.
-  ; this removes leading white space
-  cmp r0, 0x20
-  ble &.__WORD
+$DEFCODE "DWORD", 5, 0, DWORD
+  ; ( "<chars>ccc<char>" -- c-addr )
+  ; like WORD but with space as a delimiter ("default WORD")
+  call &__DWORD
+  push r0
+  $NEXT
+
+
+__WORD:
+  ; delimiter -- c-addr
+
   push r1
-  li r1, &word_buffer
-.__WORD_store_char:
+  push r2
+  push r3
+  mov r3, r0 ; save delimiter
+
+__WORD_key:
+  ; first, skip leading delimiters
+  call &__KEY
+  cmp r0, r3
+  be &__WORD_key
+  ; also, skip leading white space - except the space itself...
+  cmp r0, 0x20
+  bl &__WORD_key
+
+  la r1, &word_buffer
+__WORD_store_char:
   stb r1, r0
   inc r1
-  call &.__KEY
-  cmp r0, 0x20 ; space
-  bg &.__WORD_store_char
-  sub r1, &word_buffer
-  li r0, &word_buffer_length
+  call &__KEY
+  cmp r0, r3 ; compare with delimiter
+  be &__WORD_save
+  cmp r0, 0x20
+  bl &__WORD_save
+  j &__WORD_store_char
+__WORD_save:
+  la r2, &word_buffer
+  sub r1, r2
+  la r0, &word_buffer_length
   stb r0, r1
+  pop r3
+  pop r2
   pop r1
   ; call &write_word_buffer
   ret
-.__WORD_skip_comment:
-  call &.__KEY
-  cmp r0, 0x0A ; nl
-  be &.__WORD
-  cmp r0, 0x0D ; cr
-  be &.__WORD
-  j &.__WORD_skip_comment
+
+__DWORD:
+  li r0, 0x20
+  j &__WORD
 
 
 $DEFCODE "SOURCE", 6, 0, SOURCE
   ; ( address length )
-  li $W, &input_buffer_address
+  la $W, &input_buffer_address
   lw $W, $W
   push $W
-  li $W, &input_buffer_length
+  la $W, &input_buffer_length
   lw $W, $W
   push $W
   $NEXT
@@ -944,21 +1026,21 @@ $DEFCODE "NUMBER", 6, 0, NUMBER
   ; ( address length -- number unparsed_chars )
   pop r1
   pop r0
-  call &.__NUMBER
+  call &__NUMBER
   push r0
   push r1
   $NEXT
 
 
-.__NUMBER:
+__NUMBER:
   cmp r1, r1
-  bz &.__NUMBER_quit_noclean
+  bz &__NUMBER_quit_noclean
   ; save working registers
   push r2 ; BASE
   push r3 ; char ptr
   push r4 ; current char
   ; set up working registers
-  li r2, &var_BASE
+  la r2, &var_BASE
   lw r2, r2
   mov r3, r0
   li r0, 0
@@ -969,59 +1051,59 @@ $DEFCODE "NUMBER", 6, 0, NUMBER
   ; 0 on stack means non-negative number
   push 0
   cmp r4, 0x2D
-  bne &.__NUMBER_convert_digit
+  bne &__NUMBER_convert_digit
   pop r4 ; it's minus, no need to preserve r4, so pop 0 from stack...
   push 1 ; ... and push 1 to indicate negative number
   ; if there are no remaining chars, we got only '-' - that's bad, quit
   cmp r1, r1
-  bnz &.__NUMBER_loop
+  bnz &__NUMBER_loop
   pop r1 ; 1 was on stack to signal negative number, reuse it as error message
-.__NUMBER_quit:
+__NUMBER_quit:
   pop r4
   pop r3
   pop r2
-.__NUMBER_quit_noclean:
+__NUMBER_quit_noclean:
   ret
 
-.__NUMBER_loop:
+__NUMBER_loop:
   cmp r1, r1
-  bz &.__NUMBER_negate
+  bz &__NUMBER_negate
 
   lb r4, r3
   inc r3
   dec r1
 
-.__NUMBER_convert_digit:
+__NUMBER_convert_digit:
   ; if char is lower than '0' then it's bad - quit
   sub r4, 0x30
-  bs &.__NUMBER_fail
+  bs &__NUMBER_fail
   ; if char is lower than 10, it's a digit, convert it according to base
   cmp r4, 10
-  bl &.__NUMBER_check_base
+  bl &__NUMBER_check_base
   ; if it's outside the alphabet, it's bad - quit
   sub r4, 17 ; 'A' - '0' = 17
-  bs &.__NUMBER_fail
+  bs &__NUMBER_fail
   add r4, 10
 
-.__NUMBER_check_base:
+__NUMBER_check_base:
   ; if digit is bigger than base, it's bad - quit
   cmp r4, r2
-  bge &.__NUMBER_fail
+  bge &__NUMBER_fail
 
   mul r0, r2
   add r0, r4
-  j &.__NUMBER_loop
+  j &__NUMBER_loop
 
-.__NUMBER_fail:
+__NUMBER_fail:
   li r1, 1
 
-.__NUMBER_negate:
+__NUMBER_negate:
   pop r2 ; BASE no longer needed, use its register
   cmp r2, r2
-  bz &.__NUMBER_quit
+  bz &__NUMBER_quit
   not r0
   inc r0
-  j &.__NUMBER_quit
+  j &__NUMBER_quit
 
 
 $DEFCODE "FIND", 4, 0, FIND
@@ -1030,26 +1112,26 @@ $DEFCODE "FIND", 4, 0, FIND
   mov r0, r1
   inc r0
   lb r1, r1
-  call &.__FIND
+  call &__FIND
   cmp r0, 0
-  bz &.__FIND_notfound
+  bz &__FIND_notfound
   push r1
-  call &.__TCFA
+  call &__TCFA
   pop r1
   push r0
   push r1
-  j &.__FIND_next
-.__FIND_notfound:
+  j &__FIND_next
+__FIND_notfound:
   push 0
   push 0
-.__FIND_next:
+__FIND_next:
   $NEXT
 
 
-.__FIND:
+__FIND:
 .ifdef FORTH_DEBUG_FIND
   push r0
-  li r0, &find_debug_header
+  la r0, &find_debug_header
   call &writesln
   pop r0
   call &write_word_buffer
@@ -1061,7 +1143,7 @@ $DEFCODE "FIND", 4, 0, FIND
   push r2 ; word ptr
   push r3 ; crc
 
-  li r2, &var_LATEST
+  la r2, &var_LATEST
   lw r2, r2
 
   push r0
@@ -1069,16 +1151,16 @@ $DEFCODE "FIND", 4, 0, FIND
   mov r3, r0
   pop r0
 
-.__FIND_loop:
+__FIND_loop:
   cmp r2, r2
-  bz &.__FIND_fail
+  bz &__FIND_fail
 
 .ifdef FORTH_DEBUG_FIND
   ; print name
-  push r0
-  mov r0, r2
-  call &write_word_name
-  pop r0
+  ;push r0
+  ;mov r0, r2
+  ;call &write_word_name
+  ;pop r0
 .endif
 
   ; check HIDDEN flag
@@ -1086,28 +1168,28 @@ $DEFCODE "FIND", 4, 0, FIND
   add r2, $wr_flags
   lb r2, r2
   and r2, $F_HIDDEN
-  bz &.__FIND_hidden_success
+  bz &__FIND_hidden_success
   pop r2
   lw r2, r2
-  j &.__FIND_loop
+  j &__FIND_loop
 
-.__FIND_hidden_success:
+__FIND_hidden_success:
   pop r2
 
   ; check crc
   push r2
   add r2, $wr_namecrc
-  lw r2, r2
+  ls r2, r2
   cmp r2, r3
-  be &.__FIND_crc_success
+  be &__FIND_crc_success
   pop r2
   lw r2, r2 ; load link content
-  j &.__FIND_loop
+  j &__FIND_loop
 
-.__FIND_crc_success:
+__FIND_crc_success:
   pop r2
 
-.__FIND_strcmp:
+__FIND_strcmp:
   ; prepare call of strcmp
   push r0
   push r1
@@ -1121,14 +1203,14 @@ $DEFCODE "FIND", 4, 0, FIND
 
   call &strcmp
   cmp r0, 0
-  be &.__FIND_success
+  be &__FIND_success
   pop r3
   pop r2
   pop r1
   pop r0
   lw r2, r2 ; load link content
-  j &.__FIND_loop
-.__FIND_success:
+  j &__FIND_loop
+__FIND_success:
   pop r3 ; this one we used just for calling strcmp
   pop r2
   pop r1
@@ -1137,16 +1219,16 @@ $DEFCODE "FIND", 4, 0, FIND
   add r2, $wr_flags
   lb r2, r2
   and r2, $F_IMMED
-  bnz &.__FIND_immed
-  li r1, 0xFFFF
-  j &.__FIND_finish
-.__FIND_immed:
+  bnz &__FIND_immed
+  $load_minus_one r1
+  j &__FIND_finish
+__FIND_immed:
   li r1, 1
-.__FIND_finish:
+__FIND_finish:
   pop r3
   pop r2
   ret
-.__FIND_fail:
+__FIND_fail:
   pop r3
   pop r2
   li r0, 0
@@ -1155,10 +1237,10 @@ $DEFCODE "FIND", 4, 0, FIND
 
 
 $DEFCODE "'", 1, $F_IMMED, TICK
-  call &.__WORD
+  call &__DWORD
   $unpack_word_for_find
-  call &.__FIND
-  call &.__TCFA
+  call &__FIND
+  call &__TCFA
   push r0
   $NEXT
 
@@ -1173,17 +1255,17 @@ $DEFCODE "[']", 3, 0, BRACKET_TICK
 $DEFCODE ">CFA", 4, 0, TCFA
   ; ( address -- address )
   pop r0
-  call &.__TCFA
+  call &__TCFA
   push r0
   $NEXT
 
-.__TCFA:
+__TCFA:
   add r0, $wr_namelen
   push r1
   lb r1, r0
   inc r0
   add r0, r1
-  $align2 r0
+  $align4 r0
   pop r1
   ret
 
@@ -1197,6 +1279,8 @@ $DEFWORD ">DFA", 4, 0, TDFA
 $DEFCODE "EXECUTE", 7, 0, EXECUTE
   pop $W
   lw $X, $W
+  $log_word $W
+  $log_word $X
   j $X
 
 
@@ -1213,10 +1297,10 @@ $DEFCODE "HEADER,", 7, 0, HEADER_COMMA
   mov r0, r1
   inc r0
   lb r1, r1
-  call &.__HEADER_COMMA
+  call &__HEADER_COMMA
   $NEXT
 
-.__HEADER_COMMA:
+__HEADER_COMMA:
   ; r0: str ptr, r1: str len
   ; save working registers
   push r2 ; DP address
@@ -1226,47 +1310,47 @@ $DEFCODE "HEADER,", 7, 0, HEADER_COMMA
   push r6 ; flags/length
   push r7 ; current word char
   ; init registers
-  li r2, &var_DP
+  la r2, &var_DP
   lw r3, r2
-  li r4, &var_LATEST
+  la r4, &var_LATEST
   lw r5, r4
   ; align DP, I want words aligned
-  $align2 r3
+  $align4 r3
   ; store LATEST as a link value of new word
   stw r3, r5
   mov r5, r3
   stw r4, r5
   ; and move DP to next cell
-  add r3, 2
+  add r3, $CELL
   ; save name crc
   push r0
   push r1
   call &strcrc
-  stw r3, r0
+  sts r3, r0
   pop r1
   pop r0
-  ; and move DP to next cell
-  add r3, 2
+  ; and move DP to next position which is only a half-cell further
+  add r3, $HALFCELL
   ; save flags
   li r6, 0
   stb r3, r6
+  ; and move 1 byte further - our ptr will be then 1 byte before next cell-aligned address
   inc r3
   ; save unaligned length ...
   stb r3, r1
+  ; and again, move 1 byte further - now, this address should be cell-aligned, 8 bytes from the beginning of the word
   inc r3
-  ; but shift DP to next aligned address
-  $align2 r3
   ; copy word name, using its original length
   mov r6, r1
-.__HEADER_COMMA_loop:
+__HEADER_COMMA_loop:
   lb r7, r0
   stb r3, r7
   inc r3
   inc r0
   dec r6
-  bnz &.__HEADER_COMMA_loop
-  ; align DP - this will "add" padding byte to name automagicaly
-  $align2 r3
+  bnz &__HEADER_COMMA_loop
+  ; align DP - this will add padding bytes to name automagicaly
+  $align4 r3
   ; save vars
   stw r2, r3 ; DP
   stw r4, r5 ; LATEST
@@ -1282,16 +1366,16 @@ $DEFCODE "HEADER,", 7, 0, HEADER_COMMA
 
 $DEFCODE ",", 1, 0, COMMA
   pop r0
-  call &.__COMMA
+  call &__COMMA
   $NEXT
 
-.__COMMA:
+__COMMA:
   push r1 ; DP address
   push r2 ; DP value
-  li r1, &var_DP
+  la r1, &var_DP
   lw r2, r1
   stw r2, r0
-  add r2, 2
+  add r2, $CELL
   stw r1, r2
   pop r2
   pop r1
@@ -1300,20 +1384,20 @@ $DEFCODE ",", 1, 0, COMMA
 
 $DEFCODE "[", 1, $F_IMMED, LBRAC
   li $W, 0
-  li $X, &var_STATE
+  la $X, &var_STATE
   stw $X, $W
   $NEXT
 
 
 $DEFCODE "]", 1, 0, RBRAC
   li $W, 1
-  li $X, &var_STATE
+  la $X, &var_STATE
   stw $X, $W
   $NEXT
 
 
 $DEFWORD ":", 1, 0, COLON
-  .int &WORD
+  .int &DWORD
   .int &HEADER_COMMA
   .int &LIT
   .int &DOCOL
@@ -1337,7 +1421,7 @@ $DEFWORD ";", 1, $F_IMMED, SEMICOLON
 
 
 $DEFCODE "IMMEDIATE", 9, $F_IMMED, IMMEDIATE
-  li $W, &var_LATEST
+  la $W, &var_LATEST
   lw $X, $W
   add $X, $wr_flags
   lb $Y, $X
@@ -1377,11 +1461,11 @@ $DEFWORD "QUIT", 4, 0, QUIT
   .int &RSPSTORE
   .int &INTERPRET
   .int &BRANCH
-  .int -4
+  .int -8
 
 
 $DEFWORD "HIDE", 4, 0, HIDE
-  .int &WORD
+  .int &DWORD
   .int &FIND
   .int &DROP
   .int &HIDDEN
@@ -1397,12 +1481,14 @@ $DEFCODE "EXIT", 4, 0, EXIT
 ; Comparison ops
 ;
 
-.__CMP_true:
-  push $FORTH_TRUE
+__CMP_true:
+  $load_true $W
+  push $W
   $NEXT
 
-.__CMP_false:
-  push $FORTH_FALSE
+__CMP_false:
+  $load_false $W
+  push $W
   $NEXT
 
 $DEFCODE "=", 1, 0, EQU
@@ -1410,8 +1496,8 @@ $DEFCODE "=", 1, 0, EQU
   pop $W
   pop $X
   cmp $W, $X
-  be &.__CMP_true
-  j &.__CMP_false
+  be &__CMP_true
+  j &__CMP_false
 
 
 $DEFCODE "<>", 2, 0, NEQU
@@ -1419,24 +1505,24 @@ $DEFCODE "<>", 2, 0, NEQU
   pop $W
   pop $X
   cmp $W, $X
-  bne &.__CMP_true
-  j &.__CMP_false
+  bne &__CMP_true
+  j &__CMP_false
 
 
 $DEFCODE "0=", 2, 0, ZEQU
   ; ( n -- n )
   pop $W
   cmp $W, 0
-  bz &.__CMP_true
-  j &.__CMP_false
+  bz &__CMP_true
+  j &__CMP_false
 
 
 $DEFCODE "0<>", 3, 0, ZNEQU
   ; ( n -- n )
   pop $W
   cmp $W, 0
-  bnz &.__CMP_true
-  j &.__CMP_false
+  bnz &__CMP_true
+  j &__CMP_false
 
 
 $DEFCODE "<", 1, 0, LT
@@ -1444,32 +1530,32 @@ $DEFCODE "<", 1, 0, LT
   pop $W
   pop $X
   cmp $X, $W
-  bl &.__CMP_true
-  j &.__CMP_false
+  bl &__CMP_true
+  j &__CMP_false
 
 
 $DEFCODE ">", 1, 0, GT
   pop $W
   pop $X
   cmp $X, $W
-  bg &.__CMP_true
-  j &.__CMP_false
+  bg &__CMP_true
+  j &__CMP_false
 
 
 $DEFCODE "<=", 2, 0, LE
   pop $W
   pop $X
   cmp $X, $W
-  ble &.__CMP_true
-  j &.__CMP_false
+  ble &__CMP_true
+  j &__CMP_false
 
 
 $DEFCODE ">=", 2, 0, GE
   pop $W
   pop $X
   cmp $X, $W
-  bge &.__CMP_true
-  j &.__CMP_false
+  bge &__CMP_true
+  j &__CMP_false
 
 
 $DEFCODE "0<", 2, 0, ZLT
@@ -1477,8 +1563,8 @@ $DEFCODE "0<", 2, 0, ZLT
   ; flag is true if and only if n is less than zero
   pop $W
   cmp $W, 0
-  bl &.__CMP_true
-  j &.__CMP_false
+  bl &__CMP_true
+  j &__CMP_false
 
 
 $DEFCODE "0>", 2, 0, ZGT
@@ -1486,33 +1572,33 @@ $DEFCODE "0>", 2, 0, ZGT
   ; flag is true if and only if n is greater than zero
   pop $W
   cmp $W, 0
-  bg &.__CMP_true
-  j &.__CMP_false
+  bg &__CMP_true
+  j &__CMP_false
 
 
 $DEFCODE "0<=", 3, 0, ZLE
   pop $W
   cmp $W, 0
-  ble &.__CMP_true
-  j &.__CMP_false
+  ble &__CMP_true
+  j &__CMP_false
 
 
 $DEFCODE "0>=", 3, 0, ZGE
   pop $W
   cmp $W, 0
-  bge &.__CMP_true
-  j &.__CMP_false
+  bge &__CMP_true
+  j &__CMP_false
 
 $DEFCODE "?DUP", 4, 0, QDUP
   pop $W
   cmp $W, 0
-  bnz &.__QDUP_nonzero
+  bnz &__QDUP_nonzero
   push 0
-  j &.__QDUP_next
-.__QDUP_nonzero:
+  j &__QDUP_next
+__QDUP_nonzero:
   push $W
   push $W
-.__QDUP_next:
+__QDUP_next:
   $NEXT
 
 
@@ -1751,7 +1837,7 @@ $DEFCODE "2SWAP", 5, 0, TWOSWAP
 
 $DEFCODE "CHAR", 4, 0, CHAR
   ; ( -- n )
-  call &.__WORD
+  call &__DWORD
   inc r0
   lb $W, r0 ; load the first character of next word into W...
   push $W
@@ -1759,13 +1845,13 @@ $DEFCODE "CHAR", 4, 0, CHAR
 
 
 $DEFCODE "[CHAR]", 6, $F_IMMED, BRACKETCHAR
-  call &.__WORD
+  call &__DWORD
   inc r0
   lb $W, r0
-  li r0, &LIT
-  call &.__COMMA
+  la r0, &LIT
+  call &__COMMA
   mov r0, $W
-  call &.__COMMA
+  call &__COMMA
   $NEXT
 
 
@@ -1887,7 +1973,7 @@ $DEFCODE "SQUOTE_LITSTRING", 9, 0, SQUOTE_LITSTRING
   push $FIP       ; push string addr
   push $W         ; push string length
   add $FIP, $W    ; skip string
-  $align2 $FIP    ; align FIP
+  $align4 $FIP    ; align FIP
   $NEXT
 
 $DEFCODE "CQUOTE_LITSTRING", 9, 0, CQUOTE_LITSTRING
@@ -1896,7 +1982,7 @@ $DEFCODE "CQUOTE_LITSTRING", 9, 0, CQUOTE_LITSTRING
   lb $W, $FIP     ; load string length
   inc $FIP        ; skip length
   add $FIP, $W    ; skip string
-  $align2 $FIP    ; align FIP
+  $align4 $FIP    ; align FIP
   $NEXT
 
 
@@ -1912,9 +1998,6 @@ $DEFCODE "TELL", 4, 0, TELL
 ; Loop helpers
 ;
 
-; %eax => $W
-; %edx => $X
-
 $DEFCODE "(DO)", 4, 0, PAREN_DO
   ; ( control index -- )
   pop $W ; index
@@ -1929,13 +2012,13 @@ $DEFCODE "(LOOP)", 6, 0, PAREN_LOOP
   $poprsp $X ; control
   inc $W
   cmp $W, $X
-  be &.__PAREN_LOOP_next
+  be &__PAREN_LOOP_next
   $pushrsp $X
   $pushrsp $W
   lw $W, $FIP
   add $FIP, $W
   $NEXT
-.__PAREN_LOOP_next:
+__PAREN_LOOP_next:
   add $FIP, $CELL
   $NEXT
 
@@ -1944,28 +2027,28 @@ $DEFCODE "(+LOOP)", 7, 0, PAREN_PLUSLOOP
   $poprsp $W ; index
   $poprsp $X ; control
   pop $Y     ; increment N
-  bs &.__PAREN_PLUSLOOP_dec
+  bs &__PAREN_PLUSLOOP_dec
   add $W, $Y
   cmp $W, $X
-  bg &.__PAREN_PLUSLOOP_next
-  j &.__PAREN_PLUSLOOP_iter
-.__PAREN_PLUSLOOP_dec:
+  bg &__PAREN_PLUSLOOP_next
+  j &__PAREN_PLUSLOOP_iter
+__PAREN_PLUSLOOP_dec:
   add $W, $Y
   cmp $W, $X
-  bl &.__PAREN_PLUSLOOP_next
-.__PAREN_PLUSLOOP_iter:
+  bl &__PAREN_PLUSLOOP_next
+__PAREN_PLUSLOOP_iter:
   $pushrsp $X
   $pushrsp $W
   lw $W, $FIP
   add $FIP, $W
   $NEXT
-.__PAREN_PLUSLOOP_next:
+__PAREN_PLUSLOOP_next:
   add $FIP, $CELL
   $NEXT
 
 
 $DEFCODE "UNLOOP", 6, 0, UNLOOP
-  add $RSP, 4
+  add $RSP, 8 ; CELL * 2
   $NEXT
 
 
@@ -1976,7 +2059,7 @@ $DEFCODE "I", 1, 0, I
 
 
 $DEFCODE "J", 1, 0, J
-  lw $W, $RSP[4]
+  lw $W, $RSP[8]
   push $W
   $NEXT
 
@@ -1984,52 +2067,95 @@ $DEFCODE "J", 1, 0, J
 ;
 ; Constants
 ;
-$DEFCONST "VERSION", 7, 0, VERSION, $DUCKY_VERSION
-$DEFCONST "R0", 2, 0, RZ, &rstack_top
-$DEFCONST "DOCOL", 5, 0, __DOCOL, &DOCOL
-$DEFCONST "F_IMMED", 7, 0, __F_IMMED, $F_IMMED
-$DEFCONST "F_HIDDEN", 8, 0, __F_HIDDEN, $F_HIDDEN
-$DEFCONST "TRUE", 4, 0, TRUE, 0xFFFF
-$DEFCONST "FALSE", 5, 0, FALSE, 0x0000
-$DEFCONST "DODOES", 6, 0, __DODOES, &DODOES
+$DEFCODE "VERSION", 7, 0, VERSION
+  push $DUCKY_VERSION
+  $NEXT
+
+$DEFCODE "R0", 2, 0, RZ
+  li $W, 0xFE00
+  liu $W, 0xFFFF
+  push $W
+  $NEXT
+
+$DEFCODE "DOCOL", 5, 0, __DOCOL
+  la $W, &DOCOL
+  push $W
+  $NEXT
+
+$DEFCODE "F_IMMED", 7, 0, __F_IMMED
+  push $F_IMMED
+  $NEXT
+
+$DEFCODE "F_HIDDEN", 8, 0, __F_HIDDEN
+  push $F_HIDDEN
+  $NEXT
+
+$DEFCODE "TRUE", 4, 0, TRUE
+  $push_true $W
+  $NEXT
+
+$DEFCODE "FALSE", 5, 0, FALSE
+  $push_false $W
+  $NEXT
+
+$DEFCODE "DODOES", 6, 0, __DODOES
+  la $W, &DODOES
+  push $W
+  $NEXT
 
 
 ; Include non-kernel words
  .include "forth/ducky-forth-words.asm"
+ .include "forth/double-cell-ints.asm"
 
 
 $DEFCODE "\\\\", 1, $F_IMMED, BACKSLASH
-  li $W, &input_buffer_length
+  la $W, &input_buffer_length
   lw $W, $W
-  li $X, &input_buffer_index
+  la $X, &input_buffer_index
   stw $X, $W
   $NEXT
 
+
 $DEFCODE "HERE", 4, 0, HERE
-  li $W, &var_DP
+  la $W, &var_DP
   lw $W, $W
   push $W
   $NEXT
+
+
+$DEFCODE "CRASH", 5, $F_IMMED, CRASH
+  hlt 0x4FFF
 
 
 ;
 ; The last command - if it's not the last one, modify initial value of LATEST
 ;
 $DEFCODE "BYE", 3, 0, BYE
-  li r0, &bye_message
+  la r0, &bye_message
   call &writes
 
   li r0, 0
   call &halt
 
 
-.ifndef FORTH_TEXT_WRITABLE
-  ; mprotect boundary pivots
+;
+; Section boundary pivots
+;
+  .section .data
+
+  .align 4
+
+  .type data_boundary_last, int
+  .int 0xDEADBEEF
+
   .section .rodata
+
+  .align 4
+
   .type rodata_boundary_last, int
-  .int 0xDEAD
+  .int 0xDEADBEEF
 
   .section .text
 text_boundary_last:
   ret
-.endif

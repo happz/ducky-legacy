@@ -1,10 +1,11 @@
-  .include "defs.asm"
+  .data
 
   .type message, string
   .string "Hello, world!"
 
+  .text
+
 main:
-  li r0, &message
+  la r0, &message
   call &writesn
-  li r0, 0
-  int $INT_HALT
+  hlt 0x00

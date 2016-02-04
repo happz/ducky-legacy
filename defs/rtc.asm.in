@@ -1,0 +1,19 @@
+;
+; RTC device defines
+;
+
+<%
+  import ducky.devices.rtc
+%>
+
+.def RTC_IRQ:           ${X2(ducky.devices.rtc.DEFAULT_IRQ)}
+
+.def RTC_DEFAULT_FREQ:  ${ducky.devices.rtc.DEFAULT_FREQ}
+
+.def RTC_PORT_FREQ:     ${X(ducky.devices.rtc.DEFAULT_PORT_RANGE + 0x00)}
+.def RTC_PORT_SECOND:   ${X(ducky.devices.rtc.DEFAULT_PORT_RANGE + 0x01)}
+.def RTC_PORT_MINUTE:   ${X(ducky.devices.rtc.DEFAULT_PORT_RANGE + 0x02)}
+.def RTC_PORT_HOUR:     ${X(ducky.devices.rtc.DEFAULT_PORT_RANGE + 0x03)}
+.def RTC_PORT_DAY:      ${X(ducky.devices.rtc.DEFAULT_PORT_RANGE + 0x04)}
+.def RTC_PORT_MONTH:    ${X(ducky.devices.rtc.DEFAULT_PORT_RANGE + 0x05)}
+.def RTC_PORT_YEAR:     ${X(ducky.devices.rtc.DEFAULT_PORT_RANGE + 0x06)}

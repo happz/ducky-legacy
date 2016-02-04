@@ -6,87 +6,96 @@
 ; Richard W.M. Jones <rich@annexia.org> http://annexia.org/forth
 ;
 
-.include "defs.asm"
+.include "ducky.asm"
 
-.def DUCKY_VERSION: 0x0001
+.def DUCKY_VERSION: 0x0002
 
-.def TEXT_OFFSET:    0x0000
+.def TEXT_BASE:      0x0000
 .def USERSPACE_BASE: 0x5000
 
 ; RTC frequency - 1 tick per second is good enough for us.
+.ifndef RTC_FREQ
 .def RTC_FREQ:        0x0001
+.endif
 
-; One cell is 16 bits, 2 bytes, this is 16-bit FORTH. I hope it's clear now :)
-.def CELL:               2
+; One cell is 32 bits, 4 bytes, this is 32-bit FORTH. I hope it's clear now :)
+.def CELL:               4
+.def HALFCELL:           2
 
-; This is actually 8192 - first two bytes are used by HERE_INIT
+; This is actually 8192 - first four bytes are used by HERE_INIT
 ; needed for HERE inicialization. HERE_INIT's space can be then
 ; reused as userspace
 .def USERSPACE_SIZE:   8192
 
-; 32 cells
-.def RSTACK_SIZE:        64
+; 64 cells
+.def DSTACK_SIZE:        256
+
+; 64 cells
+.def RSTACK_SIZE:        256
 
 ; Allow for 8 nested EVALUATE calls
-.def INPUT_STACK_SIZE:   64
+.def INPUT_STACK_SIZE:   128
 
 ; Let's say the longest line can be 512 chars...
 .def INPUT_BUFFER_SIZE: 512
 
 ; 32 chars should be enough for any word
-.def WORD_SIZE:          32
-
-; 32 cells, should be enough
-.def RSTACK_SIZE: 64
+.def WORD_BUFFER_SIZE:   32
 
 ; 255 chars should be enough for a string length (and it fits into 1 byte)
 .def STRING_SIZE:       255
 
 ; Some commonly used registers
-.def FIP: r12
+.def FIP: r28
 .def PSP: sp
-.def RSP: r11
-.def W:   r10
-.def X:   r9
-.def Y:   r8
-.def Z:   r7
+.def RSP: r27
+.def W:   r26
+.def X:   r25
+.def Y:   r24
+.def Z:   r23
+.def U:   r22
+
+.ifdef FORTH_DEBUG
+.def LSP: r21
+.endif
+
 
 ; Offsets of word header fields
 ;
 ; +-------------+ <- 0; label "name_$WORD"
 ; | link        |
 ; |             |
-; +-------------+ <- 2
+; +-------------+ <- 4
 ; | name CRC    |
 ; |             |
-; +-------------+ <- 4
-; | flags       |
-; +-------------+ <- 5
-; | name length |
 ; +-------------+ <- 6
+; | flags       |
+; +-------------+ <- 7
+; | name length |
+; +-------------+ <- 8
 ; | name        |
 ; .             .
 ; .             .
 ; .             .
 ; |             |
-; +-------------+ <- 6 + name length + padding byte
+; +-------------+ <- 8 + name length + padding bytes
 ; | codeword    |
 ; |             |
-; +-------------+ <- 8 + name length + padding byte
+; +-------------+ <- 8 + name length + padding bytes + 4
 ;
 .def wr_link:     0
-.def wr_namecrc:  2
-.def wr_flags:    4
-.def wr_namelen:  5
-.def wr_name:     6
+.def wr_namecrc:  4
+.def wr_flags:    6
+.def wr_namelen:  7
+.def wr_name:     8
 
 ; Word flags
 .def F_IMMED:  0x0001
 .def F_HIDDEN: 0x0002
 
 ; FORTH boolean "flags"
-.def FORTH_TRUE:  0xFFFF
-.def FORTH_FALSE: 0x0000
+.def FORTH_TRUE:  0xFFFFFFFF
+.def FORTH_FALSE: 0x00000000
 
 .macro pushrsp reg:
   sub $RSP, $CELL
@@ -98,6 +107,13 @@
   add $RSP, $CELL
 .end
 
+.macro log_word reg:
+.ifdef FORTH_DEBUG
+  sub $LSP, $CELL
+  stw $LSP, #reg
+.endif
+.end
+
 .macro NEXT:
   ; FIP points to a cell with address of a Code Field,
   ; and Code Field contains address of routine
@@ -105,56 +121,108 @@
   lw $W, $FIP      ; W = address of a Code Field
   add $FIP, $CELL  ; move FIP to next cell in thread
   lw $X, $W        ; X = address of routine
+  $log_word $W
+  $log_word $X
   j $X
 .end
 
 .macro DEFWORD name, len, flags, label:
   .section .rodata
-name_#label:
+  .align 4
+
+  .type name_#label, int
   .int link
   .set link, &name_#label
-  .int 0x79
+
+  .type __crc_#label, short
+  .short 0x7979
+
+  .type __flags_#label, byte
   .byte #flags
+
+  .type __len_#label, byte
   .byte #len
+
+  .type __name_#label, ascii
   .ascii #name
-#label:
+
+  .align 4
+  .type #label, int
   .int &DOCOL
 .end
 
 .macro DEFCODE name, len, flags, label:
   .section .rodata
-name_#label:
+  .align 4
+
+  .type name_#label, int
   .int link
-  .int 0x79
   .set link, &name_#label
+
+  .type __crc_#label, short
+  .short 0x7979
+
+  .type __flags_#label, byte
   .byte #flags
+
+  .type __len_#label, byte
   .byte #len
+
+  .type __name_#label, ascii
   .ascii #name
-#label:
+
+  .align 4
+  .type #label, int
   .int &code_#label
+
   .text
 code_#label:
 .end
 
 .macro DEFVAR name, len, flags, label, initial:
   $DEFCODE #name, #len, #flags, #label
-  push &var_#label
+  la $W, &var_#label
+  push $W
   $NEXT
 
   .data
+  .align 4
   .type var_#label, int
   .int #initial
 .end
 
-.macro DEFCONST name, len, flags, label, value:
-  $DEFCODE #name, #len, #flags, #label
-  push #value
-  $NEXT
+.macro load_minus_one reg:
+  li #reg, 0xFFFF
+  liu #reg, 0xFFFF
+.end
+
+.macro load_true reg:
+  li #reg, 0xFFFF
+  liu #reg, 0xFFFF
+.end
+
+.macro load_false reg:
+  li #reg, 0x0000
+  liu #reg, 0x0000
+.end
+
+.macro push_true reg:
+  $load_true #reg
+  push #reg
+.end
+
+.macro push_false:
+  push 0x0000
 .end
 
 .macro align2 reg:
   inc #reg
-  and #reg, 0xFFFE
+  and #reg, 0x7FFE
+.end
+
+.macro align4 reg:
+  add #reg, 3
+  and #reg, 0x7FFC
 .end
 
 .macro align_page reg:
@@ -167,4 +235,9 @@ code_#label:
   mov r1, r0    ; copy c-addr to r1
   inc r0        ; point r0 to string
   lb r1, r1     ; load string length
+.end
+
+.macro boot_progress:
+  ; li r20, 0x2E
+  ; outb $TTY_PORT_DATA, r20
 .end

@@ -1,5 +1,3 @@
-VMDEBUGOFF
-
 \ A minimal FORTH kernel for Ducky virtual machine
 \
 \ This was written as an example and for educating myself, no higher ambitions intended.
@@ -13,11 +11,11 @@ VMDEBUGOFF
 \
 
 
-: CONSTANT WORD HEADER, DOCOL , ['] LIT , , ['] EXIT , ;
-: VARIABLE WORD HEADER, DODOES , 0 ,  1 CELLS ALLOT ;
-: CREATE   WORD HEADER, DODOES , 0 ,  ;
+: CONSTANT DWORD HEADER, DOCOL , ['] LIT , , ['] EXIT , ;
+: VARIABLE DWORD HEADER, DODOES , 0 ,  1 CELLS ALLOT ;
+: CREATE   DWORD HEADER, DODOES , 0 ,  ;
 : DOES> R> LATEST @ >DFA ! ;
-: VALUE WORD HEADER, DOCOL , ['] LIT , , ['] EXIT , ;
+: VALUE DWORD HEADER, DOCOL , ['] LIT , , ['] EXIT , ;
 
 
 : REPEAT IMMEDIATE ['] BRANCH , SWAP HERE - , DUP HERE SWAP - SWAP ! ;
@@ -117,38 +115,6 @@ LEAVE-SP LEAVE-SP !
 
 \ - PRINTING THE DICTIONARY ---------------------------------------------------------------------
 
-\ ID. takes an address of a dictionary entry and prints the word's name.
-: ID.
-  5 +   ( skip over the link pointer and flags byte )
-	DUP C@		( get the flags/length byte )
-
-	BEGIN
-		DUP 0>		( length > 0? )
-	WHILE
-		SWAP 1+		( addr len -- len addr+1 )
-		DUP C@		( len addr -- len addr char | get the next character)
-		EMIT		( len addr char -- len addr | and print it)
-		SWAP 1-		( len addr -- addr len-1    | subtract one from length )
-	REPEAT
-	2DROP		( len addr -- )
-;
-
-\ WORDS prints all the words defined in the dictionary, starting with the word defined most recently.
-\ However it doesn't print hidden words.
-: WORDS
-	LATEST @	( start at LATEST dictionary entry )
-	BEGIN
-		?DUP		( while link pointer is not null )
-	WHILE
-		DUP ?HIDDEN NOT IF	( ignore hidden words )
-			DUP ID.		( but if not hidden, print the word )
-			SPACE
-		THEN
-		@		( dereference the link pointer - go to previous word )
-	REPEAT
-	CR
-;
-
 \ DUMP is used to dump out the contents of memory, in the 'traditional' hexdump format.
 : DUMP		( addr len -- )
 	BASE @ -ROT		( save the current BASE at the bottom of the stack )
@@ -176,7 +142,7 @@ LEAVE-SP LEAVE-SP !
 		( print the ASCII equivalents )
 		2DUP 1- 15 AND 1+ ( addr len addr linelen )
 		BEGIN
-			?DUP		( while linelen > 0)
+			?DUP		( while linelen > 0 )
 		WHILE
 			SWAP		( addr len linelen addr )
 			DUP C@		( addr len linelen addr byte )

@@ -1,0 +1,28 @@
+;
+; BIO defines
+;
+
+<%
+  import ducky.devices.storage
+%>
+
+.def BIO_BLOCK_SIZE: ${ducky.devices.storage.BLOCK_SIZE}
+
+.def BIO_PORT_RANGE: ${X(ducky.devices.storage.DEFAULT_PORT_RANGE)}
+
+.def BIO_RDY:   ${X2(ducky.devices.storage.BIO_RDY)}
+.def BIO_ERR:   ${X2(ducky.devices.storage.BIO_ERR)}
+.def BIO_READ:  ${X2(ducky.devices.storage.BIO_READ)}
+.def BIO_WRITE: ${X2(ducky.devices.storage.BIO_WRITE)}
+.def BIO_BUSY:  ${X2(ducky.devices.storage.BIO_BUSY)}
+.def BIO_DMA:   ${X2(ducky.devices.storage.BIO_DMA)}
+.def BIO_SRST:  ${X2(ducky.devices.storage.BIO_SRST)}
+
+.def BIO_USER:  ${X2(ducky.devices.storage.BIO_USER)}
+
+.def BIO_PORT_STATUS:  ${X(ducky.devices.storage.DEFAULT_PORT_RANGE + 0x00)}
+.def BIO_PORT_SID:     ${X(ducky.devices.storage.DEFAULT_PORT_RANGE + 0x01)}
+.def BIO_PORT_BLOCK:   ${X(ducky.devices.storage.DEFAULT_PORT_RANGE + 0x02)}
+.def BIO_PORT_COUNT:   ${X(ducky.devices.storage.DEFAULT_PORT_RANGE + 0x03)}
+.def BIO_PORT_ADDRESS: ${X(ducky.devices.storage.DEFAULT_PORT_RANGE + 0x04)}
+.def BIO_PORT_DATA:    ${X(ducky.devices.storage.DEFAULT_PORT_RANGE + 0x05)}

@@ -1,6 +1,7 @@
-  .include "defs.asm"
-main:
+  .text
+
   li r0, 0xFFFF
+  liu r0, 0xFFFF
   li r1, 0xFF
   add r0, 2
   bo &overflow
@@ -9,4 +10,4 @@ main:
 overflow:
   li r1, 0xDD
 quit:
-  int $INT_HALT
+  hlt 0x00

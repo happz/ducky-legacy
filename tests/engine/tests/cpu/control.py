@@ -4,6 +4,7 @@ import ducky.cpu.coprocessor.control
 import ducky.errors
 
 from ducky.cpu.coprocessor.control import ControlRegisters
+from ducky.util import F
 
 from .. import TestCase, common_run_machine
 
@@ -29,15 +30,14 @@ class Tests(TestCase):
 
     core = M.cpus[0].cores[0]
 
-    assert core.privileged is False
+    assert core.privileged is True
+
+    core.control_coprocessor.read(ControlRegisters.CR0)
+
+    core.privileged = False
 
     with self.assertRaises(ducky.errors.AccessViolationError):
       core.control_coprocessor.read(ControlRegisters.CR0)
-
-    core.privileged = True
-
-    assert core.privileged is True
-    core.control_coprocessor.read(ControlRegisters.CR0)
 
   def test_cpuid(self):
     M = create_machine(cpus = 4, cores = 4)
@@ -48,7 +48,7 @@ class Tests(TestCase):
         core.privileged = True
         assert core.privileged is True
 
-        cpuid_expected = 0xFFFF & ((i << 8) | j)
+        cpuid_expected = 0xFFFFFFFF & ((i << 16) | j)
         cpuid_read = core.control_coprocessor.read(ControlRegisters.CR0)
         assert cpuid_expected == cpuid_read, 'CPUID mismatch: cpu=%i, core=%i, rcpu=%i, rcore=%i, expected=%i, read=%i' % (i, j, core.cpu.id, core.id, cpuid_expected, cpuid_read)
 
@@ -56,35 +56,33 @@ class Tests(TestCase):
       M.cpus[0].cores[0].control_coprocessor.write(ControlRegisters.CR0, 0xFF)
 
   def test_ivt(self):
-    M = create_machine(ivt_address = 0x02DEAD)
+    M = create_machine(ivt_address = 0xC7C7DEAD)
 
     core = M.cpus[0].cores[0]
 
     core.privileged = True
-    assert core.privileged is True
+    assert core.privileged is True, 'Core is not in privileged mode'
 
-    assert core.control_coprocessor.read(ControlRegisters.CR1) == 0xDEAD
-    assert core.control_coprocessor.read(ControlRegisters.CR2) == 0x02
+    v = core.control_coprocessor.read(ControlRegisters.CR1)
+    assert v == 0xC7C7DEAD, F('IVT expected {expected:L}, {actual:L} found instead', expected = 0xC7C7DEAD, actual = v)
 
-    core.control_coprocessor.write(ControlRegisters.CR1, 0xF00D)
-    core.control_coprocessor.write(ControlRegisters.CR2, 0xF0)
+    core.control_coprocessor.write(ControlRegisters.CR1, 0xF5EEF00D)
 
-    assert core.control_coprocessor.read(ControlRegisters.CR1) == 0xF00D
-    assert core.control_coprocessor.read(ControlRegisters.CR2) == 0xF0
+    v = core.control_coprocessor.read(ControlRegisters.CR1)
+    assert v == 0xF5EEF00D, F('IVT expected {expected:L}, {actual:L} found instead', expected = 0xF5EEF00D, actual = v)
 
   def test_pt(self):
-    M = create_machine(pt_address = 0x020000)
+    M = create_machine(pt_address = 0xC7C7DEAD)
 
     core = M.cpus[0].cores[0]
 
     core.privileged = True
-    assert core.privileged is True
+    assert core.privileged is True, 'Core is not in privileged mode'
 
-    assert core.control_coprocessor.read(ControlRegisters.CR3) == 0x0000
-    assert core.control_coprocessor.read(ControlRegisters.CR4) == 0x02
+    v = core.control_coprocessor.read(ControlRegisters.CR2)
+    assert v == 0xC7C7DEAD, F('PT expected {expected:L}, {actual:L} found instead', expected = 0xC7C7DEAD, actual = v)
 
-    core.control_coprocessor.write(ControlRegisters.CR3, 0xF00D)
-    core.control_coprocessor.write(ControlRegisters.CR4, 0xF0)
+    core.control_coprocessor.write(ControlRegisters.CR2, 0xF5EEF00D)
 
-    assert core.control_coprocessor.read(ControlRegisters.CR3) == 0xF00D
-    assert core.control_coprocessor.read(ControlRegisters.CR4) == 0xF0
+    v = core.control_coprocessor.read(ControlRegisters.CR2)
+    assert v == 0xF5EEF00D, F('PT expected {expected:L}, {actual:L} found instead', expected = 0xF5EEF00D, actual = v)

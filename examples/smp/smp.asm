@@ -1,276 +1,187 @@
-.include "defs.asm"
+.include "ducky.asm"
 .include "control.asm"
 .include "hdt.asm"
-
-.def CWT_BASE: 0x8000
-.def CWT_SIZE: 32
-
-  .section .cwt, rwbl
-  .space $CWT_SIZE
-
+.include "boot.asm"
+.include "rtc.asm"
 
   .data
 
-  ; keep it at the beggining to have IVT page-aligned
-  .type ivt_base, space
+  .type isr_stack, space
   .space $PAGE_SIZE
 
+  .type jiffies, int
+  .int 0
 
   .text
 
-  .global main
-main:
-  sis $INST_SET_CONTROL
-  ctr r1, $CONTROL_CPUID
-  sis $INST_SET_DUCKY
-  bnz &__secondary_boot
-  j &__primary_boot
+_entry:
+  ; this is where the bootloader jumps to
+  j &_start
 
-  ; should not return, just in case
-  li r0, 0xFFFE
-  int $INT_HALT
+  ; it should never return, but just in case
+  hlt 0xFF
 
 
 ;
-; Boot primary core
-; Basically just wake up other cores and quit
+; void isr_rtc(void)
 ;
-__primary_boot:
-  ; r0 - HDT
-  ; r1 - CPUID
+; RTC ISR - simply increases jiffies counter by one.
+;
+isr_rtc:
+  push r0
+  push r1
+  la r0, &jiffies
+  lw r1, r0
+  inc r1
+  stw r0, r1
+  pop r1
+  pop r0
+  retint
 
-  ; setup IVT
-  ; copy it first
-  sis $INST_SET_CONTROL
-  ; IVT segment
-  ctr r3, $CONTROL_IVT_SEGMENT
-  ; IVT address - src pointer
-  ctr r4, $CONTROL_IVT_ADDRESS
-  sis $INST_SET_DUCKY
 
-  ; dst pointer
-  li r5, &ivt_base
-  ; stopper
-  mov r6, r5
-  add r6, $PAGE_SIZE
+;
+; void isr_dummy(void)
+;
+; Dummy ISR - does nothing, it's only a placeholder for interrupts that need
+; servicing but we don't care about them.
+;
+isr_dummy:
+  retint
 
+
+;
+; void main(u32_t cpuid)
+;
+; Executed on primary core, all other cores are waiting for this process to let
+; them know what to do next.
+;
+_start:
+  ; set RTC frequency
+  li r0, 2
+  outb $RTC_PORT_FREQ, r0
+
+  ; IVT was cleared by bootloader, lets get one routine for timer, and one
+  ; dummy routine for all other interrupts.
+
+  ; interrupt stack
+  la r1, &isr_stack
+  add r1, $PAGE_SIZE
+
+  ; get IVT address
+  ctr r2, $CONTROL_IVT
+
+  ; this address is the first one *after* IVT
+  mov r3, r2
+  add r3, $PAGE_SIZE
+
+  ; RTC ISR
+  la r4, &isr_rtc
+  stw r2, r4
+  add r2, $WORD_SIZE
+  stw r2, r1
+  add r2, $WORD_SIZE
+
+  ; dummy ISRs
+  la r4, &isr_dummy
 __ivt_copy_loop:
-  cmp r5, r6
+  stw r2, r4
+  add r2, $WORD_SIZE
+  stw r2, r1
+  add r2, $WORD_SIZE
+  cmp r2, r3
   be &__ivt_copy_finished
-  lw r7, r3(r4)
-  stw r5, r7
-  add r4, 2
-  add r5, 2
   j &__ivt_copy_loop
 
 __ivt_copy_finished:
 
-  ; save HDT base
-  mov r12, r0
+  ; setup CWT
+  li r1, $BOOT_CWT_ADDRESS
+  mov r2, r1
+  add r2, $PAGE_SIZE
+
+  la r3, &__secondary_thread
+
+__cwt_init_loop:
+  stw r1, r3
+  add r1, $WORD_SIZE
+  cmp r1, r2
+  bne &__cwt_init_loop
+
+  ; Now, when CWT is filled with vectors, lets wake up all secondary cores
 
   ; find HDT CPU entry
+  li r0, $BOOT_HDT_ADDRESS
   li r1, $HDT_ENTRY_CPU
   call &__find_hdt_entry
-  cmp r0, 0xFFFF
-  be &__primary_boot_fail
+  cmp r0, 0x7FFF
+  be &__secondary_wake_up_finished
 
-  ; get number of CPUs and CPU cores
-  li r2, $HDT_SEGMENT ; HDT segment
+  ; get number of CPUs and cores
   add r0, $HDT_ENTRY_PAYLOAD_OFFSET
-  lw r3, r2(r0) ; r3 - nr_cpus
-  add r0, 2
-  lw r4, r2(r0) ; r4 - nr_cores
+  ls r2, r0 ; # of CPUs
+  add r0, $SHORT_SIZE
+  ls r3, r0 ; # of cores
 
-  ; loop over all cores, and prepare their first IPs
-  li r5, 0 ; CPU counter
-__primary_boot_cpu_loop:
-  cmp r5, r3
-  be &__primary_boot_secondary_finished
+  ; loop over all CPUs and cores, and wake them up
+  li r4, 0 ; CPU counter
+__secondary_wake_up_cpu_loop:
+  cmp r4, r2 ; are we finished with CPUs?
+  be &__secondary_wake_up_finished
 
-  li r6, 0 ; CORE counter
-__primary_boot_core_loop:
-  cmp r6, r4
-  be &__primary_boot_core_loop_finished
+  li r5, 0 ; CORE counter
+__secondary_wake_up_core_loop:
+  cmp r5, r3 ; are we finished with cores?
+  be &__secondary_wake_up_cpu_loop_next
 
-  ; compute cpuid
-  mov r1, r5
-  shiftl r1, 8
-  or r1, r6
+  ; compute CPUID
+  mov r1, r4
+  shiftl r1, 16
+  or r1, r5
 
   ; core #0:#0 is primary core - this core.
   cmp r1, 0
-  bz &__primary_boot_core_loop_next
+  bz &__secondary_wake_up_core_loop_next
 
-  push r1 ; save cpuid for later
+  ipi r1, 31 ; here should be some special interrupt number...
 
-  mov r0, r12
-  call &__core_get_cwt_slot
-
-  pop r1 ; restore cpuid
-
-  cmp r0, 0xFFFF
-  be &__primary_boot_fail
-
-  ; fill CTW slot, and wake up the core
-  li r7, &__secondary_thread
-  stw r0, r7
-  ipi r1, $INT_NOP
-
-__primary_boot_core_loop_next:
-  inc r6
-  j &__primary_boot_core_loop
-
-__primary_boot_core_loop_finished:
+__secondary_wake_up_core_loop_next:
   inc r5
-  j &__primary_boot_cpu_loop
+  j &__secondary_wake_up_core_loop
 
-__primary_boot_secondary_finished:
-  ; we started all other cores, nothing else to do...
-  li r0, 0
+__secondary_wake_up_cpu_loop_next:
+  inc r4
+  j &__secondary_wake_up_cpu_loop
 
-__primary_boot_fail:
-  int $INT_HALT
+__secondary_wake_up_finished:
 
-
-;
-; Secondary threads' job
-;
-__secondary_thread:
-  ; r0 - HDT
-  ; r1 - CPUID
-
-  ; setup IVT
-  li r2, &ivt_base
-  cli
-  sis $INST_SET_CONTROL
-  ctw $CONTROL_IVT_SEGMENT, ds
-  ctw $CONTROL_IVT_ADDRESS, r2
-  sis $INST_SET_DUCKY
+  ; Now, all secondary cores are spinning their HW, and we are primarily done.
+  ; It's time to enable interrupts, and do some real spinning too.
   sti
 
-  ; just quit with our CPUID as exit value
-  mov r0, r1
-  add r0, 0x1000
-  int $INT_HALT
+  li r1, 0xFFF
+__primary_thread_loop:
+  dec r1
+  bnz &__primary_thread_loop
+
+  hlt 0x00
 
 
 ;
-; Boot secondary core
-; Fall asleep, and wait for primary core to tell us where to jump
+; void __secondary_thread(u32_t cpuid) __attribute__ ((noreturn))
 ;
-__secondary_boot:
-  push r0 ; HDT
-  push r1 ; CPUID
+; Address fo this routine is placed into CWT slots, therefore this is what
+; secondary cores do when primary one wakes them up.
+;
+; Do *something*, pretend there's a work to do till machine halts.
+;
+__secondary_thread:
+  ; we should not get any interrupts at all, so lets enable them
+  sti
 
-  ; get our CWT slot
-  call &__core_get_cwt_slot
+  ; and now spin and increace counter till machine halts
+  li r1, 0xFFF
+__secondary_thread_loop:
+  dec r1
+  bnz &__secondary_thread_loop
 
-  ; sleep and wait pro primary core to wake us up
-  idle
-
-  ; in our CWT slot is now address we are supposed to jump to
-  lw r3, r0
-
-  ; clean stack
-  pop r1
-  pop r0
-
-  ; and jump to our new thread
-  j r3
-
-  ; it should never return, but just in case
-  li r0, 0xFFFE
-  int $INT_HALT
-
-
-__core_get_cwt_slot:
-  ; r0 - HDT
-  ; r1 - CPUID
-
-  push r2
-  push r3
-
-  push r1
-  li r1, 0x00
-  call &__find_hdt_entry
-  pop r1
-
-  cmp r0, 0xFFFF
-  be &__core_get_cwd_slot_quit
-
-  li r2, 0x00 ; HDT segment
-
-  add r0, 4 ; shift to nr_cores field
-  lw r3, r2(r0) ; and fetch it
-
-  ; we have CPUID, we have number of cores per cpu, lets get our slot
-  push r1
-  shiftr r1, 8
-  mul r1, r3
-  mul r1, 2
-  pop r3
-  and r3, 0xFF
-  mul r3, 2
-  add r1, r3
-  add r1, $CWT_BASE
-  mov r0, r1
-
-__core_get_cwd_slot_quit:
-  pop r3
-  pop r2
-  ret
-
-
-__find_hdt_entry:
-  ; r0 - HDT
-  ; r1 - type
-
-  push r2
-  push r3
-  push r4
-
-  li r2, 0x00 ; r2 is segment register for reading HDT
-
-  ; check HDT header magic
-  lw r3, r2(r0)
-  cmp r3, 0x4D5E
-  bne &__find_hdt_entry_fail
-
-  ; load number of entries
-  add r0, 2
-  lw r3, r2(r0)
-
-  add r0, 2     ; point to first entry
-
-__find_hdt_entry_loop:
-  ; no more entries? fail...
-  cmp r3, 0
-  bz &__find_hdt_entry_fail
-
-  ; check entry type for searched type
-  lw r4, r2(r0)
-  cmp r4, r1
-  bne &__find_hdt_entry_next
-
-  pop r4
-  pop r3
-  pop r2
-  ret
-
-__find_hdt_entry_fail:
-  pop r4
-  pop r3
-  pop r2
-  li r0, 0xFFFF
-  ret
-
-__find_hdt_entry_next:
-  ; decrement number of entries to check
-  dec r3
-  ; load entry length
-  add r0, 2
-  lw r4, r2(r0)
-  ; and add it (without the type filed) to our entry pointer 
-  sub r4, 2
-  add r0, r4
-  j &__find_hdt_entry_loop
+  hlt r0

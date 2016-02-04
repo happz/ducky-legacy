@@ -8,11 +8,10 @@ from six import viewkeys
 
 from . import add_common_options, parse_options
 from ..cpu.instructions import DuckyInstructionSet, get_instruction_set
-from ..mm import UInt16, ADDR_FMT, UINT16_FMT, SIZE_FMT, UINT32_FMT
-from ..mm.binary import File, SectionTypes, SECTION_TYPES, SYMBOL_DATA_TYPES, SymbolDataTypes
+from ..mm import u16_t, u32_t, UINT16_FMT, SIZE_FMT, UINT32_FMT, UINT8_FMT
+from ..mm.binary import File, SectionTypes, SECTION_TYPES, SYMBOL_DATA_TYPES, SymbolDataTypes, RelocFlags, SymbolFlags, SectionFlags
 
 from ..cpu.coprocessor.math_copro import MathCoprocessorInstructionSet  # noqa
-from ..cpu.coprocessor.control import ControlCoprocessorInstructionSet  # noqa
 
 def show_file_header(logger, f):
   f_header = f.get_header()
@@ -37,12 +36,14 @@ def show_sections(logger, f):
   for i in range(0, f_header.sections):
     header, content = f.get_section(i)
 
+    header_flags = SectionFlags.from_encoding(header.flags)
+
     table.append([
       header.index,
       f.string_table.get_string(header.name),
       SECTION_TYPES[header.type],
-      '%s (0x%02X)' % (header.flags.to_string(), ctypes.cast(ctypes.byref(header.flags), ctypes.POINTER(ctypes.c_ubyte)).contents.value),
-      ADDR_FMT(header.base),
+      '%s (%s)' % (header_flags.to_string(), UINT16_FMT(header_flags.to_int())),
+      UINT32_FMT(header.base),
       header.items,
       SIZE_FMT(header.data_size),
       SIZE_FMT(header.file_size),
@@ -68,16 +69,15 @@ def show_disassemble(logger, f):
 
     logger.info('  Section %s', f.string_table.get_string(header.name))
 
-    csp = UInt16(header.base)
+    csp = header.base
     for raw_inst in content:
-      csp_str = ADDR_FMT(csp.u16)
-      csp.u16 += 4
+      csp_str = UINT32_FMT(csp)
+      csp += 4
 
-      inst = instruction_set.decode_instruction(raw_inst)
+      inst, desc, opcode = instruction_set.decode_instruction(logger, raw_inst.value)
+      logger.info('  %s (%s) %s', csp_str, UINT32_FMT(raw_inst), instruction_set.disassemble_instruction(logger, raw_inst.value))
 
-      logger.info('  %s (%s) %s', csp_str, UINT32_FMT(raw_inst.u32), instruction_set.disassemble_instruction(raw_inst))
-
-      if inst.opcode == DuckyInstructionSet.opcodes.SIS:
+      if opcode == DuckyInstructionSet.opcodes.SIS:
         instruction_set = get_instruction_set(inst.immediate)
 
   logger.info('')
@@ -103,9 +103,9 @@ def show_reloc(logger, f):
 
       table.append([
         f.string_table.get_string(entry.name),
-        entry.flags.to_string(),
+        RelocFlags.from_encoding(entry.flags).to_string(),
         f.string_table.get_string(_header.name),
-        ADDR_FMT(entry.patch_address),
+        UINT32_FMT(entry.patch_address),
         entry.patch_offset,
         entry.patch_size
       ])
@@ -146,8 +146,8 @@ def show_symbols(logger, f):
       table_row = [
         f.string_table.get_string(entry.name),
         f.string_table.get_string(_header.name),
-        entry.flags.to_string(),
-        ADDR_FMT(entry.address),
+        SymbolFlags.from_encoding(entry.flags).to_string(),
+        UINT32_FMT(entry.address),
         '%s (%i)' % (SYMBOL_DATA_TYPES[entry.type], entry.type),
         SIZE_FMT(entry.size),
         f.string_table.get_string(entry.filename),
@@ -156,22 +156,38 @@ def show_symbols(logger, f):
 
       symbol_content = ''
 
-      if entry.type == SymbolDataTypes.INT:
-        symbol_content = UInt16(0)
-        symbol_content.u16 = _content[entry.address - _header.base].u8 | (_content[entry.address - _header.base + 1].u8 << 8)
-        symbol_content = UINT16_FMT(symbol_content.u16)
+      if _header.flags.bss == 1:
+        pass
 
-      elif entry.type == SymbolDataTypes.ASCII:
-        symbol_content = ''.join(['%s' % chr(c.u8) for c in _content[entry.address - _header.base:entry.address - _header.base + entry.size]])
+      else:
+        if entry.type == SymbolDataTypes.INT:
+          def __get(i):
+            return _content[entry.address - _header.base + i].value << (8 * i)
 
-      elif entry.type == SymbolDataTypes.STRING:
-        symbol_content = ''.join(['%s' % chr(c.u8) for c in _content[entry.address - _header.base:entry.address - _header.base + entry.size]])
+          symbol_content = u32_t(__get(0) | __get(1) | __get(2) | __get(3))
+          symbol_content = UINT32_FMT(symbol_content.value)
 
-      if entry.type == SymbolDataTypes.ASCII or entry.type == SymbolDataTypes.STRING:
-        if len(symbol_content) > 32:
-          symbol_content = symbol_content[0:29] + '...'
+        elif entry.type == SymbolDataTypes.SHORT:
+          def __get(i):
+            return _content[entry.address - _header.base + i].value << (8 * i)
 
-        symbol_content = '"' + ascii_replace.sub(ascii_replacer, symbol_content) + '"'
+          symbol_content = u16_t(__get(0) | __get(1))
+          symbol_content = UINT16_FMT(symbol_content.value)
+
+        elif entry.type in (SymbolDataTypes.BYTE, SymbolDataTypes.CHAR):
+          symbol_content = UINT8_FMT(_content[entry.address - _header.base].value)
+
+        elif entry.type == SymbolDataTypes.ASCII:
+          symbol_content = ''.join(['%s' % chr(c.value) for c in _content[entry.address - _header.base:entry.address - _header.base + entry.size]])
+
+        elif entry.type == SymbolDataTypes.STRING:
+          symbol_content = ''.join(['%s' % chr(c.value) for c in _content[entry.address - _header.base:entry.address - _header.base + entry.size]])
+
+        if entry.type == SymbolDataTypes.ASCII or entry.type == SymbolDataTypes.STRING:
+          if len(symbol_content) > 32:
+            symbol_content = symbol_content[0:29] + '...'
+
+          symbol_content = '"' + ascii_replace.sub(ascii_replacer, symbol_content) + '"'
 
       table_row.append(symbol_content)
       table.append(table_row)

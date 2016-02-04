@@ -1,14 +1,6 @@
-.def VGA_BUFF:         0xA000
-.def VGA_COMMAND_PORT: 0x03F0
-.def VGA_DATA_PORT:    0x03F1
-
-.def RTC_PORT_FREQ:    0x0300
-.def RTC_PORT_SEC:     0x0301
-.def RTC_PORT_MIN:     0x0302
-.def RTC_PORT_HOUR:    0x0303
-.def RTC_PORT_DAY:     0x0304
-.def RTC_PORT_MONTH:   0x0305
-.def RTC_PORT_YEAR:    0x0306
+.include "ducky.asm"
+.include "rtc.asm"
+.include "svga.asm"
 
 .def FG:               0x0400
 
@@ -42,10 +34,10 @@
 .end
 
 
-.include "defs.asm"
-
-
   .data
+
+  .type stack, space
+  .space 64
 
   .type iteration, int
   .int 50
@@ -53,11 +45,36 @@
   .type second, byte
   .byte 255
 
+
   .text
 
+main:
+  li r0, 5
+  outb $RTC_PORT_FREQ, r0
+
+  ; interrupts are disabled, there are no interrupt routines
+  li r0, 0x00
+  la r1, &irq_routine
+  stw r0, r1
+  add r0, $INT_SIZE
+  la r1, &stack
+  add r1, 64
+  stw r0, r1
+
+  ; OK, we're ready, enable interrupts and elts go
+  sti
+
+.loop:
+  idle
+  j &.loop
+  hlt 0x00
+
+
+  ;
+  ; void print_digits(void *buff, int n)
+  ;
+
 print_digits:
-  ; r0 - buff
-  ; r1 - value
   push r2
   mov r2, r1
 
@@ -75,9 +92,9 @@ print_digits:
 
   ret
 
-irq_routine_0:
-  inb r9, $RTC_PORT_SEC
-  inb r8, $RTC_PORT_MIN
+irq_routine:
+  inb r9, $RTC_PORT_SECOND
+  inb r8, $RTC_PORT_MINUTE
   inb r7, $RTC_PORT_HOUR
   inb r6, $RTC_PORT_DAY
   inb r5, $RTC_PORT_MONTH
@@ -86,27 +103,30 @@ irq_routine_0:
   li r0, &second
   lb r0, r0
   cmp r0, r9
-  be &.__quit
+  be &__quit
 
-.__redraw:
+__redraw:
   ; save new value
   li r0, &second
   stb r0, r9
 
+  ; frame buffer address
+  li r10, 0xA000
+
   ; update frame buffer
-  li r0, $VGA_BUFF
+  mov r0, r10
   add r0, 16
   li r1, 0
 
   ; clear frame buffer
-.__memreset_loop:
+__memreset_loop:
   stb r0, r1
   dec r0
-  cmp r0, $VGA_BUFF
-  bne &.__memreset_loop
+  cmp r0, r10
+  bne &__memreset_loop
 
   ; write new values
-  li r0, $VGA_BUFF
+  mov r0, r10
 
   $INSERT_DIGITS r6 ; day
   $INSERT_DOT
@@ -126,27 +146,16 @@ irq_routine_0:
 
   ; refresh screen
   li r0, 0x0002
-  out $VGA_COMMAND_PORT, r0
+  outs $VGA_COMMAND_PORT, r0
 
-.__quit:
-  li r0, &iteration
+__quit:
+  la r0, &iteration
   lw r1, r0
   dec r1
-  bz &halt
+  bz &__halt
   stw r0, r1
 
   retint
 
-halt:
-  li r0, 0
-  hlt r0
-
-
-main:
-  li r0, 5
-  outb $RTC_PORT_FREQ, r0
-
-.loop:
-  idle
-  j &.loop
-  int $INT_HALT
+__halt:
+  hlt 0x00

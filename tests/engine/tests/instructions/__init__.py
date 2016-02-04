@@ -1,9 +1,8 @@
 import os
 
-from ducky.mm import segment_addr_to_addr
-
 from .. import common_run_machine, common_asserts, TestCase
 from functools import partial
+from ducky.boot import DEFAULT_BOOTLOADER_ADDRESS
 
 def common_case(mm_asserts = None, **kwargs):
   kwargs['binary'] = os.path.join(os.getenv('CURDIR'), 'tests', 'instructions', 'tests', kwargs['binary'] + '.testbin')
@@ -11,17 +10,17 @@ def common_case(mm_asserts = None, **kwargs):
 
 class Tests(TestCase):
   def test_nop(self):
-    common_case(binary = 'nop_1', r0 = 0x100)
+    common_case(binary = 'nop_1')
 
   def test_inc(self):
     common_case(binary = 'inc_1', r0 = 1)
     common_case(binary = 'inc_2', r0 = 2)
-    common_case(binary = 'inc_3', r0 = 0xFFFF, s = 1)
+    common_case(binary = 'inc_3', r0 = 0xFFFFFFFF, s = 1)
     common_case(binary = 'inc_4', r0 = 0, z = 1)
 
   def test_dec(self):
     common_case(binary = 'dec_1', z = 1)
-    common_case(binary = 'dec_2', r0 = 0xFFFF, s = 1)
+    common_case(binary = 'dec_2', r0 = 0xFFFFFFFF, s = 1)
     common_case(binary = 'dec_3', r0 = 1)
 
   def test_add(self):
@@ -35,10 +34,10 @@ class Tests(TestCase):
   def test_sub(self):
     common_case(binary = 'sub_1', r0 = 10, r1 = 5)
     common_case(binary = 'sub_2', r0 = 0, r1 = 2, z = 1)
-    common_case(binary = 'sub_3', r0 = 0xFFFE, r1 = 4, s = 1)
+    common_case(binary = 'sub_3', r0 = 0xFFFFFFFE, r1 = 4, s = 1)
     common_case(binary = 'sub_4', r0 = 10)
     common_case(binary = 'sub_5', z = 1)
-    common_case(binary = 'sub_6', r0 = 0xFFFE, s = 1)
+    common_case(binary = 'sub_6', r0 = 0xFFFFFFFE, s = 1)
 
   def test_mul(self):
     common_case(binary = 'mul_1', r0 = 15, r1 = 3)
@@ -70,12 +69,14 @@ class Tests(TestCase):
     common_case(binary = 'and_2', r1 = 0x0004, z = 1)
     common_case(binary = 'and_3', r0 = 0x0008)
     common_case(binary = 'and_4', z = 1)
+    common_case(binary = 'and_5', r0 = 0xDEDEABAB, s = 1)
 
   def test_or(self):
-    common_case(binary = 'or_1', r0 = 0xFFFF, r1 = 0x000F, s = 1)
-    common_case(binary = 'or_2', r0 = 0xFFF0, r1 = 0x00F0, s = 1)
-    common_case(binary = 'or_3', r0 = 0xFFFF, s = 1)
-    common_case(binary = 'or_4', r0 = 0xFFF0, s = 1)
+    common_case(binary = 'or_1', r0 = 0xFFFF, r1 = 0x000F)
+    common_case(binary = 'or_2', r0 = 0xFFF0, r1 = 0x00F0)
+    common_case(binary = 'or_3', r0 = 0xFFFF)
+    common_case(binary = 'or_4', r0 = 0xFFF0)
+    common_case(binary = 'or_5', r0 = 0xFFFFD248, s = 1)
 
   def test_xor(self):
     common_case(binary = 'xor_1', r0 = 0x0FFF, r1 = 0x0F0F)
@@ -85,14 +86,14 @@ class Tests(TestCase):
     common_case(binary = 'xor_5', z = 1)
 
   def test_not(self):
-    common_case(binary = 'not_1', r0 = 0x000F)
-    common_case(binary = 'not_2', r0 = 0xFFFF, s = 1)
+    common_case(binary = 'not_1', r0 = 0x000F000F)
+    common_case(binary = 'not_2', r0 = 0xFFFFFFFF, s = 1)
     common_case(binary = 'not_3', z = 1)
 
   def test_shiftl(self):
     common_case(binary = 'shiftl_1', r0 = 2)
     common_case(binary = 'shiftl_2', r0 = 16)
-    common_case(binary = 'shiftl_3', z = 1)
+    common_case(binary = 'shiftl_3', r0 = 0x80000000, s = 1)
     common_case(binary = 'shiftl_4', z = 1)
     common_case(binary = 'shiftl_5', r0 = 0x0F00)
 
@@ -171,50 +172,66 @@ class Tests(TestCase):
     common_case(binary = 'ble_3', r0 = 0x1FF)
 
   def test_call(self):
-    common_case(binary = 'call_1', r0 = 0xEE)
+    data_base = DEFAULT_BOOTLOADER_ADDRESS + (0x1000 if os.getenv('MMAPABLE_SECTIONS')  == 'yes' else 0x0100)
+
+    common_case(binary = 'call_1', r0 = 0xEE, sp = data_base + 0x40)
 
   def test_li(self):
-    common_case(binary = 'li_1', r0 = 0xDEAD, s = 1)
+    common_case(binary = 'li_1', r0 = 0xDEAD, r1 = 0xA0A0BEEF, s = 1)
 
   def test_lw(self):
-    data_base = 0x1000 if os.getenv('MMAPABLE_SECTIONS')  == 'yes' else 0x0100
-    common_case(binary = 'lw_1', r0 = data_base, r1 = 0xDEAD, s = 1)
+    data_base = DEFAULT_BOOTLOADER_ADDRESS + (0x1000 if os.getenv('MMAPABLE_SECTIONS')  == 'yes' else 0x0100)
+
+    common_case(binary = 'lw_1', r0 = data_base, r1 = 0xDEADBEEF, s = 1)
+
+  def test_ls(self):
+    data_base = DEFAULT_BOOTLOADER_ADDRESS + (0x1000 if os.getenv('MMAPABLE_SECTIONS')  == 'yes' else 0x0100)
+
+    common_case(binary = 'ls_1', r0 = data_base + 4, r1 = 0xBEEF)
+    common_case(binary = 'ls_2', r0 = data_base + 6, r1 = 0xDEAD)
 
   def test_lb(self):
-    data_base = 0x1000 if os.getenv('MMAPABLE_SECTIONS')  == 'yes' else 0x0100
-    common_case(binary = 'lb_1', r0 = data_base + 2, r1 = 0xAD)
-    common_case(binary = 'lb_2', r0 = data_base + 3, r1 = 0xDE)
+    data_base = DEFAULT_BOOTLOADER_ADDRESS + (0x1000 if os.getenv('MMAPABLE_SECTIONS')  == 'yes' else 0x0100)
+
+    common_case(binary = 'lb_1', r0 = data_base + 4, r1 = 0xEF)
+    common_case(binary = 'lb_2', r0 = data_base + 5, r1 = 0xBE)
 
   def test_stw(self):
-    data_base = 0x1000 if os.getenv('MMAPABLE_SECTIONS')  == 'yes' else 0x0100
-    ph_data_base = segment_addr_to_addr(3, data_base)
+    data_base = DEFAULT_BOOTLOADER_ADDRESS + (0x1000 if os.getenv('MMAPABLE_SECTIONS')  == 'yes' else 0x0100)
 
-    common_case(binary = 'stw_1', r0 = data_base, r1 = 0xF00, r2 = 0xDEAD, s = 1, mm_asserts = [(ph_data_base, 0xDEAD), (ph_data_base + 2, 0)])
+    common_case(binary = 'stw_1', r0 = data_base, r1 = 0xDEADBEEF, r2 = 0xFD0CADDE, s = 1, mm_asserts = [(data_base, 0xFD0CADDE), (data_base + 4, 0)])
+
+  def test_sts(self):
+    data_base = DEFAULT_BOOTLOADER_ADDRESS + (0x1000 if os.getenv('MMAPABLE_SECTIONS')  == 'yes' else 0x0100)
+
+    common_case(binary = 'sts_1', r0 = data_base, r2 = 0xBEEFDEAD, s = 1, mm_asserts = [(data_base, 0xDEAD), (data_base + 4, 0)])
+    common_case(binary = 'sts_2', r0 = data_base + 2, r2 = 0xDEAD,      mm_asserts = [(data_base, 0xDEAD0000)])
 
   def test_stb(self):
-    data_base = 0x1000 if os.getenv('MMAPABLE_SECTIONS')  == 'yes' else 0x0100
-    ph_data_base = segment_addr_to_addr(3, data_base)
+    data_base = DEFAULT_BOOTLOADER_ADDRESS + (0x1000 if os.getenv('MMAPABLE_SECTIONS')  == 'yes' else 0x0100)
 
-    common_case(binary = 'stb_1', r0 = data_base, r2 = 0xDEAD, s = 1, mm_asserts = [(ph_data_base, 0xAD), (ph_data_base + 2, 0)])
-    common_case(binary = 'stb_2', r0 = data_base + 1, r2 = 0xDE,      mm_asserts = [(ph_data_base, 0xDE00)])
+    common_case(binary = 'stb_1', r0 = data_base, r2 = 0xBEEFDEAD, s = 1, mm_asserts = [(data_base, 0xAD), (data_base + 4, 0)])
+    common_case(binary = 'stb_2', r0 = data_base + 1, r2 = 0xDE,      mm_asserts = [(data_base, 0xDE00)])
 
   def test_cli(self):
-    fp = 0x1100 if os.getenv('MMAPABLE_SECTIONS')  == 'yes' else 0x0200
-    common_case(binary = 'cli_1', r0 = 0x100, r1 = 0xFF, fp = fp, sp = fp, cs = 0x03, ds = 0x03, privileged = 0)
-    common_case(binary = 'cli_2', r0 = 0x100, r1 = 0xFF, hwint = 0)
+    data_base = DEFAULT_BOOTLOADER_ADDRESS + (0x1000 if os.getenv('MMAPABLE_SECTIONS')  == 'yes' else 0x0100)
+
+    common_case(binary = 'cli_1', r1 = 0xEE)
+    common_case(binary = 'cli_2', r0 = 0x5C, r1 = 0xFF, fp = data_base + 0x30, sp = data_base + 0x30, hwint = 0)
 
   def test_sti(self):
     # hwint is always 1... This is just a sanity test, nothing serious.
     # But it's better than nothing.
 
-    common_case(binary = 'sti_1', r0 = 0x100)
+    data_base = DEFAULT_BOOTLOADER_ADDRESS + (0x1000 if os.getenv('MMAPABLE_SECTIONS')  == 'yes' else 0x0100)
+
+    common_case(binary = 'sti_1', r0 = 0x5C, r1 = data_base + 0x40, fp = data_base + 0x30, sp = data_base + 0x30, hwint = 1)
 
   def test_cas(self):
-    data_base = 0x1000 if os.getenv('MMAPABLE_SECTIONS') == 'yes' else 0x0100
-    ph_data_base = segment_addr_to_addr(3, data_base)
+    data_base = DEFAULT_BOOTLOADER_ADDRESS + (0x1000 if os.getenv('MMAPABLE_SECTIONS') == 'yes' else 0x0100)
 
-    common_case(binary  ='cas_1', r0 = 0x100, r1 = data_base, r2 = 0x0A, r3 = 0x0B, e = 1, mm_asserts = [(ph_data_base, 0x0B)])
-    common_case(binary = 'cas_2', r0 = 0x100, r1 = data_base, r2 = 0x0A, r3 = 0x0C, mm_asserts = [(ph_data_base, 0x0A)])
+    common_case(binary  ='cas_1', r1 = data_base, r2 = 0x0A, r3 = 0x0B, e = 1, mm_asserts = [(data_base, 0x0B)])
+    common_case(binary = 'cas_2', r1 = data_base, r2 = 0x0A, r3 = 0x0C, mm_asserts = [(data_base, 0x0A)])
 
   def test_sete(self):
     common_case(binary = 'sete_1', r0 = 0xFF, r1 = 1, e = 1, z = 1)

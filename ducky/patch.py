@@ -1,4 +1,5 @@
 import ast
+import _ast
 import imp
 import inspect
 import os
@@ -43,13 +44,17 @@ class RemoveLoggingVisitor(ast.NodeTransformer):
         return None
 
       if f.id == 'log_cpu_core_state':
-        debug('remmoving %s - it is log_cpu_core_state call' % node)
+        debug('removing %s - it is log_cpu_core_state call' % node)
+        return None
+
+      if f.id == 'D':
+        debug('removing %s - it is D call' % node)
         return None
 
       return node
 
     else:
-      if hasattr(f, 'attr') and f.attr == 'DEBUG':
+      if hasattr(f, 'attr') and (f.attr == 'DEBUG' or f.attr == 'debug'):
         debug('removing %s - it is DEBUG call' % node)
         return None
 
@@ -57,6 +62,13 @@ class RemoveLoggingVisitor(ast.NodeTransformer):
 
   def visit_If(self, node):
     self.generic_visit(node)
+
+    # if __debug__:
+    if isinstance(node.test, _ast.Name) and node.test.id == '__debug__':
+      debug('replacing %s - it is __debug__ if' % node)
+      debug('  orelse: %s' % node.orelse)
+
+      return node.orelse
 
     if not node.body:
       debug('removing %s - it is empty if body')

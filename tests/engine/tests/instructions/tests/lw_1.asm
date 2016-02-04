@@ -1,10 +1,10 @@
-  .include "defs.asm"
   .data
+
   .type foo, int
-  .int 0xDEAD
+  .int 0xDEADBEEF
 
   .text
-main:
-  li r0, &foo
+
+  la r0, &foo
   lw r1, r0
-  int $INT_HALT
+  hlt 0x00

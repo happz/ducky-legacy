@@ -6,29 +6,33 @@ TC_MACHINE := $(TESTSETDIR)/$(EXAMPLE).$(DB_PID).machine
 TC_OUT     := $(TESTSETDIR)/$(EXAMPLE).$(DB_PID).out
 
 
-smp.o: $(TOPDIR)/defs.asm smp.asm
-smp: smp.o
-	$(call run-linker,--section-base=.cwt=0x8000)
+smp.o: $(DEFSDIR)/boot.asm $(DEFSDIR)/ducky.asm $(DEFSDIR)/control.asm $(DEFSDIR)/hdt.asm smp.asm
 
-build: smp
+smp: smp.o $(TOPDIR)/boot/lib.o
+	$(call run-linker,--section-base=.text=0x00000000)
+
+smp.img: smp
+	$(call run-binary-image,--bio)
+
+build: smp smp.img
 
 run: build
 	$(Q) echo "[RUN] $(EXAMPLE) ... "
 	$(Q) COVERAGE_FILE=$(shell if [ "$(VMCOVERAGE)" = "yes" ]; then echo "$(TESTSETDIR)/coverage/.coverage.$(EXAMPLE).$(DB_PID)"; else echo ""; fi) \
 	     $(PYTHON) $(VMCOVERAGE_RUN) $(DVM) $(VMDEBUG) \
 			 --machine-config=$(CURDIR)/smp.conf \
-			 --set-option=machine:interrupt-routines=$(INTERRUPTS) \
-			 --set-option=binary-0:file=$(CURDIR)/smp \
-			 -g
+			 --set-option=bootloader:file=$(LOADER) \
+			 --set-option=device-6:filepath=$(CURDIR)/smp.img \
+			 -g $(VMPROFILE)
 
 test-run: build
 	$(Q) echo -n "[TEST] $(EXAMPLE) ... "
 	$(Q) COVERAGE_FILE=$(shell if [ "$(VMCOVERAGE)" = "yes" ]; then echo "$(TESTSETDIR)/coverage/.coverage.$(EXAMPLE).$(DB_PID)"; else echo ""; fi) \
 	     $(PYTHON) $(VMCOVERAGE_RUN) $(DVM) $(VMDEBUG) \
 			 --machine-config=$(CURDIR)/smp.conf \
-			 --set-option=machine:interrupt-routines=$(INTERRUPTS) \
-			 --set-option=binary-0:file=$(CURDIR)/smp \
-			 -g -d &> $(TC_MACHINE); \
+			 --set-option=bootloader:file=$(CURDIR)/smp \
+			 --set-option=device-6:filepath=$(CURDIR)/smp.img \
+			 -g $(VMPROFILE) &> $(TC_MACHINE); \
 			 if [[ $$? -ne 1 ]]; then touch $(TESTSET_FAILED); echo "$(CC_RED)FAIL$(CC_END)"; else echo "$(CC_GREEN)PASS$(CC_END)"; fi; \
 			 exit 0;
 	$(Q) echo -n "[TEST] $(EXAMPLE) coredump ... "
@@ -39,7 +43,7 @@ test-run: build
 			 -Q "STATE.get_child('machine').get_cpu_state_by_id(0).get_core_state_by_id(1).registers[0]" \
 			 -Q "STATE.get_child('machine').get_cpu_state_by_id(1).get_core_state_by_id(0).registers[0]" \
 			 -Q "STATE.get_child('machine').get_cpu_state_by_id(1).get_core_state_by_id(1).registers[0]" &> $(TC_OUT); \
-			 if [[ "$$(cat $(TC_OUT))" != $$'0409743524353' ]]; then touch $(TESTSET_FAILED); echo "$(CC_RED)FAIL$(CC_END)"; else echo "$(CC_GREEN)PASS$(CC_END)"; fi; \
+			 if [[ "$$(cat $(TC_OUT))" != $$'278278278278' ]]; then touch $(TESTSET_FAILED); echo "$(CC_RED)FAIL$(CC_END)"; else echo "$(CC_GREEN)PASS$(CC_END)"; fi; \
 			 exit 0;
 
 tests-pre: build
@@ -49,4 +53,4 @@ tests: build test-run
 tests-post:
 
 clean:
-	$(Q) rm -f smp.o smp
+	$(Q) rm -f smp.o smp smp.img

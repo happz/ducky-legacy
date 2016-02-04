@@ -9,6 +9,7 @@ from . import IRQProvider, IOProvider, Device, IRQList
 from ..errors import InvalidResourceError
 from ..mm import UINT16_FMT
 
+DEFAULT_IRQ = 0x01
 DEFAULT_PORT_RANGE = 0x100
 
 
@@ -29,7 +30,7 @@ class KeyboardController(IRQProvider, IOProvider, Device):
     self.streams = streams[:] if streams else []
     self.port = port or DEFAULT_PORT_RANGE
     self.ports = [port]
-    self.irq = irq or IRQList.KEYBOARD
+    self.irq = irq or DEFAULT_IRQ
 
     self.input = None
 

@@ -5,23 +5,29 @@ Getting started
 Installing
 ----------
 
-There's no pip package right now, you can install Ducky by checking out the sources::
+The easy way is to use package::
+
+  pip install ducky
+
+
+Or, you can install Ducky by checking out the sources::
 
   git clone https://github.com/happz/ducky.git
   cd ducky
   python setup.py
 
+
 After this, you should have the ``ducky`` module on your path::
 
   >>> import ducky
   >>> ducky.__version__
-  '1.0'
+  '2.0'
 
 
 Prerequisites
 -------------
 
-Ducky runs with **python 2.6** - python3 is **NOT** yet supported (it's on my TODO list though). There are few other dependencies, ``setup.py`` should take care of them autmatically.
+Ducky runs with both Python 2 **and** 3 - supported versions are 2.7, 3.3, 3.4 and 3.5. There are few other dependencies, installation process (or ``setup.py``) should take care of them autmatically.
 
 
 "Hello, world!" tutorial
@@ -37,14 +43,25 @@ Source is located in ``examples`` directory. If you check it out, it's a plain a
 
 .. code-block:: gas
 
-    .type message, string
-    .string "Hello, world!"
+  .include "tty.asm"
+
+  .data
+
+  .type stack, space
+  .space 64
+
+  .type message, string
+  .string "Hello, world!"
+
+  .text
 
   main:
-    li r0, &message
+    la sp, &stack
+    add sp, 64
+
+    la r0, &message
     call &writesn
-    li r0, 0
-    int 0
+    hlt 0x00
 
   outb:
     ; > r0: port
@@ -60,23 +77,22 @@ Source is located in ``examples`` directory. If you check it out, it's a plain a
     ;   r2: string ptr
     push r1
     push r2
-    push r0
-    pop r2
-    li r0, 0x100
-  .__fn_writesn_loop:
+    mov r2, r0
+    li r0, $TTY_PORT_DATA
+  .__writesn_loop:
     lb r1, r2
-    bz &.__fn_writesn_write_nl
+    bz &.__writesn_write_nl
     call &outb
     inc r2
-    j &.__fn_writesn_loop
-  .__fn_writesn_write_nl:
+    j &.__writesn_loop
+  .__writesn_write_nl:
     ; \n
-    li r1, 0xA
+    li r1, 0x0000000A
     call &outb
     ; \r
-    li r1, 0xD
+    li r1, 0x0000000D
     call &outb
-    li r0, 0
+    li r0, 0x00000000
     pop r2
     pop r1
     ret
@@ -172,12 +188,6 @@ This command will take object file (or many of them), and produce one binary by 
   ducky-objdump -i examples/hello-world/hello-world -a
 
 This should produce output very similar to the one you've already seen - not much had changed, there was only one object files, only offsets used by ``call`` and ``j`` instructions are now non-zero, meaning they are now pointing to the correct locations.
-
-Oh, and you will need basic interrupt routines - no need to invent them yourself for "Hello, world!" example, just run this:
-
-.. code-block:: none
-
-  make interrupts
 
 
 Running

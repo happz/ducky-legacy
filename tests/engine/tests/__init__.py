@@ -14,6 +14,8 @@ import ducky.mm
 import ducky.snapshot
 import ducky.util
 
+from ducky.util import F
+
 from unittest import TestCase  # noqa
 
 try:
@@ -49,31 +51,35 @@ def assert_registers(state, **regs):
     if reg in ('flags', 'ip', 'cnt'):
       continue
 
-    default = 0
-    if reg in ('fp', 'sp'):
-      default = 0x10F4 if os.environ.get('MMAPABLE_SECTIONS', 'no') == 'yes' else 0x01F4
-
-    elif reg in ('cs', 'ds'):
-      default = 0x02
-
-    val = regs.get(reg, default)
+    val = regs.get(reg, 0)
 
     reg_index = ducky.cpu.registers.REGISTER_NAMES.index(reg)
     reg_value = state.registers[reg_index]
 
-    assert reg_value == val, 'Register {} expected to have value {} ({}), {} ({}) found instead'.format(reg, ducky.mm.UINT16_FMT(val), val, ducky.mm.UINT16_FMT(reg_value), reg_value)
+    assert reg_value == val, F('Register {reg} expected to have value {expected} ({expected:L}), {actual} ({actual:L}) found instead', reg = reg, expected = val, actual = reg_value)
 
 def assert_flags(state, **flags):
-  real_flags = ducky.cpu.registers.FlagsRegister.from_uint16(state.registers[ducky.cpu.registers.Registers.FLAGS])
+  core_flags = ducky.cpu.CoreFlags.from_int(state.flags)
 
-  assert real_flags.privileged == flags.get('privileged', 1), 'PRIV flag expected to be {}'.format(flags.get('privileged', 1))
-  assert real_flags.hwint == flags.get('hwint', 1), 'HWINT flag expected to be {}'.format(flags.get('hwint', 1))
-  assert real_flags.e == flags.get('e', 0), 'E flag expected to be {}'.format(flags.get('e', 0))
-  assert real_flags.z == flags.get('z', 0), 'Z flag expected to be {}'.format(flags.get('z', 0))
-  assert real_flags.o == flags.get('o', 0), 'O flag expected to be {}'.format(flags.get('o', 0))
-  assert real_flags.s == flags.get('s', 0), 'S flag expected to be {}'.format(flags.get('s', 0))
+  flag_labels = {
+    'privileged': 'privileged',
+    'hwint':      'hwint_allowed',
+    'e':          'equal',
+    'z':          'zero',
+    'o':          'overflow',
+    's':          'sign'
+  }
+
+  for short_flag, core_flag in iteritems(flag_labels):
+    passed = flags.get(short_flag, True if short_flag == 'privileged' else False)
+    expected = True if passed in (True, 1) else False
+    actual = getattr(core_flags, core_flag)
+
+    assert expected == actual, F('Flag {flag} expected to be {expected}, {actual} found instead', flag = core_flag, expected = expected, actual = actual)
 
 def assert_mm(state, cells):
+  state.print_node()
+
   for addr, expected_value in cells:
     addr = addr
     expected_value = expected_value
@@ -84,8 +90,8 @@ def assert_mm(state, cells):
       if page.index != page_index:
         continue
 
-      real_value = page.content[page_offset] | (page.content[page_offset + 1] << 8)
-      assert real_value == expected_value, 'Value at {} (page {}, offset {}) should be {}, {} found instead'.format(ducky.mm.ADDR_FMT(addr), page_index, ducky.mm.UINT8_FMT(page_offset), ducky.mm.UINT16_FMT(expected_value), ducky.mm.UINT16_FMT(real_value))
+      real_value = page.content[page_offset] | (page.content[page_offset + 1] << 8) | (page.content[page_offset + 2] << 16) | (page.content[page_offset + 3] << 24)
+      assert real_value == expected_value, 'Value at {} (page {}, offset {}) should be {}, {} found instead'.format(ducky.mm.ADDR_FMT(addr), page_index, ducky.mm.UINT8_FMT(page_offset), ducky.mm.UINT32_FMT(expected_value), ducky.mm.UINT32_FMT(real_value))
       break
 
     else:
@@ -152,8 +158,8 @@ def run_machine(code = None, binary = None, machine_config = None, coredump_file
     binary = compile_code(code)
 
   if binary is not None:
-    machine_config.add_section('binary-0')
-    machine_config.set('binary-0', 'file', binary)
+    machine_config.add_section('bootloader')
+    machine_config.set('bootloader', 'file', binary)
 
   M.hw_setup(machine_config)
 
@@ -172,7 +178,7 @@ def run_machine(code = None, binary = None, machine_config = None, coredump_file
     return M
 
   for address, value, length in pokes:
-    M.poke(address, value, length)
+    M.rom_loader.poke(address, value, length)
 
   M.run()
 
@@ -183,7 +189,6 @@ def run_machine(code = None, binary = None, machine_config = None, coredump_file
 
 def common_run_machine(code = None, binary = None, machine_config = None,
                        cpus = 1, cores = 1,
-                       irq_routines = 'tests/instructions/interrupts-basic',
                        pokes = None,
                        storages = None,
                        mmaps = None,
@@ -202,15 +207,17 @@ def common_run_machine(code = None, binary = None, machine_config = None,
 
   machine_config.set('machine', 'cpus', cpus)
   machine_config.set('machine', 'cores', cores)
-  machine_config.set('machine', 'interrupt-routines', os.path.join(os.getenv('CURDIR'), irq_routines))
 
   if not machine_config.has_section('cpu'):
     machine_config.add_section('cpu')
 
   machine_config.set('cpu', 'math-coprocessor', 'yes')
 
-  for driver, id, path in storages:
-    machine_config.add_storage(driver, id, filepath = path)
+  if storages:
+    machine_config.add_device('bio', 'ducky.devices.storage.BlockIO')
+
+    for driver, id, path in storages:
+      machine_config.add_storage(driver, id, filepath = path)
 
   for path, addr, size, offset, access, shared in mmaps:
     machine_config.add_mmap(path, addr, size, offset = offset, access = access, shared = shared)

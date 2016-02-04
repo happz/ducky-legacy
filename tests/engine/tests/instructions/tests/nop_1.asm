@@ -1,4 +1,4 @@
-  .include "defs.asm"
-main:
+  .text
+
   nop
-  int $INT_HALT
+  hlt 0x00

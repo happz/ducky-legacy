@@ -29,6 +29,21 @@ become one of the main goals.
 Features
 --------
 
+Ducky - as in "Ducky, the CPU" - is a 32-bit RISC CPU. Ducky, "the VM", is a simulator of Ducky CPU, adding few other modules to create the whole virtual machine, with CPUs, peripherals, storages and other components.
+
+
+RISC instruction set
+^^^^^^^^^^^^^^^^^^^^
+
+Instruction set was inspired by RISC CPUs, and sticks to LOAD/STORE aproach, with fixed-width instructions.
+
+
+Memory model
+^^^^^^^^^^^^
+
+Flat, paged, with linear addressing. Main memory consists of memory pages, each page supports simple access control - simple MMU is implemented.
+
+
 Modular architecture
 ^^^^^^^^^^^^^^^^^^^^
 
@@ -39,18 +54,6 @@ SMP support
 ^^^^^^^^^^^
 
 Multiple CPUs with multiple cores per each CPU, with shared memory. Each core can be restricted to its own segment of memory.
-
-
-RISC instruction set
-^^^^^^^^^^^^^^^^^^^^
-
-Instruction set was inspired by RISC CPUs and sticks to LOAD/STORE aproach, with fixed-width instructions.
-
-
-Memory model
-^^^^^^^^^^^^
-
-Flat, paged, segmented, with linear addressing. Main memory consists of memory pages, and is divided into segments, defined by the fact that internal address bus is only 16 bits wide. The whole memory can be much larger, and only CPU cores running in privileged mode can switch their segments, and therefore access any byte in memory. Each memory page supports simple access control.
 
 
 Persistent storage
@@ -85,6 +88,7 @@ Tools
 - ``objdump`` for inspection of bytecode files
 - ``coredump`` for inspection of snapshots
 - ``vm`` for running virtual machine itself
+- ``img`` for converting binaries to images
 - and ``cc``, an experimental C compiler
 
 
@@ -93,12 +97,11 @@ Planned features
 
 - ``FORTH`` kernel - basic functionality but at least ANS compliant
 - network support - it would be awesome to have a network stack available for running programs
-- more freedom for bytecode - dynamic load/unload of bytecode in runtime, ...
 - functioning C compiler, with simple C library
 - and few others...
+
 
 Need help?
 ----------
 
-The whole development is tracked on a GitHub `page <http://github.com/happz/ducky/>`_, including
-source codes and issue tracker.
+The whole development is tracked on a GitHub `page <http://github.com/happz/ducky/>`_, including source codes and issue tracker.

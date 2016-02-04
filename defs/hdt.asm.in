@@ -1,0 +1,16 @@
+;
+; HDT defines
+;
+
+<%
+  import ducky.hdt
+  from ctypes import sizeof
+%>
+
+
+.def HDT_HEADER_MAGIC: ${X8(ducky.hdt.HDT_MAGIC)}
+
+.def HDT_ENTRY_PAYLOAD_OFFSET: ${X4(sum([sizeof(f[1]) for f in ducky.hdt.HDTEntry_CPU._fields_[0:2]]))}
+
+.def HDT_ENTRY_CPU:    ${X8(ducky.hdt.HDTEntryTypes.CPU)}
+.def HDT_ENTRY_MEMORY: ${X8(ducky.hdt.HDTEntryTypes.MEMORY)}

@@ -10,6 +10,7 @@ DLD := $(shell which ducky-ld)
 DVM := $(shell which ducky-vm)
 DOD := $(shell which ducky-objdump)
 DCD := $(shell which ducky-coredump)
+DIM := $(shell which ducky-img)
 
 export DAS
 export DCC
@@ -17,6 +18,7 @@ export DLD
 export DVM
 export DOD
 export DCD
+export DIM
 
 
 include Makefile.inc
@@ -25,11 +27,14 @@ include Makefile.inc
 .PHONY: tests tests-pre tests-post test-submit-results docs cloc flake forth hello-world hello-world-lib clock vga
 
 
+all: loader hello-world hello-world-lib clock vga smp
+
+
 #
 #
 #
 
-SUBDIRS := docs examples forth tests
+SUBDIRS := docs boot examples forth tests
 
 
 #
@@ -126,12 +131,16 @@ ifndef FORTH_DEBUG_FIND
   FORTH_DEBUG_FIND := no
 endif
 
-ifndef FORTH_TEXT_WRITABLE
-  FORTH_TEXT_WRITABLE := no
+ifndef FORTH_DEBUG
+  FORTH_DEBUG := no
 endif
 
 ifndef FORTH_WELCOME
   FORTH_WELCOME := no
+endif
+
+ifndef VERIFY_DISASSEMBLE
+  VERIFY_DISASSEMBLE := no
 endif
 
 export TESTSET
@@ -154,13 +163,40 @@ export FORTH_WELCOME
 
 
 #
+# Assembler defines
+#
+
+DEFSDIR := $(TOPDIR)/defs
+export DEFSDIR
+
+
+defines:
+	$(Q) $(MAKE) -C defs/ all
+
+
+#
+# Loader
+#
+
+LOADER := $(TOPDIR)/boot/loader
+export LOADER
+
+ifndef DUCKY_BOOT_IMG
+  DUCKY_BOOT_IMG :=
+endif
+
+loader: defines
+	$(Q) $(MAKE) -C boot/ build
+
+
+#
 # FORTH
 #
 
 FORTH_KERNEL := $(TOPDIR)/forth/ducky-forth
 export FORTH_KERNEL
 
-forth:
+forth: defines
 	$(Q) make -C forth/ kernel
 
 
@@ -170,63 +206,49 @@ forth:
 
 
 # Hello, world!
-hello-world:
+hello-world: defines
 	$(Q) $(MAKE) -C examples/hello-world build
 
-run-hello-world: hello-world interrupts
+run-hello-world: hello-world
 	$(Q) $(MAKE) -C examples/hello-world run
 
 # Hello, world! with screen terminal
 hello-world-screen: hello-world
 
-run-hello-world-screen: hello-world-screen interrupts
+run-hello-world-screen: hello-world-screen
 	$(Q) $(MAKE) -C examples/hello-world run-screen
 
 
 # Clock
-clock:
+clock: defines
 	$(Q) $(MAKE) -C examples/clock build
 
-run-clock: clock interrupts
+run-clock: clock
 	$(Q) $(MAKE) -C examples/clock run
 
 
 # "Hello, world!" using library
-hello-world-lib:
+hello-world-lib: defines
 	$(Q) $(MAKE) -C examples/hello-world-lib build
 
-run-hello-world-lib: hello-world-lib interrupts
+run-hello-world-lib: hello-world-lib
 	$(Q) $(MAKE) -C examples/hello-world-lib run
 
 
 # sVGA show-off
-vga:
+vga: defines
 	$(Q) $(MAKE) -C examples/vga build
 
-run-vga: vga interrupts
+run-vga: vga
 	$(Q) $(MAKE) -C examples/vga run
 
 
 # SMP show-off
-smp:
+smp: defines
 	$(Q) $(MAKE) -C examples/smp build
 
-run-smp:
+run-smp: loader smp
 	$(Q) $(MAKE) -C examples/smp run
-
-
-#
-# Common binaries
-#
-
-# Basic interrupt routines
-
-INTERRUPTS := $(TOPDIR)/interrupts
-export INTERRUPTS
-
-interrupts.o: interrupts.asm defs.asm
-interrupts: interrupts.o
-	$(run-linker)
 
 
 #
@@ -248,11 +270,11 @@ tests-pre-master:
 	$(Q) echo "$(CC_YELLOW)Python version:$(CC_END) $(CC_GREEN)$(shell $(PYTHON_INTERPRET) --version 2>&1 | tr '\n' ' ')$(CC_END)"
 	$(Q) echo "$(CC_YELLOW)Test set directory:$(CC_END) $(CC_GREEN)$(TESTSETDIR)$(CC_END)"
 
-tests-pre: tests-pre-master
+tests-pre: tests-pre-master defines forth
 	$(Q) $(MAKE) -C tests/ tests-pre
 	$(Q) $(MAKE) -C examples/ tests-pre
 
-tests-in-subdirs: interrupts forth
+tests-in-subdirs:
 	$(Q) $(MAKE) -C tests/ tests
 	$(Q) $(MAKE) -C examples/ tests
 
@@ -282,7 +304,7 @@ endif
 tests: tests-pre tests-in-subdirs tests-post tests-submit-results
 	$(Q) if [ -e $(TESTSET_FAILED) ]; then /bin/false; fi
 
-benchmark: tests-pre-master interrupts
+benchmark: tests-pre-master defines
 	$(Q) $(MAKE) -C tests/benchmark tests-pre
 	$(Q) $(MAKE) -C tests/benchmark tests
 	$(Q) $(MAKE) -C tests/benchmark tests-post
@@ -300,13 +322,14 @@ clean-master:
 	$(Q) rm -rf build dist
 	$(Q) find $(TOPDIR) -name 'ducky-snapshot.bin' -print0 | xargs -0 rm -f
 	$(Q) find $(TOPDIR) -name '*.pyc' -print0 | xargs -0 rm -f
+	$(Q) find $(TOPDIR) -name '*.pyo' -print0 | xargs -0 rm -f
 	$(Q) find $(TOPDIR) -name '*.o' -print0 | xargs -0 rm -f
-	$(Q) rm -f interrupts
 
 clean-testsets:
 	$(Q) rm -rf tests-*
 
 clean-in-subdirs:
+	$(Q) $(MAKE) -C defs/ clean
 	$(Q) for dir in $(SUBDIRS); do \
 	       $(MAKE) -C $$dir clean; \
 	     done
@@ -319,11 +342,11 @@ profile-eval:
 
 
 cloc:
-	cloc --skip-uniqueness --lang-no-ext=Python ducky/ forth/ examples/
+	cloc --skip-uniqueness --lang-no-ext=Python boot/ defs/ ducky/ forth/ examples/
 
 
 flake:
-	$(Q) ! flake8 --config=$(TOPDIR)/flake8.cfg $(shell find $(TOPDIR)/ducky $(TOPDIR)/tests -name '*.py') | sort | grep -v -e "'patch' imported but unused" -e duckyfs -e '\.swp' -e 'unable to detect undefined names'
+	$(Q) ! flake8 --config=$(TOPDIR)/flake8.cfg $(shell find $(TOPDIR)/ducky $(TOPDIR)/tests -name '*.py' | grep -v vhdl) | sort | grep -v -e "'patch' imported but unused" -e duckyfs -e '\.swp' -e 'unable to detect undefined names'
 
 
 pylint:
@@ -331,10 +354,10 @@ pylint:
 
 
 # Documentation
-docs:
+docs: loader
 	cp README.rst docs/introduction.rst
 	sphinx-apidoc -T -e -o docs/ ducky/
-	$(MAKE) -C docs/ clean
+	#$(MAKE) -C docs/ clean
 	$(MAKE) -C docs/ html
 
 

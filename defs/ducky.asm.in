@@ -1,0 +1,45 @@
+;
+; Some common Ducky defs
+;
+
+<%
+  import ducky.mm
+  import ducky.cpu.instructions
+%>
+
+
+;
+; Instruction set
+;
+
+.def DUCKY_INST_SET: ${X4(ducky.cpu.instructions.DuckyInstructionSet.instruction_set_id)}
+
+
+;
+; Data types
+;
+
+.def WORD_BITS:     32
+.def INT_BITS:      32
+.def SHORT_BITS:    16
+.def BYTE_BITS:      8
+
+.def WORD_SIZE:     4
+.def INT_SIZE:      4
+.def SHORT_SIZE:    2
+.def BYTE_SIZE:     1
+
+
+;
+; Memory
+;
+
+.def PAGE_SHIFT:    ${ducky.mm.PAGE_SHIFT}
+.def PAGE_SIZE:     ${ducky.mm.PAGE_SIZE}
+.def PAGE_MASK:     ${X8(ducky.mm.u32_t(ducky.mm.PAGE_MASK).value)}
+
+.def PTE_READ:      ${X2(ducky.mm.PageTableEntry.READ)}
+.def PTE_WRITE:     ${X2(ducky.mm.PageTableEntry.WRITE)}
+.def PTE_EXECUTE:   ${X2(ducky.mm.PageTableEntry.EXECUTE)}
+.def PTE_DIRTY:     ${X2(ducky.mm.PageTableEntry.DIRTY)}
+.def PTE_CACHE:     ${X2(ducky.mm.PageTableEntry.CACHE)}

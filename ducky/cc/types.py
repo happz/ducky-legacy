@@ -129,7 +129,7 @@ class IntType(CType):
     return 'int'
 
   def __len__(self):
-    return 2
+    return 4
 
 class UnsignedIntType(IntType):
   def __repr__(self):
@@ -156,7 +156,7 @@ class PointerType(CType):
     return repr(self.ptr_to_type) + '*'
 
   def __len__(self):
-    return 2
+    return 4
 
 class StructType(CType):
   def __init__(self, name, *args, **kwargs):
@@ -183,9 +183,9 @@ class StructType(CType):
 
       self.fields[field.name] = field = Field(field.name, field_type, field_offset)
 
-      field_offset = ducky.util.align(2, field_offset + len(field.type))
+      field_offset = ducky.util.align(4, field_offset + len(field.type))
 
-    self._size = ducky.util.align(2, field_offset)
+    self._size = ducky.util.align(4, field_offset)
 
   def __repr__(self):
     return 'struct %s' % self.name
@@ -232,4 +232,4 @@ class ArrayType(CType):
   def __len__(self):
     if self.size is not None:
       return self.size
-    return 2
+    return 4

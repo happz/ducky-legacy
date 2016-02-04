@@ -8,7 +8,7 @@ def translate_buffer(logger, buffer, file_in, file_out, options):
   from ..mm.binary import File, SectionTypes, SymbolEntry, RelocEntry
 
   try:
-    sections = translate_buffer(logger, buffer, mmapable_sections = options.mmapable_sections, writable_sections = options.writable_sections, filename = file_in, defines = options.defines, includes = options.includes)
+    sections = translate_buffer(logger, buffer, mmapable_sections = options.mmapable_sections, writable_sections = options.writable_sections, filename = file_in, defines = options.defines, includes = options.includes, verify_disassemble = options.verify_disassemble)
 
   except AssemblerError as exc:
     logger.exception(exc)
@@ -53,7 +53,7 @@ def translate_buffer(logger, buffer, file_in, file_out, options):
       h_section.data_size = section.data_size
       h_section.file_size = section.file_size
       h_section.name = f_out.string_table.put_string(section.name)
-      h_section.base = section.base.u16
+      h_section.base = section.base
 
       if section.type == SectionTypes.SYMBOLS:
         symbol_entries = []
@@ -62,10 +62,10 @@ def translate_buffer(logger, buffer, file_in, file_out, options):
           entry = SymbolEntry()
           symbol_entries.append(entry)
 
-          entry.flags = se.flags
+          entry.flags = se.flags.to_encoding()
           entry.name = f_out.string_table.put_string(se.name.name)
-          entry.address = se.section_ptr.u16
-          entry.size = se.size.u16
+          entry.address = se.section_ptr
+          entry.size = se.size
           entry.section = section_name_to_index[se.section.name]
 
           if se.filename:
@@ -89,17 +89,18 @@ def translate_buffer(logger, buffer, file_in, file_out, options):
           reloc_entries.append(entry)
 
           entry.name = f_out.string_table.put_string(rs.name)
-          entry.flags = rs.flags
+          entry.flags = rs.flags.to_encoding()
           entry.patch_section = section_name_to_index[rs.patch_section.name]
           entry.patch_address = rs.patch_address
           entry.patch_offset = rs.patch_offset or 0
           entry.patch_size = rs.patch_size
+          entry.patch_add = rs.patch_add or 0
 
         f_out.set_content(h_section, reloc_entries)
         h_section.data_size = h_section.file_size = sizeof(RelocEntry()) * len(reloc_entries)
 
       else:
-        h_section.flags = section.flags
+        h_section.flags = section.flags.to_encoding()
         f_out.set_content(h_section, section.content)
 
     h_section = f_out.create_section()
@@ -125,6 +126,7 @@ def main():
   parser.add_option_group(group)
   group.add_option('-D', dest = 'defines', action = 'append', default = [], help = 'Define variable', metavar = 'VAR')
   group.add_option('-I', dest = 'includes', action = 'append', default = [], help = 'Add directory to list of include dirs', metavar = 'DIR')
+  group.add_option('--verify-disassemble', dest = 'verify_disassemble', action = 'store_true', default = False, help = 'Verify that disassebler instructions match input text')
 
   group = optparse.OptionGroup(parser, 'Binary options')
   parser.add_option_group(group)

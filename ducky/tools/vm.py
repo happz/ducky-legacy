@@ -1,11 +1,48 @@
 from .. import patch
-from ..util import str2int, UINT16_FMT
+from ..util import str2int, UINT32_FMT
 
 import optparse
 import signal
 import sys
 
 from six.moves import input
+
+
+def process_config_options(logger, config_file = None, set_options = None, add_options = None, enable_devices = None, disable_devices = None):
+  logger.debug('process_config_options: config_file=%s, set_options=%s, add_options=%s, enable_devices=%s, disable_devices=%s', config_file, set_options, add_options, enable_devices, disable_devices)
+
+  set_options = set_options or []
+  add_options = add_options or []
+  enable_devices = enable_devices or []
+  disable_devices = disable_devices or []
+
+  from ..config import MachineConfig
+  config = MachineConfig()
+
+  if config_file is not None:
+    config.read(config_file)
+
+  for section, option, value in set_options:
+    if not config.has_section(section):
+      logger.error('Unknown config section %s', section)
+      continue
+
+    config.set(section, option, value)
+
+  for section, option, value in add_options:
+    if not config.has_section(section):
+      logger.error('Unknown config section %s', section)
+      continue
+
+    config.set(section, option, config.get(section, option) + ', ' + value)
+
+  for dev in enable_devices:
+    config.set(dev, 'enabled', True)
+
+  for dev in disable_devices:
+    config.set(dev, 'enabled', False)
+
+  return config
 
 def main():
   from . import add_common_options, parse_options
@@ -97,40 +134,14 @@ def main():
     console_slave.boot()
     M.console.connect(console_slave)
 
-  from ..config import MachineConfig
-  machine_config = MachineConfig()
+  config = process_config_options(logger,
+                                  config_file = options.machine_config,
+                                  set_options = [(section,) + tuple(option.split('=')) for section, option in [option.split(':') for option in options.set_options]],
+                                  add_options = [(section,) + tuple(option.split('=')) for section, option in [option.split(':') for option in options.add_options]],
+                                  enable_devices = options.enable_devices,
+                                  disable_devices = options.disable_devices)
 
-  if options.machine_config is not None:
-    machine_config.read(options.machine_config)
-
-  for option in options.set_options:
-    section, option = option.split(':')
-
-    if not machine_config.has_section(section):
-      logger.error('Unknown config section %s', section)
-      continue
-
-    option, value = option.split('=')
-
-    machine_config.set(section, option, value)
-
-  for option in options.add_options:
-    section, option = option.split(':')
-
-    if not machine_config.has_section(section):
-      logger.error('Unknown config section %s', section)
-      continue
-
-    option, value = option.split('=')
-    machine_config.set(section, option, machine_config.get(section, option) + ', ' + value)
-
-  for dev in options.enable_devices:
-    machine_config.set(dev, 'enabled', True)
-
-  for dev in options.disable_devices:
-    machine_config.set(dev, 'enabled', False)
-
-  M.hw_setup(machine_config)
+  M.hw_setup(config)
 
   def signal_handler(sig, frame):
     if sig == signal.SIGUSR1:
@@ -184,7 +195,7 @@ def main():
   ]
 
   def __check_stats(core):
-    table_exits.append([str(core), UINT16_FMT(core.exit_code)])
+    table_exits.append([str(core), UINT32_FMT(core.exit_code)])
 
     table_inst_caches.append([
       str(core),
@@ -210,7 +221,7 @@ def main():
       core.registers.cnt.value
     ])
 
-  for core in M.cores():
+  for core in M.cores:
     __check_stats(core)
 
   logger.info('')
@@ -226,7 +237,7 @@ def main():
   logger.table(table_cnts)
   logger.info('')
 
-  inst_executed = sum([core.registers.cnt.value for core in M.cores()])
+  inst_executed = sum([core.registers.cnt.value for core in M.cores])
   runtime = float(M.end_time - M.start_time)
   logger.info('Executed instructions: %i %f (%.4f/sec)', inst_executed, runtime, float(inst_executed) / runtime)
   logger.info('')
@@ -237,4 +248,4 @@ def main():
     logger.info('Saving profiling data into %s' % options.profile_dir)
     STORE.save(options.profile_dir)
 
-  sys.exit(M.exit_code)
+  sys.exit(1 if M.exit_code != 0 else 0)

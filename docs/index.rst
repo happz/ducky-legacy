@@ -29,27 +29,30 @@ Code Documentation
 .. toctree::
    :maxdepth: 3
 
-   ducky.reactor
-   ducky.machine
-   ducky.interfaces
-   ducky.log
-   ducky.cpu
-   ducky.cpu.coprocessor
-   ducky.mm
-   ducky.console
-   ducky.devices
-   ducky.snapshot
-   ducky.debugging
-   ducky.profiler
+   ducky.boot
    ducky.config
-   ducky.errors
-   ducky.streams
-   ducky.util
-   ducky.patch
-   ducky.tools
+   ducky.console
    ducky.cc
    ducky.cc.passes
+   ducky.cpu
+   ducky.cpu.coprocessor
+   ducky.debugging
+   ducky.devices
+   ducky.errors
+   ducky.hdt
+   ducky.interfaces
+   ducky.log
+   ducky.machine
+   ducky.mm
    ducky.native
+   ducky.patch
+   ducky.profiler
+   ducky.reactor
+   ducky.snapshot
+   ducky.streams
+   ducky.tools
+   ducky.util
+   ducky.vhdl
 
 Indices and tables
 ==================

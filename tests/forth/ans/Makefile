@@ -21,14 +21,13 @@ export COVERAGE_FILE
 tests-pre:
 	$(Q) mkdir -p $(TC_DIR)
 
-tests: $(TOPDIR)/interrupts $(FORTH_KERNEL)
+tests:
 	$(Q) echo -n "$(CC_YELLOW)[TEST]$(CC_END) FORTH ANS testsuite ... "
 	$(Q) $(PYTHON) $(VMCOVERAGE_RUN) $(DVM) \
 			 $(VMPROFILE) \
 			 $(BINPROFILE) -g \
 			 --machine-config=$(TC_CONFIG) \
-			 --set-option=machine:interrupt-routines=$(INTERRUPTS) \
-			 --set-option=binary-0:file=$(FORTH_KERNEL) \
+			 --set-option=bootloader:file=$(FORTH_KERNEL) \
 			 --set-option=device-3:streams_in=$(CURDIR)/../enable-test-mode.f \
 			 --add-option=device-3:streams_in=$(TOPDIR)/forth/ducky-forth.f \
 			 --add-option=device-3:streams_in=$(CURDIR)/tester.fr \

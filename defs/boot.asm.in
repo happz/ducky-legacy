@@ -1,0 +1,15 @@
+;
+; Boot process defines
+;
+
+<%
+  from ducky import cpu, boot
+%>
+
+; Initial memory layout
+.def BOOT_IVT_ADDRESS:       ${X8(cpu.DEFAULT_IVT_ADDRESS)}
+.def BOOT_HDT_ADDRESS:       ${X8(boot.DEFAULT_HDT_ADDRESS)}
+.def BOOT_CWT_ADDRESS:       0x00000200
+.def BOOT_PT_ADDRESS:        ${X8(cpu.DEFAULT_PT_ADDRESS)}
+.def BOOT_LOADER_ADDRESS:    ${X8(boot.DEFAULT_BOOTLOADER_ADDRESS)}
+.def BOOT_OS_ADDRESS:        0x00030000

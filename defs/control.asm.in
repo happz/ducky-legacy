@@ -1,0 +1,14 @@
+;
+; Control Coprocessors defines
+;
+
+<%
+  from ducky.cpu.coprocessor.control import ControlRegisters
+%>
+
+.def CONTROL_CPUID:       r${ControlRegisters.CR0.value}
+.def CONTROL_IVT:         r${ControlRegisters.CR1.value}
+.def CONTROL_PT:          r${ControlRegisters.CR2.value}
+.def CONTROL_FLAGS:       r${ControlRegisters.CR3.value}
+
+.def CONTROL_FLAG_PT_ENABLED: 0x00000001

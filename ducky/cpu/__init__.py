@@ -4,22 +4,24 @@ import sys
 from six import iterkeys, itervalues, iteritems
 from six.moves import range
 
+from functools import partial
+
 from . import registers
 from .. import profiler
 
 from ..interfaces import IMachineWorker, ISnapshotable
-from ..mm import ADDR_FMT, UINT8_FMT, UINT16_FMT, UINT32_FMT, SEGMENT_SIZE, PAGE_SIZE, PAGE_MASK, PAGE_SHIFT, i16, PageTableEntry
-from .registers import Registers, REGISTER_NAMES, FlagsRegister
+from ..mm import UINT8_FMT, UINT16_FMT, UINT32_FMT, PAGE_SIZE, PAGE_MASK, PAGE_SHIFT, PageTableEntry, UINT64_FMT
+from .registers import Registers, REGISTER_NAMES, FLAGS
 from .instructions import DuckyInstructionSet
 from ..errors import AccessViolationError, InvalidResourceError
-from ..util import LRUCache
+from ..util import LRUCache, Flags
 from ..snapshot import SnapshotNode
 
 #: Default IVT address
-DEFAULT_IVT_ADDRESS = 0x000000
+DEFAULT_IVT_ADDRESS = 0x00000000
 
 #: Default PT address
-DEFAULT_PT_ADDRESS = 0x010000
+DEFAULT_PT_ADDRESS = 0x00010000
 
 #: Default size of core instruction cache, in instructions.
 DEFAULT_CORE_INST_CACHE_SIZE = 256
@@ -42,7 +44,7 @@ class CPUState(SnapshotNode):
 
 class CPUCoreState(SnapshotNode):
   def __init__(self):
-    super(CPUCoreState, self).__init__('cpuid', 'coreid', 'registers', 'exit_code', 'alive', 'running', 'idle', 'ivt_address', 'pt_address')
+    super(CPUCoreState, self).__init__('cpuid', 'coreid', 'registers', 'exit_code', 'alive', 'running', 'idle', 'ivt_address', 'pt_address', 'pt_enabled', 'flags')
 
 class InterruptVector(object):
   """
@@ -51,14 +53,12 @@ class InterruptVector(object):
 
   SIZE = 8
 
-  def __init__(self, cs = 0x00, ds = 0x00, ip = 0x0000, sp = 0x0000):
-    self.cs = cs
-    self.ds = ds
+  def __init__(self, ip = 0x0000, sp = 0x0000):
     self.ip = ip
     self.sp = sp
 
   def __repr__(self):
-    return '<InterruptVector: cs=%s, ds=%s, ip=%s, sp=%s>' % (UINT8_FMT(self.cs), UINT8_FMT(self.ds), UINT16_FMT(self.ip), UINT16_FMT(self.sp))
+    return '<InterruptVector: ip=%s, sp=%s>' % (UINT32_FMT(self.ip), UINT32_FMT(self.sp))
 
 class CPUException(Exception):
   """
@@ -66,7 +66,7 @@ class CPUException(Exception):
 
   :param string msg: message describing exceptional state.
   :param ducky.cpu.CPUCore core: CPU core that raised exception, if any.
-  :param u16 ip: address of an instruction that caused exception, if any.
+  :param u32_t ip: address of an instruction that caused exception, if any.
   """
 
   def __init__(self, msg, core = None, ip = None):
@@ -113,33 +113,32 @@ def do_log_cpu_core_state(core, logger = None, disassemble = True):
 
   for i in range(0, Registers.REGISTER_SPECIAL, 4):
     regs = [(i + j) for j in range(0, 4) if (i + j) < Registers.REGISTER_SPECIAL]
-    s = ['reg{:02d}={}'.format(reg, UINT16_FMT(core.registers.map[reg].value)) for reg in regs]
+    s = ['r{:02d}={}'.format(reg, UINT32_FMT(core.registers.map[reg].value)) for reg in regs]
     logger(' '.join(s))
 
-  logger('cs=%s    ds=%s', UINT16_FMT(core.registers.cs.value), UINT16_FMT(core.registers.ds.value))
-  logger('fp=%s    sp=%s    ip=%s', UINT16_FMT(core.registers.fp.value), UINT16_FMT(core.registers.sp.value), UINT16_FMT(core.registers.ip.value))
-  logger('flags=%s', core.registers.flags.to_string())
+  logger('fp=%s    sp=%s    ip=%s', UINT32_FMT(core.registers.fp.value), UINT32_FMT(core.registers.sp.value), UINT32_FMT(core.registers.ip.value))
+  logger('flags=%s', core.flags.to_string())
   logger('cnt=%s, alive=%s, running=%s, idle=%s, exit=%i', core.registers.cnt.value, core.alive, core.running, core.idle, core.exit_code)
 
   if hasattr(core, 'math_coprocessor'):
     for index, v in enumerate(core.math_coprocessor.registers.stack):
-      logger('MC: %02i: %s', index, UINT32_FMT(v.value))
+      logger('MC: %02i: %s', index, UINT64_FMT(v.value))
 
   if hasattr(core, 'control_coprocessor'):
     cp = core.control_coprocessor
-    logger('CC: cr0=%s, cr1=%s, cr2=%s, cr3=%s, cr4=%s', UINT16_FMT(cp.read_cr0().value), UINT16_FMT(cp.read_cr1().value), UINT16_FMT(cp.read_cr2().value),  UINT16_FMT(cp.read_cr3().value),  UINT16_FMT(cp.read_cr4().value))
+    logger('CC: cr0=%s, cr1=%s, cr2=%s, cr3=%s', UINT32_FMT(cp.read_cr0()), UINT32_FMT(cp.read_cr1()), UINT32_FMT(cp.read_cr2()), UINT32_FMT(cp.read_cr3()))
 
   if disassemble is True:
-    if core.current_instruction:
-      inst = core.instruction_set.disassemble_instruction(core.current_instruction)
+    if core.current_instruction is not None:
+      inst = core.instruction_set.disassemble_instruction(core.LOGGER, core.current_instruction)
       logger('current=%s', inst)
     else:
       logger('current=<none>')
   else:
     logger('current=<unknown>')
 
-  for index, (ip, symbol, offset) in enumerate(core.backtrace()):
-    logger('Frame #%i: %s + %s (%s)', index, symbol, offset, ip)
+  for index, frame in enumerate(core.backtrace()):
+    logger('Frame #%i: %s', index, frame)
 
 def log_cpu_core_state(*args, **kwargs):
   """
@@ -152,22 +151,26 @@ def log_cpu_core_state(*args, **kwargs):
   do_log_cpu_core_state(*args, **kwargs)
 
 class StackFrame(object):
-  def __init__(self, cs, ds, fp):
+  def __init__(self, fp):
     super(StackFrame, self).__init__()
 
-    self.CS = cs
-    self.DS = ds
     self.FP = fp
     self.IP = None
 
   def __getattribute__(self, name):
     if name == 'address':
-      return self.DS * SEGMENT_SIZE * PAGE_SIZE + self.FP
+      return self.FP
 
     return super(StackFrame, self).__getattribute__(name)
 
   def __repr__(self):
-    return '<StackFrame: CS={} DS={} FP={} IP={}, ({})'.format(UINT8_FMT(self.CS), UINT8_FMT(self.DS), UINT16_FMT(self.FP), UINT16_FMT(self.IP if self.IP is not None else 0), ADDR_FMT(self.address))
+    return '<StackFrame: FP={}, IP={}>'.format(UINT32_FMT(self.FP), UINT32_FMT(self.IP if self.IP is not None else 0))
+
+
+class CoreFlags(Flags):
+  _flags = ['privileged', 'hwint_allowed', 'equal', 'zero', 'overflow', 'sign']
+  _labels = 'PHEZOS'
+
 
 class InstructionCache(LRUCache):
   """
@@ -195,13 +198,9 @@ class InstructionCache(LRUCache):
 
     core = self.core
 
-    inst = core.instruction_set.decode_instruction(core.mmu.MEM_IN32(addr, not_execute = False))
-    opcode = inst.opcode
+    inst, desc, opcode = core.instruction_set.decode_instruction(core.LOGGER, core.mmu.MEM_IN32(addr, not_execute = False), core = core)
 
-    if opcode not in core.instruction_set.opcode_desc_map:
-      raise InvalidOpcodeError(opcode, ip = core.current_ip, core = self)
-
-    return (inst, opcode, core.instruction_set.opcode_desc_map[opcode].execute)
+    return (inst, opcode, desc.execute)
 
 class CPUDataCache(LRUCache):
   """
@@ -215,19 +214,17 @@ class CPUDataCache(LRUCache):
   Helper methods are provided, to wrap cache API to a standardized "memory
   access" API. In the future, I may extend support to more sizes, or
   restructure internal storage to keep longer blocks keyed by address (like the
-  real caches do). Therefore, CPU (and others) are expected to access data
-  using :py:meth:`ducky.cpu.DataCache.read_u16` and
-  :py:meth:`ducky.cpu.DataCache.write_u16`, instead of accessing raw values
-  using address as a dictionary key.
+  real caches do). Therefore, all CPU memory IO should access memory using
+  `ducky.cpu.CPUCore.MEM_IN*` and `ducky.cpu.CPUCache.MEM_OUT*` methods.
 
   Cache "owns" its entries until someone else realizes it's time to give them
-  up. Then cache have to "release" entries in question - it does not have to
-  write remove such entries, but it has to make sure they are consistent with
+  up. The cache then have to "release" entries in question - it does not have
+  to remove such entries, but it has to make sure they are consistent with
   the content of main memory.
 
   :param ducky.cpu.CPUCacheController controller: cache controller that will
     dispatch notifications to all caches that share this core's main memory.
-  :param ducky.cpu.CPUCore core: CPU core that owns this cache.
+  :param ducky.cpu.MMU mmu: parent MMU.
   :param int size: maximal number of entries this cache can store.
   """
 
@@ -252,10 +249,10 @@ class CPUDataCache(LRUCache):
     addr, value = self.popitem(last = False)
     dirty, value = value
 
-    self.core.DEBUG('%s.make_space: addr=%s, value=%s', self.__class__.__name__, ADDR_FMT(addr), UINT16_FMT(value))
+    self.core.DEBUG('%s.make_space: addr=%s, value=%s', self.__class__.__name__, UINT32_FMT(addr), UINT16_FMT(value))
 
     if dirty:
-      self.mmu.MEM_OUT16(addr, value)
+      self.mmu.MEM_OUT32(addr, value)
 
     self.prunes += 1
 
@@ -264,84 +261,145 @@ class CPUDataCache(LRUCache):
     Read word from memory. This method is responsible for the real job of
     fetching data and filling the cache.
 
-    :param u24 addr: absolute address to read from.
+    :param u32_t addr: absolute address to read from.
     :returns: cache entry
     :rtype: ``list``
     """
 
-    self.core.DEBUG('%s.get_object: address=%s', self.__class__.__name__, ADDR_FMT(addr))
+    self.core.DEBUG('%s.get_object: address=%s', self.__class__.__name__, UINT32_FMT(addr))
 
     self.controller.flush_entry_references(addr, caller = self.core)
 
-    return [False, self.mmu.MEM_IN16(addr)]
+    return [False, self.mmu.MEM_IN32(addr)]
 
   def read_u8(self, addr):
     """
     Read byte from cache. Value is read from memory if it is not yet present
     in cache.
 
-    :param u24 addr: absolute address to read from.
-    :rtype: u8
+    :param u32_t addr: absolute address to read from.
+    :rtype: u8_t
     """
 
-    word_addr = addr & ~1
+    word_addr = addr & ~3
 
-    self.core.DEBUG('%s.read_u8: addr=%s, word_addr=%s', self.__class__.__name__, ADDR_FMT(addr), ADDR_FMT(word_addr))
+    self.core.DEBUG('%s.read_u8: addr=%s, word_addr=%s', self.__class__.__name__, UINT32_FMT(addr), UINT32_FMT(word_addr))
 
-    word = self.read_u16(word_addr)
-    return (word & 0xFF) if addr == word_addr else (word & 0xFF00) >> 8
+    word = self.read_u32(word_addr)
+
+    if addr == word_addr:
+      return word & 0xFF
+
+    if addr == word_addr + 1:
+      return (word >> 8) & 0xFF
+
+    if addr == word_addr + 2:
+      return (word >> 16) & 0xFF
+
+    return (word >> 24) & 0xFF
 
   def write_u8(self, addr, value):
     """
     Write byte to cache. Value in cache is overwritten, and marked as dirty. It
     is not written back to the memory yet.
 
-    :param u24 addr: absolute address to modify.
-    :param u8 value: new value to write.
+    :param u32_t addr: absolute address to modify.
+    :param u8_t value: new value to write.
     """
 
-    word_addr = addr & ~1
+    word_addr = addr & ~3
 
-    self.core.DEBUG('%s.write_u8: addr=%s, word_addr=%s, vaue=%s', self.__class__.__name__, ADDR_FMT(addr), ADDR_FMT(word_addr), UINT16_FMT(value))
+    self.core.DEBUG('%s.write_u8: addr=%s, word_addr=%s, vaue=%s', self.__class__.__name__, UINT32_FMT(addr), UINT32_FMT(word_addr), UINT16_FMT(value))
 
-    word = self.read_u16(word_addr)
+    word = self.read_u32(word_addr)
+    value &= 0xFF
 
     if addr == word_addr:
-      self.write_u16(word_addr, (word & 0xFF00) | (value & 0xFF))
+      self.write_u32(word_addr, (word & 0xFFFFFF00) | value)
+
+    elif addr == word_addr + 1:
+      self.write_u32(word_addr, (word & 0xFFFF00FF) | (value << 8))
+
+    elif addr == word_addr + 2:
+      self.write_u32(word_addr, (word & 0xFF00FFFF) | (value << 16))
+
     else:
-      self.write_u16(word_addr, (word & 0x00FF) | (value & 0xFF) << 8)
+      self.write_u32(word_addr, (word & 0x00FFFFFF) | (value << 24))
 
   def read_u16(self, addr):
     """
     Read word from cache. Value is read from memory if it is not yet present
     in cache.
 
-    :param u24 addr: absolute address to read from.
-    :rtype: u16
+    :param u32_t addr: absolute address to read from.
+    :rtype: u16_t
     """
 
-    self.core.DEBUG('%s.read_u16: addr=%s', self.__class__.__name__, ADDR_FMT(addr))
+    word_addr = addr & ~3
 
-    if self.mmu.get_pte(addr).cache != 1:
-      self.core.DEBUG('%s.read_u16: read directly from uncacheable page', self.__class__.__name__)
-      return self.mmu.MEM_IN16(addr)
+    self.core.DEBUG('%s.read_u16: addr=%s, word_addr=%s', self.__class__.__name__, UINT32_FMT(addr), UINT32_FMT(word_addr))
 
-    return self[addr][1]
+    word = self.read_u32(word_addr)
+
+    if addr == word_addr:
+      return word & 0xFFFF
+
+    return (word >> 16) & 0xFFFF
 
   def write_u16(self, addr, value):
     """
     Write word to cache. Value in cache is overwritten, and marked as dirty. It
     is not written back to the memory yet.
 
-    :param u24 addr: absolute address to modify.
-    :param u16 value: new value to write.
+    :param u32_t addr: absolute address to modify.
+    :param u16_t value: new value to write.
     """
 
-    self.core.DEBUG('%s.write_u16: addr=%s, value=%s', self.__class__.__name__, ADDR_FMT(addr), UINT16_FMT(value))
+    word_addr = addr & ~3
+
+    self.core.DEBUG('%s.write_u16: addr=%s, word_addr=%s, value=%s', self.__class__.__name__, UINT32_FMT(addr), UINT32_FMT(word_addr), UINT16_FMT(value))
+
+    value &= 0xFFFF
+
+    word = self.read_u32(word_addr)
+
+    if addr == word_addr:
+      self.write_u32(word_addr, (word & 0xFFFF0000) | value)
+
+    else:
+      self.write_u32(word_addr, (word & 0x0000FFFF) | (value << 16))
+
+  def read_u32(self, addr):
+    """
+    Read word from cache. Value is read from memory if it is not yet present
+    in cache.
+
+    :param u32_t addr: absolute address to read from.
+    :rtype: u32_t
+    """
+
+    self.core.DEBUG('%s.read_u32: addr=%s', self.__class__.__name__, UINT32_FMT(addr))
 
     if self.mmu.get_pte(addr).cache != 1:
-      self.core.DEBUG('%s.write_u16: write directly to uncacheable page', self.__class__.__name__)
-      self.mmu.MEM_OUT16(addr, value)
+      self.core.DEBUG('%s.read_u32: read directly from uncacheable page', self.__class__.__name__)
+      return self.mmu.MEM_IN32(addr)
+
+    return self[addr][1]
+
+  def write_u32(self, addr, value):
+    """
+    Write word to cache. Value in cache is overwritten, and marked as dirty. It
+    is not written back to the memory yet.
+
+    :param u32_t addr: absolute address to modify.
+    :param u32_t value: new value to write.
+    """
+
+    self.core.DEBUG('%s.write_u32: addr=%s, value=%s', self.__class__.__name__, UINT32_FMT(addr), UINT32_FMT(value))
+
+    if self.mmu.get_pte(addr).cache != 1:
+      self.core.DEBUG('%s.write_u32: write directly to uncacheable page', self.__class__.__name__)
+      self.mmu.MEM_OUT32(addr, value)
       return
 
     if addr not in self:
@@ -360,7 +418,7 @@ class CPUDataCache(LRUCache):
     :param bool remove: if ``True``, entry is removed from cache.
     """
 
-    self.core.DEBUG('%s.release_entry_references: address=%s, writeback=%s, remove=%s', self.__class__.__name__, ADDR_FMT(addr), writeback, remove)
+    self.core.DEBUG('%s.release_entry_references: address=%s, writeback=%s, remove=%s', self.__class__.__name__, UINT32_FMT(addr), writeback, remove)
 
     if writeback:
       dirty, value = self.get(addr, (None, None))
@@ -371,7 +429,7 @@ class CPUDataCache(LRUCache):
 
       if dirty:
         self.core.DEBUG('%s.release_entry_reference: write back', self.__class__.__name__)
-        self.mmu.MEM_OUT16(addr, value)
+        self.mmu.MEM_OUT32(addr, value)
 
       if not remove:
         self[addr] = (False, value)
@@ -412,7 +470,7 @@ class CPUDataCache(LRUCache):
     :param bool remove: if ``True``, entries are removed from cache.
     """
 
-    self.core.DEBUG('%s.remove_area_references: address=%s, size=%s, writeback=%s, remove=%s', self.__class__.__name__, ADDR_FMT(address), UINT16_FMT(size), writeback, remove)
+    self.core.DEBUG('%s.remove_area_references: address=%s, size=%s, writeback=%s, remove=%s', self.__class__.__name__, UINT32_FMT(address), UINT16_FMT(size), writeback, remove)
 
     addresses = [i for i in range(address, address + size, 2)]
 
@@ -478,7 +536,7 @@ class CPUCacheController(object):
       entry.
     """
 
-    self.machine.DEBUG('%s.flush_entry_references: caller=%s, address=%s', self.__class__.__name__, caller, ADDR_FMT(address))
+    self.machine.DEBUG('%s.flush_entry_references: caller=%s, address=%s', self.__class__.__name__, caller, UINT32_FMT(address))
 
     for core in [core for core in self.cores if core is not caller]:
       core.mmu.data_cache.release_entry_references(address, writeback = True, remove = False)
@@ -494,7 +552,7 @@ class CPUCacheController(object):
       version of entry before removing it.
     """
 
-    self.machine.DEBUG('%s.release_entry_references: caller=%s, addresss=%s', self.__class__.__name__, caller, ADDR_FMT(address))
+    self.machine.DEBUG('%s.release_entry_references: caller=%s, addresss=%s', self.__class__.__name__, caller, UINT32_FMT(address))
 
     writeback = True if caller is None else False
     for core in [core for core in self.cores if core is not caller]:
@@ -529,7 +587,7 @@ class CPUCacheController(object):
       their version of entries before removing it.
     """
 
-    self.machine.DEBUG('%s.release_area_references: caller=%s, address=%s, size=%s', self.__class__.__name__, caller, ADDR_FMT(address), ADDR_FMT(size))
+    self.machine.DEBUG('%s.release_area_references: caller=%s, address=%s, size=%s', self.__class__.__name__, caller, UINT32_FMT(address), UINT32_FMT(size))
 
     writeback = True if caller is None else False
     for core in [core for core in self.cores if core is not caller]:
@@ -577,6 +635,8 @@ class MMU(ISnapshotable):
     self.force_aligned_access = config.getbool('memory', 'force-aligned-access', default = False)
     self.pt_address = config.getint('cpu', 'pt-address', DEFAULT_PT_ADDRESS)
 
+    self.pt_enabled = False
+
     self.pte_cache = {}
 
     self.DEBUG = core.DEBUG
@@ -619,6 +679,28 @@ class MMU(ISnapshotable):
 
     self.set_access_methods()
 
+  def __debug_wrapper_read(self, reader, *args, **kwargs):
+    self.core.debug.pre_memory(args[0], read = True)
+
+    if not self.core.running:
+      return
+
+    value = reader(*args, **kwargs)
+
+    self.core.debug.post_memory(args[0], read = True)
+
+    return value
+
+  def __debug_wrapper_write(self, writer, *args, **kwargs):
+    self.core.debug.pre_memory(args[0], read = False)
+
+    if not self.core.running:
+      return
+
+    writer(*args, **kwargs)
+
+    self.core.debug.post_memory(args[0], read = False)
+
   def set_access_methods(self):
     """
     Set parent core's memory-access methods to proper shortcuts.
@@ -629,17 +711,18 @@ class MMU(ISnapshotable):
     if self.data_cache is None:
       self.core.MEM_IN8   = self.full_read_u8
       self.core.MEM_IN16  = self.full_read_u16
+      self.core.MEM_IN32  = self.full_read_u32
       self.core.MEM_OUT8  = self.full_write_u8
       self.core.MEM_OUT16 = self.full_write_u16
+      self.core.MEM_OUT32 = self.full_write_u32
 
     else:
       self.core.MEM_IN8   = self.data_cache.read_u8
       self.core.MEM_IN16  = self.data_cache.read_u16
+      self.core.MEM_IN32  = self.data_cache.read_u32
       self.core.MEM_OUT8  = self.data_cache.write_u8
       self.core.MEM_OUT16 = self.data_cache.write_u16
-
-    self.core.MEM_IN32  = self.full_read_u32
-    self.core.MEM_OUT32 = self.full_write_u32
+      self.core.MEM_OUT32 = self.data_cache.write_u32
 
     self.MEM_IN8   = self.full_read_u8
     self.MEM_IN16  = self.full_read_u16
@@ -648,12 +731,21 @@ class MMU(ISnapshotable):
     self.MEM_OUT16 = self.full_write_u16
     self.MEM_OUT32 = self.full_write_u32
 
+    if self.core.debug is not None:
+      self.core.MEM_IN8   = partial(self.__debug_wrapper_read,  self.core.MEM_IN8)
+      self.core.MEM_IN16  = partial(self.__debug_wrapper_read,  self.core.MEM_IN16)
+      self.core.MEM_IN32  = partial(self.__debug_wrapper_read,  self.core.MEM_IN32)
+      self.core.MEM_OUT8  = partial(self.__debug_wrapper_write, self.core.MEM_OUT8)
+      self.core.MEM_OUT16 = partial(self.__debug_wrapper_write, self.core.MEM_OUT16)
+      self.core.MEM_OUT32 = partial(self.__debug_wrapper_write, self.core.MEM_OUT32)
+
   def reset(self):
     self.instruction_cache.clear()
 
     if self.data_cache is not None:
       self.data_cache.clear()
 
+    self.pt_enabled = False
     self.pte_cache = {}
 
   def halt(self):
@@ -676,15 +768,15 @@ class MMU(ISnapshotable):
 
     pg_index = (addr & PAGE_MASK) >> PAGE_SHIFT
 
-    self.DEBUG('MMU.get_pte: addr=%s, pte-address=%s', ADDR_FMT(addr), ADDR_FMT(self.pt_address + pg_index))
+    self.DEBUG('MMU.get_pte: addr=%s, pte-address=%s', UINT32_FMT(addr), UINT32_FMT(self.pt_address + pg_index))
 
     if pg_index not in self.pte_cache:
-      self.pte_cache[pg_index] = pte = PageTableEntry.from_uint16(self.memory.read_u8(self.pt_address + pg_index))
+      self.pte_cache[pg_index] = pte = PageTableEntry.from_int(self.memory.read_u8(self.pt_address + pg_index))
 
     else:
       pte = self.pte_cache[pg_index]
 
-    self.DEBUG('  pte=%s (%s)', pte.to_string(), pte.to_uint16())
+    self.DEBUG('  pte=%s (%s)', pte.to_string(), pte.to_int())
 
     return pte
 
@@ -698,35 +790,35 @@ class MMU(ISnapshotable):
     :raises ducky.errors.AccessViolationError: when access is denied.
     """
 
-    self.DEBUG('MMU.check_access: access=%s, addr=%s', access, ADDR_FMT(addr))
+    self.DEBUG('MMU.check_access: access=%s, addr=%s', access, UINT32_FMT(addr))
 
     if self.force_aligned_access and align is not None and addr % align:
-      raise AccessViolationError('Not allowed to access unaligned memory: access=%s, address=%s, align=%s' % (access, ADDR_FMT(addr), align))
+      raise AccessViolationError('Not allowed to access unaligned memory: access=%s, address=%s, align=%s' % (access, UINT32_FMT(addr), align))
 
     pg_index = (addr & PAGE_MASK) >> PAGE_SHIFT
 
-    if self.core.privileged:
-      return self.memory.page(pg_index)
+    if self.core.privileged or self.pt_enabled is not True:
+      return self.memory.get_page(pg_index)
 
     pte = self.get_pte(addr)
 
     if getattr(pte, access) == 1:
-      return self.memory.page(pg_index)
+      return self.memory.get_page(pg_index)
 
-    raise AccessViolationError('Not allowed to access memory: access=%s, address=%s, pte=%s' % (access, ADDR_FMT(addr), pte.to_string()))
+    raise AccessViolationError('Not allowed to access memory: access=%s, address=%s, pte=%s' % (access, UINT32_FMT(addr), pte.to_string()))
 
   def full_read_u8(self, addr):
-    self.DEBUG('MMU.raw_read_u8: addr=%s', ADDR_FMT(addr))
+    self.DEBUG('MMU.raw_read_u8: addr=%s', UINT32_FMT(addr))
 
     return self.check_access('read', addr).read_u8(addr & (PAGE_SIZE - 1))
 
   def full_read_u16(self, addr):
-    self.DEBUG('MMU.raw_read_u16: addr=%s', ADDR_FMT(addr))
+    self.DEBUG('MMU.raw_read_u16: addr=%s', UINT32_FMT(addr))
 
     return self.check_access('read', addr, align = 2).read_u16(addr & (PAGE_SIZE - 1))
 
   def full_read_u32(self, addr, not_execute = True):
-    self.DEBUG('MMU.raw_read_u32: addr=%s', ADDR_FMT(addr))
+    self.DEBUG('MMU.raw_read_u32: addr=%s', UINT32_FMT(addr))
 
     pg = self.check_access('read', addr, align = 4)
 
@@ -736,17 +828,17 @@ class MMU(ISnapshotable):
     return pg.read_u32(addr & (PAGE_SIZE - 1))
 
   def full_write_u8(self, addr, value):
-    self.DEBUG('MMU.raw_write_u8: addr=%s, value=%s', ADDR_FMT(addr), UINT8_FMT(value))
+    self.DEBUG('MMU.raw_write_u8: addr=%s, value=%s', UINT32_FMT(addr), UINT8_FMT(value))
 
     return self.check_access('write', addr).write_u8(addr & (PAGE_SIZE - 1), value)
 
   def full_write_u16(self, addr, value):
-    self.DEBUG('MMU.raw_write_u16: addr=%s, value=%s', ADDR_FMT(addr), UINT16_FMT(value))
+    self.DEBUG('MMU.raw_write_u16: addr=%s, value=%s', UINT32_FMT(addr), UINT16_FMT(value))
 
     return self.check_access('write', addr).write_u16(addr & (PAGE_SIZE - 1), value)
 
   def full_write_u32(self, addr, value):
-    self.DEBUG('MMU.raw_write_u32: addr=%s, value=%s', ADDR_FMT(addr), UINT32_FMT(value))
+    self.DEBUG('MMU.raw_write_u32: addr=%s, value=%s', UINT32_FMT(addr), UINT32_FMT(value))
 
     return self.check_access('write', addr).write_u32(addr & (PAGE_SIZE - 1), value)
 
@@ -789,9 +881,19 @@ class CPUCore(ISnapshotable, IMachineWorker):
     self.id = coreid
     self.cpu = cpu
 
+    self.debug = None
+
     self.mmu = MMU(self, memory_controller, cache_controller)
 
     self.registers = registers.RegisterSet()
+
+    self.privileged = True
+    self.hwint_allowed = False
+
+    self.arith_equal = False
+    self.arith_zero = False
+    self.arith_overflow = False
+    self.arith_sign = False
 
     self.ivt_address = config.getint('cpu', 'ivt-address', DEFAULT_IVT_ADDRESS)
 
@@ -811,8 +913,6 @@ class CPUCore(ISnapshotable, IMachineWorker):
 
     self.frames = []
     self.check_frames = cpu.machine.config.getbool('cpu', 'check-frames', default = False)
-
-    self.debug = None
 
     self.coprocessors = {}
 
@@ -839,19 +939,16 @@ class CPUCore(ISnapshotable, IMachineWorker):
     state.cpuid = self.cpu.id
     state.coreid = self.id
 
+    state.flags = self.flags.to_int()
+
     state.registers = []
 
     for i, reg in enumerate(REGISTER_NAMES):
-      if reg == 'flags':
-        value = int(self.registers.flags.to_uint16())
-
-      else:
-        value = int(self.registers.map[reg].value)
-
-      state.registers.append(value)
+      state.registers.append(int(self.registers.map[reg].value))
 
     state.ivt_address = self.ivt_address
     state.pt_address = self.mmu.pt_address
+    state.pt_enabled = self.mmu.pt_enabled
 
     state.exit_code = self.exit_code
     state.idle = self.idle
@@ -862,15 +959,14 @@ class CPUCore(ISnapshotable, IMachineWorker):
       self.math_coprocessor.save_state(state)
 
   def load_state(self, state):
-    for i, reg in enumerate(REGISTER_NAMES):
-      if reg == 'flags':
-        self.registers.flags.load_uint16(state.registers[i])
+    self.flags = CoreFlags.from_int(state.flags)
 
-      else:
-        self.registers.map[reg].value = state.registers[i]
+    for i, reg in enumerate(REGISTER_NAMES):
+      self.registers.map[reg].value = state.registers[i]
 
     self.ivt_address = state.ivt_address
     self.mmu.pt_address = state.pt_address
+    self.mmu.pt_enabled = state.pt_enabled
 
     self.exit_code = state.exit_code
     self.idle = state.idle
@@ -885,8 +981,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
       from .. import debugging
       self.debug = debugging.DebuggingSet(self)
 
-  def FLAGS(self):
-    return self.registers.flags
+      self.mmu.set_access_methods()
 
   def REG(self, reg):
     return self.registers.map[reg]
@@ -900,118 +995,86 @@ class CPUCore(ISnapshotable, IMachineWorker):
   def FP(self):
     return self.registers.fp
 
-  def CS(self):
-    return self.registers.cs
-
-  def DS(self):
-    return self.registers.ds
-
-  def CS_ADDR(self, address):
-    return (self.registers.cs.value & 0xFF) * SEGMENT_SIZE * PAGE_SIZE + address
-
-  def DS_ADDR(self, address):
-    return (self.registers.ds.value & 0xFF) * SEGMENT_SIZE * PAGE_SIZE + address
-
-  def reset(self, new_ip = 0):
+  def reset(self, new_ip = 0x00000000):
     """
     Reset core's state. All registers are set to zero, all flags are set to zero,
     except ``HWINT`` flag which is set to one, and ``IP`` is set to requested value.
     Both instruction and data cached are flushed.
 
-    :param u16 new_ip: new ``IP`` value, defaults to zero
+    :param u32_t new_ip: new ``IP`` value, defaults to zero
     """
 
     for reg in registers.RESETABLE_REGISTERS:
       self.REG(reg).value = 0
 
-    self.registers.flags.privileged = 0
-    self.registers.flags.hwint = 1
-    self.registers.flags.e = 0
-    self.registers.flags.z = 0
-    self.registers.flags.o = 0
-    self.registers.flags.s = 0
+    self.flags = CoreFlags.create(privileged = True)
 
     self.registers.ip.value = new_ip
 
     self.mmu.reset()
-
-  def __symbol_for_ip(self):
-    ip = self.registers.ip
-
-    symbol, offset = self.cpu.machine.get_symbol_by_addr(self.registers.cs.value, ip.value)
-
-    if not symbol:
-      self.WARN('symbol_for_ip: Unknown jump target: %s', ip)
-      return
-
-    self.DEBUG('symbol_for_ip: %s%s (%s)', symbol, ' + {}'.format(offset if offset != 0 else ''), ip.value)
 
   def backtrace(self):
     bt = []
 
     if self.check_frames:
       for frame in self.frames:
-        symbol, offset = self.cpu.machine.get_symbol_by_addr(frame.CS, frame.IP)
-        bt.append((frame.IP, symbol, offset))
+        bt.append(repr(frame))
 
       return bt
 
     bt = []
 
     for frame_index, frame in enumerate(self.frames):
-      ip = self.mmu.memory.read_u16(frame.address + 2)
-      symbol, offset = self.cpu.machine.get_symbol_by_addr(frame.CS, ip)
-
-      bt.append((ip, symbol, offset))
+      ip = self.mmu.memory.read_u32(frame.address + 4)
+      bt.append(ip)
 
     ip = self.registers.ip.value - 4
-    symbol, offset = self.cpu.machine.get_symbol_by_addr(self.registers.cs.value, ip)
-    bt.append((ip, symbol, offset))
+    bt.append(ip)
 
     return bt
 
   def raw_push(self, val):
     """
-    Push value on stack. ``SP`` is decremented by two, and value is written at this new address.
+    Push value on stack. ``SP`` is decremented by four, and value is written at this new address.
 
-    :param u16 val: value to be pushed
+    :param u32 val: value to be pushed
     """
 
-    self.DEBUG("raw_push: sp=%s, ds-scp=%s, value=%s", ADDR_FMT(self.registers.sp.value), ADDR_FMT(self.DS_ADDR(self.registers.sp.value)), UINT16_FMT(val))
+    self.DEBUG("raw_push: sp=%s, value=%s", UINT32_FMT(self.registers.sp.value), UINT32_FMT(val))
 
-    self.registers.sp.value -= 2
-    self.MEM_OUT16(self.DS_ADDR(self.registers.sp.value), val)
+    self.registers.sp.value -= 4
+    self.MEM_OUT32(self.registers.sp.value, val)
 
   def raw_pop(self):
     """
-    Pop value from stack. 2 byte number is read from address in ``SP``, then ``SP`` is incremented by two.
+    Pop value from stack. 4 byte number is read from address in ``SP``, then ``SP`` is incremented by four.
 
     :return: popped value
-    :rtype: ``u16``
+    :rtype: ``u32``
     """
 
-    ret = self.MEM_IN16(self.DS_ADDR(self.registers.sp.value))
-    self.registers.sp.value += 2
+    ret = self.MEM_IN32(self.registers.sp.value)
+    self.registers.sp.value += 4
     return ret
 
   def push(self, *regs):
     for reg_id in regs:
-      reg = self.registers.map[reg_id]
+      value = self.flags.to_int() if reg_id == FLAGS else self.registers.map[reg_id].value
 
-      self.DEBUG('push: %s (%s) at %s', reg_id, reg.to_string() if isinstance(reg, FlagsRegister) else UINT16_FMT(reg.value), UINT16_FMT(self.registers.sp.value - 2))
-      value = self.registers.flags.to_uint16() if reg_id == Registers.FLAGS else self.registers.map[reg_id].value
+      self.DEBUG('push: %s (%s) at %s', reg_id, UINT32_FMT(value), UINT32_FMT(self.registers.sp.value - 4))
       self.raw_push(value)
 
   def pop(self, *regs):
     for reg_id in regs:
-      if reg_id == Registers.FLAGS:
-        reg = self.registers.flags
-        reg.load_uint16(self.raw_pop())
-      else:
-        reg = self.registers.map[reg_id]
-        reg.value = self.raw_pop()
+      value = self.raw_pop()
 
-      self.DEBUG('pop: %s (%s) from %s', reg_id, reg.to_string() if isinstance(reg, FlagsRegister) else UINT16_FMT(reg.value), UINT16_FMT(self.registers.sp.value - 2))
+      if reg_id == FLAGS:
+        self.flags = CoreFlags.from_int(value)
+
+      else:
+        self.registers.map[reg_id].value = value
+
+      self.DEBUG('pop: %s (%s) from %s', reg_id, UINT32_FMT(value), UINT32_FMT(self.registers.sp.value - 4))
 
   def create_frame(self):
     """
@@ -1025,7 +1088,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
     self.registers.fp.value = self.registers.sp.value
 
     if self.check_frames:
-      self.frames.append(StackFrame(self.registers.cs.value, self.registers.ds.value, self.registers.fp.value))
+      self.frames.append(StackFrame(self.registers.fp.value))
 
   def destroy_frame(self):
     """
@@ -1038,25 +1101,21 @@ class CPUCore(ISnapshotable, IMachineWorker):
 
     if self.check_frames:
       if self.frames[-1].FP != self.registers.sp.value:
-        raise CPUException('Leaving frame with wrong SP: IP={}, saved SP={}, current SP={}'.format(ADDR_FMT(self.registers.ip.value), ADDR_FMT(self.frames[-1].FP), ADDR_FMT(self.registers.sp.value)))
+        raise CPUException('Leaving frame with wrong SP: IP={}, saved SP={}, current SP={}'.format(UINT32_FMT(self.registers.ip.value), UINT32_FMT(self.frames[-1].FP), UINT32_FMT(self.registers.sp.value)))
 
       self.frames.pop()
 
     self.pop(Registers.FP, Registers.IP)
 
-    self.__symbol_for_ip()
-
   def __load_interrupt_vector(self, index):
-    self.DEBUG('load_interrupt_vector: ivt=%s, index=%i', ADDR_FMT(self.ivt_address), index)
+    self.DEBUG('load_interrupt_vector: ivt=%s, index=%i', UINT32_FMT(self.ivt_address), index)
 
     desc = InterruptVector()
 
     vector_address = self.ivt_address + index * InterruptVector.SIZE
 
-    desc.cs = self.MEM_IN8(vector_address)
-    desc.ds = self.MEM_IN8(vector_address + 1)
-    desc.ip = self.MEM_IN16(vector_address + 2)
-    desc.sp = self.MEM_IN16(vector_address + 4)
+    desc.ip = self.MEM_IN32(vector_address)
+    desc.sp = self.MEM_IN32(vector_address + 4)
 
     return desc
 
@@ -1077,20 +1136,16 @@ class CPUCore(ISnapshotable, IMachineWorker):
 
     self.DEBUG('__enter_interrupt: desc=%s', iv)
 
-    old_DS = self.registers.ds.value
     old_SP = self.registers.sp.value
 
-    self.registers.ds.value = iv.ds
     self.registers.sp.value = iv.sp
 
-    self.raw_push(old_DS)
     self.raw_push(old_SP)
-    self.push(Registers.CS, Registers.FLAGS)
+    self.push(FLAGS)
     self.create_frame()
 
     self.privileged = True
 
-    self.registers.cs.value = iv.cs
     self.registers.ip.value = iv.ip
 
     if self.check_frames:
@@ -1108,12 +1163,10 @@ class CPUCore(ISnapshotable, IMachineWorker):
     self.DEBUG('exit_interrupt')
 
     self.destroy_frame()
-    self.pop(Registers.FLAGS, Registers.CS)
+    self.pop(FLAGS)
 
     old_SP = self.raw_pop()
-    old_DS = self.raw_pop()
 
-    self.registers.ds.value = old_DS
     self.registers.sp.value = old_SP
 
     self.instruction_set = self.instruction_set_stack.pop(0)
@@ -1151,7 +1204,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
     self.DEBUG('__do_irq: %s', index)
 
     self.__enter_interrupt(index)
-    self.registers.flags.hwint = 0
+    self.hwint_allowed = False
     self.change_runnable_state(idle = False)
 
     self.DEBUG('__do_irq: CPU state prepared to handle IRQ')
@@ -1165,14 +1218,18 @@ class CPUCore(ISnapshotable, IMachineWorker):
       e.exc_stack = sys.exc_info()
       self.die(e)
 
-  # Do it this way to avoid pylint' confusion
-  def __get_privileged(self):
-    return self.registers.flags.privileged == 1
+  def __get_flags(self):
+    return CoreFlags.create(privileged = self.privileged, hwint_allowed = self.hwint_allowed, equal = self.arith_equal, zero = self.arith_zero, overflow = self.arith_overflow, sign = self.arith_sign)
 
-  def __set_privileged(self, value):
-    self.registers.flags.privileged = 1 if value is True else 0
+  def __set_flags(self, flags):
+    self.privileged = flags.privileged
+    self.hwint_allowed = flags.hwint_allowed
+    self.arith_equal = flags.equal
+    self.arith_zero = flags.zero
+    self.arith_overflow = flags.overflow
+    self.arith_sign = flags.sign
 
-  privileged = property(__get_privileged, __set_privileged)
+  flags = property(__get_flags, __set_flags)
 
   def check_protected_ins(self):
     """
@@ -1186,13 +1243,6 @@ class CPUCore(ISnapshotable, IMachineWorker):
     if not self.privileged:
       raise AccessViolationError('Instruction not allowed in unprivileged mode: inst={}'.format(self.current_instruction))
 
-  def check_protected_reg(self, reg):
-    if self.privileged:
-      return
-
-    if reg in registers.PROTECTED_REGISTERS:
-      raise AccessViolationError('Access not allowed in unprivileged mode: inst={}, reg={}'.format(self.current_instruction, reg))
-
   def check_protected_port(self, port):
     if port not in self.cpu.machine.ports:
       raise InvalidResourceError('Unhandled port: port={}'.format(UINT16_FMT(port)))
@@ -1203,98 +1253,6 @@ class CPUCore(ISnapshotable, IMachineWorker):
     if self.cpu.machine.ports[port].is_port_protected(port):
       raise AccessViolationError('Access to port not allowed in unprivileged mode: inst={}, port={}'.format(self.current_instruction, port))
 
-  def update_arith_flags(self, reg):
-    """
-    Set relevant arithmetic flags according to content of registers. Flags are set to zero at the beginning,
-    then content of each register is examined, and ``S`` and ``Z`` flags are set.
-
-    ``E`` flag is not touched, ``O`` flag is set to zero.
-
-    :param c_types.c_ushort reg: ``u16`` bit-wide register
-    """
-
-    F = self.registers.flags
-
-    F.z = 0
-    F.o = 0
-    F.s = 0
-
-    if reg.value == 0:
-      F.z = 1
-
-    if reg.value & 0x8000 != 0:
-      F.s = 1
-
-  def RI_VAL(self, inst):
-    return self.registers.map[inst.ireg].value if inst.is_reg == 1 else inst.immediate
-
-  def JUMP(self, inst):
-    """
-    Change execution flow by modifying IP. Signals profiler that jump was executed.
-
-    :param inst: instruction that caused jump
-    """
-
-    if inst.is_reg == 1:
-      self.registers.ip.value = self.registers.map[inst.ireg].value
-    else:
-      self.registers.ip.value += inst.immediate
-
-    self.__symbol_for_ip()
-
-  def CMP(self, x, y, signed = True):
-    """
-    Compare two numbers, and update relevant flags. Signed comparison is used unless ``signed`` is ``False``.
-    All arithmetic flags are set to zero before the relevant ones are set.
-
-    ``O`` flag is reset like the others, therefore caller has to take care of it's setting if it's required
-    to set it.
-
-    :param u16 x: left hand number
-    :param u16 y: right hand number
-    :param bool signed: use signed, defaults to ``True``
-    """
-
-    F = self.registers.flags
-
-    F.e = 0
-    F.z = 0
-    F.o = 0
-    F.s = 0
-
-    if x == y:
-      F.e = 1
-
-      if x == 0:
-        F.z = 1
-
-      return
-
-    if signed:
-      x = i16(x).value
-      y = i16(y).value
-
-    if x < y:
-      F.s = 1
-
-    elif x > y:
-      F.s = 0
-
-  def OFFSET_ADDR(self, inst):
-    self.DEBUG('offset addr: inst=%s', inst)
-
-    base = self.registers.map[inst.areg].value
-    offset = self.registers.map[inst.oreg].value if inst.is_reg == 1 else inst.immediate
-
-    if inst.is_segment == 1:
-      addr = (base & 0xFF) * SEGMENT_SIZE * PAGE_SIZE + offset
-
-    else:
-      addr = self.DS_ADDR(base + offset)
-
-    self.DEBUG('offset addr: base=%s, offset=%s, addr=%s', ADDR_FMT(base), ADDR_FMT(offset), ADDR_FMT(addr))
-    return addr
-
   def step(self):
     """
     Perform one "step" - fetch next instruction, increment IP, and execute instruction's code (see inst_* methods)
@@ -1302,8 +1260,10 @@ class CPUCore(ISnapshotable, IMachineWorker):
 
     self.DEBUG('----- * ----- * ----- * ----- * ----- * ----- * ----- * -----')
 
-    if self.debug is not None:
-      self.debug.enter_step()
+    has_debug = self.debug is not None
+
+    if has_debug:
+      self.debug.pre_step()
 
       if not self.running:
         return
@@ -1314,13 +1274,13 @@ class CPUCore(ISnapshotable, IMachineWorker):
     ip = self.registers.ip
     self.current_ip = ip.value
 
-    self.DEBUG('fetch instruction: cs=%s, ip=%s', UINT8_FMT(self.registers.cs.value), ADDR_FMT(ip.value))
+    self.DEBUG('fetch instruction: ip=%s', UINT32_FMT(ip.value))
 
     try:
-      self.current_instruction, opcode, execute = self.mmu.instruction_cache[self.CS_ADDR(ip.value)]
+      self.current_instruction, opcode, execute = self.mmu.instruction_cache[ip.value]
       ip.value += 4
 
-      self.DEBUG('"EXECUTE" phase: %s %s', UINT16_FMT(self.current_ip), self.instruction_set.disassemble_instruction(self.current_instruction))
+      self.DEBUG('"EXECUTE" phase: %s %s', UINT32_FMT(self.current_ip), self.instruction_set.disassemble_instruction(self.LOGGER, self.current_instruction))
       log_cpu_core_state(self)
 
       execute(self, self.current_instruction)
@@ -1338,8 +1298,8 @@ class CPUCore(ISnapshotable, IMachineWorker):
     if self.core_profiler is not None:
       self.core_profiler.take_sample()
 
-    if self.debug is not None:
-      self.debug.exit_step()
+    if has_debug:
+      self.debug.post_step()
 
   def change_runnable_state(self, alive = None, running = None, idle = None):
     old_state = self.alive and self.running and not self.idle
@@ -1366,13 +1326,13 @@ class CPUCore(ISnapshotable, IMachineWorker):
     self.DEBUG('CPUCore.suspend')
 
     self.change_runnable_state(running = False)
-    self.cpu.core_suspended()
+    self.cpu.machine.events.trigger('on-core-suspend', self)
 
   def wake_up(self):
     self.DEBUG('CPUCore.wake_up')
 
     self.change_runnable_state(running = True)
-    self.cpu.core_running()
+    self.cpu.machine.events.trigger('on-core-running', self)
 
   def die(self, exc):
     self.DEBUG('CPUCore.die')
@@ -1386,11 +1346,12 @@ class CPUCore(ISnapshotable, IMachineWorker):
   def halt(self):
     self.DEBUG('CPUCore.halt')
 
+    self.cpu.machine.events.trigger('on-core-suspended', self)
+    self.cpu.machine.events.trigger('on-core-halted', self)
+
     self.mmu.halt()
 
     self.change_runnable_state(alive = False, running = False)
-    self.cpu.core_suspended()
-    self.cpu.core_halted()
 
     log_cpu_core_state(self)
 
@@ -1413,27 +1374,16 @@ class CPUCore(ISnapshotable, IMachineWorker):
   def boot(self):
     self.DEBUG('CPUCore.boot')
 
-    self.reset()
+    from ..boot import DEFAULT_BOOTLOADER_ADDRESS
 
-    if self.cpu.machine.init_states[self.cpu.id][self.id] is not None:
-      cs, ds, sp, ip, privileged = self.cpu.machine.init_states[self.cpu.id][self.id]
-
-      self.registers.cs.value = cs
-      self.registers.ds.value = ds
-      self.registers.ip.value = ip
-      self.registers.sp.value = sp
-      self.registers.fp.value = sp
-      self.registers.flags.privileged = 1 if privileged else 0
-
-    self.registers.r0.value = self.cpu.machine.hdt_address
-    self.privileged = self.cpu.machine.config.getbool('cpu', 'privileged', False)
+    self.reset(new_ip = DEFAULT_BOOTLOADER_ADDRESS)
 
     log_cpu_core_state(self)
 
     self.cpu.machine.reactor.add_task(self)
     self.change_runnable_state(alive = True, running = True)
-    self.cpu.core_alive()
-    self.cpu.core_running()
+    self.cpu.machine.events.trigger('on-core-alive', self)
+    self.cpu.machine.events.trigger('on-core-running', self)
 
     if self.core_profiler is not None:
       self.core_profiler.enable()
@@ -1467,17 +1417,23 @@ class CPU(ISnapshotable, IMachineWorker):
     self.id = cpuid
 
     self.cores = []
+    self.living_cores = []
+    self.halted_cores = []
+    self.running_cores = []
+    self.suspended_cores = []
+
     for i in range(0, cores):
       __core = CPUCore(i, self, memory_controller, cache_controller)
       self.cores.append(__core)
 
-    self.cnt_living_cores = 0
-    self.cnt_running_cores = 0
+      self.halted_cores.append(__core)
+      self.suspended_cores.append(__core)
 
     self.machine.console.register_commands([
       ('sc', cmd_set_core),
       ('st', cmd_core_state),
-      ('cont', cmd_cont)
+      ('cont', cmd_cont),
+      ('step', cmd_step),
     ])
 
   def save_state(self, parent):
@@ -1490,51 +1446,37 @@ class CPU(ISnapshotable, IMachineWorker):
     for core_state in itervalues(state.get_children()):
       self.cores[core_state.coreid].load_state(core_state)
 
-  def core_alive(self):
+  def on_core_alive(self, core):
     """
-    Signal CPU that one of cores is now alive.
+    Triggered when one of cores goes alive.
     """
 
-    self.cnt_living_cores += 1
-    self.machine.core_alive()
+    self.halted_cores.remove(core)
+    self.living_cores.append(core)
 
-  def core_halted(self):
+  def on_core_halted(self, core):
     """
     Signal CPU that one of cores is no longer alive.
     """
 
-    self.cnt_living_cores -= 1
-    self.machine.core_halted()
+    self.living_cores.remove(core)
+    self.halted_cores.append(core)
 
-  def core_running(self):
+  def on_core_running(self, core):
     """
     Signal CPU that one of cores is now running.
     """
 
-    self.cnt_running_cores += 1
+    self.suspended_cores.remove(core)
+    self.running_cores.append(core)
 
-  def core_suspended(self):
+  def on_core_suspended(self, core):
     """
     Signal CPU that one of cores is now suspended.
     """
 
-    self.cnt_running_cores -= 1
-
-  @property
-  def living_cores(self):
-    return [__core for __core in self.cores if __core.alive is True]
-
-  @property
-  def halted_cores(self):
-    return [__core for __core in self.cores if __core.alive is not True]
-
-  @property
-  def running_cores(self):
-    return [__core for __core in self.cores if __core.running is True]
-
-  @property
-  def suspended_cores(self):
-    return [__core for __core in self.cores if __core.running is not True]
+    self.running_cores.remove(core)
+    self.suspended_cores.append(core)
 
   def suspend(self):
     self.DEBUG('CPU.suspend')
@@ -1561,10 +1503,20 @@ class CPU(ISnapshotable, IMachineWorker):
     for core in self.living_cores:
       core.halt()
 
+    self.machine.events.remove_listener('on-core-alive', self.on_core_alive)
+    self.machine.events.remove_listener('on-core-halted', self.on_core_halted)
+    self.machine.events.remove_listener('on-core-running', self.on_core_running)
+    self.machine.events.remove_listener('on-core-suspended', self.on_core_suspended)
+
     self.INFO('CPU halted')
 
   def boot(self):
     self.DEBUG('CPU.boot')
+
+    self.machine.events.add_listener('on-core-alive', self.on_core_alive)
+    self.machine.events.add_listener('on-core-halted', self.on_core_halted)
+    self.machine.events.add_listener('on-core-running', self.on_core_running)
+    self.machine.events.add_listener('on-core-suspended', self.on_core_suspended)
 
     for core in self.cores:
       core.boot()
@@ -1612,12 +1564,16 @@ def cmd_step(console, cmd):
   """
 
   if console.default_core is None:
+    console.writeln('# ERR: no core selected')
     return
 
   if console.default_core.running:
+    console.writeln('# ERR: core is not suspended')
     return
 
   console.default_core.run()
+
+  console.writeln('# OK')
 
 def cmd_next(console, cmd):
   """
@@ -1630,10 +1586,10 @@ def cmd_next(console, cmd):
     return
 
   def __ip_addr(offset = 0):
-    return core.CS_ADDR(core.registers.ip.value + offset)
+    return core.registers.ip.value + offset
 
   try:
-    inst = core.instruction_set.decode_instruction(core.memory.read_u32(__ip_addr()))
+    inst = core.instruction_set.decode_instruction(core.LOGGER, core.memory.read_u32(__ip_addr()))
 
     if inst.opcode == core.instruction_set.opcodes.CALL:
       from ..debugging import add_breakpoint
@@ -1674,6 +1630,6 @@ def cmd_bt(console, cmd):
   ]
 
   for index, (ip, symbol, offset) in enumerate(core.backtrace()):
-    table.append([index, symbol, UINT16_FMT(offset), ADDR_FMT(ip)])
+    table.append([index, symbol, UINT32_FMT(offset), UINT32_FMT(ip)])
 
   console.table(table)

@@ -22,7 +22,7 @@ import ducky.cpu.instructions
 import ducky.mm.binary
 import ducky.util
 
-from ducky.mm import ADDR_FMT
+from ducky.mm import UINT32_FMT
 
 def main():
   parser = optparse.OptionParser()
@@ -79,7 +79,7 @@ def main():
       symbol = symbol_table.get_symbol(symbol)
       header, content = binary.get_section(symbol.section)
 
-      table.append([ADDR_FMT(addr), symbol_name, hits, '%.02f' % (float(hits) / float(all_hits) * 100.0), ducky.cpu.instructions.DuckyInstructionSet.decode_instruction(content[(symbol.address + offset - header.base) / 4])])
+      table.append([UINT32_FMT(addr), symbol_name, hits, '%.02f' % (float(hits) / float(all_hits) * 100.0), ducky.cpu.instructions.DuckyInstructionSet.decode_instruction(content[(symbol.address + offset - header.base) / 4])])
 
     logger.table(table)
 

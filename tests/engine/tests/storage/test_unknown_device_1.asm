@@ -1,7 +1,17 @@
-.include "defs.asm"
+  .include "bio.asm"
 
-main:
-  li r0, 7 ; there's no device with id 7...
-  li r1, $BLOCKIO_READ
-  int $INT_BLOCKIO
-  int $INT_HALT
+  .text
+
+  ; reset storage
+  li r10, $BIO_SRST
+  outw $BIO_PORT_STATUS, r10
+
+  inw r0, $BIO_PORT_STATUS
+
+  ; set storage ID
+  li r10, 0x08
+  outw $BIO_PORT_SID, r10
+
+  inw r1, $BIO_PORT_STATUS
+
+  hlt 0x00

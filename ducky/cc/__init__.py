@@ -118,6 +118,9 @@ class SymbolStorage(object):
       visitor.EMIT(STB(self.name(), self.register.name))
 
     elif len(self.symbol.type) == 2:
+      visitor.EMIT(STS(self.name(), self.register.name))
+
+    elif len(self.symbol.type) == 4:
       visitor.EMIT(STW(self.name(), self.register.name))
 
     else:
@@ -137,6 +140,9 @@ class SymbolStorage(object):
       visitor.EMIT(LB(self.register.name, self.name()))
 
     elif len(self.symbol.type) == 2:
+      visitor.EMIT(LS(self.register.name, self.name()))
+
+    elif len(self.symbol.type) == 4:
       visitor.EMIT(LW(self.register.name, self.name()))
 
     else:
@@ -162,7 +168,7 @@ class MemorySlotStorage(SymbolStorage):
     self.label = '&%s' % label
 
   def addrof(self, register, emit):
-    emit(LI(register.name, self.label))
+    emit(LA(register.name, self.label))
 
   def name(self):
     return self.label
@@ -388,27 +394,27 @@ class AND(Instruction):
 
 class BGE(Instruction):
   def __init__(self, label):
-    super(BGE, self).__init__(DuckyOpcodes.BGE, label)
+    super(BGE, self).__init__(DuckyOpcodes.BRANCH, label)
 
 class BLE(Instruction):
   def __init__(self, label):
-    super(BLE, self).__init__(DuckyOpcodes.BLE, label)
+    super(BLE, self).__init__(DuckyOpcodes.BRANCH, label)
 
 class BNE(Instruction):
   def __init__(self, label):
-    super(BNE, self).__init__(DuckyOpcodes.BNE, label)
+    super(BNE, self).__init__(DuckyOpcodes.BRANCH, label)
 
 class BE(Instruction):
   def __init__(self, label):
-    super(BE, self).__init__(DuckyOpcodes.BE, label)
+    super(BE, self).__init__(DuckyOpcodes.BRANCH, label)
 
 class BG(Instruction):
   def __init__(self, label):
-    super(BG, self).__init__(DuckyOpcodes.BG, label)
+    super(BG, self).__init__(DuckyOpcodes.BRANCH, label)
 
 class BL(Instruction):
   def __init__(self, label):
-    super(BL, self).__init__(DuckyOpcodes.BL, label)
+    super(BL, self).__init__(DuckyOpcodes.BRANCH, label)
 
 class CMP(Instruction):
   def __init__(self, left, right):
@@ -417,6 +423,10 @@ class CMP(Instruction):
 class CALL(Instruction):
   def __init__(self, label):
     super(CALL, self).__init__(DuckyOpcodes.CALL, label)
+
+class HLT(Instruction):
+  def __init__(self, isr):
+    super(HLT, self).__init__(DuckyOpcodes.HLT, isr)
 
 class INT(Instruction):
   def __init__(self, isr):
@@ -434,9 +444,17 @@ class LB(Instruction):
   def __init__(self, reg, addr):
     super(LB, self).__init__(DuckyOpcodes.LB, reg, addr)
 
+class LS(Instruction):
+  def __init__(self, reg, addr):
+    super(LS, self).__init__(DuckyOpcodes.LS, reg, addr)
+
 class LW(Instruction):
   def __init__(self, reg, addr):
     super(LW, self).__init__(DuckyOpcodes.LW, reg, addr)
+
+class LA(Instruction):
+  def __init__(self, reg, value):
+    super(LA, self).__init__(DuckyOpcodes.LA, reg, value)
 
 class LI(Instruction):
   def __init__(self, reg, value):
@@ -481,6 +499,10 @@ class SHR(Instruction):
 class STB(Instruction):
   def __init__(self, addr, reg):
     super(STB, self).__init__(DuckyOpcodes.STB, addr, reg)
+
+class STS(Instruction):
+  def __init__(self, addr, reg):
+    super(STS, self).__init__(DuckyOpcodes.STS, addr, reg)
 
 class STW(Instruction):
   def __init__(self, addr, reg):
@@ -543,6 +565,9 @@ class ConstantValue(NamedValue):
 
     self.value = value
 
+class StringConstantValue(ConstantValue):
+  pass
+
 class ExpressionClass(enum.Enum):
   LVALUE  = 0
   MLVALUE = 1
@@ -601,6 +626,9 @@ class Expression(object):
             visitor.EMIT(LB(RE.value.name, self.value.name))
 
           elif len(self.type.ptr_to_type) == 2:
+            visitor.EMIT(LS(RE.value.name, self.value.name))
+
+          elif len(self.type.ptr_to_type) == 4:
             visitor.EMIT(LW(RE.value.name, self.value.name))
 
           else:
@@ -617,6 +645,9 @@ class Expression(object):
           visitor.EMIT(LB(RE.value.name, self.value.name))
 
         elif len(self.type.ptr_to_type) == 2:
+          visitor.EMIT(LS(RE.value.name, self.value.name))
+
+        elif len(self.type.ptr_to_type) == 4:
           visitor.EMIT(LW(RE.value.name, self.value.name))
 
         else:

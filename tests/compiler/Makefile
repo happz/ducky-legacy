@@ -2,6 +2,7 @@ include $(TOPDIR)/Makefile.inc
 
 
 SUBDIRS := units examples
+SUBDIRS := examples
 
 TC_DIR       := $(TESTSETDIR)/compiler
 TC_RESULTS   := $(TESTSETDIR)/results/compiler.xml

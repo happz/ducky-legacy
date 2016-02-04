@@ -4,7 +4,7 @@ import string
 
 from six import iteritems, integer_types, PY2
 
-from ctypes import sizeof, LittleEndianStructure
+from ctypes import sizeof
 
 def align(boundary, n):
   return (n + boundary - 1) & ~(boundary - 1)
@@ -31,54 +31,36 @@ def sizeof_fmt(n, suffix = 'B', max_unit = 'Zi'):
   return "%.1f%s%s" % (n, 'Yi', suffix)
 
 class Formatter(string.Formatter):
-  @staticmethod
-  def uint_to_int(u):
-    from .mm import UInt8, UInt16, UInt24, UInt32
-
-    if type(u) == UInt8:
-     return u.u8
-
-    if type(u) == UInt16:
-      return u.u16
-
-    if type(u) == UInt24:
-      return u.u24
-
-    if type(u) == UInt32:
-      return u.u32
-
-    return u
-
   def format_field(self, value, format_spec):
-    if format_spec and format_spec[-1] in 'BWAL':
+    if format_spec and format_spec[-1] in 'BSWL':
       return self.format_int(format_spec, value)
 
     return super(Formatter, self).format_field(value, format_spec)
 
   def format_int(self, format_spec, value):
+    i = value if isinstance(value, integer_types) else value.value
+
     if format_spec.endswith('B'):
-      return '0x{:02X}'.format(Formatter.uint_to_int(value) & 0xFF)
+      return '0x{:02X}'.format(i & 0xFF)
+
+    if format_spec.endswith('S'):
+      return '0x{:04X}'.format(i & 0xFFFF)
 
     if format_spec.endswith('W'):
-      return '0x{:04X}'.format(Formatter.uint_to_int(value) & 0xFFFF)
-
-    if format_spec.endswith('A'):
-      return '0x{:06X}'.format(Formatter.uint_to_int(value) & 0xFFFFFF)
+      return '0x{:08X}'.format(i & 0xFFFFFFFF)
 
     if format_spec.endswith('L'):
-      return '0x{:08X}'.format(Formatter.uint_to_int(value))
+      return '0x{:016X}'.format(i & 0xFFFFFFFFFFFFFFFF)
 
-    return '{:d}'.format(value)
+    return '{:d}'.format(i)
 
 _F = Formatter()
 F = _F.format
 
-UINT_FMT   = Formatter.uint_to_int
 UINT8_FMT  = functools.partial(_F.format_int, 'B')
-UINT16_FMT = functools.partial(_F.format_int, 'W')
-UINT24_FMT = functools.partial(_F.format_int, 'A')
-UINT32_FMT = functools.partial(_F.format_int, 'L')
-ADDR_FMT   = functools.partial(_F.format_int, 'A')
+UINT16_FMT = functools.partial(_F.format_int, 'S')
+UINT32_FMT = functools.partial(_F.format_int, 'W')
+UINT64_FMT = functools.partial(_F.format_int, 'L')
 
 
 if PY2:
@@ -146,6 +128,7 @@ class BinaryFile(object):
     self.EXCEPTION = logger.exception
 
     self.close = stream.close
+    self.flush = stream.flush
     self.name = stream.name
     self.read = stream.read
     self.readinto = stream.readinto
@@ -350,47 +333,73 @@ class SymbolTable(dict):
   def get_symbol(self, name):
     return self.binary.symbols[name]
 
-class Flags(LittleEndianStructure):
-  _pack_ = 0
-  flag_labels = []
+
+class Flags(object):
+  _flags = []
+  _labels = ''
+  _encoding = None
 
   @classmethod
   def create(cls, **kwargs):
     flags = cls()
 
-    for name, _type, _size in cls._fields_:
-      setattr(flags, name, 1 if kwargs.get(name, False) is True else 0)
+    for name in cls._flags:
+      setattr(flags, name, True if kwargs.get(name, False) is True else False)
 
     return flags
 
-  def to_uint16(self):
+  @classmethod
+  def encoding(cls):
+    return cls._encoding
+
+  @classmethod
+  def from_encoding(cls, encoding):
+    flags = cls()
+    flags.load_encoding(encoding)
+    return flags
+
+  def to_encoding(self):
+    encoding = self._encoding()
+    self.save_encoding(encoding)
+    return encoding
+
+  def load_encoding(self, encoding):
+    for name in [field[0] for field in encoding._fields_]:
+      setattr(self, name, True if getattr(encoding, name) == 1 else False)
+
+  def save_encoding(self, encoding):
+    for name in [field[0] for field in encoding._fields_]:
+      setattr(encoding, name, 1 if getattr(self, name) is True else 0)
+
+  def to_int(self):
     u = 0
 
-    for i, (name, _type, _size) in enumerate(self._fields_):
-      u |= (getattr(self, name) << i)
+    for i, name in enumerate(self._flags):
+      if getattr(self, name) is True:
+        u |= (1 << i)
 
     return u
 
-  def load_uint16(self, u):
-    for i, (name, _type, _size) in enumerate(self._fields_):
-      setattr(self, name, 1 if u & (1 << i) else 0)
+  def load_int(self, u):
+    for i, name in enumerate(self._flags):
+      setattr(self, name, True if u & (1 << i) else False)
 
   @classmethod
-  def from_uint16(cls, u):
+  def from_int(cls, u):
     flags = cls()
-    flags.load_uint16(u)
+    flags.load_int(u)
     return flags
 
   def to_string(self):
     return ''.join([
-      self.flag_labels[i] if getattr(self, name) == 1 else '-' for i, (name, _type, _size) in enumerate(self._fields_)
+      self._labels[i] if getattr(self, name) is True else '-' for i, name in enumerate(self._flags)
     ])
 
   def load_string(self, s):
     s = s.upper()
 
-    for i, (name, _type, _size) in enumerate(self._fields_):
-      setattr(self, name, 1 if self.flag_labels[i] in s else 0)
+    for i, name in enumerate(self._flags):
+      setattr(self, name, True if self._labels[i] in s else False)
 
   @classmethod
   def from_string(cls, s):

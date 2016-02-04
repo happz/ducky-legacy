@@ -44,7 +44,7 @@ class Tests(TestCase):
       h_section.file_size = 0
       h_section.name = f_out.string_table.put_string('.foo')
       h_section.base = 0
-      h_section.flags = SectionFlags.create()
+      h_section.flags = SectionFlags.create().to_encoding()
 
       f_out.set_content(h_section, [])
 

@@ -1,5 +1,3 @@
-   .include "defs.asm"
-
 .def MMAP_START: 0x8000
 .def MSG_LENGTH: 64
 
@@ -9,15 +7,15 @@
   .space $MSG_LENGTH
 
   .type msg_offset, int
-  .int 0xFFFF
+  .int 0xFFFFFFFF
 
   .text
 
-main:
-  li r0, &msg_offset
+  la r0, &msg_offset
   lw r0, r0
-  add r0, $MMAP_START
-  li r1, &buff
+  li r1, $MMAP_START
+  add r0, r1
+  la r1, &buff
   li r2, $MSG_LENGTH
 copy_loop:
   cmp r2, r2
@@ -29,4 +27,4 @@ copy_loop:
   dec r2
   j &copy_loop
 quit:
-  int $INT_HALT
+  hlt 0x00

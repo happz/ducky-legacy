@@ -30,7 +30,6 @@ class MachineConfig(ConfigParser):
   def __init__(self, *args, **kwargs):
     ConfigParser.__init__(self, *args, **kwargs)
 
-    self.binaries_cnt    = 0
     self.breakpoints_cnt = 0
     self.mmaps_cnt       = 0
     self.devices_cnt     = 0
@@ -94,7 +93,6 @@ class MachineConfig(ConfigParser):
   def read(self, *args, **kwargs):
     ConfigParser.read(self, *args, **kwargs)
 
-    self.__count_binaries()
     self.__count_breakpoints()
     self.__count_mmaps()
     self.__count_devices()
@@ -110,9 +108,6 @@ class MachineConfig(ConfigParser):
   def __count(self, prefix):
     return len(self.__sections_with_prefix(prefix))
 
-  def __count_binaries(self):
-    self.binaries_cnt = self.__count('binary-')
-
   def __count_breakpoints(self):
     self.breakpoints_cnt = self.__count('breakpoint-')
 
@@ -121,10 +116,6 @@ class MachineConfig(ConfigParser):
 
   def __count_devices(self):
     self.devices_cnt = self.__count('device-')
-
-  def iter_binaries(self):
-    for s_name in self.__sections_with_prefix('binary-'):
-      yield s_name
 
   def iter_breakpoints(self):
     for s_name in self.__sections_with_prefix('breakpoint-'):
@@ -144,31 +135,6 @@ class MachineConfig(ConfigParser):
         continue
 
       yield s_name
-
-  def add_binary(self, filename, segment = None, core = None, entry = None):
-    """
-    Add another binary to configuration.
-
-    :param string filename: path to binary (``file`` option).
-    :param int segment: if set, assign specific segment to this binary's (``segment`` option).
-    :param string core: if set, assign specific core to this binary (``core`` option).
-    :param string entry: if set, set binary's entry point (``entry`` option).
-    """
-
-    binary_section = 'binary-{}'.format(self.binaries_cnt)
-    self.binaries_cnt += 1
-
-    self.add_section(binary_section)
-    self.set(binary_section, 'file', filename)
-
-    if segment:
-      self.set(binary_section, 'segment', segment)
-
-    if core:
-      self.set(binary_section, 'core', core)
-
-    if entry:
-      self.set(binary_section, 'entry', entry)
 
   def add_breakpoint(self, core, address, active = None, flip = None, ephemeral = None, countdown = None):
     bp_section = 'breakpoint-{}'.format(self.breakpoints_cnt)

@@ -2,7 +2,7 @@ VM Configuration file
 =====================
 
 
-Number of available options can easily get quite high, especially when different devices come into play, and setting all of them on command line is not very clear. To ease this part of VM processes, user can create a configuration file. Syntax is based on Python's ``ConfigParser`` or Windows ``.ini`` configuration files. It consists of sections, setting options for different subsystems (VM, CPUs, ...). You can find few configuration files in ``examples/`` directory.
+Number of available options can easily get quite high, especially when different devices come into play, and setting all of them on command line is not very clear. To ease this part of VM processes, user can create a configuration file. Syntax is based on Python's ``ConfigParser`` (or Windows ``.ini``) configuration files. It consists of sections, setting options for different subsystems (VM, CPUs, ...). You can find few configuration files in ``examples/`` directory.
 
 When option takes an address as an argument, address can be specified either using decimal or hexadecimal base. Usually, the absolute address is necessary when option is not binary-aware, yet some options are tied closely to particular binary, such options can also accept name of a symbol. Option handling code will try to find corresponding address in binary's symbol table. This is valid for both command-line options and configuration files.
 
@@ -25,14 +25,6 @@ cores
 Number of cores per CPU.
 
 ``int``, default ``1``
-
-
-interrupt-routines
-^^^^^^^^^^^^^^^^^^
-
-Path to binary with interrupt service routines.
-
-``str``, optional - if VM has no use for interrupts (no devices, binary handles everything), there's no need for IVT
 
 
 [memory]
@@ -120,25 +112,15 @@ Address of interrupt vector table.
 ``int``, default ``0x000000``
 
 
-[binary-N]
-----------
-
-Each section starting with ``binary-`` tells VM what binary is supposed to run, and its properties.
+[bootloader]
+------------
 
 file
 ^^^^
 
-Path to binary file.
+Path to bootloader file.
 
 ``str``, required
-
-
-entry
-^^^^^
-
-Start execution at this address.
-
-``address``, default ``main``
 
 
 [device-N]

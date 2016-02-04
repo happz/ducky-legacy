@@ -1,6 +1,6 @@
-  .include "defs.asm"
-main:
+  .text
+
   li r0, 5
   li r1, 3
   mul r0, r1
-  int $INT_HALT
+  hlt 0x00

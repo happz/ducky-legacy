@@ -26,17 +26,16 @@ else
 	$(eval VMCOVERAGE_FILE := )
 endif
 	$(Q) echo -n "$(CC_YELLOW)[TEST]$(CC_END) FORTH $(TC_NAME) ... "
-	$(Q) PYTHONUNBUFFERED=yes \
-	     $(VMCOVERAGE_FILE) \
+	$(Q) $(VMCOVERAGE_FILE) \
 	     $(PYTHON) $(VMCOVERAGE_RUN) $(DVM) \
 			 $(VMPROFILE) \
 			 $(BINPROFILE) -g \
 			 --machine-config=$(TC_CONFIG) \
 			 --set-option=machine:interrupt-routines=$(INTERRUPTS) \
-			 --set-option=binary-0:file=$(FORTH_KERNEL) \
+			 --set-option=bootloader:file=$(FORTH_KERNEL) \
 			 --set-option=device-3:streams_in=$(CURDIR)/../enable-test-mode.f \
 			 --add-option=device-3:streams_in=$(TOPDIR)/forth/ducky-forth.f \
-			 --add-option=device-3:streams_in=$(CURDIR)/../ans/tester.fr \
+			 --add-option=device-3:streams_in=$(CURDIR)/../forth2012-test-suite/src/tester.fr \
 			 --add-option=device-3:streams_in=$< \
 			 --add-option=device-3:streams_in=$(CURDIR)/../run-test-word.f \
 			 --set-option=device-3:stream_out=$(TC_OUTPUT) \

@@ -9,7 +9,8 @@ install_requires = [
   'enum34',
   'tabulate',
   'pycparser',
-  'six'
+  'six',
+  'mako'
 ]
 
 tests_requires = [
@@ -41,11 +42,11 @@ class Tox(TestCommand):
     sys.exit(errno)
 
 setup(name = 'ducky',
-      version = '1.0.1',
+      version = '2.0',
       description = 'Simple virtual CPU/machine simulator',
       long_description = 'Ducky is a simple virtual CPU/machine simulator, with modular design and interesting features.',
       url = 'https://github.com/happz/ducky',
-      download_url = 'https://github.com/happz/ducky/tarball/1.0.1',
+      download_url = 'https://github.com/happz/ducky/tarball/2.0',
       author = 'Milos Prchlik',
       author_email = 'happz@happz.cz',
       license = 'MIT',
@@ -89,7 +90,8 @@ setup(name = 'ducky',
           'ducky-vm = ducky.tools.vm:main',
           'ducky-objdump = ducky.tools.objdump:main',
           'ducky-coredump = ducky.tools.coredump:main',
-          'ducky-profile = ducky.tools.profile:main'
+          'ducky-profile = ducky.tools.profile:main',
+          'ducky-img = ducky.tools.img:main'
         ]
       },
       package_dir = {'ducky': 'ducky'},

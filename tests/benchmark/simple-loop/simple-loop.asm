@@ -1,4 +1,4 @@
-.include "defs.asm"
+.include "ducky.asm"
 
 .def L1_ITERS: 1000
 .def L2_ITERS: 1000
@@ -9,15 +9,14 @@
   .int $L1_ITERS
 
   .type l2_iters, int
-  .int $L1_ITERS
+  .int $L2_ITERS
 
   .text
 
-main:
   li r2, 0
-  li r0, &l1_iters
+  la r0, &l1_iters
   lw r0, r0
-  li r3, &l2_iters
+  la r3, &l2_iters
   lw r3, r3
 .l1_loop:
   bz &.l1_quit
@@ -32,4 +31,4 @@ main:
   dec r0
   j &.l1_loop
 .l1_quit:
-  int $INT_HALT
+  hlt 0x00

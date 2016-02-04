@@ -65,10 +65,26 @@ class IReactorTask(object):
     pass
 
 class ISnapshotable(object):
+  """
+  Base class for objects that can be saved into a snapshot.
+  """
+
   def save_state(self, parent):
+    """
+    Create state of the object, and attach it to a parent snapshot node.
+
+    :param ducky.interfaces.ISnapshotable parent: parent snapshot node.
+    """
+
     pass
 
   def load_state(self, state):
+    """
+    Restore state of the object.
+
+    :param ducky.snapshot.SnapshotNode state: snapshot node containing saved state.
+    """
+
     pass
 
 

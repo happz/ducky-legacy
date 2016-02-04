@@ -4,11 +4,49 @@ from . import Device
 from ..streams import InputStream, OutputStream
 
 class Terminal(Device):
-  def __init__(self, machine, name, *args, **kwargs):
+  def __init__(self, machine, name, echo = False, *args, **kwargs):
     super(Terminal, self).__init__(machine, 'terminal', name, *args, **kwargs)
 
     self.input = None
     self.output = None
+
+    self.echo = echo
+    self._input_read_u8_orig = None
+
+  def _input_read_u8_echo(self, *args, **kwargs):
+    c = self._input_read_u8_orig(*args, **kwargs)
+
+    if c is not None:
+      self.output.write_u8(self.output.port, c)
+
+    return c
+
+  def patch_echo(self, restore = False):
+    D = self.machine.DEBUG
+
+    D('%s.patch_echo: echo=%s, restore=%s', self.__class__.__name__, self.echo, restore)
+
+    if restore is True and self._input_read_u8_orig is not None:
+      self.input.read_u8, self._input_read_u8_orig = self._input_read_u8_orig, None
+
+    elif self.echo is True:
+      assert self.input is not None
+      assert hasattr(self.input, 'read_u8')
+      assert hasattr(self.output, 'write_u8')
+
+      self._input_read_u8_orig, self.input.read_u8 = self.input.read_u8, self._input_read_u8_echo
+
+    D('%s.patch_echo: input.read_u8=%s, orig_input.read_u8=%s', self.__class__.__name__, self.input.read_u8, self._input_read_u8_orig)
+
+  def boot(self):
+    super(Terminal, self).boot()
+
+    self.patch_echo()
+
+  def halt(self):
+    super(Terminal, self).halt()
+
+    self.patch_echo(restore = True)
 
 class StreamIOTerminal(Terminal):
   def __init__(self, machine, name, input = None, output = None, streams_in = None, stream_out = None, *args, **kwargs):
@@ -52,7 +90,7 @@ class StreamIOTerminal(Terminal):
     if streams_in is not None:
       streams_in = [InputStream.create(machine.LOGGER, e.strip()) for e in streams_in.split(',')]
 
-    return StreamIOTerminal(machine, section, input = input_device, output = output_device, streams_in = streams_in, stream_out = OutputStream.create(machine.LOGGER, config.get(section, 'stream_out', None)))
+    return StreamIOTerminal(machine, section, input = input_device, output = output_device, streams_in = streams_in, stream_out = OutputStream.create(machine.LOGGER, config.get(section, 'stream_out', None)), echo = config.getbool(section, 'echo', False))
 
   def boot(self):
     self.machine.DEBUG('StreamIOTerminal.boot')

@@ -1,5 +1,5 @@
-Virtual software
-================
+Software
+========
 
 
 Calling convention
@@ -26,19 +26,7 @@ Software interrupts provide access to library of common functions, and - in case
 
 For the list for existing interrupts and their numbers, see :py:class:`ducky.irq.IRQList`. However, by the nature of invoking a software interrupt, this list is not carved into a stone. You may easily provide your own ``IVT``, with entries leading to your own routines, and use e.g. the 33th entry, ``HALT``, to sing a song.
 
-All values are defined in ``defs.asm`` file which you can - and should - include into your assembler sources.
-
-
-``HALT``
-^^^^^^^^
-
-+---------------+--------------------+
-| ``IVT`` entry | ``32``             |
-+---------------+--------------------+
-| Parameters    | ``r0`` - exit code |
-+---------------+--------------------+
-
-Halt a CPU core. Value in ``r0`` is propagated as a core's exit code. This interrupt never returns back to the caller.
+All values are defined in files in ``defs/`` directory which you can - and should - include into your assembler sources.
 
 
 ``BLOCKIO``
@@ -96,45 +84,3 @@ This operation is implemented as a virtual interrupt, see :py:class:`ducky.block
 ``VM`` interrupt allows control of VM debugging output. Currently, only two levels of verbosity that are available are `quiet` and `full` mode. In `quiet` mode, VM produces no logging output at all.
 
 This interrupt can control level amount of debugging output in case when developer is interested only in debugging only a specific part of his code. Run VM with debugging turned on (``-d`` option), turn the debugging off at the beggining of the code, and turn it on again at the beggining of the interesting part to get detailed output.
-
-
-``MM``
-^^^^^^
-
-+---------------+-----------------------------------------+
-| ``IVT`` entry | ``35``                                  |
-+---------------+--------+----------------+---------------+
-|               |        | ``mtell``      | ``mprotect``  |
-+---------------+--------+----------------+---------------+
-| Parameters    | ``r0`` |  ``2``         | ``1``         |
-|               +--------+----------------+---------------+
-|               | ``r1`` | start address  | start address |
-|               +--------+----------------+---------------+
-|               | ``r2`` | end address    | end address   |
-|               +--------+----------------+---------------+
-|               | ``r3`` | flags          | flags         |
-+---------------+--------+----------------+---------------+
-| Returns       | ``r0`` | ``0`` for success              |
-+---------------+--------+--------------------------------+
-
-``MM`` interrupt provides access to many memory-related operations, usually manipulating areas of the main memory. Specific operation is requested by setting proper value of ``r0``. See :py:class:`ducky.mm.interrupt.MMInterrupt` for more implementation details.
-
-In general, operation is selected, and other parameters usually specify memory area by stating address of the first byte and the address of the first byte *laying after this area*. Return values are stored in ``r0``, if any.
-
-Several flags can be used in invocations, see :py:class:`ducky.mm.interrupt.MMInterrupt` for their list.
-
-
-``mtell``
-"""""""""
-
-Returns current flags set for memory area. Only ``MM_FLAG_CS`` is valid for this call.
-
-When ``MM_FLAG_CS`` is set, addresses are resolved using current code segment, data segment is used otherwise.
-
-
-``mprotect``
-""""""""""""
-
-Replace flags of the memory area by new ones.
-
-When ``MM_FLAG_CS`` is set, addresses are resolved using current code segment, data segment is used otherwise.

@@ -12,9 +12,9 @@ TC_OBJDUMP_OUT := $(TESTSETDIR)/$(EXAMPLE).objdump.$(DB_PID).out
 TC_COREDUMP_OUT := $(TESTSETDIR)/$(EXAMPLE).coredump.$(DB_PID).out
 
 
-hello-world.o: $(TOPDIR)/defs.asm hello-world.asm
+hello-world.o: $(DEFSDIR)/tty.asm hello-world.asm
 hello-world: hello-world.o
-	$(run-linker)
+	$(call run-linker,--section-base=.text=0x00000000)
 
 build: hello-world
 
@@ -23,19 +23,17 @@ run: build
 	$(Q) COVERAGE_FILE=$(shell if [ "$(VMCOVERAGE)" = "yes" ]; then echo "$(TESTSETDIR)/coverage/.coverage.$(EXAMPLE).$(DB_PID)"; else echo ""; fi) \
 	     $(PYTHON) $(VMCOVERAGE_RUN) $(DVM) $(VMDEBUG) $(VMDEBUG_OPEN_FILES) \
 			 --machine-config=$(CURDIR)/hello-world.conf \
-			 --set-option=machine:interrupt-routines=$(INTERRUPTS) \
-			 --set-option=binary-0:file=$(CURDIR)/hello-world \
-			 -g
+			 --set-option=bootloader:file=$(CURDIR)/hello-world \
+			 -g $(VMPROFILE)
 
 run-screen: build
 	$(Q) echo "[RUN] $(EXAMPLE) ..."
 	$(Q) COVERAGE_FILE=$(shell if [ "$(VMCOVERAGE)" = "yes" ]; then echo "$(TESTSETDIR)/coverage/.coverage.$(EXAMPLE)-screen.$(DB_PID)"; else echo ""; fi) \
 	     $(PYTHON) $(VMCOVERAGE_RUN) $(DVM) $(VMDEBUG) $(VMDEBUG_OPEN_FILES) \
 			 --machine-config=$(CURDIR)/hello-world.conf \
-			 --set-option=machine:interrupt-routines=$(INTERRUPTS) \
-			 --set-option=binary-0:file=$(CURDIR)/hello-world \
-			 --set-option=device-3:driver=ducky.devices.terminal.StandalonePTYTerminal \
-			 -g
+			 --set-option=bootloader:file=$(CURDIR)/hello-world \
+			 --set-option=device-2:driver=ducky.devices.terminal.StandalonePTYTerminal \
+			 -g $(VMPROFILE)
 
 tests-pre: build
 
@@ -72,9 +70,8 @@ test-run: build
 	$(Q) COVERAGE_FILE=$(shell if [ "$(VMCOVERAGE)" = "yes" ]; then echo "$(TESTSETDIR)/coverage/.coverage.$(EXAMPLE).$(DB_PID)"; else echo ""; fi) \
 	     $(PYTHON) $(VMCOVERAGE_RUN) $(DVM) $(VMDEBUG) \
 			 --machine-config=$(CURDIR)/hello-world.conf \
-			 --set-option=machine:interrupt-routines=$(INTERRUPTS) \
-			 --set-option=binary-0:file=$(CURDIR)/hello-world \
-			 -g &> $(TC_MACHINE); \
+			 --set-option=bootloader:file=$(CURDIR)/hello-world \
+			 -g $(VMPROFILE) &> $(TC_MACHINE); \
 			 if [[ $$? -ne 0 ]]; then \
 			   touch $(TESTSET_FAILED); \
 				 echo "$(CC_RED)FAIL$(CC_END)"; \
@@ -88,10 +85,9 @@ test-run-screen: build
 	$(Q) COVERAGE_FILE=$(shell if [ "$(VMCOVERAGE)" = "yes" ]; then echo "$(TESTSETDIR)/coverage/.coverage.$(EXAMPLE)-screen.$(DB_PID)"; else echo ""; fi) \
 	     $(PYTHON) $(VMCOVERAGE_RUN) $(DVM) $(VMDEBUG) \
 			 --machine-config=$(CURDIR)/hello-world.conf \
-			 --set-option=machine:interrupt-routines=$(INTERRUPTS) \
-			 --set-option=binary-0:file=$(CURDIR)/hello-world \
-			 --set-option=device-3:driver=ducky.devices.terminal.StandalonePTYTerminal \
-			 -g &> $(TC_MACHINE_SCREEN); \
+			 --set-option=bootloader:file=$(CURDIR)/hello-world \
+			 --set-option=device-2:driver=ducky.devices.terminal.StandalonePTYTerminal \
+			 -g $(VMPROFILE) &> $(TC_MACHINE_SCREEN); \
 			 if [[ $$? -ne 0 ]]; then \
 			   touch $(TESTSET_FAILED); \
 			   echo "$(CC_RED)FAIL$(CC_END)"; \

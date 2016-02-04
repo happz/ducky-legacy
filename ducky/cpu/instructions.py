@@ -4,80 +4,169 @@ import re
 
 from six import integer_types, string_types, add_metaclass
 from six.moves import range
-
-from ctypes import LittleEndianStructure, c_uint, c_int
+from functools import partial
 
 from .registers import Registers, REGISTER_NAMES
-from ..mm import OFFSET_FMT, i16, u16, UInt32
+from ..mm import u32_t, i32_t, UINT16_FMT, UINT32_FMT
 from ..util import str2int
+from ..errors import EncodingLargeValueError, UnalignedJumpTargetError
 
-class GenericInstBinaryFormat_Overall(LittleEndianStructure):
-  _pack_ = 0
-  _fields_ = [
-    ('u32', c_uint)
-  ]
-
-class GenericInstBinaryFormat_Opcode(LittleEndianStructure):
-  _pack_ = 0
-  _fields_ = [
-    ('opcode', c_uint, 6),
-    ('__padding__', c_uint, 26)
-  ]
-
-PO_REGISTER  = r'(?P<register_n{operand_index}>(?:r\d\d?)|(?:sp)|(?:fp)|(?:ds))'
-PO_AREGISTER = r'(?P<address_register>r\d\d?|sp|fp|ds)(?:(?P<pointer>\[|\()(?:(?P<immediate_sign>-|\+)?(?P<offset_immediate>0x[0-9a-fA-F]+|\d+)|(?P<offset_register>r\d\d?|sp|fp|ds))(?:\]|\)))?'
+PO_REGISTER  = r'(?P<register_n{operand_index}>(?:r\d\d?)|(?:sp)|(?:fp))'
+PO_AREGISTER = r'(?P<address_register>r\d\d?|sp|fp)(?:\[(?:(?P<offset_sign>-|\+)?(?P<offset_immediate>0x[0-9a-fA-F]+|\d+))\])?'
 PO_IMMEDIATE = r'(?:(?P<immediate>(?:-|\+)?(?:0x[0-9a-fA-F]+|\d+))|(?P<immediate_address>&[a-zA-Z_\.][a-zA-Z0-9_]*))'
 
+def UINT20_FMT(i):
+  return '0x%05X' % (i & 0xFFFFF)
 
-def BF_FLG(n):
-  return '{}:1'.format(n)
+def encoding_to_u32(inst):
+  return ctypes.cast(ctypes.byref(inst), ctypes.POINTER(u32_t)).contents.value
 
-def BF_REG(*args):
-  args = args or ['reg']
-  return '{}:4'.format(args[0])
+def u32_to_encoding(u, encoding):
+  u = u32_t(u)
+  e = encoding()
 
-def BF_IMM(*args):
-  args = args or ['immediate']
-  return '{}:17:int'.format(args[0])
+  ctypes.cast(ctypes.byref(e), ctypes.POINTER(encoding))[0] = ctypes.cast(ctypes.byref(u), ctypes.POINTER(encoding)).contents
 
-def BF_IMM_SHORT(*args):
-  args = args or ['immediate']
-  return '{}:12:int'.format(args[0])
+  return e
 
-class InstDescriptor(object):
+def IE_OPCODE():
+  return ('opcode', u32_t, 6)
+
+def IE_FLAG(n):
+  return (n, u32_t, 1)
+
+def IE_REG(n):
+  return (n, u32_t, 5)
+
+def IE_IMM(n, l):
+  return (n, u32_t, l)
+
+class Encoding(ctypes.LittleEndianStructure):
+  @staticmethod
+  def sign_extend_immediate(logger, inst, sign_mask, ext_mask):
+    logger.debug('sign_extend_immediate: inst=%s, sign_mask=%s, ext_mask=%s', inst, UINT32_FMT(sign_mask), UINT32_FMT(ext_mask))
+
+    if __debug__:
+      u = u32_t(ext_mask | inst.immediate) if inst.immediate & sign_mask else u32_t(inst.immediate)
+      logger.debug('  result=%s', UINT32_FMT(u))
+
+      return u.value
+
+    else:
+      return u32_t(ext_mask | inst.immediate).value if inst.immediate & sign_mask else u32_t(inst.immediate).value
+
+class EncodingR(ctypes.LittleEndianStructure):
+  _pack_ = 0
+  _fields_ = [
+    IE_OPCODE(),                # 0
+    IE_REG('reg1'),             # 6
+    IE_REG('reg2'),             # 11
+    IE_FLAG('immediate_flag'),  # 16
+    IE_IMM('immediate', 15),    # 17
+  ]
+
+  @staticmethod
+  def fill_reloc_slot(logger, inst, slot):
+    logger.debug('fill_reloc_slot: inst=%s, slot=%s', inst, slot)
+
+    slot.patch_offset = 17
+    slot.patch_size = 15
+
+  @staticmethod
+  def sign_extend_immediate(logger, inst):
+    return Encoding.sign_extend_immediate(logger, inst, 0x4000, 0xFFFF8000)
+
+  def __repr__(self):
+    return '<EncodingR: opcode=%s, reg1=%s, reg2=%s, immediate_flag=%s, immediate=%s>' % (self.opcode, self.reg1, self.reg2, self.immediate_flag, UINT16_FMT(self.immediate))
+
+class EncodingC(ctypes.LittleEndianStructure):
+  _pack_ = 0
+  _fields_ = [
+    IE_OPCODE(),                # 0
+    IE_REG('reg'),              # 6
+    IE_IMM('flag', 3),          # 11
+    IE_FLAG('value'),           # 14
+    IE_FLAG('immediate_flag'),  # 15
+    IE_IMM('immediate', 16)     # 16
+  ]
+
+  @staticmethod
+  def fill_reloc_slot(logger, inst, slot):
+    logger.debug('fill_reloc_slot: inst=%s, slot=%s', inst, slot)
+
+    slot.patch_offset = 16
+    slot.patch_size = 16
+
+  @staticmethod
+  def sign_extend_immediate(logger, inst):
+    return Encoding.sign_extend_immediate(logger, inst, 0x8000, 0xFFFF0000)
+
+  def __repr__(self):
+    return '<EncodingC: opcode=%s, reg=%s, flag=%s, value=%s, immediate_flag=%s, immediate=%s>' % (self.opcode, self.reg, self.flag, self.value, self.immediate_flag, UINT16_FMT(self.immediate))
+
+class EncodingI(ctypes.LittleEndianStructure):
+  _pack_ = 0
+  _fields_ = [
+    IE_OPCODE(),                # 0
+    IE_REG('reg'),              # 6
+    IE_FLAG('immediate_flag'),  # 11
+    IE_IMM('immediate', 20),    # 12
+  ]
+
+  @staticmethod
+  def fill_reloc_slot(logger, inst, slot):
+    logger.debug('fill_reloc_slot: inst=%s, slot=%s', inst, slot)
+
+    slot.patch_offset = 12
+    slot.patch_size = 20
+
+  @staticmethod
+  def sign_extend_immediate(logger, inst):
+    return Encoding.sign_extend_immediate(logger, inst, 0x80000, 0xFFF00000)
+
+  def __repr__(self):
+    return '<EncodingI: opcode=%s, reg=%s, immediate_flag=%s, immediate=%s>' % (self.opcode, self.reg, self.immediate_flag, UINT20_FMT(self.immediate))
+
+class EncodingA(ctypes.LittleEndianStructure):
+  _pack_ = 0
+  _fields_ = [
+    IE_OPCODE(),                # 0
+    IE_REG('reg1'),             # 6
+    IE_REG('reg2'),             # 11
+    IE_REG('reg3')              # 16
+  ]
+
+  def __repr__(self):
+    return '<EncodingA: opcode=%s, reg1=%s, reg2=%s, reg3=%s>' % (self.opcode, self.reg1, self.reg2, self.reg3)
+
+def ENCODE(logger, buffer, inst, field, size, value, raise_on_large_value = False):
+  logger.debug('ENCODE: inst=%s, field=%s, size=%s, value=%s, raise_on_large_value=%s', inst, field, size, value, raise_on_large_value)
+
+  setattr(inst, field, value)
+
+  logger.debug('ENCODE: inst=%s', inst)
+
+  if value >= 2 ** size:
+    e = buffer.get_error(EncodingLargeValueError, 'inst=%s, field=%s, size=%s, value=%s' % (inst, field, size, UINT32_FMT(value)))
+
+    if raise_on_large_value is True:
+      raise e
+
+    logger.warn(e.message)
+
+class Descriptor(object):
   mnemonic      = None
   opcode        = None
   operands      = None
-  binary_format = None
+  encoding      = None
 
   pattern       = None
-  binary_format_name = None
 
   relative_address = False
-
-  def create_binary_format_class(self):
-    fields = []
-
-    fields_desc = self.binary_format if self.binary_format else []
-
-    if not len(fields_desc) or not fields_desc[0].startswith('opcode'):
-      fields_desc.insert(0, 'opcode:6')
-
-    for field in fields_desc:
-      field = field.split(':')
-      data_type = c_int if len(field) == 3 else c_uint
-      fields.append((field[0], data_type, int(field[1])))
-
-    self.binary_format_name = 'InstBinaryFormat_{}'.format(self.mnemonic)
-    self.binary_format = type(self.binary_format_name, (ctypes.LittleEndianStructure,), {'_pack_': 0, '_fields_': fields})
-
-    def __repr__(__inst):
-      return '<' + self.instruction_set.disassemble_instruction(__inst) + '>'
-
-    self.binary_format.__repr__ = __repr__
+  inst_aligned = False
 
   def __init__(self, instruction_set):
-    super(InstDescriptor, self).__init__()
+    super(Descriptor, self).__init__()
 
     self.instruction_set = instruction_set
 
@@ -111,43 +200,39 @@ class InstDescriptor(object):
     pattern = r'^' + pattern + '(?:\s*[;#].*)?$'
     self.pattern = re.compile(pattern, re.MULTILINE)
 
-    self.create_binary_format_class()
-
     self.instruction_set.instructions.append(self)
 
   @staticmethod
   def execute(core, inst):
-    pass
+    raise NotImplementedError('%s does not implement execute method' % inst.opcode)
 
   @staticmethod
-  def assemble_operands(logger, inst, operands):
+  def assemble_operands(logger, buffer, inst, operands):
     pass
 
   @staticmethod
   def fill_reloc_slot(logger, inst, slot):
-    raise NotImplementedError('Instruction descriptor does not support relocation')
+    inst.fill_reloc_slot(logger, inst, slot)
 
   @staticmethod
-  def disassemble_operands(inst):
+  def disassemble_operands(logger, inst):
     return []
 
   @classmethod
   def disassemble_mnemonic(cls, inst):
     return cls.mnemonic
 
-  def emit_instruction(self, logger, line):
+  def emit_instruction(self, logger, buffer, line):
     DEBUG = logger.debug
 
     DEBUG('emit_instruction: input line: %s', line)
 
-    master = self.instruction_set.binary_format_master()
-    master.overall.u16 = 0
+    binst = self.encoding()
 
-    DEBUG('emit_instruction: binary format is %s', self.binary_format_name)
+    DEBUG('emit_instruction: encoding=%s', self.encoding.__name__)
     DEBUG('emit_instruction: desc is %s', self)
 
-    real = getattr(master, self.binary_format_name)
-    real.opcode = self.opcode
+    binst.opcode = self.opcode
 
     raw_match = self.pattern.match(line)
     matches = raw_match.groupdict()
@@ -158,10 +243,10 @@ class InstDescriptor(object):
     def str2reg(r):
       if r == 'sp':
         return Registers.SP
-      if r == 'ds':
-        return Registers.DS
+
       if r == 'fp':
         return Registers.FP
+
       return Registers(int(r[1:]))
 
     if self.operands and len(self.operands):
@@ -188,7 +273,7 @@ class InstDescriptor(object):
             operands['offset_register'] = str2reg(matches['offset_register'])
 
           elif 'offset_immediate' in matches and matches['offset_immediate'] is not None:
-            k = -1 if 'immediate_sign' in matches and matches['immediate_sign'] and matches['immediate_sign'].strip() == '-' else 1
+            k = -1 if 'offset_sign' in matches and matches['offset_sign'] and matches['offset_sign'].strip() == '-' else 1
             operands['offset_immediate'] = k * str2int(matches['offset_immediate'])
 
         elif 'immediate' in matches and matches['immediate']:
@@ -203,38 +288,31 @@ class InstDescriptor(object):
     else:
       pass
 
-    self.assemble_operands(logger, real, operands)
+    self.assemble_operands(logger, buffer, binst, operands)
 
-    for flag in [f for f in dir(self) if f.startswith('flag_')]:
-      setattr(real, flag.split('_')[1], getattr(self, flag))
+    return binst
 
-    return real
-
-
-class InstDescriptor_Generic(InstDescriptor):
-  pass
-
-class InstDescriptor_Generic_Unary_R(InstDescriptor):
+class Descriptor_R(Descriptor):
   operands = 'r'
-  binary_format = [BF_REG()]
+  encoding = EncodingR
 
   @staticmethod
-  def assemble_operands(logger, inst, operands):
+  def assemble_operands(logger, buffer, inst, operands):
     logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
-    inst.reg = operands['register_n0']
+    ENCODE(logger, buffer, inst, 'reg1', 5, operands['register_n0'])
 
   @staticmethod
-  def disassemble_operands(inst):
-    return [REGISTER_NAMES[inst.reg]]
+  def disassemble_operands(logger, inst):
+    return [REGISTER_NAMES[inst.reg1]]
 
-
-class InstDescriptor_Generic_Unary_I(InstDescriptor):
-  operands      = 'i'
-  binary_format = [BF_IMM()]
+class Descriptor_I(Descriptor):
+  operands = 'i'
 
   @staticmethod
-  def assemble_operands(logger, inst, operands):
+  def assemble_operands(logger, buffer, inst, operands):
+    from .assemble import Reference
+
     logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
     v = operands['immediate']
@@ -243,250 +321,148 @@ class InstDescriptor_Generic_Unary_I(InstDescriptor):
       inst.immediate = v
 
     elif isinstance(v, string_types):
-      inst.refers_to = v
+      inst.refers_to = Reference(label = v)
 
   @staticmethod
-  def disassemble_operands(inst):
-    return [inst.refers_to if hasattr(inst, 'refers_to') and inst.refers_to else OFFSET_FMT(inst.immediate)]
+  def disassemble_operands(logger, inst):
+    return [str(inst.refers_to) if hasattr(inst, 'refers_to') and inst.refers_to is not None else UINT16_FMT(inst.immediate)]
 
-class InstDescriptor_Generic_Unary_RI(InstDescriptor):
-  operands      = 'ri'
-  binary_format = [BF_FLG('is_reg'), BF_REG('ireg'), BF_IMM()]
+class Descriptor_RI(Descriptor):
+  operands = 'ri'
+  encoding = EncodingI
 
   @staticmethod
-  def assemble_operands(logger, inst, operands):
+  def assemble_operands(logger, buffer, inst, operands):
+    from .assemble import Reference
+
     logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
     if 'register_n0' in operands:
-      inst.ireg = operands['register_n0']
-      inst.is_reg = 1
+      ENCODE(logger, buffer, inst, 'reg', 5, operands['register_n0'])
 
     else:
       v = operands['immediate']
 
-      inst.is_reg = 0
+      ENCODE(logger, buffer, inst, 'immediate_flag', 1, 1)
 
       if isinstance(v, integer_types):
-        inst.immediate = v
+        ENCODE(logger, buffer, inst, 'immediate', 20, v)
 
       elif isinstance(v, string_types):
-        inst.refers_to = v
+        inst.refers_to = Reference(label = v)
 
   @staticmethod
-  def fill_reloc_slot(logger, inst, slot):
-    logger.debug('fill_reloc_slot: inst=%s, slot=%s', inst, slot)
+  def disassemble_operands(logger, inst):
+    if inst.immediate_flag == 0:
+      return [REGISTER_NAMES[inst.reg]]
 
-    slot.patch_offset = 11
-    slot.patch_size = 17
+    return [str(inst.refers_to) if hasattr(inst, 'refers_to') and inst.refers_to is not None else UINT32_FMT(inst.immediate)]
 
-  @staticmethod
-  def disassemble_operands(inst):
-    if inst.is_reg == 1:
-      return [REGISTER_NAMES[inst.ireg]]
-
-    return [inst.refers_to if hasattr(inst, 'refers_to') and inst.refers_to else OFFSET_FMT(inst.immediate)]
-
-class InstDescriptor_Generic_Binary_R_I(InstDescriptor):
+class Descriptor_R_I(Descriptor):
   operands = 'r,i'
-  binary_format = [BF_REG(), BF_IMM()]
+  encoding = EncodingI
 
   @staticmethod
-  def assemble_operands(logger, inst, operands):
+  def assemble_operands(logger, buffer, inst, operands):
+    from .assemble import Reference
+
     logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
-    inst.reg = operands['register_n0']
+    ENCODE(logger, buffer, inst, 'reg', 5, operands['register_n0'])
+    ENCODE(logger, buffer, inst, 'immediate_flag', 1, 1)
 
     v = operands['immediate']
+
     if isinstance(v, integer_types):
-      inst.immediate = v
+      ENCODE(logger, buffer, inst, 'immediate', 20, v)
 
-    else:
-      inst.refers_to = v
-
-  @staticmethod
-  def fill_reloc_slot(logger, inst, slot):
-    logger.debug('fill_reloc_slot: inst=%s, slot=%s', inst, slot)
-
-    slot.patch_offset = 10
-    slot.patch_size = 17
+    elif isinstance(v, string_types):
+      inst.refers_to = Reference(label = v)
 
   @staticmethod
-  def disassemble_operands(inst):
-    return [REGISTER_NAMES[inst.reg], inst.refers_to] if hasattr(inst, 'refers_to') and inst.refers_to else [REGISTER_NAMES[inst.reg], OFFSET_FMT(inst.immediate)]
+  def disassemble_operands(logger, inst):
+    return [REGISTER_NAMES[inst.reg], str(inst.refers_to) if hasattr(inst, 'refers_to') and inst.refers_to is not None else UINT20_FMT(inst.immediate)]
 
-class InstDescriptor_Generic_Binary_R_RI(InstDescriptor):
+class Descriptor_R_RI(Descriptor):
   operands = 'r,ri'
-  binary_format = [BF_FLG('is_reg'), BF_REG(), BF_REG('ireg'), BF_IMM()]
+  encoding = EncodingR
 
   @staticmethod
-  def assemble_operands(logger, inst, operands):
+  def assemble_operands(logger, buffer, inst, operands):
+    from .assemble import Reference
+
     logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
-    inst.reg = operands['register_n0']
+    ENCODE(logger, buffer, inst, 'reg1', 5, operands['register_n0'])
 
     if 'register_n1' in operands:
-      inst.ireg = operands['register_n1']
-      inst.is_reg = 1
+      ENCODE(logger, buffer, inst, 'reg2', 5, operands['register_n1'])
 
     else:
-      inst.is_reg = 0
+      ENCODE(logger, buffer, inst, 'immediate_flag', 1, 1)
 
       v = operands['immediate']
 
       if isinstance(v, integer_types):
-        inst.immediate = v
+        ENCODE(logger, buffer, inst, 'immediate', 15, v)
 
       elif isinstance(v, string_types):
-        inst.refers_to = v
+        inst.refers_to = Reference(label = v)
 
   @staticmethod
-  def fill_reloc_slot(logger, inst, slot):
-    logger.debug('fill_reloc_slot: inst=%s, slot=%s', inst, slot)
+  def disassemble_operands(logger, inst):
+    if inst.immediate_flag == 0:
+      return [REGISTER_NAMES[inst.reg1], REGISTER_NAMES[inst.reg2]]
 
-    slot.patch_offset = 15
-    slot.patch_size = 17
+    return [REGISTER_NAMES[inst.reg1], str(inst.refers_to) if hasattr(inst, 'refers_to') and inst.refers_to is not None else UINT16_FMT(inst.immediate)]
 
-  @staticmethod
-  def disassemble_operands(inst):
-    if inst.is_reg == 1:
-      return [REGISTER_NAMES[inst.reg], REGISTER_NAMES[inst.ireg]]
-
-    return [REGISTER_NAMES[inst.reg], inst.refers_to if hasattr(inst, 'refers_to') and inst.refers_to else OFFSET_FMT(inst.immediate)]
-
-class InstDescriptor_Generic_Binary_RI_R(InstDescriptor):
-  operands = 'ri,r'
-  binary_format = [BF_FLG('is_reg'), BF_REG(), BF_REG('ireg'), BF_IMM()]
+class Descriptor_R_R(Descriptor):
+  operands = 'r,r'
+  encoding = EncodingR
 
   @staticmethod
-  def assemble_operands(logger, inst, operands):
+  def assemble_operands(logger, buffer, inst, operands):
     logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
-    inst.reg = operands['register_n1']
+    ENCODE(logger, buffer, inst, 'reg1', 5, operands['register_n0'])
+    ENCODE(logger, buffer, inst, 'reg2', 5, operands['register_n1'])
+
+  @staticmethod
+  def disassemble_operands(logger, inst):
+    return [REGISTER_NAMES[inst.reg1], REGISTER_NAMES[inst.reg2]]
+
+class Descriptor_RI_R(Descriptor):
+  operands = 'ri,r'
+  encoding = EncodingR
+
+  @staticmethod
+  def assemble_operands(logger, buffer, inst, operands):
+    from .assemble import Reference
+
+    logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
+
+    ENCODE(logger, buffer, inst, 'reg2', 5, operands['register_n1'])
 
     if 'register_n0' in operands:
-      inst.ireg = operands['register_n0']
-      inst.is_reg = 1
+      ENCODE(logger, buffer, inst, 'reg1', 5, operands['register_n0'])
 
     else:
-      inst.is_reg = 0
+      ENCODE(logger, buffer, inst, 'immediate_flag', 1, 1)
 
       v = operands['immediate']
 
       if isinstance(v, integer_types):
-        inst.immediate = v
+        ENCODE(logger, buffer, inst, 'immediate', 15, v)
 
       elif isinstance(v, string_types):
-        inst.refers_to = v
+        inst.refers_to = Reference(label = v)
 
   @staticmethod
-  def disassemble_operands(inst):
-    if inst.is_reg == 1:
-      return [REGISTER_NAMES[inst.ireg], REGISTER_NAMES[inst.reg]]
+  def disassemble_operands(logger, inst):
+    if inst.immediate_flag == 0:
+      return [REGISTER_NAMES[inst.reg1], REGISTER_NAMES[inst.reg2]]
 
-    return [inst.refers_to if hasattr(inst, 'refers_to') and inst.refers_to else OFFSET_FMT(inst.immediate), REGISTER_NAMES[inst.reg]]
-
-class InstDescriptor_Generic_Binary_R_A(InstDescriptor):
-  operands = 'r,a'
-  binary_format = [BF_FLG('is_reg'), BF_FLG('is_segment'), BF_REG(), BF_REG('areg'), BF_REG('oreg'), BF_IMM_SHORT()]
-
-  @staticmethod
-  def assemble_operands(logger, inst, operands):
-    logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
-
-    inst.reg = operands['register_n0']
-    inst.areg = operands['areg']
-
-    inst.is_reg = 0
-    inst.is_segment = 0
-
-    if 'offset_register' in operands:
-      inst.oreg = operands['offset_register']
-      inst.is_reg = 1
-
-    elif 'offset_immediate' in operands:
-      inst.immediate = operands['offset_immediate']
-
-    if 'pointer' in operands and operands['pointer'] == 'segment':
-      inst.is_segment = 1
-
-  @staticmethod
-  def disassemble_operands(inst):
-    operands = [REGISTER_NAMES[inst.reg]]
-
-    if inst.is_reg == 1:
-      p = '()' if inst.is_segment == 1 else '[]'
-      operands.append('{}{}{}{}'.format(REGISTER_NAMES[inst.areg], p[0], REGISTER_NAMES[inst.oreg], p[1]))
-
-    else:
-      if inst.immediate == 0:
-        operands.append(REGISTER_NAMES[inst.areg])
-
-      else:
-        s = '-' if inst.immediate < 0 else ''
-        p = '()' if inst.is_segment == 1 else '[]'
-        operands.append('{}{}{}{}{}'.format(REGISTER_NAMES[inst.areg], p[0], s, abs(inst.immediate), p[1]))
-
-    return operands
-
-class InstDescriptor_Generic_Binary_A_R(InstDescriptor):
-  operands = 'a,r'
-  binary_format = [BF_FLG('is_reg'), BF_FLG('is_segment'), BF_REG(), BF_REG('areg'), BF_REG('oreg'), BF_IMM_SHORT()]
-
-  @staticmethod
-  def assemble_operands(logger, inst, operands):
-    logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
-
-    inst.reg = operands['register_n1']
-    inst.areg = operands['areg']
-
-    inst.is_reg = 0
-    inst.is_segment = 0
-
-    if 'offset_register' in operands:
-      inst.oreg = operands['offset_register']
-      inst.is_reg = 1
-
-    elif 'offset_immediate' in operands:
-      inst.immediate = operands['offset_immediate']
-
-    if 'pointer' in operands and operands['pointer'] == 'segment':
-      inst.is_segment = 1
-
-  @staticmethod
-  def disassemble_operands(inst):
-    operands = []
-
-    if inst.is_reg == 1:
-      p = '()' if inst.is_segment == 1 else '[]'
-      operands.append('{}{}{}{}'.format(REGISTER_NAMES[inst.areg], p[0], REGISTER_NAMES[inst.oreg], p[1]))
-
-    else:
-      if inst.immediate == 0:
-        operands.append(REGISTER_NAMES[inst.areg])
-
-      else:
-        s = '-' if inst.immediate < 0 else ''
-        p = '()' if inst.is_segment == 1 else '[]'
-        operands.append('{}{}{}{}{}'.format(REGISTER_NAMES[inst.areg], p[0], s, abs(inst.immediate), p[1]))
-
-    operands.append(REGISTER_NAMES[inst.reg])
-
-    return operands
-
-class InstDescriptor_Generic_Binary_R_R(InstDescriptor):
-  operands = 'r,r'
-  binary_format = [BF_REG('reg1'), BF_REG('reg2')]
-
-  @staticmethod
-  def assemble_operands(logger, inst, operands):
-    logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
-
-    inst.reg1 = operands['register_n0']
-    inst.reg2 = operands['register_n1']
-
-  @staticmethod
-  def disassemble_operands(inst):
-    return [REGISTER_NAMES[inst.reg1], REGISTER_NAMES[inst.reg2]]
+    return [str(inst.refers_to) if hasattr(inst, 'refers_to') and inst.refers_to is not None else UINT16_FMT(inst.immediate), REGISTER_NAMES[inst.reg2]]
 
 class InstructionSetMetaclass(type):
   def __init__(cls, name, bases, dict):
@@ -503,57 +479,36 @@ class InstructionSet(object):
       return
 
     cls.opcode_desc_map = {}
+    cls.opcode_encoding_map = {}
 
     for desc in cls.instructions:
       cls.opcode_desc_map[desc.opcode] = desc
-
-    fields = [
-      ('overall', GenericInstBinaryFormat_Overall),
-      ('opcode',  GenericInstBinaryFormat_Opcode)
-    ]
-
-    for desc in cls.instructions:
-      fields.append((desc.binary_format_name, desc.binary_format))
-
-    cls.binary_format_master = type('InstBinaryFormat_Master_{}'.format(cls.__name__), (ctypes.Union,), {'_pack_': 0, '_fields_': fields})
+      cls.opcode_encoding_map[desc.opcode] = desc.encoding
 
   @classmethod
-  def convert_to_master(cls, inst):
-    if isinstance(inst, cls.binary_format_master):
-      return inst
+  def decode_instruction(cls, logger, inst, core = None):
+    logger.debug('%s.decode_instruction: inst=%s, core=%s', cls.__name__, inst, core)
 
-    master = cls.binary_format_master()
-    setattr(master, inst.__class__.__name__, inst)
-    return master
+    opcode = inst & 0x3F
 
-  @classmethod
-  def decode_instruction(cls, inst):
-    if isinstance(inst, integer_types):
-      master = cls.binary_format_master()
-      master.overall.u32 = inst
-      inst = master
+    if opcode not in cls.opcode_desc_map:
+      from ..cpu import InvalidOpcodeError
+      raise InvalidOpcodeError(opcode, ip = core.current_ip if core is not None else None, core = core)
 
-    elif isinstance(inst, UInt32):
-      master = cls.binary_format_master()
-      master.overall.u32 = inst.u32
-      inst = master
-
-    if isinstance(inst, cls.binary_format_master):
-      if inst.opcode.opcode not in cls.opcode_desc_map:
-        from ..cpu import InvalidOpcodeError
-        raise InvalidOpcodeError(inst.opcode.opcode)
-
-      return getattr(inst, cls.opcode_desc_map[inst.opcode.opcode].binary_format_name)
-
-    return inst
+    return u32_to_encoding(inst, cls.opcode_encoding_map[opcode]), cls.opcode_desc_map[opcode], opcode
 
   @classmethod
-  def disassemble_instruction(cls, inst):
-    inst = cls.decode_instruction(inst)
-    desc = cls.opcode_desc_map[inst.opcode]
+  def disassemble_instruction(cls, logger, inst):
+    logger.debug('%s.disassemble_instruction: inst=%s (%s)', cls.__name__, inst, inst.__class__.__name__)
+
+    if isinstance(inst, ctypes.LittleEndianStructure):
+      inst, desc = inst, cls.opcode_desc_map[inst.opcode]
+
+    else:
+      inst, desc, _ = cls.decode_instruction(logger, inst)
 
     mnemonic = desc.disassemble_mnemonic(inst)
-    operands = desc.disassemble_operands(inst)
+    operands = desc.disassemble_operands(logger, inst)
 
     return (mnemonic + ' ' + ', '.join(operands)) if operands else mnemonic
 
@@ -561,113 +516,154 @@ class InstructionSet(object):
 # Main instruction set
 #
 
+def RI_VAL(core, inst, reg, sign_extend = True):
+  if inst.immediate_flag == 1:
+    if sign_extend is True:
+      return inst.sign_extend_immediate(core.LOGGER, inst)
+
+    return u32_t(0x00000000 | inst.immediate).value
+
+  return core.registers.map[getattr(inst, reg)].value
+
+def RI_ADDR(core, inst, reg):
+  core.DEBUG('RI_ADDR: inst=%s, reg=%s', inst, reg)
+
+  base = core.registers.map[reg].value
+  offset = inst.immediate if inst.immediate_flag == 1 else 0
+
+  return base + offset
+
+def JUMP(core, inst):
+  core.DEBUG('JUMP: inst=%s', inst)
+
+  if inst.immediate_flag == 0:
+    core.registers.ip.value = core.registers.map[inst.reg].value
+
+  else:
+    v = inst.sign_extend_immediate(core.LOGGER, inst)
+    nip = u32_t(core.registers.ip.value)
+    nip.value += v
+    core.DEBUG('  offset=%s, aligned=%s, ip=%s, new=%s', UINT32_FMT(v), UINT32_FMT(v << 2), UINT32_FMT(core.registers.ip.value), UINT32_FMT(nip.value))
+    core.registers.ip.value += (v << 2)
+
+  core.DEBUG('JUMP: new ip=%s', UINT32_FMT(core.registers.ip.value))
+
+def update_arith_flags(core, reg):
+  """
+  Set relevant arithmetic flags according to content of registers. Flags are set to zero at the beginning,
+  then content of each register is examined, and ``S`` and ``Z`` flags are set.
+
+  ``E`` flag is not touched, ``O`` flag is set to zero.
+
+  :param u32_t reg: register
+  """
+
+  core.arith_zero = False
+  core.arith_overflow = False
+  core.arith_sign = False
+
+  if reg.value == 0:
+    core.arith_zero = True
+
+  if reg.value & 0x80000000 != 0:
+    core.arith_sign = True
+
 class DuckyOpcodes(enum.IntEnum):
   NOP    =  0
 
+  # Memory load/store
   LW     =  1
-  LB     =  2
-  #      =  3
-  LI     =  4
-  STW    =  5
+  LS     =  2
+  LB     =  3
+  STW    =  4
+  STS    =  5
   STB    =  6
-  MOV    =  8
-  SWP    =  9
-  CAS    = 10
+  CAS    =  7
+  LA     =  8
 
-  INT    = 11
-  RETINT = 12
+  LI     =  9
+  LIU    = 10
+  MOV    = 11
+  SWP    = 12
 
-  CALL   = 13
-  RET    = 14
+  INT    = 13
+  RETINT = 14
 
-  CLI    = 15
-  STI    = 16
-  RST    = 17
-  HLT    = 18
-  IDLE   = 19
+  CALL   = 15
+  RET    = 16
 
-  PUSH   = 20
-  POP    = 21
+  CLI    = 17
+  STI    = 18
+  RST    = 19
+  HLT    = 20
+  IDLE   = 21
+  LPM    = 22
+  IPI    = 23
 
-  INC    = 22
-  DEC    = 23
-  ADD    = 24
-  SUB    = 25
-  MUL    = 26
+  PUSH   = 24
+  POP    = 25
 
-  AND    = 27
-  OR     = 28
-  XOR    = 29
-  NOT    = 30
-  SHIFTL = 31
-  SHIFTR = 32
+  INC    = 26
+  DEC    = 27
+  ADD    = 28
+  SUB    = 29
+  MUL    = 30
+  DIV    = 31
+  UDIV   = 32
+  MOD    = 33
 
-  OUT    = 33
-  IN     = 34
-  OUTB   = 35
-  INB    = 36
+  AND    = 34
+  OR     = 35
+  XOR    = 36
+  NOT    = 37
+  SHIFTL = 38
+  SHIFTR = 39
 
-  CMP    = 37
-  J      = 38
-  DIV    = 49
-  MOD    = 50
+  OUTW   = 40
+  OUTS   = 41
+  OUTB   = 42
+  INW    = 43
+  INS    = 44
+  INB    = 45
 
-  UDIV   = 52
+  # Branch instructions
+  J      = 46
 
-  CMPU   = 51
+  # Condition instructions
+  CMP    = 47
+  CMPU   = 48
+  SET    = 49
+  BRANCH = 50
 
-  # B* instructions
-  BRANCH = 39
-  BE     = 39
-  BNE    = 39
-  BZ     = 39
-  BNZ    = 39
-  BO     = 39
-  BNO    = 39
-  BS     = 39
-  BNS    = 39
-  BG     = 39
-  BGE    = 39
-  BL     = 39
-  BLE    = 39
-
-  # SET* instructions
-  SET    =  7  # master opcode
-  SETE   =  7
-  SETNE  =  7
-  SETZ   =  7
-  SETNZ  =  7
-  SETO   =  7
-  SETNO  =  7
-  SETS   =  7
-  SETNS  =  7
-  SETL   =  7
-  SETLE  =  7
-  SETG   =  7
-  SETGE  =  7
-
-  LPM    = 61
-  IPI    = 62
+  # Control instructions
+  CTR    = 60
+  CTW    = 61
+  FPTC   = 62
   SIS    = 63
 
 
-class Inst_NOP(InstDescriptor_Generic):
+class NOP(Descriptor):
   mnemonic = 'nop'
   opcode = DuckyOpcodes.NOP
+  encoding = EncodingI
+
+  @staticmethod
+  def execute(core, inst):
+    pass
 
 
 #
 # Interrupts
 #
-class Inst_INT(InstDescriptor_Generic_Unary_RI):
+class INT(Descriptor_RI):
   mnemonic      = 'int'
   opcode        = DuckyOpcodes.INT
 
   @staticmethod
   def execute(core, inst):
-    core.do_int(core.RI_VAL(inst))
+    core.do_int(RI_VAL(core, inst, 'reg'))
 
-class Inst_IPI(InstDescriptor_Generic_Binary_R_RI):
+class IPI(Descriptor_R_RI):
   mnemonic = 'ipi'
   opcode = DuckyOpcodes.IPI
 
@@ -675,15 +671,15 @@ class Inst_IPI(InstDescriptor_Generic_Binary_R_RI):
   def execute(core, inst):
     core.check_protected_ins()
 
-    reg = core.registers.map[inst.reg].value
-    cpuid = reg >> 8
-    coreid = reg & 0xFF
+    cpuid = core.registers.map[inst.reg1].value
+    cpuid, coreid = cpuid >> 16, cpuid & 0xFFFF
 
-    core.cpu.machine.cpus[cpuid].cores[coreid].irq(core.RI_VAL(inst))
+    core.cpu.machine.cpus[cpuid].cores[coreid].irq(RI_VAL(core, inst, 'reg2'))
 
-class Inst_RETINT(InstDescriptor_Generic):
+class RETINT(Descriptor):
   mnemonic = 'retint'
   opcode   = DuckyOpcodes.RETINT
+  encoding = EncodingI
 
   @staticmethod
   def execute(core, inst):
@@ -691,834 +687,1062 @@ class Inst_RETINT(InstDescriptor_Generic):
     core.exit_interrupt()
 
 #
-# Routines
+# Jumps
 #
-class Inst_CALL(InstDescriptor_Generic_Unary_RI):
+class _JUMP(Descriptor):
+  operands = 'ri'
+  encoding = EncodingI
+  relative_address = True
+  inst_aligned = True
+
+  @staticmethod
+  def assemble_operands(logger, buffer, inst, operands):
+    from .assemble import Reference
+
+    logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
+
+    if 'register_n0' in operands:
+      ENCODE(logger, buffer, inst, 'reg', 5, operands['register_n0'])
+
+    else:
+      v = operands['immediate']
+
+      ENCODE(logger, buffer, inst, 'immediate_flag', 1, 1)
+
+      if isinstance(v, integer_types):
+        if v & 0x3 != 0:
+          raise buffer.get_error(UnalignedJumpTargetError, 'address=%s' % UINT32_FMT(v))
+
+        ENCODE(logger, buffer, inst, 'immediate', 20, v >> 2)
+
+      elif isinstance(v, string_types):
+        inst.refers_to = Reference(label = v)
+
+  @staticmethod
+  def disassemble_operands(logger, inst):
+    if inst.immediate_flag == 0:
+      return [REGISTER_NAMES[inst.reg]]
+
+    return [str(inst.refers_to) if hasattr(inst, 'refers_to') and inst.refers_to is not None else UINT32_FMT(inst.immediate << 2)]
+
+class CALL(_JUMP):
   mnemonic      = 'call'
   opcode        = DuckyOpcodes.CALL
-  relative_address = True
 
   @staticmethod
   def execute(core, inst):
     core.create_frame()
 
-    core.JUMP(inst)
+    JUMP(core, inst)
 
     if core.check_frames:
       core.frames[-1].IP = core.registers.ip.value
 
-class Inst_RET(InstDescriptor_Generic):
-  mnemonic      = 'ret'
-  opcode        = DuckyOpcodes.RET
+class J(_JUMP):
+  mnemonic = 'j'
+  opcode   = DuckyOpcodes.J
+
+  @staticmethod
+  def execute(core, inst):
+    JUMP(core, inst)
+
+class RET(Descriptor):
+  mnemonic = 'ret'
+  opcode   = DuckyOpcodes.RET
+  encoding = EncodingI
 
   @staticmethod
   def execute(core, inst):
     core.destroy_frame()
 
+
 #
 # CPU
 #
-class Inst_LPM(InstDescriptor_Generic):
+class LPM(Descriptor):
   mnemonic = 'lpm'
   opcode = DuckyOpcodes.LPM
+  encoding = EncodingI
 
   @staticmethod
   def execute(core, inst):
     core.check_protected_ins()
     core.privileged = False
 
-class Inst_CLI(InstDescriptor_Generic):
+class CLI(Descriptor):
   mnemonic = 'cli'
   opcode = DuckyOpcodes.CLI
+  encoding = EncodingI
 
   @staticmethod
   def execute(core, inst):
     core.check_protected_ins()
-    core.registers.flags.hwint = 0
+    core.hwint_allowed = False
 
-class Inst_STI(InstDescriptor_Generic):
+class STI(Descriptor):
   mnemonic = 'sti'
   opcode = DuckyOpcodes.STI
+  encoding = EncodingI
 
   @staticmethod
   def execute(core, inst):
     core.check_protected_ins()
-    core.registers.flags.hwint = 1
+    core.hwint_allowed = True
 
-class Inst_HLT(InstDescriptor_Generic_Unary_RI):
+class HLT(Descriptor_RI):
   mnemonic = 'hlt'
   opcode = DuckyOpcodes.HLT
 
   @staticmethod
   def execute(core, inst):
     core.check_protected_ins()
-    core.exit_code = core.RI_VAL(inst)
+    core.exit_code = RI_VAL(core, inst, 'reg')
     core.halt()
 
-class Inst_RST(InstDescriptor_Generic):
+class RST(Descriptor):
   mnemonic = 'rst'
   opcode = DuckyOpcodes.RST
+  encoding = EncodingI
 
   @staticmethod
   def execute(core, inst):
     core.check_protected_ins()
     core.reset()
 
-class Inst_IDLE(InstDescriptor_Generic):
+class IDLE(Descriptor):
   mnemonic = 'idle'
   opcode = DuckyOpcodes.IDLE
+  encoding = EncodingI
 
   @staticmethod
   def execute(core, inst):
     core.change_runnable_state(idle = True)
 
-class Inst_SIS(InstDescriptor_Generic_Unary_I):
+class SIS(Descriptor_RI):
   mnemonic = 'sis'
   opcode = DuckyOpcodes.SIS
 
   @staticmethod
   def execute(core, inst):
-    core.instruction_set = get_instruction_set(inst.immediate)
+    core.instruction_set = get_instruction_set(RI_VAL(core, inst, 'reg'))
+
 
 #
 # Stack
 #
-class Inst_PUSH(InstDescriptor_Generic_Unary_RI):
+class PUSH(Descriptor_RI):
   mnemonic = 'push'
   opcode = DuckyOpcodes.PUSH
 
   @staticmethod
   def execute(core, inst):
-    core.raw_push(core.RI_VAL(inst))
+    core.raw_push(RI_VAL(core, inst, 'reg'))
 
-class Inst_POP(InstDescriptor_Generic_Unary_R):
+class POP(Descriptor_R):
   mnemonic = 'pop'
   opcode = DuckyOpcodes.POP
 
   @staticmethod
   def execute(core, inst):
-    core.check_protected_reg(inst.reg)
-    core.pop(inst.reg)
-    core.update_arith_flags(core.registers.map[inst.reg])
+    core.pop(inst.reg1)
+    update_arith_flags(core, core.registers.map[inst.reg1])
+
 
 #
 # Arithmetic
 #
-class Inst_INC(InstDescriptor_Generic_Unary_R):
+class INC(Descriptor_R):
   mnemonic = 'inc'
   opcode = DuckyOpcodes.INC
 
   @staticmethod
   def execute(core, inst):
-    core.check_protected_reg(inst.reg)
-    core.registers.map[inst.reg].value += 1
-    core.update_arith_flags(core.registers.map[inst.reg])
+    core.registers.map[inst.reg1].value += 1
+    update_arith_flags(core, core.registers.map[inst.reg1])
 
-class Inst_DEC(InstDescriptor_Generic_Unary_R):
+class DEC(Descriptor_R):
   mnemonic = 'dec'
   opcode = DuckyOpcodes.DEC
 
   @staticmethod
   def execute(core, inst):
-    core.check_protected_reg(inst.reg)
-    core.registers.map[inst.reg].value -= 1
-    core.update_arith_flags(core.registers.map[inst.reg])
+    core.registers.map[inst.reg1].value -= 1
+    update_arith_flags(core, core.registers.map[inst.reg1])
 
-class Inst_ADD(InstDescriptor_Generic_Binary_R_RI):
+class _BINOP(Descriptor_R_RI):
+  encoding = EncodingR
+
+  @staticmethod
+  def execute(core, inst):
+    r = core.registers.map[inst.reg1]
+    v = RI_VAL(core, inst, 'reg2')
+
+    if inst.opcode == DuckyOpcodes.ADD:
+      v = r.value + v
+
+    elif inst.opcode == DuckyOpcodes.SUB:
+      v = r.value - v
+
+    elif inst.opcode == DuckyOpcodes.MUL:
+      x = i32_t(r.value).value
+      y = i32_t(v).value
+      v = x * y
+
+    elif inst.opcode == DuckyOpcodes.DIV:
+      x = i32_t(r.value).value
+      y = i32_t(v).value
+
+      if abs(y) > abs(x):
+        v = 0
+
+      else:
+        v = x // y
+
+    elif inst.opcode == DuckyOpcodes.UDIV:
+      x = u32_t(r.value).value
+      y = u32_t(v).value
+
+      v = x // y
+
+    elif inst.opcode == DuckyOpcodes.MOD:
+      x = i32_t(r.value).value
+      y = i32_t(v).value
+
+      v = x % y
+
+    r.value = v
+    update_arith_flags(core, r)
+
+    if v > 0xFFFFFFFF:
+      core.arith_overflow = True
+
+    if v < 0:
+      core.arith_sign = True
+
+class ADD(_BINOP):
   mnemonic = 'add'
   opcode = DuckyOpcodes.ADD
 
-  @staticmethod
-  def execute(core, inst):
-    core.check_protected_reg(inst.reg)
-    v = core.registers.map[inst.reg].value + core.RI_VAL(inst)
-    core.registers.map[inst.reg].value += core.RI_VAL(inst)
-    core.update_arith_flags(core.registers.map[inst.reg])
-
-    if v > 0xFFFF:
-      core.registers.flags.o = 1
-
-class Inst_SUB(InstDescriptor_Generic_Binary_R_RI):
+class SUB(_BINOP):
   mnemonic = 'sub'
   opcode = DuckyOpcodes.SUB
 
-  @staticmethod
-  def execute(core, inst):
-    core.check_protected_reg(inst.reg)
-    v = core.RI_VAL(inst) > core.registers.map[inst.reg].value
-    core.registers.map[inst.reg].value -= core.RI_VAL(inst)
-    core.update_arith_flags(core.registers.map[inst.reg])
+class MUL(_BINOP):
+  mnemonic = 'mul'
+  opcode = DuckyOpcodes.MUL
 
-    if v:
-      core.registers.flags.s = 1
+class DIV(_BINOP):
+  mnemonic = 'div'
+  opcode = DuckyOpcodes.DIV
+
+class UDIV(_BINOP):
+  mnemonic = 'udiv'
+  opcode = DuckyOpcodes.UDIV
+
+class MOD(_BINOP):
+  mnemonic = 'mod'
+  opcode = DuckyOpcodes.MOD
+
 
 #
 # Conditional and unconditional jumps
 #
-class InstDescriptor_COND(InstDescriptor):
-  binary_format = ['flag:3', BF_FLG('value')]
+class _COND(Descriptor):
+  encoding = EncodingC
 
-  FLAGS = ['e', 'z', 'o', 's', 'l', 'g']
+  FLAGS = ['arith_equal', 'arith_zero', 'arith_overflow', 'arith_sign', 'l', 'g']
   GFLAGS = [0, 1, 2, 3]
+  MNEMONICS = ['e', 'z', 'o', 's', 'g', 'l']
 
   @staticmethod
-  def set_condition(inst, flag, value):
-    inst.flag = InstDescriptor_COND.FLAGS.index(flag)
-    inst.value = 1 if value is True else 0
+  def set_condition(logger, buffer, inst, flag, value):
+    logger.debug('set_condition: flag=%s, value=%s', flag, value)
+
+    ENCODE(logger, buffer, inst, 'flag', 3, _COND.FLAGS.index(flag))
+    ENCODE(logger, buffer, inst, 'value', 1, 1 if value is True else 0)
 
   @staticmethod
   def evaluate(core, inst):
     # genuine flags
-    if inst.flag in InstDescriptor_COND.GFLAGS and inst.value == getattr(core.registers.flags, InstDescriptor_SET.FLAGS[inst.flag]):
+    if inst.flag in _COND.GFLAGS and inst.value == getattr(core, _COND.FLAGS[inst.flag]):
       return True
 
     # "less than" flag
     if inst.flag == 4:
-      if inst.value == 1 and core.registers.flags.s == 1 and core.registers.flags.e == 0:
+      if inst.value == 1 and core.arith_sign is True and core.arith_equal is not True:
         return True
 
-      if inst.value == 0 and (core.registers.flags.s == 0 or core.registers.flags.e == 1):
+      if inst.value == 0 and (core.arith_sign is not True or core.arith_equal is True):
         return True
 
     # "greater than" flag
     if inst.flag == 5:
-      if inst.value == 1 and core.registers.flags.s == 0 and core.registers.flags.e == 0:
+      if inst.value == 1 and core.arith_sign is not True and core.arith_equal is not True:
         return True
 
-      if inst.value == 0 and (core.registers.flags.s == 1 or core.registers.flags.e == 1):
+      if inst.value == 0 and (core.arith_sign is True or core.arith_equal is True):
         return True
 
     return False
 
-class InstDescriptor_BRANCH(InstDescriptor_COND):
+class _BRANCH(_COND):
   operands = 'ri'
-  binary_format = InstDescriptor_COND.binary_format + [BF_FLG('is_reg'), BF_REG('ireg'), BF_IMM()]
+  opcode = DuckyOpcodes.BRANCH
   relative_address = True
+  inst_aligned = True
 
   @classmethod
-  def assemble_operands(cls, logger, inst, operands):
+  def assemble_operands(cls, logger, buffer, inst, operands):
+    from .assemble import Reference
+
     logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
     if 'register_n0' in operands:
-      inst.ireg = operands['register_n0']
-      inst.is_reg = 1
+      ENCODE(logger, buffer, inst, 'reg1', 5, operands['register_n0'])
 
     else:
       v = operands['immediate']
 
-      inst.is_reg = 0
+      ENCODE(logger, buffer, inst, 'immediate_flag', 1, 1)
 
       if isinstance(v, integer_types):
-        inst.immediate = v
+        if v & 0x3 != 0:
+          raise buffer.get_error(UnalignedJumpTargetError, 'address=%s' % UINT32_FMT(v))
+
+        ENCODE(logger, buffer, inst, 'immediate', 16, v >> 2)
 
       elif isinstance(v, string_types):
-        inst.refers_to = v
+        inst.refers_to = Reference(label = v)
 
-    if cls is Inst_BE:
-      InstDescriptor_COND.set_condition(inst, 'e', True)
+    set_condition = partial(_COND.set_condition, logger, buffer, inst)
 
-    elif cls is Inst_BNE:
-      InstDescriptor_COND.set_condition(inst, 'e', False)
+    if cls is BE:
+      set_condition('arith_equal', True)
 
-    elif cls is Inst_BZ:
-      InstDescriptor_COND.set_condition(inst, 'z', True)
+    elif cls is BNE:
+      set_condition('arith_equal', False)
 
-    elif cls is Inst_BNZ:
-      InstDescriptor_COND.set_condition(inst, 'z', False)
+    elif cls is BZ:
+      set_condition('arith_zero', True)
 
-    elif cls is Inst_BO:
-      InstDescriptor_COND.set_condition(inst, 'o', True)
+    elif cls is BNZ:
+      set_condition('arith_zero', False)
 
-    elif cls is Inst_BNO:
-      InstDescriptor_COND.set_condition(inst, 'o', False)
+    elif cls is BO:
+      set_condition('arith_overflow', True)
 
-    elif cls is Inst_BS:
-      InstDescriptor_COND.set_condition(inst, 's', True)
+    elif cls is BNO:
+      set_condition('arith_overflow', False)
 
-    elif cls is Inst_BNS:
-      InstDescriptor_COND.set_condition(inst, 's', False)
+    elif cls is BS:
+      set_condition('arith_sign', True)
 
-    elif cls is Inst_BL:
-      InstDescriptor_COND.set_condition(inst, 'l', True)
+    elif cls is BNS:
+      set_condition('arith_sign', False)
 
-    elif cls is Inst_BLE:
-      InstDescriptor_COND.set_condition(inst, 'g', False)
+    elif cls is BL:
+      set_condition('l', True)
 
-    elif cls is Inst_BG:
-      InstDescriptor_COND.set_condition(inst, 'g', True)
+    elif cls is BLE:
+      set_condition('g', False)
 
-    elif cls is Inst_BGE:
-      InstDescriptor_COND.set_condition(inst, 'l', False)
+    elif cls is BG:
+      set_condition('g', True)
+
+    elif cls is BGE:
+      set_condition('l', False)
 
   @staticmethod
   def fill_reloc_slot(logger, inst, slot):
-    logger.debug('fill_reloc_slot: inst=%s, slot=%s', inst, slot)
+    inst.fill_reloc_slot(logger, inst, slot)
 
-    slot.patch_offset = 15
-    slot.patch_size = 17
+    slot.flags.inst_aligned = True
 
   @staticmethod
-  def disassemble_operands(inst):
-    if inst.is_reg == 1:
-      return [REGISTER_NAMES[inst.ireg]]
+  def disassemble_operands(logger, inst):
+    if inst.immediate_flag == 0:
+      return [REGISTER_NAMES[inst.reg]]
 
-    return [inst.refers_to if hasattr(inst, 'refers_to') and inst.refers_to else OFFSET_FMT(inst.immediate)]
+    return [str(inst.refers_to) if hasattr(inst, 'refers_to') and inst.refers_to is not None else UINT16_FMT(inst.immediate << 2)]
 
   @staticmethod
   def disassemble_mnemonic(inst):
-    if inst.flag in InstDescriptor_COND.GFLAGS:
-      return 'b%s%s' % ('n' if inst.value == 0 else '', InstDescriptor_SET.FLAGS[inst.flag])
+    if inst.flag in _COND.GFLAGS:
+      return 'b%s%s' % ('n' if inst.value == 0 else '', _COND.MNEMONICS[inst.flag])
 
     else:
-      if inst.flag == InstDescriptor_COND.FLAGS.index('l'):
+      if inst.flag == _COND.FLAGS.index('l'):
         return 'bl' if inst.value == 1 else 'bge'
 
-      elif inst.flag == InstDescriptor_COND.FLAGS.index('g'):
+      elif inst.flag == _COND.FLAGS.index('g'):
         return 'bg' if inst.value == 1 else 'ble'
 
   @staticmethod
   def execute(core, inst):
-    if InstDescriptor_COND.evaluate(core, inst):
-      core.JUMP(inst)
+    if _COND.evaluate(core, inst):
+      JUMP(core, inst)
 
-class InstDescriptor_SET(InstDescriptor_COND):
+class _SET(_COND):
   operands = 'r'
-  binary_format = InstDescriptor_COND.binary_format + [BF_REG('reg')]
+  opcode = DuckyOpcodes.SET
 
   @classmethod
-  def assemble_operands(cls, logger, inst, operands):
+  def assemble_operands(cls, logger, buffer, inst, operands):
     logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
-    inst.reg = operands['register_n0']
+    ENCODE(logger, buffer, inst, 'reg', 5, operands['register_n0'])
 
-    if cls is Inst_SETE:
-      InstDescriptor_COND.set_condition(inst, 'e', True)
+    set_condition = partial(_COND.set_condition, logger, buffer, inst)
 
-    elif cls is Inst_SETNE:
-      InstDescriptor_COND.set_condition(inst, 'e', False)
+    if cls is SETE:
+      set_condition('arith_equal', True)
 
-    elif cls is Inst_SETZ:
-      InstDescriptor_COND.set_condition(inst, 'z', True)
+    elif cls is SETNE:
+      set_condition('arith_equal', False)
 
-    elif cls is Inst_SETNZ:
-      InstDescriptor_COND.set_condition(inst, 'z', False)
+    elif cls is SETZ:
+      set_condition('arith_zero', True)
 
-    elif cls is Inst_SETO:
-      InstDescriptor_COND.set_condition(inst, 'o', True)
+    elif cls is SETNZ:
+      set_condition('arith_zero', False)
 
-    elif cls is Inst_SETNO:
-      InstDescriptor_COND.set_condition(inst, 'o', False)
+    elif cls is SETO:
+      set_condition('arith_overflow', True)
 
-    elif cls is Inst_SETS:
-      InstDescriptor_COND.set_condition(inst, 's', True)
+    elif cls is SETNO:
+      set_condition('arith_overflow', False)
 
-    elif cls is Inst_SETNS:
-      InstDescriptor_COND.set_condition(inst, 's', False)
+    elif cls is SETS:
+      set_condition('arith_sign', True)
 
-    elif cls is Inst_SETL:
-      InstDescriptor_COND.set_condition(inst, 'l', True)
+    elif cls is SETNS:
+      set_condition('arith_sign', False)
 
-    elif cls is Inst_SETLE:
-      InstDescriptor_COND.set_condition(inst, 'g', False)
+    elif cls is SETL:
+      set_condition('l', True)
 
-    elif cls is Inst_SETG:
-      InstDescriptor_COND.set_condition(inst, 'g', True)
+    elif cls is SETLE:
+      set_condition('g', False)
 
-    elif cls is Inst_SETGE:
-      InstDescriptor_COND.set_condition(inst, 'l', False)
+    elif cls is SETG:
+      set_condition('g', True)
+
+    elif cls is SETGE:
+      set_condition('l', False)
 
   @staticmethod
-  def disassemble_operands(inst):
+  def disassemble_operands(logger, inst):
     return [REGISTER_NAMES[inst.reg]]
 
   @staticmethod
   def disassemble_mnemonic(inst):
-    if inst.flag in InstDescriptor_COND.GFLAGS:
-      return 'set%s%s' % ('n' if inst.value == 0 else '', InstDescriptor_SET.FLAGS[inst.flag])
+    if inst.flag in _COND.GFLAGS:
+      return 'set%s%s' % ('n' if inst.value == 0 else '', _COND.MNEMONICS[inst.flag])
 
     else:
-      return 'set%s%s' % (InstDescriptor_SET.FLAGS[inst.flag], 'e' if inst.value == 1 else '')
+      return 'set%s%s' % (_COND.MNEMONICS[inst.flag], 'e' if inst.value == 1 else '')
 
   @staticmethod
   def execute(core, inst):
-    core.check_protected_reg(inst.reg)
-    core.registers.map[inst.reg].value = 1 if InstDescriptor_COND.evaluate(core, inst) is True else 0
-    core.update_arith_flags(core.registers.map[inst.reg])
+    core.registers.map[inst.reg].value = 1 if _COND.evaluate(core, inst) is True else 0
+    update_arith_flags(core, core.registers.map[inst.reg])
 
-class Inst_CMP(InstDescriptor_Generic_Binary_R_RI):
+class _CMP(Descriptor_R_RI):
+  encoding = EncodingR
+
+  @staticmethod
+  def evaluate(core, x, y, signed = True):
+    """
+    Compare two numbers, and update relevant flags. Signed comparison is used unless ``signed`` is ``False``.
+    All arithmetic flags are set to zero before the relevant ones are set.
+
+    ``O`` flag is reset like the others, therefore caller has to take care of it's setting if it's required
+    to set it.
+
+    :param u32 x: left hand number
+    :param u32 y: right hand number
+    :param bool signed: use signed, defaults to ``True``
+    """
+
+    core.arith_equal = False
+    core.arith_zero = False
+    core.arith_overflow = False
+    core.arith_sign = False
+
+    if x == y:
+      core.arith_equal = True
+
+      if x == 0:
+        core.arith_zero = True
+
+      return
+
+    if signed:
+      x = i32_t(x).value
+      y = i32_t(y).value
+
+    if x < y:
+      core.arith_sign = True
+
+class CMP(_CMP):
   mnemonic = 'cmp'
   opcode = DuckyOpcodes.CMP
 
   @staticmethod
   def execute(core, inst):
-    core.CMP(core.registers.map[inst.reg].value, core.RI_VAL(inst))
+    _CMP.evaluate(core, core.registers.map[inst.reg1].value, RI_VAL(core, inst, 'reg2'))
 
-class Inst_CMPU(InstDescriptor_Generic_Binary_R_RI):
+class CMPU(_CMP):
   mnemonic = 'cmpu'
   opcode = DuckyOpcodes.CMPU
 
   @staticmethod
   def execute(core, inst):
-    core.CMP(core.registers.map[inst.reg].value, core.RI_VAL(inst), signed = False)
+    _CMP.evaluate(core, core.registers.map[inst.reg1].value, RI_VAL(core, inst, 'reg2'), signed = False)
 
-class Inst_J(InstDescriptor_Generic_Unary_RI):
-  mnemonic = 'j'
-  opcode   = DuckyOpcodes.J
-  relative_address = True
-
-  @staticmethod
-  def execute(core, inst):
-    core.JUMP(inst)
-
-class Inst_BE(InstDescriptor_BRANCH):
+class BE(_BRANCH):
   mnemonic = 'be'
-  opcode   = DuckyOpcodes.BE
 
-class Inst_BNE(InstDescriptor_BRANCH):
+class BNE(_BRANCH):
   mnemonic = 'bne'
-  opcode   = DuckyOpcodes.BNE
 
-class Inst_BNS(InstDescriptor_BRANCH):
+class BNS(_BRANCH):
   mnemonic = 'bns'
-  opcode   = DuckyOpcodes.BNS
 
-class Inst_BNZ(InstDescriptor_BRANCH):
+class BNZ(_BRANCH):
   mnemonic = 'bnz'
-  opcode   = DuckyOpcodes.BNZ
 
-class Inst_BS(InstDescriptor_BRANCH):
+class BS(_BRANCH):
   mnemonic = 'bs'
-  opcode   = DuckyOpcodes.BS
 
-class Inst_BZ(InstDescriptor_BRANCH):
+class BZ(_BRANCH):
   mnemonic = 'bz'
-  opcode   = DuckyOpcodes.BZ
 
-class Inst_BO(InstDescriptor_BRANCH):
+class BO(_BRANCH):
   mnemonic = 'bo'
-  opcode   = DuckyOpcodes.BO
 
-class Inst_BNO(InstDescriptor_BRANCH):
+class BNO(_BRANCH):
   mnemonic = 'bno'
-  opcode   = DuckyOpcodes.BNO
 
-class Inst_BG(InstDescriptor_BRANCH):
+class BG(_BRANCH):
   mnemonic = 'bg'
-  opcode = DuckyOpcodes.BG
 
-class Inst_BGE(InstDescriptor_BRANCH):
+class BGE(_BRANCH):
   mnemonic = 'bge'
-  opcode = DuckyOpcodes.BGE
 
-class Inst_BL(InstDescriptor_BRANCH):
+class BL(_BRANCH):
   mnemonic = 'bl'
-  opcode = DuckyOpcodes.BL
 
-class Inst_BLE(InstDescriptor_BRANCH):
+class BLE(_BRANCH):
   mnemonic = 'ble'
-  opcode = DuckyOpcodes.BLE
 
-class Inst_SETE(InstDescriptor_SET):
+class SETE(_SET):
   mnemonic = 'sete'
-  opcode = DuckyOpcodes.SETE
 
-class Inst_SETNE(InstDescriptor_SET):
+class SETNE(_SET):
   mnemonic = 'setne'
-  opcode = DuckyOpcodes.SETNE
 
-class Inst_SETZ(InstDescriptor_SET):
+class SETZ(_SET):
   mnemonic = 'setz'
-  opcode = DuckyOpcodes.SETZ
 
-class Inst_SETNZ(InstDescriptor_SET):
+class SETNZ(_SET):
   mnemonic = 'setnz'
-  opcode = DuckyOpcodes.SETNZ
 
-class Inst_SETO(InstDescriptor_SET):
+class SETO(_SET):
   mnemonic = 'seto'
-  opcode = DuckyOpcodes.SETO
 
-class Inst_SETNO(InstDescriptor_SET):
+class SETNO(_SET):
   mnemonic = 'setno'
-  opcode = DuckyOpcodes.SETNO
 
-class Inst_SETS(InstDescriptor_SET):
+class SETS(_SET):
   mnemonic = 'sets'
-  opcode = DuckyOpcodes.SETS
 
-class Inst_SETNS(InstDescriptor_SET):
+class SETNS(_SET):
   mnemonic = 'setns'
-  opcode = DuckyOpcodes.SETNS
 
-class Inst_SETG(InstDescriptor_SET):
+class SETG(_SET):
   mnemonic = 'setg'
-  opcode = DuckyOpcodes.SETG
 
-class Inst_SETGE(InstDescriptor_SET):
+class SETGE(_SET):
   mnemonic = 'setge'
-  opcode = DuckyOpcodes.SETGE
 
-class Inst_SETL(InstDescriptor_SET):
+class SETL(_SET):
   mnemonic = 'setl'
-  opcode = DuckyOpcodes.SETL
 
-class Inst_SETLE(InstDescriptor_SET):
+class SETLE(_SET):
   mnemonic = 'setle'
-  opcode = DuckyOpcodes.SETLE
+
 
 #
 # IO
 #
-class Inst_IN(InstDescriptor_Generic_Binary_R_RI):
-  mnemonic      = 'in'
-  opcode        = DuckyOpcodes.IN
+
+class _IN(Descriptor_R_RI):
+  encoding = EncodingR
 
   @staticmethod
   def execute(core, inst):
-    port = core.RI_VAL(inst)
-    core.check_protected_port(port)
-    core.check_protected_reg(inst.reg)
-    core.registers.map[inst.reg].value = core.cpu.machine.ports[port].read_u16(port)
+    port = RI_VAL(core, inst, 'reg2')
 
-class Inst_INB(InstDescriptor_Generic_Binary_R_RI):
-  mnemonic      = 'inb'
-  opcode = DuckyOpcodes.INB
+    core.check_protected_port(port)
+
+    r = core.registers.map[inst.reg1]
+    dev = core.cpu.machine.ports[port]
+
+    if inst.opcode == DuckyOpcodes.INB:
+      r.value = dev.read_u8(port)
+
+    elif inst.opcode == DuckyOpcodes.INS:
+      r.value = dev.read_u16(port)
+
+    else:
+      r.value = dev.read_u32(port)
+
+    update_arith_flags(core, r)
+
+class INB(_IN):
+  mnemonic = 'inb'
+  opcode   = DuckyOpcodes.INB
+
+class INS(_IN):
+  mnemonic = 'ins'
+  opcode   = DuckyOpcodes.INS
+
+class INW(_IN):
+  mnemonic = 'inw'
+  opcode   = DuckyOpcodes.INW
+
+class _OUT(Descriptor_RI_R):
+  encoding = EncodingR
 
   @staticmethod
   def execute(core, inst):
-    port = core.RI_VAL(inst)
+    port = RI_VAL(core, inst, 'reg1')
+
     core.check_protected_port(port)
-    core.check_protected_reg(inst.reg)
-    core.registers.map[inst.reg].value = core.cpu.machine.ports[port].read_u8(port)
-    core.update_arith_flags(core.registers.map[inst.reg])
 
-class Inst_OUT(InstDescriptor_Generic_Binary_RI_R):
-  mnemonic      = 'out'
-  opcode        = DuckyOpcodes.OUT
+    r = core.registers.map[inst.reg2]
+    dev = core.cpu.machine.ports[port]
 
-  @staticmethod
-  def execute(core, inst):
-    port = core.RI_VAL(inst)
-    core.check_protected_port(port)
-    core.cpu.machine.ports[port].write_u16(port, core.registers.map[inst.reg].value)
+    if inst.opcode == DuckyOpcodes.OUTB:
+      dev.write_u8(port, r.value & 0xFF)
 
-class Inst_OUTB(InstDescriptor_Generic_Binary_RI_R):
+    elif inst.opcode == DuckyOpcodes.OUTS:
+      dev.write_u16(port, r.value & 0xFFFF)
+
+    else:
+      dev.write_u32(port, r.value)
+
+class OUTB(_OUT):
   mnemonic      = 'outb'
   opcode = DuckyOpcodes.OUTB
 
-  @staticmethod
-  def execute(core, inst):
-    port = core.RI_VAL(inst)
-    core.check_protected_port(port)
-    core.cpu.machine.ports[port].write_u8(port, core.registers.map[inst.reg].value & 0xFF)
+class OUTW(_OUT):
+  mnemonic = 'outw'
+  opcode   = DuckyOpcodes.OUTW
+
+class OUTS(_OUT):
+  mnemonic = 'outs'
+  opcode   = DuckyOpcodes.OUTS
+
 
 #
 # Bit operations
 #
-class Inst_AND(InstDescriptor_Generic_Binary_R_RI):
+class _BITOP(Descriptor_R_RI):
+  encoding = EncodingR
+
+  @staticmethod
+  def execute(core, inst):
+    r = core.registers.map[inst.reg1]
+    v = RI_VAL(core, inst, 'reg2')
+
+    if inst.opcode == DuckyOpcodes.AND:
+      r.value &= v
+
+    elif inst.opcode == DuckyOpcodes.OR:
+      r.value |= v
+
+    elif inst.opcode == DuckyOpcodes.XOR:
+      r.value ^= v
+
+    elif inst.opcode == DuckyOpcodes.SHIFTL:
+      r.value <<= v
+
+    elif inst.opcode == DuckyOpcodes.SHIFTR:
+      r.value >>= v
+
+    update_arith_flags(core, r)
+
+class AND(_BITOP):
   mnemonic = 'and'
   opcode = DuckyOpcodes.AND
 
-  @staticmethod
-  def execute(core, inst):
-    core.check_protected_reg(inst.reg)
-    core.registers.map[inst.reg].value &= core.RI_VAL(inst)
-    core.update_arith_flags(core.registers.map[inst.reg])
-
-class Inst_OR(InstDescriptor_Generic_Binary_R_RI):
+class OR(_BITOP):
   mnemonic = 'or'
   opcode = DuckyOpcodes.OR
 
-  @staticmethod
-  def execute(core, inst):
-    core.check_protected_reg(inst.reg)
-    core.registers.map[inst.reg].value |= core.RI_VAL(inst)
-    core.update_arith_flags(core.registers.map[inst.reg])
-
-class Inst_XOR(InstDescriptor_Generic_Binary_R_RI):
+class XOR(_BITOP):
   mnemonic = 'xor'
   opcode = DuckyOpcodes.XOR
 
-  @staticmethod
-  def execute(core, inst):
-    core.check_protected_reg(inst.reg)
-    core.registers.map[inst.reg].value ^= core.RI_VAL(inst)
-    core.update_arith_flags(core.registers.map[inst.reg])
-
-class Inst_NOT(InstDescriptor_Generic_Unary_R):
-  mnemonic = 'not'
-  opcode = DuckyOpcodes.NOT
-
-  @staticmethod
-  def execute(core, inst):
-    core.check_protected_reg(inst.reg)
-    core.registers.map[inst.reg].value = ~core.registers.map[inst.reg].value
-    core.update_arith_flags(core.registers.map[inst.reg])
-
-class Inst_SHIFTL(InstDescriptor_Generic_Binary_R_RI):
+class SHIFTL(_BITOP):
   mnemonic = 'shiftl'
   opcode = DuckyOpcodes.SHIFTL
 
-  @staticmethod
-  def execute(core, inst):
-    core.check_protected_reg(inst.reg)
-    core.registers.map[inst.reg].value <<= core.RI_VAL(inst)
-    core.update_arith_flags(core.registers.map[inst.reg])
-
-class Inst_SHIFTR(InstDescriptor_Generic_Binary_R_RI):
+class SHIFTR(_BITOP):
   mnemonic = 'shiftr'
   opcode = DuckyOpcodes.SHIFTR
 
+class NOT(Descriptor_R):
+  mnemonic = 'not'
+  opcode = DuckyOpcodes.NOT
+  encoding = EncodingR
+
   @staticmethod
   def execute(core, inst):
-    core.check_protected_reg(inst.reg)
-    core.registers.map[inst.reg].value >>= core.RI_VAL(inst)
-    core.update_arith_flags(core.registers.map[inst.reg])
+    r = core.registers.map[inst.reg1]
+
+    r.value = ~r.value
+    update_arith_flags(core, r)
+
 
 #
 # Memory load/store operations
 #
-class Inst_CAS(InstDescriptor):
+class CAS(Descriptor):
   mnemonic = 'cas'
-  opcode = DuckyOpcodes.CAS
-
   operands = 'r,r,r'
-  binary_format = [BF_REG('r_addr'), BF_REG('r_test'), BF_REG('r_rep')]
+  opcode = DuckyOpcodes.CAS
+  encoding = EncodingA
 
   @staticmethod
-  def assemble_operands(logger, inst, operands):
+  def assemble_operands(logger, buffer, inst, operands):
     logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
-    inst.r_addr = operands['register_n0']
-    inst.r_test = operands['register_n1']
-    inst.r_rep = operands['register_n2']
+    ENCODE(logger, buffer, inst, 'reg1', 5, operands['register_n0'])
+    ENCODE(logger, buffer, inst, 'reg2', 5, operands['register_n1'])
+    ENCODE(logger, buffer, inst, 'reg3', 5, operands['register_n2'])
 
   @staticmethod
-  def disassemble_operands(inst):
+  def disassemble_operands(logger, inst):
     return [
-      REGISTER_NAMES[inst.r_addr],
-      REGISTER_NAMES[inst.r_test],
-      REGISTER_NAMES[inst.r_rep]
+      REGISTER_NAMES[inst.reg1],
+      REGISTER_NAMES[inst.reg2],
+      REGISTER_NAMES[inst.reg3]
     ]
 
   @staticmethod
   def execute(core, inst):
-    core.registers.flags.e = 0
+    core.arith_equal = False
 
-    addr = core.DS_ADDR(core.registers.map[inst.r_addr].value)
-    value = core.MEM_IN16(addr)
+    reg1, reg2, reg3 = core.registers.map[inst.reg1], core.registers.map[inst.reg2], core.registers.map[inst.reg3]
+    core.DEBUG('CAS.execute: reg1=%s (%s), reg2=%s (%s), reg3=%s (%s)', inst.reg1, UINT32_FMT(reg1.value), inst.reg2, UINT32_FMT(reg2.value), inst.reg3, UINT32_FMT(reg3.value))
 
-    if value == core.registers.map[inst.r_test].value:
-      core.MEM_OUT16(addr, core.registers.map[inst.r_rep].value)
-      core.registers.flags.e = 1
+    addr = core.registers.map[inst.reg1].value
+    actual_value = core.MEM_IN32(reg1.value)
+
+    core.DEBUG('CAS.execute: value=%s', UINT32_FMT(actual_value))
+
+    if actual_value == reg2.value:
+      core.MEM_OUT32(addr, reg3.value)
+      core.arith_equal = True
 
     else:
-      core.registers.map[inst.r_test].value = value
+      reg2.value = actual_value
 
-class Inst_LW(InstDescriptor_Generic_Binary_R_A):
+class _LOAD(Descriptor):
+  operands = 'r,a'
+  encoding = EncodingR
+
+  @staticmethod
+  def assemble_operands(logger, buffer, inst, operands):
+    logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
+
+    ENCODE(logger, buffer, inst, 'reg1', 5, operands['register_n0'])
+    ENCODE(logger, buffer, inst, 'reg2', 5, operands['areg'])
+
+    offset_immediate = operands.get('offset_immediate')
+    if offset_immediate is not None:
+      ENCODE(logger, buffer, inst, 'immediate_flag', 1, 1)
+      ENCODE(logger, buffer, inst, 'immediate', 15, int(offset_immediate))
+
+  @staticmethod
+  def disassemble_operands(logger, inst):
+    operands = [REGISTER_NAMES[inst.reg1]]
+
+    if inst.immediate_flag == 1:
+      operands.append('%s[%s]' % (REGISTER_NAMES[inst.reg2], inst.sign_extend_immediate(logger, inst)))
+
+    else:
+      operands.append(REGISTER_NAMES[inst.reg2])
+
+    return operands
+
+  @staticmethod
+  def execute(core, inst):
+    r = core.registers.map[inst.reg1]
+    addr = RI_ADDR(core, inst, inst.reg2)
+
+    if inst.opcode == DuckyOpcodes.LW:
+      r.value = core.MEM_IN32(addr)
+
+    elif inst.opcode == DuckyOpcodes.LS:
+      r.value = core.MEM_IN16(addr)
+
+    else:
+      r.value = core.MEM_IN8(addr)
+
+    update_arith_flags(core, r)
+
+class _STORE(Descriptor):
+  operands = 'a,r'
+  encoding = EncodingR
+
+  @staticmethod
+  def assemble_operands(logger, buffer, inst, operands):
+    logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
+
+    ENCODE(logger, buffer, inst, 'reg1', 5, operands['areg'])
+    ENCODE(logger, buffer, inst, 'reg2', 5, operands['register_n1'])
+
+    offset_immediate = operands.get('offset_immediate')
+    if offset_immediate is not None:
+      ENCODE(logger, buffer, inst, 'immediate_flag', 1, 1)
+      ENCODE(logger, buffer, inst, 'immediate', 15, int(offset_immediate))
+
+  @staticmethod
+  def disassemble_operands(logger, inst):
+    operands = []
+
+    if inst.immediate_flag == 1:
+      operands.append('%s[%s]' % (REGISTER_NAMES[inst.reg1], inst.sign_extend_immediate(logger, inst)))
+
+    else:
+      operands.append(REGISTER_NAMES[inst.reg1])
+
+    operands.append(REGISTER_NAMES[inst.reg2])
+
+    return operands
+
+  @staticmethod
+  def execute(core, inst):
+    addr = RI_ADDR(core, inst, inst.reg1)
+
+    if inst.opcode == DuckyOpcodes.STW:
+      core.MEM_OUT32(addr, core.registers.map[inst.reg2].value)
+
+    elif inst.opcode == DuckyOpcodes.STS:
+      core.MEM_OUT16(addr, core.registers.map[inst.reg2].value & 0xFFFF)
+
+    else:
+      core.MEM_OUT8(addr, core.registers.map[inst.reg2].value & 0xFF)
+
+class _LOAD_IMM(Descriptor_R_I):
+  @classmethod
+  def load(cls, core, inst):
+    raise NotImplementedError('%s does not implement "load immediate" method' % cls.__name__)
+
+  @classmethod
+  def execute(cls, core, inst):
+    cls.load(core, inst)
+    update_arith_flags(core, core.registers.map[inst.reg])
+
+class LW(_LOAD):
   mnemonic = 'lw'
   opcode = DuckyOpcodes.LW
 
-  @staticmethod
-  def execute(core, inst):
-    core.check_protected_reg(inst.reg)
-    core.registers.map[inst.reg].value = core.MEM_IN16(core.OFFSET_ADDR(inst))
-    core.update_arith_flags(core.registers.map[inst.reg])
+class LS(_LOAD):
+  mnemonic = 'ls'
+  opcode = DuckyOpcodes.LS
 
-class Inst_LB(InstDescriptor_Generic_Binary_R_A):
+class LB(_LOAD):
   mnemonic = 'lb'
   opcode = DuckyOpcodes.LB
 
-  @staticmethod
-  def execute(core, inst):
-    core.check_protected_reg(inst.reg)
-    core.registers.map[inst.reg].value = core.MEM_IN8(core.OFFSET_ADDR(inst))
-    core.update_arith_flags(core.registers.map[inst.reg])
+class LI(_LOAD_IMM):
+  mnemonic = 'li'
+  opcode   = DuckyOpcodes.LI
 
-class Inst_LI(InstDescriptor_Generic_Binary_R_I):
-  mnemonic    = 'li'
-  opcode = DuckyOpcodes.LI
+  @classmethod
+  def load(cls, core, inst):
+    core.registers.map[inst.reg].value = inst.sign_extend_immediate(core.LOGGER, inst)
 
-  @staticmethod
-  def execute(core, inst):
-    core.check_protected_reg(inst.reg)
-    core.registers.map[inst.reg].value = inst.immediate
-    core.update_arith_flags(core.registers.map[inst.reg])
+class LIU(_LOAD_IMM):
+  mnemonic = 'liu'
+  opcode   = DuckyOpcodes.LIU
 
-class Inst_STW(InstDescriptor_Generic_Binary_A_R):
-  mnemonic    = 'stw'
-  opcode = DuckyOpcodes.STW
+  @classmethod
+  def load(cls, core, inst):
+    r = core.registers.map[inst.reg]
 
-  @staticmethod
-  def execute(core, inst):
-    core.MEM_OUT16(core.OFFSET_ADDR(inst), core.registers.map[inst.reg].value)
+    r.value = (r.value & 0xFFFF) | ((inst.sign_extend_immediate(core.LOGGER, inst) & 0xFFFF) << 16)
 
-class Inst_STB(InstDescriptor_Generic_Binary_A_R):
-  mnemonic    = 'stb'
-  opcode = DuckyOpcodes.STB
+class LA(_LOAD_IMM):
+  mnemonic = 'la'
+  opcode   = DuckyOpcodes.LA
+  relative_address = True
 
-  @staticmethod
-  def execute(core, inst):
-    core.MEM_OUT8(core.OFFSET_ADDR(inst), core.registers.map[inst.reg].value & 0xFF)
+  @classmethod
+  def load(cls, core, inst):
+    core.registers.map[inst.reg].value = core.registers.ip.value + inst.sign_extend_immediate(core.LOGGER, inst)
 
-class Inst_MOV(InstDescriptor_Generic_Binary_R_R):
+class STW(_STORE):
+  mnemonic = 'stw'
+  opcode   = DuckyOpcodes.STW
+
+class STS(_STORE):
+  mnemonic = 'sts'
+  opcode   = DuckyOpcodes.STS
+
+class STB(_STORE):
+  mnemonic = 'stb'
+  opcode   = DuckyOpcodes.STB
+
+class MOV(Descriptor_R_R):
   mnemonic = 'mov'
   opcode = DuckyOpcodes.MOV
+  encoding = EncodingR
 
   @staticmethod
   def execute(core, inst):
-    core.check_protected_reg(inst.reg1)
     core.registers.map[inst.reg1].value = core.registers.map[inst.reg2].value
 
-class Inst_SWP(InstDescriptor_Generic_Binary_R_R):
+class SWP(Descriptor_R_R):
   mnemonic = 'swp'
   opcode = DuckyOpcodes.SWP
+  encoding = EncodingR
 
   @staticmethod
   def execute(core, inst):
-    core.check_protected_reg(inst.reg1)
-    core.check_protected_reg(inst.reg2)
-    v = core.registers.map[inst.reg1].value
-    core.registers.map[inst.reg1].value = core.registers.map[inst.reg2].value
-    core.registers.map[inst.reg2].value = v
+    r1 = core.registers.map[inst.reg1]
+    r2 = core.registers.map[inst.reg2]
 
-class Inst_MUL(InstDescriptor_Generic_Binary_R_RI):
-  mnemonic = 'mul'
-  opcode = DuckyOpcodes.MUL
+    r1.value, r2.value = r2.value, r1.value
 
-  @staticmethod
-  def execute(core, inst):
-    core.check_protected_reg(inst.reg)
-    r = core.registers.map[inst.reg]
-    x = i16(r.value).value
-    y = i16(core.RI_VAL(inst)).value
-    r.value = x * y
-    core.update_arith_flags(core.registers.map[inst.reg])
-
-class Inst_DIV(InstDescriptor_Generic_Binary_R_RI):
-  mnemonic = 'div'
-  opcode = DuckyOpcodes.DIV
+#
+# Control instructions
+#
+class CTR(Descriptor_R_R):
+  mnemonic = 'ctr'
+  opcode = DuckyOpcodes.CTR
+  encoding = EncodingR
 
   @staticmethod
   def execute(core, inst):
-    core.check_protected_reg(inst.reg)
-    r = core.registers.map[inst.reg]
-    x = i16(r.value).value
-    y = i16(core.RI_VAL(inst)).value
+    core.registers.map[inst.reg1].value = core.control_coprocessor.read(inst.reg2)
+    update_arith_flags(core, core.registers.map[inst.reg1])
 
-    if abs(y) > abs(x):
-      r.value = 0
-
-    else:
-      r.value = x // y
-
-    core.update_arith_flags(core.registers.map[inst.reg])
-
-class Inst_UDIV(InstDescriptor_Generic_Binary_R_RI):
-  mnemonic = 'udiv'
-  opcode = DuckyOpcodes.UDIV
+class CTW(Descriptor_R_R):
+  mnemonic = 'ctw'
+  opcode = DuckyOpcodes.CTW
+  encoding = EncodingR
 
   @staticmethod
   def execute(core, inst):
-    core.check_protected_reg(inst.reg)
-    r = core.registers.map[inst.reg]
-    x = u16(r.value).value
-    y = u16(core.RI_VAL(inst)).value
+    core.control_coprocessor.write(inst.reg1, core.registers.map[inst.reg2].value)
 
-    r.value = x // y
-
-    core.update_arith_flags(core.registers.map[inst.reg])
-
-class Inst_MOD(InstDescriptor_Generic_Binary_R_RI):
-  mnemonic = 'mod'
-  opcode = DuckyOpcodes.MOD
+class FPTC(Descriptor):
+  mnemonic = 'fptc'
+  opcode = DuckyOpcodes.FPTC
+  encoding = EncodingI
 
   @staticmethod
   def execute(core, inst):
-    core.check_protected_reg(inst.reg)
-    r = core.registers.map[inst.reg]
-    x = i16(r.value).value
-    y = i16(core.RI_VAL(inst)).value
-    r.value = x % y
-    core.update_arith_flags(core.registers.map[inst.reg])
+    core.mmu.release_ptes()
+
 
 class DuckyInstructionSet(InstructionSet):
   instruction_set_id = 0
   opcodes = DuckyOpcodes
 
-Inst_NOP(DuckyInstructionSet)
-Inst_INT(DuckyInstructionSet)
-Inst_IPI(DuckyInstructionSet)
-Inst_RETINT(DuckyInstructionSet)
-Inst_CALL(DuckyInstructionSet)
-Inst_RET(DuckyInstructionSet)
-Inst_CLI(DuckyInstructionSet)
-Inst_STI(DuckyInstructionSet)
-Inst_HLT(DuckyInstructionSet)
-Inst_RST(DuckyInstructionSet)
-Inst_IDLE(DuckyInstructionSet)
-Inst_PUSH(DuckyInstructionSet)
-Inst_POP(DuckyInstructionSet)
-Inst_INC(DuckyInstructionSet)
-Inst_DEC(DuckyInstructionSet)
-Inst_ADD(DuckyInstructionSet)
-Inst_SUB(DuckyInstructionSet)
-Inst_CMP(DuckyInstructionSet)
-Inst_J(DuckyInstructionSet)
-Inst_IN(DuckyInstructionSet)
-Inst_INB(DuckyInstructionSet)
-Inst_OUT(DuckyInstructionSet)
-Inst_OUTB(DuckyInstructionSet)
-Inst_AND(DuckyInstructionSet)
-Inst_OR(DuckyInstructionSet)
-Inst_XOR(DuckyInstructionSet)
-Inst_NOT(DuckyInstructionSet)
-Inst_SHIFTL(DuckyInstructionSet)
-Inst_SHIFTR(DuckyInstructionSet)
-Inst_LW(DuckyInstructionSet)
-Inst_LB(DuckyInstructionSet)
-Inst_LI(DuckyInstructionSet)
-Inst_STW(DuckyInstructionSet)
-Inst_STB(DuckyInstructionSet)
-Inst_MOV(DuckyInstructionSet)
-Inst_SWP(DuckyInstructionSet)
-Inst_MUL(DuckyInstructionSet)
-Inst_DIV(DuckyInstructionSet)
-Inst_UDIV(DuckyInstructionSet)
-Inst_MOD(DuckyInstructionSet)
-Inst_CMPU(DuckyInstructionSet)
-Inst_CAS(DuckyInstructionSet)
-Inst_SIS(DuckyInstructionSet)
+NOP(DuckyInstructionSet)
+INT(DuckyInstructionSet)
+IPI(DuckyInstructionSet)
+RETINT(DuckyInstructionSet)
+CALL(DuckyInstructionSet)
+RET(DuckyInstructionSet)
+CLI(DuckyInstructionSet)
+STI(DuckyInstructionSet)
+HLT(DuckyInstructionSet)
+RST(DuckyInstructionSet)
+IDLE(DuckyInstructionSet)
+PUSH(DuckyInstructionSet)
+POP(DuckyInstructionSet)
+INC(DuckyInstructionSet)
+DEC(DuckyInstructionSet)
+ADD(DuckyInstructionSet)
+SUB(DuckyInstructionSet)
+CMP(DuckyInstructionSet)
+J(DuckyInstructionSet)
+INW(DuckyInstructionSet)
+INB(DuckyInstructionSet)
+INS(DuckyInstructionSet)
+OUTS(DuckyInstructionSet)
+OUTW(DuckyInstructionSet)
+OUTB(DuckyInstructionSet)
+AND(DuckyInstructionSet)
+OR(DuckyInstructionSet)
+XOR(DuckyInstructionSet)
+NOT(DuckyInstructionSet)
+SHIFTL(DuckyInstructionSet)
+SHIFTR(DuckyInstructionSet)
+
+# Memory access
+LW(DuckyInstructionSet)
+LS(DuckyInstructionSet)
+LB(DuckyInstructionSet)
+LI(DuckyInstructionSet)
+LIU(DuckyInstructionSet)
+LA(DuckyInstructionSet)
+STW(DuckyInstructionSet)
+STS(DuckyInstructionSet)
+STB(DuckyInstructionSet)
+
+MOV(DuckyInstructionSet)
+SWP(DuckyInstructionSet)
+MUL(DuckyInstructionSet)
+DIV(DuckyInstructionSet)
+UDIV(DuckyInstructionSet)
+MOD(DuckyInstructionSet)
+CMPU(DuckyInstructionSet)
+CAS(DuckyInstructionSet)
+SIS(DuckyInstructionSet)
 
 # Branching instructions
-Inst_BE(DuckyInstructionSet)
-Inst_BNE(DuckyInstructionSet)
-Inst_BZ(DuckyInstructionSet)
-Inst_BNZ(DuckyInstructionSet)
-Inst_BO(DuckyInstructionSet)
-Inst_BNO(DuckyInstructionSet)
-Inst_BS(DuckyInstructionSet)
-Inst_BNS(DuckyInstructionSet)
-Inst_BG(DuckyInstructionSet)
-Inst_BGE(DuckyInstructionSet)
-Inst_BL(DuckyInstructionSet)
-Inst_BLE(DuckyInstructionSet)
+BE(DuckyInstructionSet)
+BNE(DuckyInstructionSet)
+BZ(DuckyInstructionSet)
+BNZ(DuckyInstructionSet)
+BO(DuckyInstructionSet)
+BNO(DuckyInstructionSet)
+BS(DuckyInstructionSet)
+BNS(DuckyInstructionSet)
+BG(DuckyInstructionSet)
+BGE(DuckyInstructionSet)
+BL(DuckyInstructionSet)
+BLE(DuckyInstructionSet)
 
 # SET* instructions
-Inst_SETE(DuckyInstructionSet)
-Inst_SETNE(DuckyInstructionSet)
-Inst_SETZ(DuckyInstructionSet)
-Inst_SETNZ(DuckyInstructionSet)
-Inst_SETO(DuckyInstructionSet)
-Inst_SETNO(DuckyInstructionSet)
-Inst_SETS(DuckyInstructionSet)
-Inst_SETNS(DuckyInstructionSet)
-Inst_SETG(DuckyInstructionSet)
-Inst_SETGE(DuckyInstructionSet)
-Inst_SETL(DuckyInstructionSet)
-Inst_SETLE(DuckyInstructionSet)
+SETE(DuckyInstructionSet)
+SETNE(DuckyInstructionSet)
+SETZ(DuckyInstructionSet)
+SETNZ(DuckyInstructionSet)
+SETO(DuckyInstructionSet)
+SETNO(DuckyInstructionSet)
+SETS(DuckyInstructionSet)
+SETNS(DuckyInstructionSet)
+SETG(DuckyInstructionSet)
+SETGE(DuckyInstructionSet)
+SETL(DuckyInstructionSet)
+SETLE(DuckyInstructionSet)
 
-Inst_LPM(DuckyInstructionSet)
+LPM(DuckyInstructionSet)
+
+# Control instructions
+CTR(DuckyInstructionSet)
+CTW(DuckyInstructionSet)
+FPTC(DuckyInstructionSet)
 
 DuckyInstructionSet.init()
 

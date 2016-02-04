@@ -5,72 +5,65 @@ Virtual hardware
 CPU
 ---
 
-Ducky VM can have multiple CPUs, each with multiple cores. Each core is a 16-bit microprocessor, with 32-bit wide fixed instruction set, 13 working and 6 special registers, and access to main memory.
+Ducky VM can have multiple CPUs, each with multiple cores. Each core is
+a 32-bit microprocessor, with 32 32-bit registers, connected to main memory.
+It is equiped with MMU, and its own optional data and instruction caches.
 
-CPU core can work in privileged and unprivileged modes, allowing use of several protected instructions in privileged mode.
+CPU core can work in privileged and unprivileged modes, allowing use of
+several protected instructions in privileged mode.
 
 
 Registers
 ^^^^^^^^^
 
- - 13 16-bit general purpose registers, named ``r0`` to ``r12``
- - 6 other registers with special purpose
-   - ``CS`` - segment 16-bit register, contains index of current code segment
-   - ``DS`` - segment 16-bit register, contains index of current data segment
-   - ``Flags`` - 16-bit flag register
-   - ``SP`` - 16-bit stack pointer, contains address of the last push'ed value on stack
-   - ``FP`` - 16-bit frame pointer, contains content of ``SP`` in time of the last ``call`` or ``int`` instruction
-   - ``IP`` - 16-bit instruction pointer, contains address of **next** instruction to be executed
+ - 32 32-bit registers
+   - registers ``r0`` to ``r28`` are general purpose registers
+   - ``r30`` is reserved, and used as a stack pointer register, ``SP`` - contains address of the last push'ed value on stack
+   - ``r29`` is reserved, and used as a frame pointer register, ``FP`` - contains content of ``SP`` in time of the last ``call`` or ``int`` instruction
+   - ``r31`` is reserved, and used as a instruction pointer register, ``IP`` - contains address of **next** instruction to be executed
+ - ``flags`` register
 
-Special registers are protected and cannot be modified by standard means (``push flags; <modify flags>; pop flags``) when CPU is in user mode
-
-
-Segment registers
-^^^^^^^^^^^^^^^^^
-
- - program is loaded into its own code segment, and owns its own data segment. Their numbers are stored in registers ``CS``, ``DS`` respectively
- - before every memory accesses the final address is produced by multiplying proper segment number and adding requested address
- - ``CS`` and ``DS`` registers are 16 bits wide but only lower byte is relevant
+``IP`` and ``flags`` registers are protected, and cannot be modified by standard means (``push flags; <modify flags>; pop flags``) when CPU is in user mode
 
 
 Flags register
 ^^^^^^^^^^^^^^
 
-+--------+----------------+-------------------------------------------------------------------------------------+
-| Mask   | Flags          | Usage                                                                               |
-+--------+----------------+-------------------------------------------------------------------------------------+
-| 0x00   | ``privileged`` | If set, CPU runs in privileged mode, and usage of protected instructions is allowed |
-+--------+----------------+-------------------------------------------------------------------------------------+
-| 0x01   | ``hwint``      | If set, HW interrupts are allowed to interrupt                                      |
-+--------+----------------+-------------------------------------------------------------------------------------+
-| 0x04   | ``e``          | Set if the last two compared registers were equal                                   |
-+--------+----------------+-------------------------------------------------------------------------------------+
-| 0x08   | ``z``          | Set if the last arithmetic operation produced zero                                  |
-+--------+----------------+-------------------------------------------------------------------------------------+
-| 0x10   | ``o``          | Set if the last arithmetic operation overflown                                      |
-+--------+----------------+-------------------------------------------------------------------------------------+
-| 0x11   | ``s``          | Set if the last arithmetic operation produced negative result                       |
-+--------+----------------+-------------------------------------------------------------------------------------+
++--------+-------------------+-------------------------------------------------------------------------------------+
+| Mask   | Flags             | Usage                                                                               |
++--------+-------------------+-------------------------------------------------------------------------------------+
+| 0x00   | ``privileged``    | If set, CPU runs in privileged mode, and usage of protected instructions is allowed |
++--------+-------------------+-------------------------------------------------------------------------------------+
+| 0x01   | ``hwint_allowed`` | If set, HW interrupts can be delivered to this core                                 |
++--------+-------------------+-------------------------------------------------------------------------------------+
+| 0x04   | ``e``             | Set if the last two compared registers were equal                                   |
++--------+-------------------+-------------------------------------------------------------------------------------+
+| 0x08   | ``z``             | Set if the last arithmetic operation produced zero                                  |
++--------+-------------------+-------------------------------------------------------------------------------------+
+| 0x10   | ``o``             | Set if the last arithmetic operation overflown                                      |
++--------+-------------------+-------------------------------------------------------------------------------------+
+| 0x20   | ``s``             | Set if the last arithmetic operation produced negative result                       |
++--------+-------------------+-------------------------------------------------------------------------------------+
 
 
 Instruction set
 ^^^^^^^^^^^^^^^
 
-CPU supports multiple instruction set. The main one, `ducky`, is the main workhorse, suited for general coding, but other instruction sets can exist, e.g. coprocessor may use its own instruction set for its operations.
+CPU supports multiple instruction set. The default one, `ducky`, is the main workhorse, suited for general coding, but other instruction sets can exist, e.g. coprocessor may use its own instruction set for its operations.
 
 Design principles
 """""""""""""""""
 
  - load and store operations are performed by dedicated instructions
- - all memory-register transfers work with 16-bit operands, 8-bit operands are handled by special instructions when necessary
- - all memory-register transfers work with addresses that are aligned to the size of their operands - 2 bytes for 16-bit operands, 1 byte (so no alignment at all) for 8-bit operands
+ - all memory-register transfers work with 32-bit operands, 16-bit and 8-bit operands are handled by special instructions when necessary
+ - all memory-register transfers work with addresses that are aligned to the size of their operands (1 byte alignment - so no alignment at all - for 8-bit operands)
  - in most cases, destination operand is the first one. Exceptions are instructions that work with IO ports.
- - when content of a register is changed by instruction, several flags can be modified subsequently. E.g. when new value of register is zero, ``z`` flag is set.
+ - when content of a register is changed by an instruction, several flags can be modified subsequently. E.g. when new value of register is zero, ``z`` flag is set.
 
 Notes on documentation
 """"""""""""""""""""""
 
- - ``rN`` refers to generaly any register, from ``r0`` up to ``r12`` - special registers are refered to by their common names (e.g. ``SP``).
+ - ``rN`` refers to generaly any register, from ``r0`` up to ``r28`` - special registers are refered to by their common names (e.g. ``SP``).
  - ``rA``, ``rB`` refer to the first and the second instruction operand respectively and stand for any register.
  - ``<value>`` means immediate, absolute value. This covers both integers, specified as base 10 or base 16 integers, both positive and negative, and labels and addresses, specified as ``&label``
  - when instruction accepts more than one operand type, it is documented using ``|`` character, e.g. ``(rA|<value>)`` means either register or immediate value
@@ -85,7 +78,7 @@ Notes on documentation
 Cache
 ^^^^^
 
-Every memory access (fetching instructions, read/write of other data) goes through a cache. Separate instruction and data cache exist for each CPU core, both having a limited size and trackking access to support LRU replacement policy.
+Every memory access (fetching instructions, read/write of other data) goes through a cache. Separate instruction and data cache exist for each CPU core, both having a limited size and tracking access to support LRU replacement policy.
 
 Instruction cache
 """""""""""""""""
@@ -105,11 +98,7 @@ Memory
 Memory model
 ^^^^^^^^^^^^
 
- - the full addressable memory is 16MB
- - each program has its own code and data segment
-   - they are isolated from each other - CS/DS registers are protected in user mode
-   - each segment can be addressed by unsigned 16-bit address, therefore 256 different segments available
-   - however, it is technicaly possible to use one segment for more than one binary, this feature is not yet supported
+ - the full addressable memory is 4 GB, but it is quite unrealistic expectation. I usually stick to 24-bits for addresses, which leads to 16MB of main memory
  - memory is organized into pages of 256 bytes
    - each page can be restricted for read, write and execute operations
 
@@ -120,21 +109,20 @@ Memory layout
 Interrupt Vector table
 """"""""""""""""""""""
 
-Interrupt vector table (`IVT`), located in main memory, is by default located at address ``0x000000``. ``IVT`` address can be set per CPU core. ``IVT`` is 256 bytes long, providing enough space for 64 entries. Typically, lower 32 entries are reserved for hardware interrupts, provided by devices, and upper 32 entries leads to software routines that provide additional functionality for binaries. Each entry has the same layout:
+Interrupt vector table (`IVT`), located in main memory, is by default located at address ``0x00000000``. ``IVT`` address can be set per CPU core. ``IVT`` is 256 bytes long, providing enough space for 64 entries. Typically, lower 32 entries are reserved for hardware interrupts, provided by devices, and upper 32 entries leads to software routines that provide additional functionality for binaries. Each entry has the same layout:
 
-+-----------------+-----------------+------------------+
-| ``cs`` - 8 bits | ``ds`` - 8 bits | ``ip`` - 16 bits |
-+-----------------+-----------------+------------------+
++------------------+------------------+
+| ``IP`` - 32 bits | ``SP`` - 32 bits |
++------------------+------------------+
 
-When CPU is interrupted - by hardware (device generates interrupt) or software (program executes ``int`` instruction) interrupt, corresponding entry is located in ``IVT``, using interrupt ID as an index.
+When CPU is interrupted - by hardware (device generates interrupt) or software (program executes ``int`` instruction) interrupt - corresponding entry is located in ``IVT``, using interrupt ID as an index.
 
 
 Stack
 """""
 
  - standard LIFO data structure
- - placed in data segment
  - grows from higher addresses to lower
- - 1 page is allocated for stack of each loaded binary right now but this will be tweakable
- - when push'ing value to stack, ``sp`` is decreased by 2 and then value is stored on this address
- - each interrupt routine gets its own stack, allocated specificaly for its invocation from data segment, stored in interrupt routine's IVT entry
+ - there is no pre-allocated stack, every bit of code needs to prepare its own if it intends to use instructions that operate with stack
+ - when push'ing value to stack, ``SP`` is decreased by 4 (size of general register), and then value is stored on this address
+ - each ``IVT`` provides its own stack pointer

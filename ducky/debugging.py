@@ -1,36 +1,228 @@
+"""
+Virtual machine debugging tools - break points, watch points, etc.
+
+Create "point" that's triggered when a condition is satisfied (e.g.
+processor executes instruction on specified address, memory at
+specified address was modified, etc. Then, create "action" (e.g.
+suspend core), and bind both pieces together - when point gets
+triggered, execute list of actions.
+"""
+
 import enum
 import logging
 
-from six import itervalues
+from six import itervalues, iteritems
 
 from .interfaces import IVirtualInterrupt
 from .devices import IRQList, VIRTUAL_INTERRUPTS
-from .util import str2int, F
+from .util import str2int, UINT8_FMT, UINT16_FMT, UINT32_FMT
 from .errors import InvalidResourceError
 
+class Action(object):
+  """
+  Base class of all debugging actions.
+
+  :param logging.Logger logger: logger instance used for logging.
+  """
+
+  def __init__(self, logger):
+    self.logger = logger
+
+  def act(self, core, point):
+    """
+    This method is called when "action" is executed. Implement it in child
+    classes to give child actions a functionality.
+
+    :param ducky.cpu.CPUCore core: CPU core where point was triggered.
+    :param ducky.debugging.Point point: point that was triggered.
+    """
+
+    raise NotImplementedError()
+
+  def __repr__(self):
+    raise NotImplementedError()
+
 class Point(object):
-  point_id = 0
-  points = {}
+  """
+  Base class of all debugging points.
+
+  :param ducky.debugging.DebuggingSet debugging_set: debugging set this point belongs to.
+  :param bool active: if not ``True``, point is not active and will not trigger.
+  :param int countdown: if greater than zero, point has to trigger ``countdown`` times
+    before its actions are executed for the first time.
+  """
 
   def __init__(self, debugging_set, active = True, countdown = 0):
     super(Point, self).__init__()
-
-    self.id = Point.point_id
-    Point.point_id += 1
-    Point.points[self.id] = self
 
     self.active = active
     self.countdown = countdown
     self.debugging_set = debugging_set
 
-  def is_triggered(self, core):
+    self.actions = []
+
+  def is_triggered(self, core, *args, **kwargs):
+    """
+    Test point's condition.
+
+    :param ducky.cpu.CPUCore core: core requesting the test.
+    :rtype: bool
+    :returns: ``True`` if condition is satisfied.
+    """
+
     raise NotImplementedError()
 
-  def destroy(self):
-    del Point.points[self.id]
+  def __repr__(self):
+    raise NotImplementedError()
+
+class SuspendCoreAction(Action):
+  """
+  If executed, this action will suspend the CPU core that triggered its parent
+  point.
+  """
+
+  def act(self, core, point):
+    core.suspend()
 
   def __repr__(self):
-    return '<%s: id=%i>' % (self.__class__.__name__, self.id)
+    return '<SuspendCoreAction>'
+
+  @staticmethod
+  def create_from_config(debugging_set, config, section):
+    return SuspendCoreAction(debugging_set.core.LOGGER)
+
+class LogValueAction(Action):
+  """
+  This is the base class for actions that log a numerical values.
+
+  :param logging.Logger logger: logger instance used for logging.
+  :param int size: size of logged number, in bytes.
+  """
+
+  def __init__(self, logger, size):
+    super(LogValueAction, self).__init__(logger)
+
+    self.size = size
+
+    if size == 4:
+      self.formatter = UINT32_FMT
+
+    elif size == 2:
+      self.formatter = UINT16_FMT
+
+    else:
+      self.formatter = UINT8_FMT
+
+  def get_values(self, core, point):
+    """
+    Prepare dictionary with values for message that will be shown to the user.
+
+    :param ducky.cpu.CPUCore core: core point was triggered on.
+    :param ducky.debugging.Point point: triggered point.
+    :rtype: dict
+    :returns: dictionary that will be passed to message ``format()`` method.
+    """
+
+    raise NotImplementedError()
+
+  def get_message(self, core, point):
+    """
+    Return message that, formatted with output of ``get_values()``, will be
+    shown to user.
+
+    :param ducky.cpu.CPUCore core: core point was triggered on.
+    :param ducky.debugging.Point point: triggered point.
+    :rtype: string
+    :returns: information message.
+    """
+
+    raise NotImplementedError()
+
+  def act(self, core, point):
+    data = self.get_values(core, point)
+    data.update({
+      'watchpoint': repr(point),
+      'ip':         UINT32_FMT(core.registers.ip.value),
+      'value':      self.formatter(data['value'])
+    })
+
+    self.logger.info(self.get_message(core, point).format(**data))
+
+class LogMemoryContentAction(LogValueAction):
+  """
+  When triggered, logs content of a specified location in memory.
+
+  :param logging.Logger logger: logger instance used for logging.
+  :param u32_t address: memory location.
+  :param int size: size of logged number, in bytes.
+  """
+
+  def __init__(self, logger, address, size):
+    super(LogMemoryContentAction, self).__init__(logger, size)
+
+    self.address = address
+
+    if self.size == 4:
+      self.reader = 'read_u32'
+
+    elif self.size == 2:
+      self.reader = 'read_u16'
+
+    else:
+      self.reader = 'read_u8'
+
+  def __repr__(self):
+    return '<LogMemoryContentAction: address=%s, size=%s>' % (UINT32_FMT(self.address), self.size)
+
+  def get_values(self, core, point):
+    reader = getattr(core.mmu.memory, self.reader)
+    return {
+      'address': UINT32_FMT(self.address),
+      'value':   reader(self.address),
+    }
+
+  def get_message(self, core, point):
+    return 'memory: IP={ip}, {address}={value}'
+
+  @staticmethod
+  def create_from_config(debugging_set, config, section):
+    _get, _getbool, _getint = config.create_getters(section)
+
+    return LogMemoryContentAction(debugging_set.core.LOGGER, _getint('address'), _getint('size', 4))
+
+class LogRegisterContentAction(LogValueAction):
+  """
+  When triggered, logs content of a specified register.
+
+  :param logging.Logger logger: logger instance used for logging.
+  :param list registers: list of register names.
+  """
+
+  def __init__(self, logger, registers):
+    super(LogRegisterContentAction, self).__init__(logger, 4)
+
+    self.registers = [r.strip() for r in registers.split(',')]
+    self.formatter = UINT32_FMT
+
+  def __repr__(self):
+    return '<LogRegisterContentAction: registers=%s>' % ','.join(self.registers)
+
+  def get_values(self, core, point):
+    values = {'value': 0}
+    for r in self.registers:
+      values[r] = r
+      values[r + '_value'] = UINT32_FMT(getattr(core.registers, r).value)
+
+    return values
+
+  def get_message(self, core, point):
+    return 'register: IP={ip}, %s' % ', '.join(['{%s}={%s_value}' % (r, r) for r in self.registers])
+
+  @staticmethod
+  def create_from_config(debugging_set, config, section):
+    _get, _getbool, _getint = config.create_getters(section)
+
+    return LogRegisterContentAction(debugging_set.core.LOGGER, _get('registers'))
 
 class BreakPoint(Point):
   def __init__(self, debugging_set, ip, *args, **kwargs):
@@ -44,7 +236,7 @@ class BreakPoint(Point):
     return core.IP().value == self.ip
 
   def __repr__(self):
-    return F('<BreakPoint: id={id:d}, ip={ip:W}>', id = self.id, ip = self.ip)
+    return '<BreakPoint: IP=%s>' % UINT32_FMT(self.ip)
 
   @staticmethod
   def create_from_config(debugging_set, config, section):
@@ -53,20 +245,29 @@ class BreakPoint(Point):
     return BreakPoint(debugging_set, _getint('address'), active = _getbool('active', True), countdown = _getint('countdown', 0))
 
 class MemoryWatchPoint(Point):
-  def __init__(self, debugging_set, address, access, *args, **kwargs):
+  def __init__(self, debugging_set, address, read, *args, **kwargs):
     super(MemoryWatchPoint, self).__init__(debugging_set, *args, **kwargs)
 
     self.address = address
-    self.access = access
+    self.read = read
 
-  def is_triggered(self, core):
-    return False
+  def is_triggered(self, core, address = None, read = None):
+    if self.read is None:
+      return address == self.address
+
+    if self.read != read:
+      return False
+
+    return address == self.address
+
+  def __repr__(self):
+    return '<MemoryWatchPoint: address=%s>' % UINT32_FMT(self.address)
 
   @staticmethod
   def create_from_config(debugging_set, config, section):
     _get, _getbool, _getint = config.create_getters(section)
 
-    return MemoryWatchPoint(debugging_set, _getint('address'), _get('access'), active = _getbool('active', True), countdown = _getint('countdown', 0))
+    return MemoryWatchPoint(debugging_set, _getint('address'), _getbool('read', None), active = _getbool('active', True), countdown = _getint('countdown', 0))
 
 class DebuggingSet(object):
   def __init__(self, core):
@@ -92,30 +293,44 @@ class DebuggingSet(object):
 
       C.register_command(name, handler)
 
-  def add_point(self, p):
-    self.points.append(p)
+    for stage in ('pre', 'post'):
+      for chain in ('step', 'memory'):
+        setattr(self, 'chain_%s_%s' % (stage, chain), [])
+        setattr(self, 'triggered_%s_%s' % (stage, chain), [])
 
-  def remove_point(self, p):
-    self.points.remove(p)
-    p.destroy()
+  def add_point(self, p, chain):
+    self.core.DEBUG('adding point %s to chain %s', p, chain)
 
-  def enter_step(self):
+    getattr(self, 'chain_' + chain.replace('-', '_')).append(p)
+
+  def remove_point(self, p, chain):
+    self.core.DEBUG('removing point %s from chain %s', p, chain)
+
+    getattr(self, 'chain_' + chain.replace('-', '_')).remove(p)
+
+  def __check_chain(self, chain, clean_triggered = False, *args, **kwargs):
     D = self.core.DEBUG
 
-    D('check breakpoints')
+    D('check breakpoints in chain %s: %s', chain, ', '.join(['%s=%s' % (k, v) for k, v in iteritems(kwargs)]))
 
-    for p in self.points:
+    chain = chain.replace('-', '_')
+    triggered = getattr(self, 'triggered_' + chain)
+    chain = getattr(self, 'chain_' + chain)
+
+    triggered_in_loop = 0
+
+    for p in chain:
       D(repr(p))
 
       if not p.active:
         D('inactive, not evaluating')
         continue
 
-      if not p.is_triggered(self.core):
+      if not p.is_triggered(self.core, *args, **kwargs):
         D('not triggered, skipping')
         continue
 
-      if p in self.triggered_points:
+      if p in triggered:
         D('already triggered by this step, ignore')
         continue
 
@@ -127,23 +342,28 @@ class DebuggingSet(object):
         continue
 
       self.core.INFO('Breakpoint triggered: %s', p)
-      self.triggered_points.append(p)
-      self.core.suspend()
+      triggered.append(p)
+      triggered_in_loop += 1
 
-      return True
+      for action in p.actions:
+        action.act(self.core, p)
 
-    return False
+    if clean_triggered is True:
+      triggered[:] = []
 
-  def exit_step(self):
-    self.triggered_points = []
+    return triggered_in_loop > 0
 
-  def create_point(self, klass, *args, **kwargs):
-    self.core.init_debug_set()
+  def pre_step(self):
+    return self.__check_chain('pre-step')
 
-    p = klass(self, *args, **kwargs)
-    self.add_point(p)
+  def post_step(self):
+    return self.__check_chain('post-step', clean_triggered = True)
 
-    return p
+  def pre_memory(self, address = None, read = None):
+    return self.__check_chain('pre-memory', address = address, read = read)
+
+  def post_memory(self, address = None, read = None):
+    return self.__check_chain('post-memory', clean_triggered = True, address = address, read = read)
 
 def cmd_bp_list(console, cmd):
   """
@@ -151,16 +371,15 @@ def cmd_bp_list(console, cmd):
   """
 
   points = [
-    ['ID', 'Active', 'Countdown', 'Core', 'Point']
+    ['Point', 'Active', 'Countdown', 'Core']
   ]
 
   for point in itervalues(Point.points):
     points.append([
-      point.id,
+      repr(point),
       '*' if point.active else '',
       point.countdown,
       point.debugging_set.core.cpuid_prefix,
-      repr(point)
     ])
 
   console.table(points)

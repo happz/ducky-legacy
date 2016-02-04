@@ -1,0 +1,6 @@
+  .text
+
+  li r0, 0x1248
+  liu r0, 0x0000
+  or r0, 0x4000
+  hlt 0x00

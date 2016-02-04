@@ -16,7 +16,7 @@ TC_TMPFILE  := $(shell mktemp)
 hello-world.asm: hello-world.c
 hello-world.o: hello-world.asm
 hello-world: hello-world.o
-	$(run-linker)
+	$(call run-linker,--section-base=.text=0x000000)
 
 build: hello-world
 
@@ -26,7 +26,7 @@ run:
 	     $(PYTHON) $(VMCOVERAGE_RUN) $(DVM) $(VMDEBUG) $(VMDEBUG_OPEN_FILES) \
 			 --machine-config=$(CURDIR)/hello-world.conf \
 			 --set-option=machine:interrupt-routines=$(INTERRUPTS) \
-			 --set-option=binary-0:file=$(CURDIR)/hello-world \
+			 --set-option=bootloader:file=$(CURDIR)/hello-world \
 			 -g
 
 tests-pre:
@@ -37,7 +37,7 @@ tests: build
 	      $(PYTHON) $(VMCOVERAGE_RUN) $(DVM) $(VMDEBUG) $(VMDEBUG_OPEN_FILES) \
 			  --machine-config=$(CURDIR)/hello-world.conf \
 			  --set-option=machine:interrupt-routines=$(INTERRUPTS) \
-			  --set-option=binary-0:file=$(CURDIR)/hello-world \
+			  --set-option=bootloader:file=$(CURDIR)/hello-world \
 			  -g \
 			  --set-option=device-3:stream_out=$(TC_OUT) \
 			  $(foreach device,$(DUCKY_ENABLE_DEVICES),--enable-device=$(device)) \
