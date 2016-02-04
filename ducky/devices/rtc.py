@@ -85,7 +85,7 @@ class RTC(IRQProvider, IOProvider, Device):
 
   def read_u8(self, port):
     if port not in self.ports:
-      raise InvalidResourceError('Unhandled port: %s', UINT16_FMT(port))
+      raise InvalidResourceError('Unhandled port: %s' % UINT16_FMT(port))
 
     port -= self.port
 

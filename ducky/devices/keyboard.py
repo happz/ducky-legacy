@@ -160,7 +160,7 @@ class KeyboardController(IRQProvider, IOProvider, Device):
     self.machine.DEBUG('KeyboardController.read_u8: port=%s', UINT16_FMT(port))
 
     if port not in self.ports:
-      raise InvalidResourceError('Unhandled port: %s', UINT16_FMT(port))
+      raise InvalidResourceError('Unhandled port: %s' % UINT16_FMT(port))
 
     b = self.__read_char()
     if not b:
