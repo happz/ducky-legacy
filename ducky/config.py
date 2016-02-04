@@ -34,7 +34,7 @@ class MachineConfig(ConfigParser):
     self.mmaps_cnt       = 0
     self.devices_cnt     = 0
 
-  def get(self, section, option, default = None):
+  def get(self, section, option, default = None, **kwargs):
     """
     Get value for an option.
 
@@ -46,7 +46,7 @@ class MachineConfig(ConfigParser):
     """
 
     try:
-      return ConfigParser.get(self, section, option)
+      return ConfigParser.get(self, section, option, **kwargs)
 
     except (NoSectionError, NoOptionError):
       return default
