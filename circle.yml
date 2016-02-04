@@ -10,6 +10,8 @@ dependencies:
 
 test:
   override:
+    - git submodule update
+    - cp tests/forth/Makefile.ans tests/forth/forth2012-test-suite/Makefile
     - Q=@ make clean
     - tox -e py27
     - tox -e py32
