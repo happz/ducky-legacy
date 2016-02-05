@@ -1,6 +1,7 @@
 import ctypes
 import enum
 import re
+import sys
 
 from six import integer_types, string_types, add_metaclass
 from six.moves import range
@@ -21,13 +22,29 @@ def UINT20_FMT(i):
 def encoding_to_u32(inst):
   return ctypes.cast(ctypes.byref(inst), ctypes.POINTER(u32_t)).contents.value
 
-def u32_to_encoding(u, encoding):
-  u = u32_t(u)
-  e = encoding()
+if hasattr(sys, 'pypy_version_info'):
+  import ctypes
 
-  ctypes.cast(ctypes.byref(e), ctypes.POINTER(encoding))[0] = ctypes.cast(ctypes.byref(u), ctypes.POINTER(encoding)).contents
+  def u32_to_encoding(u, encoding):
+    class _Cast(ctypes.Union):
+      _pack_ = 0
+      _fields_ = [
+        ('overall',  u32_t),
+        ('encoding', encoding)
+      ]
 
-  return e
+    caster = _Cast()
+    caster.overall = u32_t(u).value
+    return caster.encoding
+
+else:
+  def u32_to_encoding(u, encoding):
+    u = u32_t(u)
+    e = encoding()
+
+    ctypes.cast(ctypes.byref(e), ctypes.POINTER(encoding))[0] = ctypes.cast(ctypes.byref(u), ctypes.POINTER(encoding)).contents
+
+    return e
 
 def IE_OPCODE():
   return ('opcode', u32_t, 6)
