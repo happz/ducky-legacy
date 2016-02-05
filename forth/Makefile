@@ -12,5 +12,16 @@ $(FORTH_KERNEL): ducky-forth.o
 
 kernel: $(FORTH_KERNEL)
 
+run-kernel: $(FORTH_KERNEL)
+	$(Q) echo -n "$(CC_YELLOW)[RUN]$(CC_END) FORTH ... "
+	$(Q) $(PYTHON) $(DVM) \
+	     $(VMPROFILE) $(BINPROFILE) $(VMDEBUG) \
+			 --machine-config=$(CURDIR)/forth.conf \
+			 --set-option=bootloader:file=$(FORTH_KERNEL) \
+			 --set-option=device-3:streams_in=$(CURDIR)/ducky-forth.f \
+			 --set-option=device-3:driver=ducky.devices.terminal.StandalonePTYTerminal \
+			 $(foreach device,$(DUCKY_ENABLE_DEVICES),--enable-device=$(device)) \
+			 $(foreach device,$(DUCKY_DISABLE_DEVICES),--disable-device=$(device))
+
 clean:
 	$(Q) rm -f ducky-forth.o $(FORTH_KERNEL)

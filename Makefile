@@ -199,6 +199,9 @@ export FORTH_KERNEL
 forth: defines
 	$(Q) make -C forth/ kernel
 
+run-forth: forth
+	$(Q) make -C forth/ run-kernel
+
 
 #
 # Examples
