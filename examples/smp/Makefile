@@ -30,7 +30,7 @@ test-run: build
 	$(Q) COVERAGE_FILE=$(shell if [ "$(VMCOVERAGE)" = "yes" ]; then echo "$(TESTSETDIR)/coverage/.coverage.$(EXAMPLE).$(DB_PID)"; else echo ""; fi) \
 	     $(PYTHON) $(VMCOVERAGE_RUN) $(DVM) $(VMDEBUG) \
 			 --machine-config=$(CURDIR)/smp.conf \
-			 --set-option=bootloader:file=$(CURDIR)/smp \
+			 --set-option=bootloader:file=$(LOADER) \
 			 --set-option=device-6:filepath=$(CURDIR)/smp.img \
 			 -g $(VMPROFILE) &> $(TC_MACHINE); \
 			 if [[ $$? -ne 1 ]]; then touch $(TESTSET_FAILED); echo "$(CC_RED)FAIL$(CC_END)"; else echo "$(CC_GREEN)PASS$(CC_END)"; fi; \

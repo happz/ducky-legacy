@@ -270,7 +270,7 @@ tests-pre-master:
 	$(Q) echo "$(CC_YELLOW)Python version:$(CC_END) $(CC_GREEN)$(shell $(PYTHON_INTERPRET) --version 2>&1 | tr '\n' ' ')$(CC_END)"
 	$(Q) echo "$(CC_YELLOW)Test set directory:$(CC_END) $(CC_GREEN)$(TESTSETDIR)$(CC_END)"
 
-tests-pre: tests-pre-master defines forth
+tests-pre: tests-pre-master defines forth loader
 	$(Q) $(MAKE) -C tests/ tests-pre
 	$(Q) $(MAKE) -C examples/ tests-pre
 
