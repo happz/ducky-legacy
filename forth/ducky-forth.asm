@@ -445,11 +445,6 @@ boot_phase2:
   li r0, $RTC_FREQ
   outb $RTC_PORT_FREQ, r0
 
-  ; IVT - use the last page
-  li r0, 0xFF00
-  liu r0, 0xFFFF
-  ctw $CONTROL_IVT, r0
-
   ; init stack - the next-to-last page is our new stack
   li sp, 0xFF00
   liu sp, 0xFFFF
@@ -460,9 +455,48 @@ boot_phase2:
   li $RSP, 0xFE00
   liu $RSP, 0xFFFF
 
+  ; IVT - use the last page
+  li r0, 0xFF00
+  liu r0, 0xFFFF
+  ctw $CONTROL_IVT, r0
+
+  ; init all entries to fail-safe
+  la r1, &failsafe_isr
+  li r2, 0xFD00
+  liu r2, 0xFFFF
+
+  mov r3, r0
+  mov r4, r0
+  add r4, $PAGE_SIZE
+__boot_phase2_ivt_failsafe_loop:
+  stw r3, r1
+  add r3, 0x04
+  stw r3, r2
+  add r3, 0x04
+  cmp r3, r4
+  bne &__boot_phase2_ivt_failsafe_loop
+
+  ; set the first entry to RTC ISR
+  la r1, &rtc_isr
+  li r2, 0xFC00
+  liu r2, 0xFFFF
+  stw r0, r1
+  add r0, 0x04
+  stw r0, r2
+  add r0, 0x04
+
+  ; set the second entry to NOP ISR for keyboard
+  la r1, &nop_isr
+  li r2, 0xFB00
+  liu r2, 0xFFFF
+  stw r0, r1
+  add r0, 0x04
+  stw r0, r2
+  add r0, 0x04
+
 .ifdef FORTH_DEBUG
   ; init log stack
-  li $LSP, 0xFD00
+  li $LSP, 0xFA00
   liu $LSP, 0xFFFF
 .endif
 
@@ -476,7 +510,7 @@ boot_phase2:
 
   ; give up the privileged mode
   ; lpm
-  ; sti
+  sti
 
 .ifdef FORTH_WELCOME
   ; print welcome message
@@ -487,6 +521,34 @@ boot_phase2:
   ; and boot the FORTH itself...
   la $FIP, &cold_start
   $NEXT
+
+
+;
+; void failsafe_isr(void) __attribute__((noreturn))
+;
+; Fail-safe interrupt service routine - if this interrupt
+; gets triggered, kill kernel.
+;
+failsafe_isr:
+  hlt 0x2000
+
+
+;
+; void nop_isr(void) __attribute__((noreturn))
+;
+; NOP ISR - just retint, we have nothing else to do.
+;
+nop_isr:
+  retint
+
+
+;
+; void rtc_isr(void) __attribute__((noreturn))
+;
+; RTC interrupt service routine.
+;
+rtc_isr:
+  retint
 
 
 ;
@@ -696,6 +758,9 @@ cold_start:
 
   .type rstack_top, int
   .int 0xFFFFFE00
+
+  .type jiffies, int
+  .int 0x00000000
 
   ; User data area
   ; Keep it in separate section to keep it aligned, clean, unpoluted
