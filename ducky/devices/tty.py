@@ -39,7 +39,7 @@ class TTY(IOProvider, Device):
     self.machine.DEBUG('TTY.write_u8: port=%s, value=%s', UINT16_FMT(port), UINT8_FMT(value))
 
     if port not in self.ports:
-      raise InvalidResourceError('Unhandled port: %s', UINT16_FMT(port))
+      raise InvalidResourceError('Unhandled port: %s' % UINT16_FMT(port))
 
     self.output.write([value])
 

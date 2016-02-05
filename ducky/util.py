@@ -337,7 +337,7 @@ class SymbolTable(dict):
 class Flags(object):
   _flags = []
   _labels = ''
-  _encoding = None
+  _encoding = lambda: None  # silence Codacy warning - _encoding will have a real value
 
   @classmethod
   def create(cls, **kwargs):

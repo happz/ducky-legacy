@@ -162,7 +162,7 @@ class MemoryPage(object):
     :rtype: int
     """
 
-    raise NotImplementedError('Not allowed to access memory on this address: page=%s, offset={}'.format(self.index, offset))
+    raise NotImplementedError('Not allowed to access memory on this address: page={}, offset={}'.format(self.index, offset))
 
   def read_u16(self, offset):
     """
@@ -174,7 +174,7 @@ class MemoryPage(object):
     :rtype: int
     """
 
-    raise NotImplementedError('Not allowed to access memory on this address: page=%s, offset={}'.format(self.index, offset))
+    raise NotImplementedError('Not allowed to access memory on this address: page={}, offset={}'.format(self.index, offset))
 
   def read_u32(self, offset):
     """
@@ -186,7 +186,7 @@ class MemoryPage(object):
     :rtype: int
     """
 
-    raise NotImplementedError('Not allowed to access memory on this address: page=%s, offset={}'.format(self.index, offset))
+    raise NotImplementedError('Not allowed to access memory on this address: page={}, offset={}'.format(self.index, offset))
 
   def write_u8(self, offset, value):
     """
@@ -198,7 +198,7 @@ class MemoryPage(object):
     :param int value: value to write into memory.
     """
 
-    raise NotImplementedError('Not allowed to access memory on this address: page=%s, offset={}'.format(self.index, offset))
+    raise NotImplementedError('Not allowed to access memory on this address: page={}, offset={}'.format(self.index, offset))
 
   def write_u16(self, offset, value):
     """
@@ -210,7 +210,7 @@ class MemoryPage(object):
     :param int value: value to write into memory.
     """
 
-    raise NotImplementedError('Not allowed to access memory on this address: page=%s, offset={}'.format(self.index, offset))
+    raise NotImplementedError('Not allowed to access memory on this address: page={}, offset={}'.format(self.index, offset))
 
   def write_u32(self, offset, value):
     """
@@ -222,7 +222,7 @@ class MemoryPage(object):
     :param int value: value to write into memory.
     """
 
-    raise NotImplementedError('Not allowed to access memory on this address: page=%s, offset={}'.format(self.index, offset))
+    raise NotImplementedError('Not allowed to access memory on this address: page={}, offset={}'.format(self.index, offset))
 
 class AnonymousMemoryPage(MemoryPage):
   """

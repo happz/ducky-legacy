@@ -72,7 +72,7 @@ class Storage(Device):
 
     raise NotImplementedError()
 
-  def do_write_blocks(self, start, cnt):
+  def do_write_blocks(self, start, cnt, buff):
     """
     Write one or more blocks from internal buffer to device.
 

@@ -175,7 +175,9 @@ class Descriptor(object):
   mnemonic      = None
   opcode        = None
   operands      = None
-  encoding      = None
+
+  # this is a default encoding, and by the way it silents Codacy's warning
+  encoding      = EncodingR
 
   pattern       = None
 
