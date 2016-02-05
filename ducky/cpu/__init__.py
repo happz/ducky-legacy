@@ -1436,6 +1436,9 @@ class CPU(ISnapshotable, IMachineWorker):
       ('step', cmd_step),
     ])
 
+  def __repr__(self):
+    return '#%i' % self.id
+
   def save_state(self, parent):
     state = parent.add_child('cpu{}'.format(self.id), CPUState())
 
@@ -1451,6 +1454,11 @@ class CPU(ISnapshotable, IMachineWorker):
     Triggered when one of cores goes alive.
     """
 
+    self.DEBUG('%s.on_core_alive: core=%s', self.__class__.__name__, core)
+
+    if core.cpu != self:
+      return
+
     self.halted_cores.remove(core)
     self.living_cores.append(core)
 
@@ -1458,6 +1466,11 @@ class CPU(ISnapshotable, IMachineWorker):
     """
     Signal CPU that one of cores is no longer alive.
     """
+
+    self.DEBUG('%s.on_core_halted: core=%s', self.__class__.__name__, core)
+
+    if core.cpu != self:
+      return
 
     self.living_cores.remove(core)
     self.halted_cores.append(core)
@@ -1467,6 +1480,11 @@ class CPU(ISnapshotable, IMachineWorker):
     Signal CPU that one of cores is now running.
     """
 
+    self.DEBUG('%s.on_core_running: core=%s', self.__class__.__name__, core)
+
+    if core.cpu != self:
+      return
+
     self.suspended_cores.remove(core)
     self.running_cores.append(core)
 
@@ -1474,6 +1492,11 @@ class CPU(ISnapshotable, IMachineWorker):
     """
     Signal CPU that one of cores is now suspended.
     """
+
+    self.DEBUG('%s.on_core_suspended: core=%s', self.__class__.__name__, core)
+
+    if core.cpu != self:
+      return
 
     self.running_cores.remove(core)
     self.suspended_cores.append(core)
