@@ -160,6 +160,7 @@ class Machine(ISnapshotable, IMachineWorker):
     self.reactor.add_task(self.irq_router_task)
 
     self.check_living_cores_task = HaltMachineTask(self)
+    self.reactor.add_task(self.check_living_cores_task)
 
     self.events = EventBus(self)
 
@@ -204,7 +205,6 @@ class Machine(ISnapshotable, IMachineWorker):
     self.living_cores.remove(core)
 
     if not self.living_cores:
-      self.reactor.add_task(self.check_living_cores_task)
       self.reactor.task_runnable(self.check_living_cores_task)
 
   def get_device_by_name(self, name, klass = None):
