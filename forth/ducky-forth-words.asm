@@ -1217,7 +1217,7 @@ __IDDOT:
   add r0, $wr_namelen
   lb r1, r0
   inc r0
-  call &write ; tail call
+  call &writeln
   pop r1
   ret
 
@@ -1229,14 +1229,18 @@ $DEFCODE "WORDS", 5, 0, WORDS
 
 __WORDS:
   push r0
-  la r0, &var_LATEST
-  lw r0, r0
+  push r10
+  la r10, &var_LATEST
+  lw r10, r10
+  mov r0, r10
 __WORDS_loop:
   bz &__WORDS_quit
   call &__IDDOT
-  lw r0, r0
+  lw r10, r10
+  mov r0, r10
   j &__WORDS_loop
 __WORDS_quit:
+  pop r10
   pop r0
   ret
 
