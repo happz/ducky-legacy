@@ -339,14 +339,17 @@ else:
 def translate_buffer(logger, buff, base_address = None, mmapable_sections = False, writable_sections = False, filename = None, defines = None, includes = None, verify_disassemble = False):
   DEBUG = logger.debug
 
+  base_address = base_address or 0
   filename = filename or '<unknown>'
   defines = defines or []
   includes = includes or []
   includes.insert(0, os.getcwd())
 
-  buff = Buffer(logger, filename, buff.split('\n'))
+  defines = {var[0]: var[1] if len(var) > 1 else None for var in [var.split('=') for var in defines]}
 
-  base_address = base_address or 0
+  DEBUG('translate_buffer: base_addres=%s, mmapable_sections=%s, writable_sections=%s, filename=%s, defines=%s, includes=%s, verify_disassemble=%s', UINT32_FMT(base_address), mmapable_sections, writable_sections, filename, defines, includes, verify_disassemble)
+
+  buff = Buffer(logger, filename, buff.split('\n'))
 
   sections_pass1 = collections.OrderedDict([
     ('.text',   TextSection('.text')),
@@ -485,6 +488,8 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
     if not v_value:
       raise buff.get_error(IncompleteDirectiveError, '.string directive without a string')
 
+    v_value = __apply_defs(v_value)
+
     DEBUG('Pre-decode: (%s) %s', type(v_value), ', '.join([str(ord(c)) for c in v_value]))
     var.value = decode_string(v_value)
     DEBUG('Post-decode: (%s) %s', type(var.value), ', '.join([str(ord(c)) for c in var.value]))
@@ -604,6 +609,12 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
   instruction_set = cpu.instructions.DuckyInstructionSet
 
   defs = collections.OrderedDict()
+
+  for name, value in iteritems(defines):
+    if value is None:
+      continue
+
+    defs[re.compile(r'\${}'.format(name))] = value.strip()
 
   macros = collections.OrderedDict()
   current_macro = None
