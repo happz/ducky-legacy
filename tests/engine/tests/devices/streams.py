@@ -131,7 +131,6 @@ class Tests(TestCase):
     s = ducky.streams.InputStream.create(Tests.logger, '<stdin>')
 
     assert s.desc == '<stdin>'
-    assert s.stream == sys.stdin.buffer if hasattr(sys.stdin, 'buffer') else sys.stdin
     assert s.fd == sys.stdin.fileno()
     assert s.close == s._close_dummy
     assert s.has_fd()
