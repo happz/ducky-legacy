@@ -65,6 +65,12 @@ class Stream(object):
 
     return self.fd is not None
 
+  def has_select_support(self):
+    return self.has_fd()
+
+  def get_selectee(self):
+    return self.fd
+
   def _raw_read_stream(self, size = None):
     self.DEBUG('%s._raw_read_stream: size=%s', self.__class__.__name__, size)
 
@@ -181,10 +187,27 @@ class FDInputStream(InputStream):
 
 class StdinStream(InputStream):
   def __init__(self, logger, **kwargs):
+    DEBUG = logger.debug
+
     stream = sys.stdin.buffer if hasattr(sys.stdin, 'buffer') else sys.stdin
     fd = sys.stdin.fileno() if hasattr(sys.stdin, 'fileno') else None
 
+    if fd is not None:
+      DEBUG('%s.__init__: re-pack <stdin> fd as a new stream to avoid colisions', self.__class__.__name__)
+
+      stream = os.fdopen(fd, 'rb', 0)
+      fd = stream.fileno()
+
+      DEBUG('%s.__init__: set <stdin> fd to non-blocking mode', self.__class__.__name__)
+
+      import fcntl
+      orig_fl = fcntl.fcntl(fd, fcntl.F_GETFL)
+      fcntl.fcntl(fd, fcntl.F_SETFL, orig_fl | os.O_NONBLOCK)
+
     super(StdinStream, self).__init__(logger, '<stdin>', stream = stream, fd = fd, close = False, **kwargs)
+
+  def get_selectee(self):
+    return self.stream
 
 class OutputStream(Stream):
   def read(self, size = None):

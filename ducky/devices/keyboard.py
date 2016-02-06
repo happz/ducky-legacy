@@ -50,7 +50,7 @@ class KeyboardController(IRQProvider, IOProvider, Device):
   def enqueue_input(self, stream):
     self.machine.DEBUG('KeyboardController.enqueue_input: stream=%s', stream)
 
-    if not stream.has_fd():
+    if not stream.has_select_support():
       raise InvalidResourceError('Keyboard controller requires input stream with fd support')
 
     self.streams.append(stream)
@@ -61,7 +61,7 @@ class KeyboardController(IRQProvider, IOProvider, Device):
     if self.input is None:
       return
 
-    self.machine.reactor.remove_fd(self.input.fd)
+    self.machine.reactor.remove_fd(self.input.get_selectee())
 
     self.input.close()
     self.input = None
@@ -81,7 +81,7 @@ class KeyboardController(IRQProvider, IOProvider, Device):
     self.input = self.streams.pop(0)
     self.machine.DEBUG('KeyboardController.input=%s', self.input)
 
-    self.machine.reactor.add_fd(self.input.fd, on_read = self.handle_raw_input, on_error = self.handle_input_error)
+    self.machine.reactor.add_fd(self.input.get_selectee(), on_read = self.handle_raw_input, on_error = self.handle_input_error)
 
   def boot(self):
     self.machine.DEBUG('KeyboardController.boot')

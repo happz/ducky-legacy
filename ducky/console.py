@@ -61,7 +61,7 @@ class ConsoleConnection(object):
   def boot(self):
     self.prompt()
 
-    self.master.machine.reactor.add_fd(self.stream_in.fileno(), on_read = self.read_input, on_error = self.halt)
+    self.master.machine.reactor.add_fd(self.stream_in.get_selectee(), on_read = self.read_input, on_error = self.halt)
 
   def halt(self):
     self.master.machine.reactor.remove_fd(self.stream_in.fileno())
