@@ -51,6 +51,12 @@ __vmdebug_off:
   ; Welcome and bye messages
   .section .rodata
 
+  .type __build_stamp_length, byte
+  .byte 57
+
+  .type __build_stamp, string
+  .string "$FORTH_BUILD_STAMP"
+
 .ifdef FORTH_WELCOME
   .type welcome_message, string
   .string "Ducky Forth welcomes you\n\r\n\r"
@@ -779,6 +785,14 @@ $DEFVAR "DP", 2, 0, DP, $USERSPACE_BASE
 $DEFVAR "LATEST", 6, 0, LATEST, &name_BYE
 $DEFVAR "S0", 2, 0, SZ, 0
 $DEFVAR "BASE", 4, 0, BASE, 10
+
+$DEFCODE "BUILD-STAMP", 11, 0, BUILD_STAMP
+  la $W, &__build_stamp_length
+  lb $X, $W
+  inc $W
+  push $W
+  push $X
+  $NEXT
 
 
 $DEFCODE "VMDEBUGON", 9, $F_IMMED, VMDEBUGON
