@@ -3,8 +3,8 @@ ducky
 
 Ducky is a simple virtual CPU/machine simulator, with modular design and interesting features.
 
-.. image:: https://badge.fury.io/py/ducky.svg
-  :target: https://badge.fury.io/py/ducky
+.. image:: https://img.shields.io/pypi/v/nine.svg
+  :target: https://pypi.python.org/pypi/ducky/
 
 .. image:: https://readthedocs.org/projects/ducky/badge/?version=latest
   :target: http://ducky.readthedocs.org/en/latest/
