@@ -1,0 +1,18 @@
+FROM python:2.7.11-alpine
+
+MAINTAINER Milos Prchlik <happz@happz.cz>
+
+RUN apk update && apk add make bash wget
+RUN mkdir -p /home && wget -O /home/ducky.zip --no-check-certificate https://github.com/happz/ducky/archive/master.zip && cd /home && unzip ducky.zip && mv ducky-master ducky && cd /home/ducky && make install-edit && make forth
+
+ENV PYTHONUNBUFFERED=yes
+
+ENTRYPOINT ["/usr/local/bin/ducky-vm", \
+            "-g", \
+            "--machine-config=/home/ducky/forth/forth.conf", \
+            "--set-option=bootloader:file=/home/ducky/forth/ducky-forth", \
+            "--set-option=device-3:streams_in=/home/ducky/forth/ducky-forth.f", \
+            "--add-option=device-3:streams_in=<stdin>", \
+            "--set-option=device-3:stream_out=<stderr>", \
+            "--set-option=device-3:echo=no" \
+           ]
