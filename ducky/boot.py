@@ -444,9 +444,8 @@ class ROMLoader(IMachineWorker):
           if s_header.type == SectionTypes.TEXT:
             self.load_text(s_base, s_content)
 
-          elif s_header.type == SectionTypes.DATA:
-            if s_header.flags.bss != 1:
-              self.load_data(s_base, s_content)
+          elif s_header.type == SectionTypes.DATA and s_header.flags.bss != 1:
+            self.load_data(s_base, s_content)
 
   def poke(self, address, value, length):
     self.DEBUG('%s.poke: addr=%s, value=%s, length=%s', self.__class__.__name__, UINT32_FMT(address), UINT32_FMT(value), length)
