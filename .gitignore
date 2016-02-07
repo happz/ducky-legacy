@@ -2,7 +2,9 @@ tmp
 *.bin
 lse
 .noseids
+
 .coveralls-token
+.coveralls.yml
 
 # Global wildcards
 *.o
