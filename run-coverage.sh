@@ -2,7 +2,7 @@
 
 set -x
 
-VERSIONS="${1:-2.7.10 3.4.3}"
+VERSIONS="${1:-py27}"
 
 function run_tests () {
   local interpret="$1"
@@ -14,6 +14,7 @@ function run_tests () {
   export TESTSET=coverage-${interpret}
   export VMCOVERAGE=yes
   export PYPY=$pypy
+  export DUCKY_BOOT_IMG=yes
 
   make tests-interim-clean tests-pre
 
@@ -33,6 +34,7 @@ if [ "$1" = "--submit" ]; then
   mkdir tests-coverage
 
   for f in `find tests-coverage-* -name '.coverage'`; do
+    echo "Coverage from ${f}..."
     cp $f tests-coverage/.coverage.`echo $(dirname $f) | sed 's/\//-/g'`
   done
 
@@ -44,7 +46,7 @@ if [ "$1" = "--submit" ]; then
     source ./.coveralls-token
   fi
 
-  coveralls --config_file coveragerc --data_file tests-coverage/.coverage
+  COVERAGE_FILE=tests-coverage/.coverage coveralls --rcfile=coveragerc
 else
   for version in $VERSIONS; do
     run_tests "$version"
