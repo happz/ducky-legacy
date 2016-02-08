@@ -2,8 +2,9 @@ FROM python:3.5.1-alpine
 
 MAINTAINER Milos Prchlik <happz@happz.cz>
 
-RUN apk update && apk add make bash wget git
-RUN mkdir -p /home && wget -O /home/ducky.zip --no-check-certificate https://github.com/happz/ducky/archive/master.zip && cd /home && unzip ducky.zip && mv ducky-master ducky && cd /home/ducky && make install-edit && make forth
+RUN apk update && apk add make bash wget curl jq
+COPY get-last-commit.sh /tmp/
+RUN mkdir -p /home && wget -O /home/ducky.zip --no-check-certificate https://github.com/happz/ducky/archive/master.zip && cd /home && unzip ducky.zip && mv ducky-master ducky && cd /home/ducky && make install-edit && BUILD_STAMP="$(/bin/bash /tmp/get-last-commit.sh)" make forth
 
 ENV PYTHONUNBUFFERED=yes
 

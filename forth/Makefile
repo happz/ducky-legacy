@@ -2,7 +2,9 @@ include $(TOPDIR)/Makefile.inc
 
 .PRECIOUS: %.o
 
-BUILD_STAMP := $(shell git log --date=iso --pretty=format:"%H %cd" -n 1 | cut -d' ' -f1,2,3 | tr -d '-' | tr -d ':' | tr ' ' '-')
+ifndef BUILD_STAMP
+  BUILD_STAMP := $(shell git log --date=iso --pretty=format:"%H %cd" -n 1 | cut -d' ' -f1,2,3 | tr -d '-' | tr -d ':' | tr ' ' '-')
+endif
 
 
 ducky-forth.asm: ducky-forth-words.asm double-cell-ints.asm ducky-forth-defs.asm $(DEFSDIR)/ducky.asm
