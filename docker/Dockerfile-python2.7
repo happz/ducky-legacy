@@ -2,7 +2,7 @@ FROM python:2.7.11-alpine
 
 MAINTAINER Milos Prchlik <happz@happz.cz>
 
-RUN apk update && apk add make bash wget
+RUN apk update && apk add make bash wget git
 RUN mkdir -p /home && wget -O /home/ducky.zip --no-check-certificate https://github.com/happz/ducky/archive/master.zip && cd /home && unzip ducky.zip && mv ducky-master ducky && cd /home/ducky && make install-edit && make forth
 
 ENV PYTHONUNBUFFERED=yes
