@@ -59,7 +59,7 @@ def show_pages(logger, state, empty_pages = False):
   logger.info('=== Memory pages ===')
 
   for pg in sorted(state.get_child('machine').get_child('memory').get_page_states(), key = lambda x: x.index):
-    if not empty_pages and all( i == 0 for i in pg.content):
+    if not empty_pages and all(i == 0 for i in pg.content):
       continue
 
     CPR = 32
@@ -112,6 +112,51 @@ def __load_forth_symbols(logger):
 
   return symbols
 
+def __read(state, cnt, address):
+  pid = (address & PAGE_MASK) >> 8
+  offset = address & 0xFF
+
+  pg = [pg for pg in state.get_child('machine').get_child('memory').get_page_states() if pg.index == pid][0]
+
+  if cnt == 1:
+    return u8_t(pg.content[offset])
+
+  if cnt == 2:
+    return u16_t(pg.content[offset] | (pg.content[offset + 1] << 8))
+
+  if cnt == 4:
+    return u32_t(pg.content[offset] | (pg.content[offset + 1] << 8) | (pg.content[offset + 2] << 16) | (pg.content[offset + 3] << 24))
+
+def __show_forth_word(logger, state, symbols, base_address, ending_addresses):
+  __read_u8  = partial(__read, state, 1)
+  __read_u16 = partial(__read, state, 2)
+  __read_u32 = partial(__read, state, 4)
+
+  namelen = __read_u8(base_address + 7).value
+
+  code_address = align(4, base_address + 8 + namelen)
+
+  logger.info('Base address: %s', UINT32_FMT(base_address))
+  logger.info('Link:         %s', UINT32_FMT(__read_u32(base_address)))
+  logger.info('CRC:          %s', UINT16_FMT(__read_u16(base_address + 4)))
+  logger.info('flags:        %s', UINT8_FMT(__read_u8(base_address + 6)))
+  logger.info('namelen:      %s', namelen)
+  logger.info('name:         %s', ''.join([chr(__read_u8(base_address + 8 + i).value) for i in range(0, namelen)]))
+
+  while True:
+    code_token = __read_u32(code_address).value
+    token_name = symbols.get(code_token, '<unknown>')
+
+    logger.info('              %s - %s', UINT32_FMT(code_token), token_name)
+
+    if code_token in ending_addresses:
+      break
+
+    if token_name.startswith('code_'):
+      break
+
+    code_address += 4
+
 def show_forth_trace(logger, state):
   logger.info('=== FORTH call trace ===')
 
@@ -138,47 +183,22 @@ def show_forth_word(logger, state, base_address):
 
   symbols = __load_forth_symbols(logger)
 
-  def __read(cnt, address):
-    pid = (address & PAGE_MASK) >> 8
-    offset = address & 0xFF
+  __show_forth_word(logger, state, symbols, base_address, [[k for k, v in iteritems(symbols) if v == 'EXIT'][0]])
 
-    pg = [pg for pg in state.get_child('machine').get_child('memory').get_page_states() if pg.index == pid][0]
+def show_forth_dict(logger, state, last):
+  logger.info('== FORTH dictionary ===')
 
-    if cnt == 1:
-      return u8_t(pg.content[offset])
+  __read_u32 = partial(__read, state, 4)
 
-    if cnt == 2:
-      return u16_t(pg.content[offset] | (pg.content[offset + 1] << 8))
+  symbols = __load_forth_symbols(logger)
 
-    if cnt == 4:
-      return u32_t(pg.content[offset] | (pg.content[offset + 1] << 8) | (pg.content[offset + 2] << 16) | (pg.content[offset + 3] << 24))
+  base_address = __read_u32(last).value
+  ending_addresses = [[k for k, v in iteritems(symbols) if v == 'EXIT'][0]]
 
-  __read_u8  = partial(__read, 1)
-  __read_u16 = partial(__read, 2)
-  __read_u32 = partial(__read, 4)
-
-  namelen = __read_u8(base_address + 7).value
-
-  code_address = align(4, base_address + 8 + namelen)
-
-  logger.info('Base address: %s', UINT32_FMT(base_address))
-  logger.info('Link:         %s', UINT32_FMT(__read_u32(base_address)))
-  logger.info('CRC:          %s', UINT16_FMT(__read_u16(base_address + 4)))
-  logger.info('flags:        %s', UINT8_FMT(__read_u8(base_address + 6)))
-  logger.info('namelen:      %s', namelen)
-  logger.info('name:         %s', ''.join([chr(__read_u8(base_address + 8 + i).value) for i in range(0, namelen)]))
-
-  EXIT_address = [k for k, v in iteritems(symbols) if v == 'EXIT'][0]
-
-  while True:
-    code_token = __read_u32(code_address).value
-
-    logger.info('              %s - %s', UINT32_FMT(code_token), symbols.get(code_token, '<unknown>'))
-
-    if code_token == EXIT_address:
-      break
-
-    code_address += 4
+  while base_address != 0x00000000:
+    logger.info('')
+    __show_forth_word(logger, state, symbols, base_address, ending_addresses)
+    base_address = __read_u32(base_address).value
 
 def main():
   from . import add_common_options, parse_options
@@ -193,8 +213,9 @@ def main():
   parser.add_option('-M',         dest = 'memory',   default = False, action = 'store_true', help = 'Show memory')
   parser.add_option('--pages',    dest = 'pages',    default = False, action = 'store_true', help = 'Show pages')
   parser.add_option('--empty-pages', dest = 'empty_pages', default = False, action = 'store_true', help = 'Show empty pages')
-  parser.add_option('-F',         dest = 'forth_trace', default = False, action = 'store_true', help = 'Show FORTH call trace')
-  parser.add_option('-W',         dest = 'forth_word',   default = None, action = 'store',    help = 'Show FORTH word')
+  parser.add_option('--forth-trace', dest = 'forth_trace', default = False, action = 'store_true', help = 'Show FORTH call trace')
+  parser.add_option('--forth-word',  dest = 'forth_word',  default = None,  action = 'store',    help = 'Show FORTH word')
+  parser.add_option('--forth-dict',  dest = 'forth_dict',  default = None,  action = 'store',      help = 'Show FORTH dictionary')
   parser.add_option('-a',         dest = 'all',      default = False, action = 'store_true', help = 'All of above')
 
   parser.add_option('-Q',         dest = 'queries',  default = [],    action = 'append',     help = 'Query snapshot')
@@ -233,6 +254,9 @@ def main():
 
       if options.forth_word:
         show_forth_word(logger, state, str2int(options.forth_word))
+
+      if options.forth_dict:
+        show_forth_dict(logger, state, str2int(options.forth_dict))
 
     else:
       for query in options.queries:
