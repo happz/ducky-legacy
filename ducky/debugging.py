@@ -11,7 +11,7 @@ triggered, execute list of actions.
 import enum
 import logging
 
-from six import itervalues, iteritems
+from six import itervalues
 
 from .interfaces import IVirtualInterrupt
 from .devices import IRQList, VIRTUAL_INTERRUPTS
@@ -252,6 +252,8 @@ class MemoryWatchPoint(Point):
     self.read = read
 
   def is_triggered(self, core, address = None, read = None):
+    core.DEBUG('%s.is_triggered: address=%s, read=%s, self.address=%s, self.read=%s', self.__class__.__name__, UINT32_FMT(address), read, UINT32_FMT(self.address), self.read)
+
     if self.read is None:
       return address == self.address
 
@@ -293,10 +295,11 @@ class DebuggingSet(object):
 
       C.register_command(name, handler)
 
-    for stage in ('pre', 'post'):
-      for chain in ('step', 'memory'):
+    for chain in ('step', 'memory'):
+      setattr(self, 'triggered_%s' % chain, [])
+
+      for stage in ('pre', 'post'):
         setattr(self, 'chain_%s_%s' % (stage, chain), [])
-        setattr(self, 'triggered_%s_%s' % (stage, chain), [])
 
   def add_point(self, p, chain):
     self.core.DEBUG('adding point %s to chain %s', p, chain)
@@ -308,14 +311,15 @@ class DebuggingSet(object):
 
     getattr(self, 'chain_' + chain.replace('-', '_')).remove(p)
 
-  def __check_chain(self, chain, clean_triggered = False, *args, **kwargs):
+  def __check_chain(self, stage, chain, clean_triggered = False, *args, **kwargs):
     D = self.core.DEBUG
 
-    D('check breakpoints in chain %s: %s', chain, ', '.join(['%s=%s' % (k, v) for k, v in iteritems(kwargs)]))
+    D('__check_chain: stage=%s, chain=%s, clean_triggered=%s', stage, chain, clean_triggered)
 
-    chain = chain.replace('-', '_')
     triggered = getattr(self, 'triggered_' + chain)
-    chain = getattr(self, 'chain_' + chain)
+    chain = getattr(self, 'chain_%s_%s' % (stage, chain))
+
+    D('__check_chain: before check: chain=%s, triggered=%s', str(chain), str(triggered))
 
     triggered_in_loop = 0
 
@@ -348,22 +352,26 @@ class DebuggingSet(object):
       for action in p.actions:
         action.act(self.core, p)
 
+    D('__check_chain: after check: chain=%s, triggered=%s', str(chain), str(triggered))
+
     if clean_triggered is True:
       triggered[:] = []
+
+    D('__check_chain: after cleanup: chain=%s, triggered=%s', str(chain), str(triggered))
 
     return triggered_in_loop > 0
 
   def pre_step(self):
-    return self.__check_chain('pre-step')
+    return self.__check_chain('pre', 'step')
 
   def post_step(self):
-    return self.__check_chain('post-step', clean_triggered = True)
+    return self.__check_chain('post', 'step', clean_triggered = True)
 
   def pre_memory(self, address = None, read = None):
-    return self.__check_chain('pre-memory', address = address, read = read)
+    return self.__check_chain('pre', 'memory', address = address, read = read)
 
   def post_memory(self, address = None, read = None):
-    return self.__check_chain('post-memory', clean_triggered = True, address = address, read = read)
+    return self.__check_chain('post', 'memory', clean_triggered = True, address = address, read = read)
 
 def cmd_bp_list(console, cmd):
   """
