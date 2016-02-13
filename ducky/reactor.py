@@ -87,7 +87,7 @@ class SelectTask(IReactorTask):
     fds = [fd for fd in iterkeys(self.fds)]
     self.machine.DEBUG('SelectTask: fds=%s', fds)
 
-    f_read, f_write, f_err = select.select(fds, fds, fds, 0)
+    f_read, f_write, f_err = select.select(fds, fds, fds, 0.1)
 
     self.machine.DEBUG('  select: f_read=%s, f_write=%s, f_err=%s', f_read, f_write, f_err)
 
