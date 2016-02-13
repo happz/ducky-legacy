@@ -4,6 +4,9 @@ class BaseException(Exception):
 
     self.message = message or ''
 
+  def __str__(self):
+    return self.message
+
 class InvalidResourceError(BaseException):
   pass
 
