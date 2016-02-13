@@ -183,7 +183,7 @@ word_not_found:
 
 
 $DEFCODE "POSTPONE", 8, $F_IMMED, POSTPONE
-  call &__DWORD
+  call &__read_dword_with_refill
   $unpack_word_for_find
   call &__FIND
   cmp r0, r0
@@ -197,13 +197,7 @@ $DEFCODE "(", 1, $F_IMMED, PAREN
   li $W, 1 ; depth counter
 
 __PAREN_loop:
-;  call &__KEY
-;  cmp r0, 0x28
-;  be &__PAREN_enter
-;  cmp r0, 0x29
-;  be &__PAREN_exit
-
-  call &__DWORD ; r0 - counted string
+  call &__read_dword_with_refill ; r0 - counted string
   lb $X, r0
   cmp $X, 0x0001
   bne &__PAREN_loop
@@ -304,7 +298,7 @@ $DEFCODE "SPACE", 5, 0, SPACE
 
 __SPACE:
   li r0, 32
-  j &__EMIT
+  j &__write_stdout
 
 
 $DEFCODE "NOT", 3, 0, NOT
@@ -398,7 +392,7 @@ __SPACES_next:
 
 
 $DEFCODE "FORGET", 6, 0, FORGET
-  call &__DWORD
+  call &__read_dword_with_refill
   $unpack_word_for_find
   call &__FIND
   la $W, &var_LATEST
@@ -563,8 +557,7 @@ $DEFCODE "DEPTH", 5, 0, DEPTH
   ; ( -- n )
   la $W, &var_SZ
   lw $W, $W
-  mov $X, sp
-  sub $W, $X
+  sub $W, sp
   div $W, $CELL
   push $W
   $NEXT
@@ -610,20 +603,20 @@ $DEFCODE "PICK", 4, 0, PICK
 ;
 ; u32_t __string_read_and_store(char *ptr)
 ;
-; Read characters from a position in input buffer by calling __KEY, and copy them
+; Read characters from a position in input buffer by calling __read_input, and copy them
 ; to a buffer PTR. When quote (") is encountered, returns number of copied characters.
 ;
 __string_read_and_store:
   ; save working registers
   push r1
   push r2
-  ; save buffer pointer because r0 is used by __KEY
+  ; save buffer pointer because r0 is used by __read_input
   mov r1, r0
   ; copy buffer address for later use
   mov r2, r0
   ; copy loop
 __string_read_and_store_loop:
-  call &__KEY
+  call &__read_input
   ; is new character "?
   cmp r0, 0x22
   be &__string_read_and_store_finish
@@ -758,10 +751,10 @@ $DEFCODE "COUNT", 5, 0, COUNT
 
 $DEFCODE ".(", 2, $F_IMMED, DOT_PAREN
 __DOT_PAREN_loop:
-  call &__KEY
+  call &__read_input
   cmp r0, 41 ; cmp with ')'
   be &__DOT_PAREN_quit
-  call &__EMIT
+  call &__write_stdout
   j &__DOT_PAREN_loop
 __DOT_PAREN_quit:
   $NEXT
@@ -1179,7 +1172,7 @@ __UDOT_print:
   add r0, 48
 
 __UDOT_emit:
-  call &__EMIT
+  call &__write_stdout
   pop r1 ; restore saved r1 (BASE)
   ret
 
@@ -1243,8 +1236,3 @@ __WORDS_quit:
   pop r10
   pop r0
   ret
-
-
-; This is fake - exceptions are not implemented yet
-$DEFCODE "ABORT", 5, 0, ABORT
-  call &code_BYE

@@ -285,6 +285,32 @@ __write_word_name_loop:
 
 
 ;
+; void write_input_buffer(void)
+;
+; Write content of internal input buffer to standard terminal output, surrounded
+; by pre- ad post-fix for better readability.
+;
+write_input_buffer:
+  push r0
+  push r1
+  ; prefix
+  la r0, &__buffer_prefix
+  call &writes
+  ; input buffer
+  la r0, &input_buffer_address
+  lw r0, r0
+  la r1, &input_buffer_length
+  lw r1, r1
+  call &write
+  ; postfix + new line
+  la r0, &__buffer_postfix
+  call &writesln
+  pop r1
+  pop r0
+  ret
+
+
+;
 ; void write_word_buffer(void)
 ;
 ; Write content of internal word buffer to standard terminal output, surrounded
@@ -294,7 +320,7 @@ write_word_buffer:
   push r0
   push r1
   ; prefix
-  la r0, &buffer_print_prefix
+  la r0, &__buffer_prefix
   call &writes
   ; word buffer
   la r0, &word_buffer
@@ -302,7 +328,7 @@ write_word_buffer:
   lb r1, r1
   call &write
   ; postfix + new line
-  la r0, &buffer_print_postfix
+  la r0, &__buffer_postfix
   call &writesln
   pop r1
   pop r0
@@ -454,8 +480,6 @@ boot_phase2:
   ; init stack - the next-to-last page is our new stack
   li sp, 0xFF00
   liu sp, 0xFFFF
-  la r0, &var_SZ
-  stw r0, sp
 
   ; init return stack - the next-to-next-to-last page is our new return stack
   li $RSP, 0xFE00
@@ -535,8 +559,14 @@ __boot_phase2_ivt_failsafe_loop:
 ; Fail-safe interrupt service routine - if this interrupt
 ; gets triggered, kill kernel.
 ;
+  .section .rodata
+  .type __ERR_unhandled_irq_message, string
+  .string "\r\nERROR: $ERR_UNHANDLED_IRQ: Unhandled irq\r\n"
+
 failsafe_isr:
-  hlt 0x2000
+  la r0, &__ERR_unhandled_irq_message
+  li r1, $ERR_UNHANDLED_IRQ
+  j &__ERR_die
 
 
 ;
@@ -556,131 +586,6 @@ nop_isr:
 rtc_isr:
   retint
 
-
-;
-; void readline(void)
-;
-; Read characters from keyboard, store them in input buffer. When \n or \r are
-; encountered, return back to caller, signalising new lien is ready in buffer.
-; Input buffer index variables are set properly.
-;
-readline:
-  push r0 ; &input_buffer_length
-  push r1 ; input_buffer_length
-  push r2 ; input_buffer
-  push r3 ; current input char
-  ; now init variables
-  la r0, &input_buffer_length
-  li r1, 0 ; clear input buffer
-  la r2, &input_buffer_address
-  lw r2, r2
-__readline_loop:
-  inb r3, $KBD_PORT_DATA
-  cmp r3, 0xFF
-  be &__readline_wait_for_input
-  stb r2, r3
-  inc r1
-  inc r2
-  cmp r3, 0x0A ; nl
-  be &__readline_quit
-  cmp r3, 0x0D ; cr
-  be &__readline_quit
-  j &__readline_loop
-__readline_quit:
-  stw r0, r1 ; save input_buffer_length
-  ; reset input_buffer_index
-  la r0, &input_buffer_index
-  li r1, 0
-  stw r0, r1
-  pop r3
-  pop r2
-  pop r1
-  pop r0
-  ret
-__readline_wait_for_input:
-  ; This is a small race condition... What if new key
-  ; arrives after inb and before idle? We would be stuck until
-  ; the next key arrives (and it'd be Enter, nervously pressed
-  ; by programmer while watching machine "doing nothing"
-  idle
-  j &__readline_loop
-
-
-input_stack_push:
-  push r0 ; input_stack_ptr
-  push r1 ; address
-  push r2 ; value
-
-  la r0, &input_stack_ptr
-  lw r1, r0
-
-  ; input buffer address
-  la r2, &input_buffer_address
-  lw r2, r2
-  stw r1, r2
-  add r1, $CELL
-  ; input buffer index
-  la r2, &input_buffer_index
-  lw r2, r2
-  stw r1, r2
-  add r1, $CELL
-  ; input buffer length
-  la r2, &input_buffer_length
-  lw r2, r2
-  stw r1, r2
-  add r1, $CELL
-  ; state
-  la r2, &var_STATE
-  lw r2, r2
-  stw r1, r2
-  add r1, $CELL
-
-  stw r0, r1
-
-  pop r2
-  pop r1
-  pop r0
-
-  ret
-
-input_stack_pop:
-  push r0
-  push r1
-  push r2
-  push r3
-
-  la r0, &input_stack_ptr
-  lw r1, r0
-
-  ; state
-  sub r1, $CELL
-  la r2, &var_STATE
-  lw r3, r1
-  stw r2, r3
-  ; input buffer length
-  sub r1, $CELL
-  la r2, &input_buffer_length
-  lw r3, r1
-  stw r2, r3
-  ; input buffer index
-  sub r1, $CELL
-  la r2, &input_buffer_index
-  lw r3, r1
-  stw r2, r3
-  ; input buffer address
-  sub r1, $CELL
-  la r2, &input_buffer_address
-  lw r3, r1
-  stw r2, r3
-
-  stw r0, r1
-
-  pop r3
-  pop r2
-  pop r1
-  pop r0
-
-  ret
 
 
 DOCOL:
@@ -726,11 +631,163 @@ cold_start:
   .type data_boundary_first, int
   .int 0xDEADBEEF
 
-  .type word_buffer_length, byte
-  .byte 0
+  .type rstack_top, int
+  .int 0xFFFFFE00
+
+  .type jiffies, int
+  .int 0x00000000
+
+  ; User data area
+  ; Keep it in separate section to keep it aligned, clean, unpoluted
+  .section .userspace, rwblg
+  .space $USERSPACE_SIZE
+
+
+  .set link, 0
+
+;
+; Variables
+;
+$DEFVAR "UP", 2, 0, UP, $USERSPACE_BASE
+$DEFVAR "STATE", 5, 0, STATE, 0
+$DEFVAR "DP", 2, 0, DP, $USERSPACE_BASE
+$DEFVAR "LATEST", 6, 0, LATEST, &name_BYE
+$DEFVAR "S0", 2, 0, SZ, 0xFFFFFF00
+$DEFVAR "BASE", 4, 0, BASE, 10
+$DEFVAR "SOURCE-ID", 9, 0, SOURCE_ID, 0
+$DEFVAR "SHOW-PROMPT", 11, 0, SHOW_PROMPT, 0
+
+
+$DEFCODE "BUILD-STAMP", 11, 0, BUILD_STAMP
+  ; ( -- addr u )
+  la $W, &__build_stamp_length
+  lb $X, $W
+  inc $W
+  push $W
+  push $X
+  $NEXT
+
+
+$DEFCODE "VMDEBUGON", 9, $F_IMMED, VMDEBUGON
+  ; ( -- )
+  call &__vmdebug_on
+  $NEXT
+
+
+$DEFCODE "VMDEBUGOFF", 10, $F_IMMED, VMDEBUGOFF
+  call &__vmdebug_off
+  $NEXT
+
+
+;
+; Buffer printing - asorted helper strings
+;
+  .section .rodata
+
+  .type __input_buffer_label, string
+  .string "Input buffer: "
+
+  .type __word_buffer_label, string
+  .string "Word buffer: "
+
+  .type __buffer_prefix, string
+  .string ">>>"
+
+  .type __buffer_postfix, string
+  .string "<<<"
+
+
+;****************************
+;
+; Ambiguous condition handling
+;
+;****************************
+
+;
+; void __ERR_die(char *msg, i32_t exit_code) __attribute__((noreturn))
+;
+; Generic fatal error handler
+__ERR_die:
+  call &writes
+  hlt r1
+
+
+;
+; void __ERR_undefined_word(void) __attribute__((noreturn))
+;
+; Raised when word is not in dictionary nor a number.
+;
+  .section .rodata
+  .type __ERR_undefined_word_message, string
+  .string "\r\nERROR: $ERR_UNDEFINED_WORD: Undefined word\r\n"
+
+__ERR_undefined_word:
+  la r0, &__ERR_undefined_word_message
+  call &writes
+  la r0, &__input_buffer_label
+  call &writes
+  call &write_input_buffer
+  call &write_new_line
+  la r0, &__word_buffer_label
+  call &writes
+  call &write_word_buffer
+  call &write_new_line
+  li r0, $ERR_UNDEFINED_WORD
+  j &halt
+
+
+;
+; void __ERR_unknown(void) __attribute__((noreturn))
+;
+; Raise when otherwise unhandled error appears.
+;
+  .section .rodata
+  .type __ERR_unknown_message, string
+  .string "\r\nERROR: $ERR_UNKNOWN: Unknown error happened\r\n"
+
+__ERR_unknown:
+  la r0, &__ERR_unknown_message
+  li r1, $ERR_UNKNOWN
+  j &__ERR_die
+
+
+;
+; Default prompt
+;
+  .section .rodata
+  .type __default_prompt, string
+  .string "  ok\r\n"
+
+
+
+$DEFCODE "PROMPT", 6, 0, PROMPT
+  ; ( flag -- )
+  pop r0
+  call &__write_prompt
+  $NEXT
+
+__write_prompt:
+  cmp r0, r0
+  bz &__write_prompt_quit
+  la r0, &__default_prompt
+  call &writes
+__write_prompt_quit:
+  ret
+
+
+;****************************
+;
+; Terminal IO routines and words
+;
+;****************************
+
+  .data
 
   ; word_buffer lies right next to word_buffer_length, pretending it's
   ; a standard counted string <length><chars...>
+  .type word_buffer_length, byte
+  .byte 0
+
   .type word_buffer, space
   .space $WORD_BUFFER_SIZE
 
@@ -758,200 +815,422 @@ cold_start:
   .type input_stack_ptr, int
   .int &input_stack
 
-  ; if not zero, restore input source specification from stack
-  .type input_stack_restorable, int
-  .int 0
-
-  .type rstack_top, int
-  .int 0xFFFFFE00
-
-  .type jiffies, int
-  .int 0x00000000
-
-  ; User data area
-  ; Keep it in separate section to keep it aligned, clean, unpoluted
-  .section .userspace, rwblg
-  .space $USERSPACE_SIZE
-
-
-  .set link, 0
 
 ;
-; Variables
+; char __read_stdin(void)
 ;
-$DEFVAR "UP", 2, 0, UP, $USERSPACE_BASE
-$DEFVAR "STATE", 5, 0, STATE, 0
-$DEFVAR "DP", 2, 0, DP, $USERSPACE_BASE
-$DEFVAR "LATEST", 6, 0, LATEST, &name_BYE
-$DEFVAR "S0", 2, 0, SZ, 0
-$DEFVAR "BASE", 4, 0, BASE, 10
+; Read 1 character from stdin (terminal). If no characters are available,
+; block until new one arrives.
+;
+__read_stdin:
+  inb r0, $KBD_PORT_DATA
+  cmp r0, 0xFF
+  be &__read_stdin_wait
+  ret
+__read_stdin_wait:
+  ; This is a small race condition... What if new key
+  ; arrives after inb and before idle? We would be stuck until
+  ; the next key arrives (and it'd be Enter, nervously pressed
+  ; by programmer while watching machine "doing nothing")
+  idle
+  j &__read_stdin
 
-$DEFCODE "BUILD-STAMP", 11, 0, BUILD_STAMP
-  la $W, &__build_stamp_length
-  lb $X, $W
-  inc $W
-  push $W
-  push $X
-  $NEXT
-
-
-$DEFCODE "VMDEBUGON", 9, $F_IMMED, VMDEBUGON
-  call &__vmdebug_on
-  $NEXT
-
-$DEFCODE "VMDEBUGOFF", 10, $F_IMMED, VMDEBUGOFF
-  call &__vmdebug_off
-  $NEXT
 
 
 ;
-; Kernel words
+; void __write_stdout(char c)
 ;
+; Write 1 character to stdout (terminal).
+;
+__write_stdout:
+  outb $TTY_PORT_DATA, r0
+  ret
 
-$DEFCODE "INTERPRET", 9, 0, INTERPRET
-  li r0, 0x20 ; space as delimiter
-  call &__WORD
 
-  push r6
-  push r5
-  la r5, &var_STATE
-  lw r5, r5
-  li r6, 0 ; interpret_as_lit?
+;
+; u32_t __read_line(char *buff, u32_t max)
+;
+; Read line of maximum MAX characters from stdin, and store it in BUFF.
+; Returns number of read characters.
+;
+__read_line:
+  cmp r1, 0x00                         ; zero maximal length is an ambiguous condition
+  bz &__ERR_unknown
+  push r2                              ; counter
+  push r3                              ; character
+  li r2, 0x00                          ; reset counter
+  cmp r1, 0x00                         ; set flags properly to allow check in the loop
+__read_line_loop:
+  bz &__read_line_quit                 ; if 0 chars remains in buffer, quit
+  inb r3, $KBD_PORT_DATA
+  cmp r3, 0xFF
+  be &__read_line_wait
+  cmp r3, 0x0A                         ; nl
+  be &__read_line_quit
+  cmp r3, 0x0D                         ; cr
+  be &__read_line_quit
+  stb r0, r3
+  inc r0
+  inc r2
+  dec r1
+  j &__read_line_loop
+__read_line_quit:
+  mov r0, r2
+  pop r3
+  pop r2
+  ret
+__read_line_wait:
+  idle
+  j &__read_line_loop
 
-  ; search dictionary
-  push r0
+
+;
+; char __read_input(void)
+;
+; Read 1 character from input buffer. Return character, or 0x00 when no input
+; is available.
+;
+__read_input:
   push r1
-  $unpack_word_for_find
-  call &__FIND
-  cmp r0, r0
-  bz &__INTERPRET_as_lit
-  pop r1
-  pop r6 ; pop r0
-  li r6, 0 ; restore interpret_as_lit
-  mov r1, r0
-  add r1, $wr_flags
-  call &__TCFA
-  lb r1, r1
-  and r1, $F_IMMED
-  cmp r1, r1
-  bnz &__INTERPRET_execute
-  j &__INTERPRET_state_check
-
-__INTERPRET_as_lit:
-  pop r1
-  pop r0
-  inc r6
-  $unpack_word_for_find
-  call &__NUMBER
-  ; r0 - number, r1 - unparsed chars
-  cmp r1, r1
-  bnz &__INTERPRET_parse_error
-  mov r1, r0  ; save number
-  la r0, &LIT ; and replace with LIT
-
-__INTERPRET_state_check:
-  cmp r5, r5
-  bz &__INTERPRET_execute
-  call &__COMMA ; append r0 (aka word) to current definition
-  cmp r6, r6
-  bz &__INTERPRET_next ; if not LIT, just leave
-  mov r0, r1
-  call &__COMMA ; append r0 (aka number) to current definition
-  j &__INTERPRET_next
-
-__INTERPRET_execute:
-  cmp r6, r6
-  bnz &__INTERPRET_execute_lit
-  pop r5
-  pop r6
-  mov $W, r0
-  lw $X, r0
-  $log_word $W
-  $log_word $X
-  j $X
-
-__INTERPRET_execute_lit:
-  pop r5
-  pop r6
-  push r1
-  $NEXT
-
-__INTERPRET_parse_error:
-  ; error message
-  la r0, &parse_error_msg
-  call &writes
-  ; input buffer label
-  la r0, &parse_error_input_buffer_prefix
-  call &writes
-  ; prefix
-  la r0, &buffer_print_prefix
-  call &writes
-  ; input buffer
+  push r2
+  la r0, &input_buffer_length
+  lw r0, r0
+  la r1, &input_buffer_index
+  lw r2, r1
+  cmp r2, r0
+  be &__read_input_end
   la r0, &input_buffer_address
   lw r0, r0
-  la r1, &input_buffer_length
-  lw r1, r1
-  call &write
-  ; new line
-  li r0, 0
-  li r1, 0
-  call &writeln
-  ; word buffer label
-  la r0, &parse_error_word_buffer_prefix
-  call &writes
-  call &write_word_buffer
-  call &halt
+  add r0, r2
+  lb r0, r0
+  inc r2
+  stw r1, r2
+  pop r2
+  pop r1
+  ret
+__read_input_end:
+  li r0, 0x00
+  pop r2
+  pop r1
+  ret
 
-__INTERPRET_next:
-  pop r5
-  pop r6
+;
+; void __input_stack_push(void)
+;
+; Save current state of input buffer to the top of the input stack.
+;
+__input_stack_push:
+  push r0                              ; &input_stack_ptr
+  push r1                              ; pointer
+  push r2                              ; value
+
+  la r0, &input_stack_ptr
+  lw r1, r0
+
+  ; input buffer address
+  la r2, &input_buffer_address
+  lw r2, r2
+  stw r1, r2
+  add r1, $CELL
+  ; input buffer index
+  la r2, &input_buffer_index
+  lw r2, r2
+  stw r1, r2
+  add r1, $CELL
+  ; input buffer length
+  la r2, &input_buffer_length
+  lw r2, r2
+  stw r1, r2
+  add r1, $CELL
+  ; STATE
+  la r2, &var_STATE
+  lw r2, r2
+  stw r1, r2
+  add r1, $CELL
+  ; SOURCE-ID
+  la r2, &var_SOURCE_ID
+  lw r2, r2
+  stw r1, r2
+  add r1, $CELL
+
+  stw r0, r1
+
+  pop r2
+  pop r1
+  pop r0
+
+  ret
+
+;
+;
+;
+__input_stack_pop:
+  push r0
+  push r1
+  push r2
+  push r3
+
+  la r0, &input_stack_ptr
+  lw r1, r0
+
+  ; SOURCE-ID
+  sub r1, $CELL
+  la r2, &var_SOURCE_ID
+  lw r3, r1
+  stw r2, r3
+  ; STATE
+  sub r1, $CELL
+  la r2, &var_STATE
+  lw r3, r1
+  stw r2, r3
+  ; input buffer length
+  sub r1, $CELL
+  la r2, &input_buffer_length
+  lw r3, r1
+  stw r2, r3
+  ; input buffer index
+  sub r1, $CELL
+  la r2, &input_buffer_index
+  lw r3, r1
+  stw r2, r3
+  ; input buffer address
+  sub r1, $CELL
+  la r2, &input_buffer_address
+  lw r3, r1
+  stw r2, r3
+
+  stw r0, r1
+
+  pop r3
+  pop r2
+  pop r1
+  pop r0
+
+  ret
+
+
+;
+; void __refill_input(void)
+;
+; Read one line from input source, and store it in input buffer, making it
+; the new input.
+;
+__refill_input:
+  push r0
+  push r1
+
+  ; Since the current input source is obviously empty, check theinput stack,
+  ; and restore the previous input source if possible.
+  la r0, &input_stack_ptr
+  lw r0, r0
+  la r1, &input_stack
+  cmp r0, r1
+  be &__refill_input_stdin
+
+  ; restore the previous input source
+  call &__input_stack_pop
+  pop r1
+  pop r0
+  ret
+
+__refill_input_stdin:
+  ; get a line from stdin
+  la r0, &input_buffer
+  li r1, $INPUT_BUFFER_SIZE
+  call &__read_line
+
+  ; save length
+  la r1, &input_buffer_length
+  stw r1, r0
+
+  ; reset index
+  la r0, &input_buffer_index
+  li r1, 0x00
+  stw r0, r1
+
+  pop r1
+  pop r0
+  ret
+
+
+;
+; char *__read_word(char delimiter)
+;
+; Read characters from input buffer. Skip leading delimiters, then copy the following
+; characters into word buffer, until raching the end of input buffer or the delimiter
+; is encountered. Resets word_buffer_index, and sets word_buffer_length properly.
+; If the input buffer is empty when __read_word is called, word buffer length is set
+; to zero.
+;
+__read_word:
+  ; delimiter -- c-addr
+  push r3
+  mov r3, r0 ; save delimiter
+__read_word_read_input:
+  ; first, skip leading delimiters
+  call &__read_input
+  cmp r0, 0x00
+  bz &__read_word_eof
+  cmp r0, r3
+  be &__read_word_read_input
+  ; also, skip leading white space - except the space itself...
+  cmp r0, 0x20
+  bl &__read_word_read_input
+  push r1
+  push r2
+  la r1, &word_buffer
+__read_word_store_char:
+  stb r1, r0
+  inc r1
+  call &__read_input
+  cmp r0, 0x00 ; end of input buffer?
+  be &__read_word_save
+  cmp r0, r3   ; separator?
+  be &__read_word_save
+  cmp r0, 0x20 ; space???
+  bl &__read_word_save
+  j &__read_word_store_char
+__read_word_save:
+  la r2, &word_buffer
+  sub r1, r2
+  la r0, &word_buffer_length
+  stb r0, r1
+  pop r2
+  pop r1
+  pop r3
+  ret
+__read_word_eof:
+  ; no available data in input buffer
+  la r0, &word_buffer_length
+  li r3, 0x00
+  stb r0, r3
+  pop r3
+  ret
+
+
+;
+; char * __read_word_with_refill(char delimiter)
+;
+  .section .rodata
+  .type __B__, string
+  .string "*"
+
+__read_word_with_refill:
+  push r2
+  push r3
+  mov r3, r0
+__read_word_with_refill_loop:
+  call &__read_word
+  lb r2, r0
+  bz &__read_word_with_refill_refill
+  pop r3
+  pop r2
+  ret
+__read_word_with_refill_refill:
+  la r0, &var_SHOW_PROMPT
+  lw r0, r0
+  call &__write_prompt
+  call &__refill_input
+  mov r0, r3
+  j &__read_word_with_refill_loop
+
+
+;
+; char *__read_dword(void)
+;
+; __read_word with space as a delimiter.
+;
+__read_dword:
+  li r0, 0x20
+  j &__read_word
+
+
+__read_dword_with_refill:
+  li r0, 0x20
+  j &__read_word_with_refill
+
+
+$DEFCODE "WORD", 4, 0, WORD
+  ; ( char "<chars>ccc<char>" -- c-addr )
+  pop r0
+  call &__read_word_with_refill
+  push r0
   $NEXT
 
-  .section .rodata
 
-  .type parse_error_msg, string
-  .string "\r\nPARSE ERROR!\r\n"
+$DEFCODE "DWORD", 5, 0, DWORD
+  ; ( "<chars>ccc<char>" -- c-addr )
+  ; like WORD but with space as a delimiter ("default WORD")
+  call &__read_dword_with_refill
+  push r0
+  $NEXT
 
-  .type parse_error_input_buffer_prefix, string
-  .string "Input buffer: "
 
-  .type parse_error_word_buffer_prefix, string
-  .string "Word buffer: "
+$DEFCODE "ACCEPT", 6, 0, ACCEPT
+  ; ( c-addr +n1 -- +n2 )
+  pop r1
+  pop r0
+  call &__read_line
+  push r0
+  $NEXT
 
-  .type buffer_print_prefix, string
-  .string ">>>"
 
-  .type buffer_print_postfix, string
-  .string "<<<"
+$DEFCODE "REFILL", 6, 0, REFILL
+  ; ( -- flag )
+  call &__refill_input
+  $push_true r0
+  $NEXT
 
-.ifdef FORTH_DEBUG_FIND
-  .type find_debug_header, string
-  .string "FIND WORD:\r\n"
-.endif
+
+$DEFCODE "KEY", 3, 0, KEY
+  ; ( -- n )
+  call &__read_input
+  push r0
+  $NEXT
+
+
+$DEFCODE "EMIT", 4, 0, EMIT
+  ; ( n -- )
+  pop r0
+  call &__write_stdout
+  $NEXT
+
 
 $DEFCODE "EVALUATE", 8, 0, EVALUATE
-  pop r1 ; length
-  pop r0 ; address
+  ; ( c-addr u -- )
+  pop r1
+  pop r0
   call &__EVALUATE
   $NEXT
 
+;
+; void __EVALUATE(char *buffer, u32_t length)
+;
 __EVALUATE:
   ; save current input state
-  call &input_stack_push
+  call &__input_stack_push
+
   push r2
-  ; load new input buffer address
+  push r3
+
+  ; set SOURCE-ID to -1
+  la r2, &var_SOURCE_ID
+  li r3, -1
+  stw r2, r3
+
+  ; make the string new input buffer
   la r2, &input_buffer_address
   stw r2, r0
-  ; load new input buffer length
   la r2, &input_buffer_length
   stw r2, r1
-  li r0, 0
-  ; reset input buffer index
+
+  ; set >IN to zero
   la r2, &input_buffer_index
+  li r0, 0x00
   stw r2, r0
-  ; set STATE to "interpret"
-  ;la r2, &var_STATE
-  ;stw r2, r0
+
+  ; and interpret...
+  pop r3
   pop r2
   ret
 
@@ -962,68 +1241,6 @@ $DEFCODE ">IN", 3, 0, TOIN
   $NEXT
 
 
-$DEFCODE "KEY", 3, 0, KEY
-  ; ( -- n )
-  call &__KEY
-  push r0
-  $NEXT
-
-__KEY:
-  ; r0 - input char
-  push r1 ; &input_buffer_length
-  push r2 ; input_buffer_length
-  push r3 ; &input_buffer_index
-  push r4 ; input_buffer_index
-  push r5 ; index_buffer ptr
-  la r1, &input_buffer_length
-  la r3, &input_buffer_index
-__KEY_start_again:
-  lw r2, r1
-  lw r4, r3
-  cmp r2, r4
-  be &__KEY_read_line
-__KEY_read_char:
-  ; get char ptr
-  la r5, &input_buffer_address
-  lw r5, r5
-  add r5, r4
-  ; read char
-  lb r0, r5
-  ; and update vars
-  inc r4
-  stw r3, r4
-__KEY_ret:
-  pop r5
-  pop r4
-  pop r3
-  pop r2
-  pop r1
-  ret
-__KEY_read_line:
-  la r2, &input_stack_ptr
-  lw r2, r2
-  la r4, &input_stack
-  cmp r2, r4
-  be &__KEY_do_read_line
-  call &input_stack_pop
-  li r0, 0x0A
-  j &__KEY_ret
-__KEY_do_read_line:
-  call &readline
-  j &__KEY_start_again
-
-
-$DEFCODE "EMIT", 4, 0, EMIT
-  ; ( n -- )
-  pop r0
-  call &__EMIT
-  $NEXT
-
-__EMIT:
-  outb $TTY_PORT_DATA, r0
-  ret
-
-
 $DEFCODE "TYPE", 4, 0, TYPE
   ; ( address length -- )
   pop r1
@@ -1031,63 +1248,6 @@ $DEFCODE "TYPE", 4, 0, TYPE
   call &write
   $NEXT
 
-
-$DEFCODE "WORD", 4, 0, WORD
-  ; ( char "<chars>ccc<char>" -- c-addr )
-  pop r0
-  call &__WORD
-  push r0
-  $NEXT
-
-$DEFCODE "DWORD", 5, 0, DWORD
-  ; ( "<chars>ccc<char>" -- c-addr )
-  ; like WORD but with space as a delimiter ("default WORD")
-  call &__DWORD
-  push r0
-  $NEXT
-
-
-__WORD:
-  ; delimiter -- c-addr
-
-  push r1
-  push r2
-  push r3
-  mov r3, r0 ; save delimiter
-
-__WORD_key:
-  ; first, skip leading delimiters
-  call &__KEY
-  cmp r0, r3
-  be &__WORD_key
-  ; also, skip leading white space - except the space itself...
-  cmp r0, 0x20
-  bl &__WORD_key
-
-  la r1, &word_buffer
-__WORD_store_char:
-  stb r1, r0
-  inc r1
-  call &__KEY
-  cmp r0, r3 ; compare with delimiter
-  be &__WORD_save
-  cmp r0, 0x20
-  bl &__WORD_save
-  j &__WORD_store_char
-__WORD_save:
-  la r2, &word_buffer
-  sub r1, r2
-  la r0, &word_buffer_length
-  stb r0, r1
-  pop r3
-  pop r2
-  pop r1
-  ; call &write_word_buffer
-  ret
-
-__DWORD:
-  li r0, 0x20
-  j &__WORD
 
 
 $DEFCODE "SOURCE", 6, 0, SOURCE
@@ -1184,6 +1344,13 @@ __NUMBER_negate:
   inc r0
   j &__NUMBER_quit
 
+
+.ifdef FORTH_DEBUG_FIND
+  .section .rodata
+
+  .type find_debug_header, string
+  .string "FIND WORD:\r\n"
+.endif
 
 $DEFCODE "FIND", 4, 0, FIND
   ; ( c-addr -- 0 0 | xt 1 | xt -1 )
@@ -1316,7 +1483,7 @@ __FIND_fail:
 
 
 $DEFCODE "'", 1, $F_IMMED, TICK
-  call &__DWORD
+  call &__read_dword_with_refill
   $unpack_word_for_find
   call &__FIND
   call &__TCFA
@@ -1535,12 +1702,127 @@ $DEFCODE "0BRANCH", 7, 0, ZBRANCH
   $NEXT
 
 
+$DEFCODE "INTERPRET", 9, 0, INTERPRET
+  ; This word is the most inner core of the outer interpreter. It will read
+  ; words from input buffer - refilling it when necessary - and execute them
+  ;
+  ; r10, r11, r12, r13 are used for internal state - it's highly unlikely that other
+  ; routines will use these, as they are quite high on the list, so it's unlikely
+  ; that they will be pushed and popped by called routines. Also, this word does
+  ; not have to take care of saving and restoring registers - as long as we keep
+  ; stack clean, and transfer to the word soon enough.
+
+  ; *** Get new word
+  li r0, 0x20                ; space is default delimiter
+  call &__read_word
+
+  ; if the string has zero length, refill buffer and move on, leave the rest
+  ; for next iteration of QUIT
+  lb r1, r0
+  bz &__interpret_refill
+
+  ; save stuff for later
+  inc r0                     ; point to string
+  mov r10, r0                ; string length
+  mov r11, r1                ; string address
+  li r12, 0                  ; "interpret as LIT?" flag
+
+  ; *** Search for the word in the dictionary
+  call &__FIND
+
+  ; *** Interpret
+  cmp r0, r0                 ; if it's not in dictionary, it must be a number, right?
+  bz &__interpret_as_lit
+
+  ; get word's code field address (CFA)
+  mov r1, r0                 ; save word address for later
+  call &__TCFA
+  add r1, $wr_flags          ; get word's flags
+  lb r1, r1
+  and r1, $F_IMMED           ; if it's an immediate word, execute it no matter what STATE says
+  bnz &__interpret_execute
+  j &__interpret_state_check
+
+__interpret_as_lit:
+  inc r12                    ; mark as LIT
+
+  ; try to parse string as a number
+  mov r0, r10
+  mov r1, r11
+  call &__NUMBER
+  cmp r1, r1                 ; non-zero unparsed chars means NaN
+  bnz &__ERR_undefined_word
+  mov r1, r0                 ; save number for later
+  la r0, &LIT                ; and set "the word" to LIT
+
+__interpret_state_check:
+  ; if STATE is zero, execute what we've parsed
+  la r13, &var_STATE
+  lw r13, r13
+  bz &__interpret_execute
+
+  ; otherwise append r0 (our found "word") to current definition
+  call &__COMMA
+
+  ; if the word was not LIT, continue with next word
+  cmp r12, r12
+  bz &__interpret_next
+
+  ; otherwise, pass our parsed number to COMMA
+  mov r0, r1
+  call &__COMMA
+
+  ; and go to next word...
+  j &__interpret_next
+
+__interpret_execute:
+  cmp r12, r12               ; LIT has its own mode
+  bnz &__interpret_execute_lit
+
+  ; execute the word
+  mov $W, r0
+  lw $X, r0
+  $log_word $W
+  $log_word $X
+  j $X
+
+__interpret_execute_lit:
+  push r1
+  $NEXT
+
+__interpret_refill:
+  la r0, &var_SHOW_PROMPT
+  lw r0, r0
+  call &__write_prompt
+  call &__refill_input
+
+__interpret_next:
+  $NEXT
+
+
 $DEFWORD "QUIT", 4, 0, QUIT
-  .int &RZ
+  .int &RZ                             ; reset return stack
   .int &RSPSTORE
-  .int &INTERPRET
-  .int &BRANCH
+  .int &SOURCE_ID
+  .int &LIT
+  .int 0
+  .int &STORE
+  .int &LBRAC
+  .int &REFILL                         ; do the initial refill
+  .int &DROP                           ; drop REFILL's return value
+  .int &INTERPRET                      ; refill buffer, read word, execute them
+  .int &BRANCH                         ; back to interpret
   .int -8
+
+
+$DEFCODE "ABORT", 5, 0, ABORT
+  la $W, &var_SZ
+  lw sp, $W
+
+  ; now this is tricky... jumping to QUIT
+  la $W, &QUIT
+  lw $X, $W
+  j $X
 
 
 $DEFWORD "HIDE", 4, 0, HIDE
@@ -1916,7 +2198,7 @@ $DEFCODE "2SWAP", 5, 0, TWOSWAP
 
 $DEFCODE "CHAR", 4, 0, CHAR
   ; ( -- n )
-  call &__DWORD
+  call &__read_dword_with_refill
   inc r0
   lb $W, r0 ; load the first character of next word into W...
   push $W
@@ -1924,7 +2206,7 @@ $DEFCODE "CHAR", 4, 0, CHAR
 
 
 $DEFCODE "[CHAR]", 6, $F_IMMED, BRACKETCHAR
-  call &__DWORD
+  call &__read_dword_with_refill
   inc r0
   lb $W, r0
   la r0, &LIT
@@ -2204,6 +2486,10 @@ $DEFCODE "HERE", 4, 0, HERE
 
 
 $DEFCODE "CRASH", 5, $F_IMMED, CRASH
+  hlt 0x4FFF
+
+
+$DEFCODE "DIE", 3, 0, DIE
   hlt 0x4FFF
 
 

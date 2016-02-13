@@ -36,6 +36,9 @@
 ; Allow for 8 nested EVALUATE calls
 .def INPUT_STACK_SIZE:   128
 
+; Let's say the longest line we can get from terminal is 512 characters
+.def TERM_INPUT_BUFFER_SIZE: 512
+
 ; Let's say the longest line can be 512 chars...
 .def INPUT_BUFFER_SIZE: 512
 
@@ -241,3 +244,7 @@ code_#label:
   ; li r20, 0x2E
   ; outb $TTY_PORT_DATA, r20
 .end
+
+.def ERR_UNKNOWN:             -1
+.def ERR_UNDEFINED_WORD:      -2
+.def ERR_UNHANDLED_IRQ:       -3
