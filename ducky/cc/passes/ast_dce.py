@@ -9,7 +9,7 @@ class DSEVisitor(ASTOptVisitor):
     #
     # Any statement after "return" in a block is effectively dead
     #
-    if any( isinstance(stmt, c_ast.Return) for stmt in node.block_items):
+    if any(isinstance(stmt, c_ast.Return) for stmt in node.block_items):
       self.DEBUG(self.log_prefix + 'DCE: Return present in compound block, check for dead statements')
       self.DOWN()
 

@@ -407,7 +407,7 @@ def main():
     parser.print_help()
     sys.exit(1)
 
-  if any( not file_in.endswith('.o') for file_in in options.file_in):
+  if any(not file_in.endswith('.o') for file_in in options.file_in):
     logger.error('All input files must be object files')
     sys.exit(1)
 

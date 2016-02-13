@@ -23,8 +23,6 @@ def encoding_to_u32(inst):
   return ctypes.cast(ctypes.byref(inst), ctypes.POINTER(u32_t)).contents.value
 
 if hasattr(sys, 'pypy_version_info'):
-  import ctypes
-
   def u32_to_encoding(u, encoding):
     class _Cast(ctypes.Union):
       _pack_ = 0
