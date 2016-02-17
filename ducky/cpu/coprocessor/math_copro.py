@@ -2,8 +2,8 @@
 Stack-based coprocessor, providing several arithmetic operations with "long"
 numbers.
 
-Coprocessor's instructions operates above stack of (by default) 8 slots.
-Operations to move values between math stack and regular registers are also
+Coprocessor's instructions operates on a stack of (by default) 8 slots.
+Operations to move values between math stack and registers/data stack are also
 available.
 
 In the following documentation several different data types are used:
@@ -20,7 +20,7 @@ import enum
 from ...interfaces import ISnapshotable
 from . import Coprocessor
 from .. import CPUException
-from ..instructions import InstructionSet, SIS, INSTRUCTION_SETS, Descriptor_RI
+from ..instructions import InstructionSet, SIS, INSTRUCTION_SETS, Descriptor_R_R, ENCODE, REGISTER_NAMES
 from ...mm import u32_t, i64_t, u64_t, UINT64_FMT
 from ...snapshot import SnapshotNode
 
@@ -194,9 +194,14 @@ class MathCoprocessorOpcodes(enum.IntEnum):
   POPW    = 0
   POPUW   = 1
   PUSHW   = 2
+  SAVEW   = 3
+  LOADW   = 4
+  LOADUW  = 5
 
-  POP     = 3
-  PUSH    = 4
+  POP     = 6
+  SAVE    = 7
+  PUSH    = 8
+  LOAD    = 9
 
   MULL    = 10
   DIVL    = 11
@@ -206,10 +211,10 @@ class MathCoprocessorOpcodes(enum.IntEnum):
 
   DUP     = 20
   DUP2    = 21
-  SWAP    = 22
+  SWP     = 22
 
-  INCL    =  30
-  DECL    =  31
+  INCL    = 30
+  DECL    = 31
 
   SIS     = 63
 
@@ -222,7 +227,7 @@ class MathCoprocessorInstructionSet(InstructionSet):
 
   opcodes = MathCoprocessorOpcodes
 
-class Descriptor_MATH(Descriptor_RI):
+class Descriptor_MATH(Descriptor_R_R):
   operands = ''
 
   @staticmethod
@@ -235,7 +240,7 @@ class Descriptor_MATH(Descriptor_RI):
 
 class PUSHW(Descriptor_MATH):
   """
-  Downsize the TOS to ``int``, and push the result on the regular stack.
+  Downsize TOS to ``int``, and push the result on the data stack.
   """
 
   mnemonic = 'pushw'
@@ -245,9 +250,32 @@ class PUSHW(Descriptor_MATH):
   def execute(core, inst):
     core.raw_push(u32_t(core.math_coprocessor.registers.pop().value & 0xFFFFFFFF).value)
 
+class SAVEW(Descriptor_MATH):
+  """
+  Downsize TOS to ``int``, and store the result in register.
+  """
+
+  mnemonic = 'savew'
+  opcode = MathCoprocessorOpcodes.SAVEW
+  operands = 'r'
+
+  @staticmethod
+  def assemble_operands(logger, buffer, inst, operands):
+    logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
+
+    ENCODE(logger, buffer, inst, 'reg1', 5, operands['register_n0'])
+
+  @staticmethod
+  def disassemble_operands(logger, inst):
+    return [REGISTER_NAMES[inst.reg1]]
+
+  @staticmethod
+  def execute(core, inst):
+    core.registers.map[inst.reg1].value = u32_t(core.math_coprocessor.registers.pop().value & 0xFFFFFFFF).value
+
 class POPW(Descriptor_MATH):
   """
-  Pop the ``int``from regular stack, extend it to ``long``, and push the value on the stack.
+  Pop the ``int`` from data stack, extend it to ``long``, and make the result TOS.
   """
 
   mnemonic = 'popw'
@@ -257,9 +285,32 @@ class POPW(Descriptor_MATH):
   def execute(core, inst):
     core.math_coprocessor.sign_extend_with_push(core.raw_pop())
 
+class LOADW(Descriptor_MATH):
+  """
+  Take a value from register, extend it to ``long``, and make the result TOS.
+  """
+
+  mnemonic = 'loadw'
+  opcode = MathCoprocessorOpcodes.LOADW
+  operands = 'r'
+
+  @staticmethod
+  def assemble_operands(logger, buffer, inst, operands):
+    logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
+
+    ENCODE(logger, buffer, inst, 'reg1', 5, operands['register_n0'])
+
+  @staticmethod
+  def disassemble_operands(logger, inst):
+    return [REGISTER_NAMES[inst.reg1]]
+
+  @staticmethod
+  def execute(core, inst):
+    core.math_coprocessor.sign_extend_with_push(core.registers.map[inst.reg1].value)
+
 class POPUW(Descriptor_MATH):
   """
-  Pop the ``int``from regular stack, extend it to ``long``, and push the value on the stack.
+  Pop the ``int``from data stack, extend it to ``long``, and make the result TOS.
   """
 
   mnemonic = 'popuw'
@@ -269,9 +320,32 @@ class POPUW(Descriptor_MATH):
   def execute(core, inst):
     core.math_coprocessor.extend_with_push(core.raw_pop())
 
+class LOADUW(Descriptor_MATH):
+  """
+  Take a value from register, extend it to ``long``, and make the result TOS.
+  """
+
+  mnemonic = 'loaduw'
+  opcode = MathCoprocessorOpcodes.LOADUW
+  operands = 'r'
+
+  @staticmethod
+  def assemble_operands(logger, buffer, inst, operands):
+    logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
+
+    ENCODE(logger, buffer, inst, 'reg1', 5, operands['register_n0'])
+
+  @staticmethod
+  def disassemble_operands(logger, inst):
+    return [REGISTER_NAMES[inst.reg1]]
+
+  @staticmethod
+  def execute(core, inst):
+    core.math_coprocessor.extend_with_push(core.registers.map[inst.reg1].value)
+
 class PUSH(Descriptor_MATH):
   """
-  Push the TOS on the regular stack.
+  Push the TOS on the data stack.
   """
 
   mnemonic = 'push'
@@ -284,9 +358,36 @@ class PUSH(Descriptor_MATH):
     core.raw_push(v.value & 0xFFFFFFFF)
     core.raw_push(v.value >> 32)
 
+class SAVE(Descriptor_MATH):
+  """
+  Store TOS in two registers.
+  """
+
+  mnemonic = 'save'
+  opcode = MathCoprocessorOpcodes.SAVE
+  operands = 'r,r'
+
+  @staticmethod
+  def assemble_operands(logger, buffer, inst, operands):
+    logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
+
+    ENCODE(logger, buffer, inst, 'reg1', 5, operands['register_n0'])
+    ENCODE(logger, buffer, inst, 'reg2', 5, operands['register_n1'])
+
+  @staticmethod
+  def disassemble_operands(logger, inst):
+    return [REGISTER_NAMES[inst.reg1], REGISTER_NAMES[inst.reg1]]
+
+  @staticmethod
+  def execute(core, inst):
+    v = core.math_coprocessor.registers.pop().value
+
+    core.registers.map[inst.reg1].value = v >> 32
+    core.registers.map[inst.reg2].value = v & 0xFFFFFFFF
+
 class POP(Descriptor_MATH):
   """
-  Pop the ``long`` from regular stack, and push it on the stack.
+  Pop the ``long`` from data stack, and make it new TOS.
   """
 
   mnemonic = 'pop'
@@ -296,6 +397,33 @@ class POP(Descriptor_MATH):
   def execute(core, inst):
     hi = core.raw_pop()
     lo = core.raw_pop()
+
+    core.math_coprocessor.registers.push(u64_t((hi << 32) | lo))
+
+class LOAD(Descriptor_MATH):
+  """
+  Merge two registers together, and make the result new TOS.
+  """
+
+  mnemonic = 'load'
+  opcode = MathCoprocessorOpcodes.LOAD
+  operands = 'r,r'
+
+  @staticmethod
+  def assemble_operands(logger, buffer, inst, operands):
+    logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
+
+    ENCODE(logger, buffer, inst, 'reg1', 5, operands['register_n0'])
+    ENCODE(logger, buffer, inst, 'reg2', 5, operands['register_n1'])
+
+  @staticmethod
+  def disassemble_operands(logger, inst):
+    return [REGISTER_NAMES[inst.reg1], REGISTER_NAMES[inst.reg1]]
+
+  @staticmethod
+  def execute(core, inst):
+    hi = core.registers.map[inst.reg1].value
+    lo = core.registers.map[inst.reg2].value
 
     core.math_coprocessor.registers.push(u64_t((hi << 32) | lo))
 
@@ -395,9 +523,9 @@ class DUP2(Descriptor_MATH):
     M.registers.push(u64_t(b.value))
     M.registers.push(u64_t(a.value))
 
-class SWAP(Descriptor_MATH):
-  mnemonic = 'swap'
-  opcode = MathCoprocessorOpcodes.SWAP
+class SWP(Descriptor_MATH):
+  mnemonic = 'swp'
+  opcode = MathCoprocessorOpcodes.SWP
 
   @staticmethod
   def execute(core, inst):
@@ -449,12 +577,17 @@ SYMDIVL(MathCoprocessorInstructionSet)
 SYMMODL(MathCoprocessorInstructionSet)
 DUP(MathCoprocessorInstructionSet)
 DUP2(MathCoprocessorInstructionSet)
-SWAP(MathCoprocessorInstructionSet)
+SWP(MathCoprocessorInstructionSet)
 PUSHW(MathCoprocessorInstructionSet)
+SAVEW(MathCoprocessorInstructionSet)
 POPW(MathCoprocessorInstructionSet)
+LOADW(MathCoprocessorInstructionSet)
 POPUW(MathCoprocessorInstructionSet)
+LOADUW(MathCoprocessorInstructionSet)
 PUSH(MathCoprocessorInstructionSet)
+SAVE(MathCoprocessorInstructionSet)
 POP(MathCoprocessorInstructionSet)
+LOAD(MathCoprocessorInstructionSet)
 SIS(MathCoprocessorInstructionSet)
 
 MathCoprocessorInstructionSet.init()
