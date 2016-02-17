@@ -212,7 +212,7 @@ class Descriptor(object):
 
         operand_patterns.append('(?:' + '|'.join(operand_pattern) + ')')
 
-      pattern += r' ' + ', '.join(operand_patterns)
+      pattern += r' ' + r',\s*'.join(operand_patterns)
 
     pattern = r'^' + pattern + '(?:\s*[;#].*)?$'
     self.pattern = re.compile(pattern, re.MULTILINE)
