@@ -161,7 +161,7 @@ def show_forth_trace(logger, state):
   logger.info('=== FORTH call trace ===')
 
   bottom = (state.get_child('machine').get_cpu_states()[0].get_core_states()[0].registers[21] & 0xFFFFFF00) / PAGE_SIZE
-  top    = 0xFFFFFD
+  top    = 0xFFFFFA
   pages  = [pg for pg in state.get_child('machine').get_child('memory').get_page_states() if bottom <= pg.index < top]
 
   stack = sorted(pages, key = lambda x: x.index, reverse = True)
@@ -172,11 +172,11 @@ def show_forth_trace(logger, state):
     for i in range(PAGE_SIZE, 0, -4):
       step = pg.content[i - 4] | (pg.content[i - 3] << 8) | (pg.content[i - 2] << 16) | (pg.content[i - 1] << 24)
 
-      if step in symbols:
+      if step != 0 and step in symbols:
         logger.info('%s: %s', UINT32_FMT(step), symbols[step])
 
       else:
-        logger.info(UINT32_FMT(step))
+        logger.info('%s: %s', UINT32_FMT(step), UINT32_FMT(step))
 
 def show_forth_word(logger, state, base_address):
   logger.info('=== FORTH word ===')
