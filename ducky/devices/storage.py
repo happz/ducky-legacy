@@ -241,7 +241,7 @@ class BlockIO(IRQProvider, IOProvider, Device):
       self.machine.memory.write_u8(addr + i, buff[i])
 
   def memory_to_buff(self, addr, length):
-    self.machine.DEBUG('%s.memory_to_buff: addr=%s, length=%s', UINT32_FMT(addr), length)
+    self.machine.DEBUG('%s.memory_to_buff: addr=%s, length=%s', self.__class__.__name__, UINT32_FMT(addr), length)
 
     return bytearray([self.machine.memory.read_u8(addr + i) for i in range(0, length)])
 
