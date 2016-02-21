@@ -56,10 +56,12 @@
 .def X:   r25
 .def Y:   r24
 .def Z:   r23
-.def U:   r22
+.ifdef FORTH_TIR
+.def TOS: r22
+.endif
 
 .ifdef FORTH_DEBUG
-.def LSP: r21
+.def LSP: r19
 .endif
 
 
@@ -180,12 +182,29 @@
 
   .text
 code_#label:
+.ifdef FORTH_TIR
+  $log_word $TOS
+  lw $W, sp
+  $log_word $W
+  $log_word sp
+.else
+  lw $W, sp
+  $log_word $W
+  lw $W, sp[4]
+  $log_word $W
+  $log_word sp
+.endif
 .end
 
 .macro DEFVAR name, len, flags, label, initial:
   $DEFCODE #name, #len, #flags, #label
+.ifdef FORTH_TIR
+  push $TOS
+  la $TOS, &var_#label
+.else
   la $W, &var_#label
   push $W
+.endif
   $NEXT
 
   .data

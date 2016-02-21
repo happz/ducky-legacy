@@ -135,8 +135,8 @@ ifndef FORTH_DEBUG
   FORTH_DEBUG := no
 endif
 
-ifndef FORTH_WELCOME
-  FORTH_WELCOME := no
+ifndef FORTH_TIR
+  FORTH_TIR := no
 endif
 
 ifndef VERIFY_DISASSEMBLE
@@ -158,8 +158,8 @@ export DUCKY_DISABLE_DEVICES
 
 export MMAPABLE_SECTIONS
 export FORTH_DEBUG_FIND
-export FORTH_TEXT_WRITABLE
-export FORTH_WELCOME
+export FORTH_DEBUG
+export FORTH_TIR
 
 
 #

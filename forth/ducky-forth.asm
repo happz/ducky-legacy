@@ -57,11 +57,6 @@ __vmdebug_off:
   .type __build_stamp, string
   .string "$FORTH_BUILD_STAMP"
 
-.ifdef FORTH_WELCOME
-  .type welcome_message, string
-  .string "Ducky Forth welcomes you\n\r\n\r"
-.endif
-
   .type bye_message, string
   .string "\r\nBye.\r\n"
 
@@ -480,6 +475,10 @@ boot_phase2:
   ; init stack - the next-to-last page is our new stack
   li sp, 0xFF00
   liu sp, 0xFFFF
+.ifdef FORTH_TIR
+  li $TOS, 0xBEEF
+  liu $TOS, 0xDEAD
+.endif
 
   ; init return stack - the next-to-next-to-last page is our new return stack
   li $RSP, 0xFE00
@@ -541,12 +540,6 @@ __boot_phase2_ivt_failsafe_loop:
   ; give up the privileged mode
   ; lpm
   sti
-
-.ifdef FORTH_WELCOME
-  ; print welcome message
-  la r0, &welcome_message
-  call &writes
-.endif
 
   ; and boot the FORTH itself...
   la $FIP, &cold_start
@@ -614,7 +607,12 @@ DODOES:
 
 __DODOES_push:
   add $W, $CELL           ; W points to Param Field #1 - payload address
+.ifdef FORTH_TIR
+  push $TOS
+  mov $TOS, $W
+.else
   push $W
+.endif
   $NEXT
 
 
@@ -660,11 +658,19 @@ $DEFVAR "SHOW-PROMPT", 11, 0, SHOW_PROMPT, 0
 
 $DEFCODE "BUILD-STAMP", 11, 0, BUILD_STAMP
   ; ( -- addr u )
+.ifdef FORTH_TIR
+  push $TOS
+  la $X, &__build_stamp_length
+  lb $TOS, $X
+  inc $X
+  push $X
+.else
   la $W, &__build_stamp_length
   lb $X, $W
   inc $W
   push $W
   push $X
+.endif
   $NEXT
 
 
@@ -762,7 +768,12 @@ __ERR_unknown:
 
 $DEFCODE "PROMPT", 6, 0, PROMPT
   ; ( flag -- )
+.ifdef FORTH_TIR
+  mov r0, $TOS
+  pop $TOS
+.else
   pop r0
+.endif
   call &__write_prompt
   $NEXT
 
@@ -1152,55 +1163,96 @@ __read_dword_with_refill:
 
 $DEFCODE "WORD", 4, 0, WORD
   ; ( char "<chars>ccc<char>" -- c-addr )
+.ifdef FORTH_TIR
+  mov r0, $TOS
+  call &__read_word_with_refill
+  mov $TOS, r0
+.else
   pop r0
   call &__read_word_with_refill
   push r0
+.endif
   $NEXT
 
 
 $DEFCODE "DWORD", 5, 0, DWORD
   ; ( "<chars>ccc<char>" -- c-addr )
   ; like WORD but with space as a delimiter ("default WORD")
+.ifdef FORTH_TIR
+  call &__read_dword_with_refill
+  push $TOS
+  mov $TOS, r0
+.else
   call &__read_dword_with_refill
   push r0
+.endif
   $NEXT
 
 
 $DEFCODE "ACCEPT", 6, 0, ACCEPT
   ; ( c-addr +n1 -- +n2 )
+.ifdef FORTH_TIR
+  mov r1, $TOS
+  pop r0
+  call &__read_line
+  mov $TOS, r0
+.else
   pop r1
   pop r0
   call &__read_line
   push r0
+.endif
   $NEXT
 
 
 $DEFCODE "REFILL", 6, 0, REFILL
   ; ( -- flag )
   call &__refill_input
+.ifdef FORTH_TIR
+  push $TOS
+  $load_true $TOS
+.else
   $push_true r0
+.endif
   $NEXT
 
 
 $DEFCODE "KEY", 3, 0, KEY
   ; ( -- n )
   call &__read_input
+.ifdef FORTH_TIR
+  push $TOS
+  mov $TOS, r0
+.else
   push r0
+.endif
   $NEXT
 
 
 $DEFCODE "EMIT", 4, 0, EMIT
   ; ( n -- )
+.ifdef FORTH_TIR
+  mov r0, $TOS
+  pop $TOS
+.else
   pop r0
+.endif
   call &__write_stdout
   $NEXT
 
 
 $DEFCODE "EVALUATE", 8, 0, EVALUATE
   ; ( c-addr u -- )
+.ifdef FORTH_TIR
+  mov r1, $TOS
+  pop r0
+  pop $TOS
+  call &__EVALUATE
+.else
   pop r1
   pop r0
   call &__EVALUATE
+.endif
   $NEXT
 
 ;
@@ -1236,38 +1288,66 @@ __EVALUATE:
 
 
 $DEFCODE ">IN", 3, 0, TOIN
+  ; ( -- addr )
+.ifdef FORTH_TIR
+  push $TOS
+  la $TOS, &input_buffer_index
+.else
   la $W, &input_buffer_index
   push $W
+.endif
   $NEXT
 
 
 $DEFCODE "TYPE", 4, 0, TYPE
   ; ( address length -- )
+.ifdef FORTH_TIR
+  mov r1, $TOS
+  pop r0
+  pop $TOS
+.else
   pop r1
   pop r0
+.endif
   call &write
   $NEXT
 
 
-
 $DEFCODE "SOURCE", 6, 0, SOURCE
-  ; ( address length )
+  ; ( -- address length )
+.ifdef FORTH_TIR
+  push $TOS
+  la $TOS, &input_buffer_address
+  lw $TOS, $TOS
+  push $TOS
+  la $TOS, &input_buffer_length
+  lw $TOS, $TOS
+.else
   la $W, &input_buffer_address
   lw $W, $W
   push $W
   la $W, &input_buffer_length
   lw $W, $W
   push $W
+.endif
   $NEXT
 
 
 $DEFCODE "NUMBER", 6, 0, NUMBER
   ; ( address length -- number unparsed_chars )
+.ifdef FORTH_TIR
+  mov r1, $TOS
+  pop r0
+  call &__NUMBER
+  push r0
+  mov $TOS, r1
+.else
   pop r1
   pop r0
   call &__NUMBER
   push r0
   push r1
+.endif
   $NEXT
 
 
@@ -1354,22 +1434,39 @@ __NUMBER_negate:
 
 $DEFCODE "FIND", 4, 0, FIND
   ; ( c-addr -- 0 0 | xt 1 | xt -1 )
+.ifdef FORTH_TIR
+  mov r0, $TOS
+  inc r0
+  mov r1, $TOS
+  lb r1, r1
+.else
   pop r1
   mov r0, r1
   inc r0
   lb r1, r1
+.endif
   call &__FIND
   cmp r0, 0
   bz &__FIND_notfound
   push r1
   call &__TCFA
   pop r1
+.ifdef FORTH_TIR
+  push r0
+  mov $TOS, r1
+.else
   push r0
   push r1
+.endif
   j &__FIND_next
 __FIND_notfound:
+.ifdef FORTH_TIR
+  push 0x00
+  li $TOS, 0x00
+.else
   push 0
   push 0
+.endif
 __FIND_next:
   $NEXT
 
@@ -1483,26 +1580,43 @@ __FIND_fail:
 
 
 $DEFCODE "'", 1, $F_IMMED, TICK
+  ; ( "<spaces>name" -- xt )
   call &__read_dword_with_refill
   $unpack_word_for_find
   call &__FIND
   call &__TCFA
+.ifdef FORTH_TIR
+  push $TOS
+  mov $TOS, r0
+.else
   push r0
+.endif
   $NEXT
 
 
 $DEFCODE "[']", 3, 0, BRACKET_TICK
+.ifdef FORTH_TIR
+  push $TOS
+  lw $TOS, $FIP
+.else
   lw $W, $FIP
   push $W
+.endif
   add $FIP, $CELL
   $NEXT
 
 
 $DEFCODE ">CFA", 4, 0, TCFA
   ; ( address -- address )
+.ifdef FORTH_TIR
+  mov r0, $TOS
+  call &__TCFA
+  mov $TOS, r0
+.else
   pop r0
   call &__TCFA
   push r0
+.endif
   $NEXT
 
 __TCFA:
@@ -1523,7 +1637,12 @@ $DEFWORD ">DFA", 4, 0, TDFA
 
 
 $DEFCODE "EXECUTE", 7, 0, EXECUTE
+.ifdef FORTH_TIR
+  mov $W, $TOS
+  pop $TOS
+.else
   pop $W
+.endif
   lw $X, $W
   $log_word $W
   $log_word $X
@@ -1531,18 +1650,31 @@ $DEFCODE "EXECUTE", 7, 0, EXECUTE
 
 
 $DEFCODE "LIT", 3, 0, LIT
+.ifdef FORTH_TIR
+  push $TOS
+  lw $TOS, $FIP
+.else
   lw $W, $FIP
   push $W
+.endif
   add $FIP, $CELL
   $NEXT
 
 
 $DEFCODE "HEADER,", 7, 0, HEADER_COMMA
   ; ( c-addr -- )
+.ifdef FORTH_TIR
+  mov r0, $TOS
+  inc r0
+  mov r1, $TOS
+  lb r1, r1
+  pop $TOS
+.else
   pop r1
   mov r0, r1
   inc r0
   lb r1, r1
+.endif
   call &__HEADER_COMMA
   $NEXT
 
@@ -1611,7 +1743,13 @@ __HEADER_COMMA_loop:
 
 
 $DEFCODE ",", 1, 0, COMMA
+  ; ( x -- )
+.ifdef FORTH_TIR
+  mov r0, $TOS
+  pop $TOS
+.else
   pop r0
+.endif
   call &__COMMA
   $NEXT
 
@@ -1678,11 +1816,19 @@ $DEFCODE "IMMEDIATE", 9, $F_IMMED, IMMEDIATE
 
 $DEFCODE "HIDDEN", 6, 0, HIDDEN
   ; ( word_address -- )
+.ifdef FORTH_TIR
+  add $TOS, $wr_flags
+  lb $X, $TOS
+  xor $X, $F_HIDDEN
+  stb $TOS, $X
+  pop $TOS
+.else
   pop $X
   add $X, $wr_flags
   lb $W, $X
   xor $W, $F_HIDDEN
   stb $X, $W
+.endif
   $NEXT
 
 
@@ -1695,8 +1841,13 @@ $DEFCODE "BRANCH", 6, 0, BRANCH
 
 $DEFCODE "0BRANCH", 7, 0, ZBRANCH
   ; ( n -- )
-  pop $W
+.ifdef FORTH_TIR
+  mov $W, $TOS
+  pop $TOS
   cmp $W, $W
+.else
+  pop $W
+.endif
   bz &code_BRANCH
   add $FIP, $CELL
   $NEXT
@@ -1787,7 +1938,12 @@ __interpret_execute:
   j $X
 
 __interpret_execute_lit:
+.ifdef FORTH_TIR
+  push $TOS
+  mov $TOS, r1
+.else
   push r1
+.endif
   $NEXT
 
 __interpret_refill:
@@ -1843,78 +1999,122 @@ $DEFCODE "EXIT", 4, 0, EXIT
 ;
 
 __CMP_true:
-  $load_true $W
-  push $W
+.ifdef FORTH_TIR
+  $load_true $TOS
+.else
+  $push_true $W
+.endif
   $NEXT
 
 __CMP_false:
+.ifdef FORTH_TIR
+  $load_false $TOS
+.else
   $load_false $W
   push $W
+.endif
   $NEXT
+
 
 $DEFCODE "=", 1, 0, EQU
   ; ( a b -- n )
+.ifdef FORTH_TIR
+  pop $W
+  cmp $W, $TOS
+.else
   pop $W
   pop $X
   cmp $W, $X
+.endif
   be &__CMP_true
   j &__CMP_false
 
 
 $DEFCODE "<>", 2, 0, NEQU
   ; ( a b -- n )
+.ifdef FORTH_TIR
+  pop $W
+  cmp $W, $TOS
+.else
   pop $W
   pop $X
   cmp $W, $X
+.endif
   bne &__CMP_true
   j &__CMP_false
 
 
 $DEFCODE "0=", 2, 0, ZEQU
   ; ( n -- n )
+.ifdef FORTH_TIR
+  cmp $TOS, 0
+.else
   pop $W
-  cmp $W, 0
+.endif
   bz &__CMP_true
   j &__CMP_false
 
 
 $DEFCODE "0<>", 3, 0, ZNEQU
   ; ( n -- n )
+.ifdef FORTH_TIR
+  cmp $TOS, 0
+.else
   pop $W
-  cmp $W, 0
+.endif
   bnz &__CMP_true
   j &__CMP_false
 
 
 $DEFCODE "<", 1, 0, LT
   ; ( a b -- n )
+.ifdef FORTH_TIR
+  pop $W
+  cmp $W, $TOS
+.else
   pop $W
   pop $X
   cmp $X, $W
+.endif
   bl &__CMP_true
   j &__CMP_false
 
 
 $DEFCODE ">", 1, 0, GT
+.ifdef FORTH_TIR
+  pop $W
+  cmp $W, $TOS
+.else
   pop $W
   pop $X
   cmp $X, $W
+.endif
   bg &__CMP_true
   j &__CMP_false
 
 
 $DEFCODE "<=", 2, 0, LE
+.ifdef FORTH_TIR
+  pop $W
+  cmp $W, $TOS
+.else
   pop $W
   pop $X
   cmp $X, $W
+.endif
   ble &__CMP_true
   j &__CMP_false
 
 
 $DEFCODE ">=", 2, 0, GE
+.ifdef FORTH_TIR
+  pop $W
+  cmp $W, $TOS
+.else
   pop $W
   pop $X
   cmp $X, $W
+.endif
   bge &__CMP_true
   j &__CMP_false
 
@@ -1922,8 +2122,12 @@ $DEFCODE ">=", 2, 0, GE
 $DEFCODE "0<", 2, 0, ZLT
   ; ( n -- flag )
   ; flag is true if and only if n is less than zero
+.ifdef FORTH_TIR
+  cmp $TOS, 0
+.else
   pop $W
   cmp $W, 0
+.endif
   bl &__CMP_true
   j &__CMP_false
 
@@ -1931,35 +2135,54 @@ $DEFCODE "0<", 2, 0, ZLT
 $DEFCODE "0>", 2, 0, ZGT
   ; ( n -- flag )
   ; flag is true if and only if n is greater than zero
+.ifdef FORTH_TIR
+  cmp $TOS, 0
+.else
   pop $W
   cmp $W, 0
+.endif
   bg &__CMP_true
   j &__CMP_false
 
 
 $DEFCODE "0<=", 3, 0, ZLE
+.ifdef FORTH_TIR
+  cmp $TOS, 0
+.else
   pop $W
-  cmp $W, 0
+.endif
   ble &__CMP_true
   j &__CMP_false
 
 
 $DEFCODE "0>=", 3, 0, ZGE
+.ifdef FORTH_TIR
+  cmp $TOS, 0
+.else
   pop $W
-  cmp $W, 0
+.endif
   bge &__CMP_true
   j &__CMP_false
 
+
 $DEFCODE "?DUP", 4, 0, QDUP
+.ifdef FORTH_TIR
+  cmp $TOS, 0
+  bnz &__QDUP_nonzero
+  li $TOS, 0x00
+  $NEXT
+__QDUP_nonzero:
+  push $TOS
+.else
   pop $W
   cmp $W, 0
   bnz &__QDUP_nonzero
   push 0
-  j &__QDUP_next
+  $NEXT
 __QDUP_nonzero:
   push $W
   push $W
-__QDUP_next:
+.endif
   $NEXT
 
 
@@ -1968,99 +2191,159 @@ __QDUP_next:
 ;
 $DEFCODE "+", 1, 0, ADD
   ; ( a b -- a+b )
+.ifdef FORTH_TIR
+  pop $W
+  add $TOS, $W
+.else
   pop $W
   pop $X
   add $X, $W
   push $X
+.endif
   $NEXT
 
 
 $DEFCODE "-", 1, 0, SUB
   ; ( a b -- a-b )
+.ifdef FORTH_TIR
+  pop $W
+  sub $W, $TOS
+  mov $TOS, $W
+.else
   pop $W
   pop $X
   sub $X, $W
   push $X
+.endif
   $NEXT
 
 
 $DEFCODE "1+", 2, 0, INCR
   ; ( a -- a+1 )
+.ifdef FORTH_TIR
+  inc $TOS
+.else
   pop $W
   inc $W
   push $W
+.endif
   $NEXT
 
 
 $DEFCODE "1-", 2, 0, DECR
   ; ( a -- a-1 )
+.ifdef FORTH_TIR
+  dec $TOS
+.else
   pop $W
   dec $W
   push $W
+.endif
   $NEXT
 
 
 $DEFCODE "2+", 2, 0, INCR2
   ; ( a -- a+2 )
+.ifdef FORTH_TIR
+  add $TOS, 2
+.else
   pop $W
   add $W, 2
   push $W
+.endif
   $NEXT
 
 
 $DEFCODE "2-", 2, 0, DECR2
   ; ( a -- a-2 )
+.ifdef FORTH_TIR
+  sub $TOS, 2
+.else
   pop $W
   sub $W, 2
   push $W
+.endif
   $NEXT
 
 
 $DEFCODE "4+", 2, 0, INCR4
   ; ( a -- a+4 )
+.ifdef FORTH_TIR
+  add $TOS, 4
+.else
   pop $W
   add $W, 4
   push $W
+.endif
   $NEXT
 
 
 $DEFCODE "4-", 2, 0, DECR4
   ; ( a -- a-4 )
+.ifdef FORTH_TIR
+  sub $TOS, 4
+.else
   pop $W
   sub $W, 4
   push $W
+.endif
   $NEXT
 
 
 $DEFCODE "*", 1, 0, MUL
   ; ( a b -- a*b )
+.ifdef FORTH_TIR
+  pop $W
+  mul $TOS, $W
+.else
   pop $W
   pop $X
   mul $X, $W
   push $X
+.endif
   $NEXT
 
 
 $DEFCODE "/", 1, 0, DIV
   ; ( a b -- <a / b> )
+.ifdef FORTH_TIR
+  pop $W
+  div $W, $TOS
+  mov $TOS, $W
+.else
   pop $W
   pop $X
   div $X, $W
   push $X
+.endif
   $NEXT
 
 
 $DEFCODE "MOD", 3, 0, MOD
   ; ( a b -- <a % b> )
+.ifdef FORTH_TIR
+  pop $W
+  mod $W, $TOS
+  mov $TOS, $W
+.else
   pop $W
   pop $X
   mod $X, $W
   push $X
+.endif
   $NEXT
 
 
 $DEFCODE "/MOD", 4, 0, DIVMOD
   ; ( a b -- <a % b> <a / b> )
+.ifdef FORTH_TIR
+  pop $W
+  mov $X, $W
+  div $W, $TOS
+  mod $X, $TOS
+  push $X
+  mov $TOS, $W
+.else
   pop $W
   pop $X
   mov $Y, $X
@@ -2068,37 +2351,58 @@ $DEFCODE "/MOD", 4, 0, DIVMOD
   div $Y, $W
   push $X
   push $Y
+.endif
   $NEXT
 
 
 $DEFCODE "AND", 3, 0, AND
+  ; ( x1 x2 -- <x1 & x2> )
+.ifdef FORTH_TIR
+  pop $W
+  and $TOS, $W
+.else
   pop $W
   pop $X
   and $X, $W
   push $X
+.endif
   $NEXT
 
 
 $DEFCODE "OR", 2, 0, OR
+.ifdef FORTH_TIR
+  pop $W
+  or $TOS, $W
+.else
   pop $W
   pop $X
   or $X, $W
   push $X
+.endif
   $NEXT
 
 
 $DEFCODE "XOR", 3, 0, XOR
+.ifdef FORTH_TIR
+  pop $W
+  xor $TOS, $W
+.else
   pop $W
   pop $X
   xor $X, $W
   push $X
+.endif
   $NEXT
 
 
 $DEFCODE "INVERT", 6, 0, INVERT
+.ifdef FORTH_TIR
+  not $TOS
+.else
   pop $W
   not $W
   push $W
+.endif
   $NEXT
 
 
@@ -2107,80 +2411,135 @@ $DEFCODE "INVERT", 6, 0, INVERT
 ;
 
 $DEFCODE "DROP", 4, 0, DROP
-  ; ( n -i- )
+  ; ( n -- )
+.ifdef FORTH_TIR
+  pop $TOS
+.else
   pop $W
+.endif
   $NEXT
 
 
 $DEFCODE "SWAP", 4, 0, SWAP
   ; ( a b -- b a )
+.ifdef FORTH_TIR
+  pop $W
+  push $TOS
+  mov $TOS, $W
+.else
   pop $W
   pop $X
   push $W
   push $X
+.endif
   $NEXT
 
 
 $DEFCODE "DUP", 3, 0, DUP
   ; ( a -- a a )
+.ifdef FORTH_TIR
+  push $TOS
+.else
   pop $W
   push $W
   push $W
+.endif
   $NEXT
 
 
 $DEFCODE "OVER", 4, 0, OVER
   ; ( a b -- a b a )
+.ifdef FORTH_TIR
+  push $TOS
+  lw $TOS, sp[4]
+.else
   pop $W
   pop $X
   push $X
   push $W
   push $X
+.endif
   $NEXT
 
 
 $DEFCODE "ROT", 3, 0, ROT
   ; ( a b c -- b c a )
+.ifdef FORTH_TIR
+  lw $W, sp[4]                         ; a
+  lw $X, sp                            ; b
+  stw sp[4], $X
+  stw sp, $TOS
+  mov $TOS, $W
+.else
   pop $W
   pop $X
   pop $Y
   push $X
   push $W
   push $Y
+.endif
   $NEXT
 
 
 $DEFCODE "-ROT", 4, 0, NROT
   ; ( a b c -- c a b )
+.ifdef FORTH_TIR
+  lw $W, sp[4]                         ; a
+  lw $X, sp                            ; b
+  stw sp[4], $TOS
+  stw sp, $W
+  mov $TOS, $X
+.else
   pop $W
   pop $X
   pop $Y
   push $W
   push $Y
   push $X
+.endif
   $NEXT
 
 
 $DEFCODE "2DROP", 5, 0, TWODROP
   ; ( n n -- )
+.ifdef FORTH_TIR
+  pop $TOS
+  pop $TOS
+.else
   pop $W
   pop $W
+.endif
   $NEXT
 
 
 $DEFCODE "2DUP", 4, 0, TWODUP
   ; ( a b -- a b a b )
+.ifdef FORTH_TIR
+  lw $W, sp
+  push $TOS
+  push $W
+.else
   pop $W
   pop $X
   push $X
   push $W
   push $X
   push $W
+.endif
   $NEXT
 
 
 $DEFCODE "2SWAP", 5, 0, TWOSWAP
   ; ( a b c d -- c d a b )
+.ifdef FORTH_TIR
+  lw $W, sp[8] ; a
+  lw $X, sp[4] ; b
+  lw $Y, sp    ; c
+  stw sp[8], $Y
+  stw sp[4], $TOS
+  stw sp,    $W
+  mov $TOS, $X
+.else
   pop $W
   pop $X
   pop $Y
@@ -2189,6 +2548,7 @@ $DEFCODE "2SWAP", 5, 0, TWOSWAP
   push $W
   push $Z
   push $Y
+.endif
   $NEXT
 
 
@@ -2200,8 +2560,13 @@ $DEFCODE "CHAR", 4, 0, CHAR
   ; ( -- n )
   call &__read_dword_with_refill
   inc r0
+.ifdef FORTH_TIR
+  push $TOS
+  lb $TOS, r0
+.else
   lb $W, r0 ; load the first character of next word into W...
   push $W
+.endif
   $NEXT
 
 
@@ -2221,24 +2586,44 @@ $DEFCODE "[CHAR]", 6, $F_IMMED, BRACKETCHAR
 ;
 
 $DEFCODE ">R", 2, 0, TOR
+.ifdef FORTH_TIR
+  $pushrsp $TOS
+  pop $TOS
+.else
   pop $W
   $pushrsp $W
+.endif
   $NEXT
 
 
 $DEFCODE "R>", 2, 0, FROMR
+.ifdef FORTH_TIR
+  push $TOS
+  $poprsp $TOS
+.else
   $poprsp $W
   push $W
+.endif
   $NEXT
 
 
 $DEFCODE "RSP@", 4, 0, RSPFETCH
+.ifdef FORTH_TIR
+  push $TOS
+  mov $TOS, $RSP
+.else
   push $RSP
+.endif
   $NEXT
 
 
 $DEFCODE "RSP!", 4, 0, RSPSTORE
+.ifdef FORTH_TIR
+  mov $RSP, $TOS
+  pop $TOS
+.else
   pop $RSP
+.endif
   $NEXT
 
 
@@ -2249,8 +2634,13 @@ $DEFCODE "RDROP", 5, 0, RDOP
 
 $DEFCODE "R@", 2, 0, RFETCH
   ; ( -- x ) ( R:  x -- x )
+.ifdef FORTH_TIR
+  push $TOS
+  lw $TOS, $RSP
+.else
   lw $W, $RSP
   push $W
+.endif
   $NEXT
 
 
@@ -2259,12 +2649,22 @@ $DEFCODE "R@", 2, 0, RFETCH
 ;
 
 $DEFCODE "DSP@", 4, 0, DSPFETCH
+.ifdef FORTH_TIR
+  push $TOS
+  mov $TOS, sp
+.else
   push sp
+.endif
   $NEXT
 
 
 $DEFCODE "DSP!", 4, 0, DSPSTORE
+.ifdef FORTH_TIR
+  mov sp, $TOS
+  pop $TOS
+.else
   pop sp
+.endif
   $NEXT
 
 
@@ -2273,53 +2673,89 @@ $DEFCODE "DSP!", 4, 0, DSPSTORE
 ;
 $DEFCODE "!", 1, 0, STORE
   ; ( data address -- )
+.ifdef FORTH_TIR
+  pop $W
+  stw $TOS, $W
+  pop $TOS
+.else
   pop $W
   pop $X
   stw $W, $X
+.endif
   $NEXT
 
 
 $DEFCODE "@", 1, 0, FETCH
   ; ( address -- n )
+.ifdef FORTH_TIR
+  lw $TOS, $TOS
+.else
   pop $W
   lw $W, $W
   push $W
+.endif
   $NEXT
 
 
 $DEFCODE "+!", 2, 0, ADDSTORE
   ; ( amount address -- )
+.ifdef FORTH_TIR
+  pop $W
+  lw $Y, $TOS
+  add $Y, $W
+  stw $TOS, $Y
+  pop $TOS
+.else
   pop $W
   pop $X
   lw $Y, $W
   add $Y, $X
   stw $W, $Y
+.endif
   $NEXT
 
 
 $DEFCODE "-!", 2, 0, SUBSTORE
   ; ( amount address -- )
+.ifdef FORTH_TIR
+  pop $W
+  lw $Y, $TOS
+  sub $Y, $W
+  stw $TOS, $Y
+  pop $TOS
+.else
   pop $W
   pop $X
   lw $Y, $W
   sub $Y, $X
   stw $W, $Y
+.endif
   $NEXT
 
 
 $DEFCODE "C!", 2, 0, STOREBYTE
   ; ( data address -- )
+.ifdef FORTH_TIR
+  pop $W
+  stb $TOS, $W
+  pop $TOS
+.else
   pop $W
   pop $X
   stb $W, $X
+.endif
   $NEXT
 
 
 $DEFCODE "C@", 2, 0, FETCHBYTE
   ; ( address -- n )
+.ifdef FORTH_TIR
+  lb $TOS, $TOS
+.else
   pop $W
   lb $W, $W
   push $W
+.endif
   $NEXT
 
 
@@ -2331,15 +2767,27 @@ $DEFCODE "SQUOTE_LITSTRING", 9, 0, SQUOTE_LITSTRING
   ; ( -- c-addr u )
   lb $W, $FIP     ; load length
   inc $FIP        ; FIP points to string
+.ifdef FORTH_TIR
+  push $TOS
+  push $FIP
+  mov $TOS, $W
+.else
   push $FIP       ; push string addr
   push $W         ; push string length
+.endif
   add $FIP, $W    ; skip string
   $align4 $FIP    ; align FIP
   $NEXT
 
+
 $DEFCODE "CQUOTE_LITSTRING", 9, 0, CQUOTE_LITSTRING
   ; ( -- c-addr )
+.ifdef FORTH_TIR
+  push $TOS
+  mov $TOS, $FIP
+.else
   push $FIP       ; push c-addr
+.endif
   lb $W, $FIP     ; load string length
   inc $FIP        ; skip length
   add $FIP, $W    ; skip string
@@ -2349,8 +2797,14 @@ $DEFCODE "CQUOTE_LITSTRING", 9, 0, CQUOTE_LITSTRING
 
 $DEFCODE "TELL", 4, 0, TELL
   ; ( c-addr u -- )
+.ifdef FORTH_TIR
+  pop r0
+  mov r1, $TOS
+  pop $TOS
+.else
   pop r1
   pop r0
+.endif
   call &write
   $NEXT
 
@@ -2361,10 +2815,17 @@ $DEFCODE "TELL", 4, 0, TELL
 
 $DEFCODE "(DO)", 4, 0, PAREN_DO
   ; ( control index -- )
+.ifdef FORTH_TIR
+  pop $X
+  $pushrsp $X
+  $pushrsp $TOS
+  pop $TOS
+.else
   pop $W ; index
   pop $X ; control
   $pushrsp $X ; control
   $pushrsp $W ; index
+.endif
   $NEXT
 
 
@@ -2387,14 +2848,28 @@ __PAREN_LOOP_next:
 $DEFCODE "(+LOOP)", 7, 0, PAREN_PLUSLOOP
   $poprsp $W ; index
   $poprsp $X ; control
+.ifdef FORTH_TIR
+  cmp $TOS, 0
+.else
   pop $Y     ; increment N
+.endif
   bs &__PAREN_PLUSLOOP_dec
+.ifdef FORTH_TIR
+  add $W, $TOS
+  pop $TOS
+.else
   add $W, $Y
+.endif
   cmp $W, $X
   bg &__PAREN_PLUSLOOP_next
   j &__PAREN_PLUSLOOP_iter
 __PAREN_PLUSLOOP_dec:
+.ifdef FORTH_TIR
+  add $W, $TOS
+  pop $TOS
+.else
   add $W, $Y
+.endif
   cmp $W, $X
   bl &__PAREN_PLUSLOOP_next
 __PAREN_PLUSLOOP_iter:
@@ -2414,14 +2889,24 @@ $DEFCODE "UNLOOP", 6, 0, UNLOOP
 
 
 $DEFCODE "I", 1, 0, I
+.ifdef FORTH_TIR
+  push $TOS
+  lw $TOS, $RSP
+.else
   lw $W, $RSP
   push $W
+.endif
   $NEXT
 
 
 $DEFCODE "J", 1, 0, J
+.ifdef FORTH_TIR
+  push $TOS
+  lw $TOS, $RSP[8]
+.else
   lw $W, $RSP[8]
   push $W
+.endif
   $NEXT
 
 
@@ -2429,39 +2914,87 @@ $DEFCODE "J", 1, 0, J
 ; Constants
 ;
 $DEFCODE "VERSION", 7, 0, VERSION
+.ifdef FORTH_TIR
+  push $TOS
+  li $TOS, $DUCKY_VERSION
+.else
   push $DUCKY_VERSION
+.endif
   $NEXT
 
+
 $DEFCODE "R0", 2, 0, RZ
+.ifdef FORTH_TIR
+  push $TOS
+  li $TOS, 0xFE00
+  liu $TOS, 0xFFFF
+.else
   li $W, 0xFE00
   liu $W, 0xFFFF
   push $W
+.endif
   $NEXT
+
 
 $DEFCODE "DOCOL", 5, 0, __DOCOL
+.ifdef FORTH_TIR
+  push $TOS
+  la $TOS, &DOCOL
+.else
   la $W, &DOCOL
   push $W
+.endif
   $NEXT
+
 
 $DEFCODE "F_IMMED", 7, 0, __F_IMMED
+.ifdef FORTH_TIR
+  push $TOS
+  li $TOS, $F_IMMED
+.else
   push $F_IMMED
+.endif
   $NEXT
+
 
 $DEFCODE "F_HIDDEN", 8, 0, __F_HIDDEN
+.ifdef FORTH_TIR
+  push $TOS
+  li $TOS, $F_HIDDEN
+.else
   push $F_HIDDEN
+.endif
   $NEXT
+
 
 $DEFCODE "TRUE", 4, 0, TRUE
+.ifdef FORTH_TIR
+  push $TOS
+  $load_true $TOS
+.else
   $push_true $W
+.endif
   $NEXT
+
 
 $DEFCODE "FALSE", 5, 0, FALSE
+.ifdef FORTH_TIR
+  push $TOS
+  $load_false $TOS
+.else
   $push_false $W
+.endif
   $NEXT
 
+
 $DEFCODE "DODOES", 6, 0, __DODOES
+.ifdef FORTH_TIR
+  push $TOS
+  la $TOS, &DODOES
+.else
   la $W, &DODOES
   push $W
+.endif
   $NEXT
 
 
@@ -2479,9 +3012,15 @@ $DEFCODE "\\\\", 1, $F_IMMED, BACKSLASH
 
 
 $DEFCODE "HERE", 4, 0, HERE
+.ifdef FORTH_TIR
+  push $TOS
+  la $TOS, &var_DP
+  lw $TOS, $TOS
+.else
   la $W, &var_DP
   lw $W, $W
   push $W
+.endif
   $NEXT
 
 

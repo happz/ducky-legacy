@@ -42,22 +42,22 @@ __ENV_ENTRY_HANDLER_#name:
 .end
 
 .macro ENV_ENTRY_CHECK name:
-  ; save string info
-  push r0
-  push r1
+  ; restore input string
+  mov r0, $X
+  mov r1, $W
   ; load entry string info
   la r2, &ENV_ENTRY_NAME_#name
   la r3, &ENV_ENTRY_LEN_#name
   lw r3, r3
   ; compare strings
   call &strcmp
-  ; restore string info
-  pop r1
-  pop r2 ; r0 => r2 - pop it from stack, we'll need it later
   ; did strings match?
   cmp r0, 0
   bnz &__ENVIRONMENT_QUERY_next_#name
-  $push_true r0
+  ; found!
+.ifdef FORTH_TIR
+  push $TOS ; mov TOS to stack, it will be replaced (or worse...) by the exit code
+.endif
   j &__ENV_ENTRY_HANDLER_#name
 __ENVIRONMENT_QUERY_next_#name:
   mov r0, r2 ; restore string ptr
@@ -65,39 +65,39 @@ __ENVIRONMENT_QUERY_next_#name:
 
 $ENV_ENTRY COUNTED_STRING, "/COUNTED-STRING", 15
   push $STRING_SIZE
-  j &__ENVIRONMENT_QUERY_next
+  j &__ENVIRONMENT_QUERY_next_pass
 
 $ENV_ENTRY CORE, "CORE", 4
   push $FORTH_FALSE
-  j &__ENVIRONMENT_QUERY_next
+  j &__ENVIRONMENT_QUERY_next_pass
 
 $ENV_ENTRY CORE_EXT, "CORE-EXT", 8
   push $FORTH_FALSE
-  j &__ENVIRONMENT_QUERY_next
+  j &__ENVIRONMENT_QUERY_next_pass
 
 $ENV_ENTRY FLOORED, "FLOORED", 7
   $push_true $W
-  j &__ENVIRONMENT_QUERY_next
+  j &__ENVIRONMENT_QUERY_next_pass
 
 $ENV_ENTRY MAX_CHAR, "MAX-CHAR", 8
   push 127
-  j &__ENVIRONMENT_QUERY_next
+  j &__ENVIRONMENT_QUERY_next_pass
 
 $ENV_ENTRY RETURN_STACK_CELLS, "RETURN-STACK-CELLS", 18
   li r0, $RSTACK_SIZE
   div r0, $CELL
   push r0
-  j &__ENVIRONMENT_QUERY_next
+  j &__ENVIRONMENT_QUERY_next_pass
 
 $ENV_ENTRY STACK_CELLS, "STACK-CELLS", 11
   li r0, $PAGE_SIZE
   div r0, $CELL
   push r0
-  j &__ENVIRONMENT_QUERY_next
+  j &__ENVIRONMENT_QUERY_next_pass
 
 $ENV_ENTRY ADDRESS_UNIT_BITS, "ADDRESS-UNIT-BITS", 17
   push 8
-  j &__ENVIRONMENT_QUERY_next
+  j &__ENVIRONMENT_QUERY_next_pass
 
 $ENV_ENTRY MAX_D, "MAX-D", 5
   li $W, 0xFFFF
@@ -106,39 +106,44 @@ $ENV_ENTRY MAX_D, "MAX-D", 5
   li $W, 0xFFFF
   liu $W, 0x7FFF
   push $W
-  j &__ENVIRONMENT_QUERY_next
+  j &__ENVIRONMENT_QUERY_next_pass
 
 $ENV_ENTRY MAX_UD, "MAX-UD", 6
   li $W, 0xFFFF
   liu $W, 0xFFFF
   push $W
   push $W
-  j &__ENVIRONMENT_QUERY_next
+  j &__ENVIRONMENT_QUERY_next_pass
 
 $ENV_ENTRY MAX_N, "MAX-N", 5
   li $W, 0xFFFF
   liu $W, 0x7FFF
   push $W
-  j &__ENVIRONMENT_QUERY_next
+  j &__ENVIRONMENT_QUERY_next_pass
 
 $ENV_ENTRY MAX_U, "MAX-U", 5
   li $W, 0xFFFF
   liu $W, 0xFFFF
   push $W
-  j &__ENVIRONMENT_QUERY_next
+  j &__ENVIRONMENT_QUERY_next_pass
 
 $ENV_ENTRY ENV_MEMORY_ALLOC, "MEMORY-ALLOC", 12
   $push_true $W
-  j &__ENVIRONMENT_QUERY_next
+  j &__ENVIRONMENT_QUERY_next_pass
 
 $ENV_ENTRY ENV_MEMORY_ALLOC_EXT, "MEMORY-ALLOC-EXT", 16
   $push_true $W
-  j &__ENVIRONMENT_QUERY_next
+  j &__ENVIRONMENT_QUERY_next_pass
 
 $DEFCODE "ENVIRONMENT?", 12, 0, ENVIRONMENT_QUERY
   ; ( c-addr u -- false | i*x true )
-  pop r1 ; u
-  pop r0 ; c-addr
+.ifdef FORTH_TIR
+  pop $W
+  mov $X, $TOS
+.else
+  pop $W ; u
+  pop $X ; c-addr
+.endif
 
   $ENV_ENTRY_CHECK RETURN_STACK_CELLS
   $ENV_ENTRY_CHECK COUNTED_STRING
@@ -155,8 +160,19 @@ $DEFCODE "ENVIRONMENT?", 12, 0, ENVIRONMENT_QUERY
   $ENV_ENTRY_CHECK ENV_MEMORY_ALLOC
   $ENV_ENTRY_CHECK ENV_MEMORY_ALLOC_EXT
 
+.ifdef FORTH_TIR
+  li $TOS, $FORTH_FALSE
+.else
   push $FORTH_FALSE
+.endif
   j &__ENVIRONMENT_QUERY_next
+
+__ENVIRONMENT_QUERY_next_pass:
+.ifdef FORTH_TIR
+  $load_true $TOS
+.else
+  $push_true $W
+.endif
 
 __ENVIRONMENT_QUERY_next:
   $NEXT
@@ -221,18 +237,36 @@ __PAREN_exit:
 
 $DEFCODE "'\\\\n'", 4, 0, CHAR_NL
   ; ( -- <newline char> )
+.ifdef FORTH_TIR
+  push $TOS
+  li $TOS, 10
+.else
   push 10
+.endif
   $NEXT
+
 
 $DEFCODE "'\\\\r'", 4, 0, CHAR_CR
   ; ( -- <carriage return char>
+.ifdef FORTH_TIR
+  push $TOS
+  li $TOS, 13
+.else
   push 13
+.endif
   $NEXT
+
 
 $DEFCODE "BL", 2, 0, CHAR_SPACE
   ; ( -- <space> )
+.ifdef FORTH_TIR
+  push $TOS
+  li $TOS, 32
+.else
   push 32
+.endif
   $NEXT
+
 
 $DEFWORD "':'", 3, 0, CHAR_COLON
   .int &LIT
@@ -305,18 +339,27 @@ $DEFCODE "NOT", 3, 0, NOT
   ; ( flag -- flag )
   li $W, 0xFFFF
   liu $W, 0xFFFF
+.ifdef FORTH_TIR
+  xor $TOS, $W
+.else
   pop $X
   xor $X, $W
   push $X
+.endif
   $NEXT
 
 
 $DEFCODE "NEGATE", 6, 0, NEGATE
   ; ( n .. -n )
-  pop $W
   li $X, 0
+.ifdef FORTH_TIR
+  sub $X, $TOS
+  mov $TOS, $X
+.else
+  pop $W
   sub $X, $W
   push $X
+.endif
   $NEXT
 
 
@@ -358,9 +401,13 @@ __WITHIN_R_LOWER_L:
 
 $DEFCODE "ALIGNED", 7, 0, ALIGNED
   ; ( addr -- addr )
+.ifdef FORTH_TIR
+  $align4 $TOS
+.else
   pop $W
   $align4 $W
   push $W
+.endif
   $NEXT
 
 
@@ -379,6 +426,17 @@ $DEFCODE "HEX", 3, 0, HEX
 
 
 $DEFCODE "SPACES", 6, 0, SPACES
+.ifdef FORTH_TIR
+  li r0, 32
+  cmp $TOS, 0
+__SPACES_loop:
+  ble &__SPACES_next
+  call &writec
+  dec $TOS
+  j &__SPACES_loop
+__SPACES_next:
+  pop $TOS
+.else
   pop $W
   li r0, 32
 __SPACES_loop:
@@ -388,6 +446,7 @@ __SPACES_loop:
   dec $W
   j &__SPACES_loop
 __SPACES_next:
+.endif
   $NEXT
 
 
@@ -404,7 +463,12 @@ $DEFCODE "FORGET", 6, 0, FORGET
 
 
 $DEFCODE "?HIDDEN", 7, 0, ISHIDDEN
+.ifdef FORTH_TIR
+  mov $W, $TOS
+  pop $TOS
+.else
   pop $W
+.endif
   add $W, $wr_flags
   lb $W, $W
   and $W, $F_HIDDEN
@@ -413,7 +477,12 @@ $DEFCODE "?HIDDEN", 7, 0, ISHIDDEN
 
 
 $DEFCODE "?IMMEDIATE", 10, 0, ISIMMEDIATE
+.ifdef FORTH_TIR
+  mov $W, $TOS
+  pop $TOS
+.else
   pop $W
+.endif
   add $W, $wr_flags
   lb $W, $W
   and $W, $F_IMMED
@@ -423,6 +492,7 @@ $DEFCODE "?IMMEDIATE", 10, 0, ISIMMEDIATE
 
 $DEFCODE "ROLL", 4, 0, ROLL
   ; ( xu xu-1 ... x0 u -- xu-1 ... x0 xu )
+  hlt 0x3333
   pop $W ; u
   mul $W, $CELL
 
@@ -438,34 +508,54 @@ $DEFCODE "ROLL", 4, 0, ROLL
   call &memmove
 
   stw sp, $X
-
   $NEXT
 
 
 $DEFCODE "2>R", 3, 0, TWOTOR
   ; ( x1 x2 -- ) ( R:  -- x1 x2 )
+.ifdef FORTH_TIR
+  pop $W
+  $pushrsp $W
+  $pushrsp $TOS
+  pop $TOS
+.else
   pop $W
   pop $X
   $pushrsp $X
   $pushrsp $W
+.endif
   $NEXT
 
 
 $DEFCODE "2R@", 3, 0, TWORFETCH
   ; ( -- x1 x2 ) ( R:  x1 x2 -- x1 x2 )
+.ifdef FORTH_TIR
+  push $TOS
+  lw $TOS, $RSP[$CELL]
+  push $TOS
+  lw $TOS, $RSP
+.else
   lw $W, $RSP
   lw $X, $RSP[$CELL]
   push $X
   push $W
+.endif
   $NEXT
 
 
 $DEFCODE "2R>", 3, 0, TWORFROM
   ; ( -- x1 x2 ) ( R:  x1 x2 -- )
+.ifdef FORTH_TIR
+  push $TOS
+  $poprsp $TOS
+  push $TOS
+  $poprsp $TOS
+.else
   $poprsp $W
   $poprsp $X
   push $X
   push $W
+.endif
   $NEXT
 
 ; - Conditions --------------------------------------------------------------------------
@@ -523,9 +613,15 @@ $DEFCODE "RECURSE", 7, $F_IMMED, RECURSE
 
 $DEFCODE "BEGIN", 5, $F_IMMED, BEGIN
   ; ( -- HERE )
+.ifdef FORTH_TIR
+  push $TOS
+  la $TOS, &var_DP
+  lw $TOS, $TOS
+.else
   la $W, &var_DP
   lw $W, $W
   push $W
+.endif
   $NEXT
 
 
@@ -533,9 +629,15 @@ $DEFCODE "WHILE", 5, $F_IMMED, WHILE
   ; ( -- HERE )
   la r0, &ZBRANCH
   call &__COMMA
+.ifdef FORTH_TIR
+  push $TOS
+  la $TOS, &var_DP
+  lw $TOS, $TOS
+.else
   la $W, &var_DP
   lw $W, $W
   push $W
+.endif
   li r0, 0
   call &__COMMA
   $NEXT
@@ -555,11 +657,20 @@ $DEFWORD "UNTIL", 5, $F_IMMED, UNTIL
 
 $DEFCODE "DEPTH", 5, 0, DEPTH
   ; ( -- n )
+.ifdef FORTH_TIR
+  push $TOS
+  la $TOS, &var_SZ
+  lw $TOS, $TOS
+  sub $TOS, sp
+  div $TOS, $CELL
+  dec $TOS                             ; account for that TOS push at the beginning of DEPTH
+.else
   la $W, &var_SZ
   lw $W, $W
   sub $W, sp
   div $W, $CELL
   push $W
+.endif
   $NEXT
 
 
@@ -579,21 +690,35 @@ $DEFWORD "TUCK", 4, 0, TUCK
 
 $DEFCODE "2OVER", 5, 0, TWOOVER
   ; ( a b c d -- a b c d a b )
+.ifdef FORTH_TIR
+  push $TOS
+  lw $TOS, sp[12]
+  push $TOS
+  lw $TOS, sp[12]
+.else
   lw $W, sp[8]
   lw $X, sp[12]
   push $X
   push $W
+.endif
   $NEXT
 
 
 $DEFCODE "PICK", 4, 0, PICK
   ; ( x_n ... x_1 x_0 n -- x_u ... x_1 x_0 x_n )
+.ifdef FORTH_TIR
+  mov $X, sp
+  mul $TOS, $CELL
+  add $TOS, $X
+  lw $TOS, $TOS
+.else
   pop $W
   mov $X, sp
   mul $W, $CELL
   add $X, $W
   lw $W, $W
   push $W
+.endif
   $NEXT
 
 
@@ -703,9 +828,15 @@ $DEFCODE "C\"", 2, $F_IMMED, CQUOTE
 $DEFCODE "UWIDTH", 6, 0, UWIDTH
   ; ( u -- width )
   ; Returns the width (in characters) of an unsigned number in the current base
+.ifdef FORTH_TIR
+  mov r0, $TOS
+  call &__UWIDTH
+  mov $TOS, r0
+.else
   pop r0
   call &__UWIDTH
   push r0
+.endif
   $NEXT
 
 __UWIDTH:
@@ -724,12 +855,21 @@ __UWIDTH_quit:
 
 $DEFCODE "C,", 2, 0, CSTORE
   ; ( char -- )
+.ifdef FORTH_TIR
+  la $X, &var_DP
+  lw $Y, $X
+  stb $Y, $TOS
+  inc $Y
+  stw $X, $Y
+  pop $TOS
+.else
   pop $W
   la $X, &var_DP
   lw $Y, $X
   stb $Y, $W
   inc $Y
   stw $X, $Y
+.endif
   $NEXT
 
 
@@ -741,11 +881,18 @@ $DEFCODE "CHARS", 5, 0, CHARS
 
 $DEFCODE "COUNT", 5, 0, COUNT
   ; ( c-addr -- c-addr u )
+.ifdef FORTH_TIR
+  lb $W, $TOS
+  inc $TOS
+  push $TOS
+  mov $TOS, $W
+.else
   pop $W
   lb $X, $W
   inc $W
   push $W
   push $X
+.endif
   $NEXT
 
 
@@ -765,64 +912,103 @@ __DOT_PAREN_quit:
 
 $DEFCODE ">BODY", 5, 0, TOBODY
   ; ( xt -- a-addr )
+.ifdef FORTH_TIR
+  add $TOS, 8
+.else
   pop $W
   add $W, $CELL
   add $W, $CELL
   push $W
+.endif
   $NEXT
 
 
 $DEFCODE "CELLS", 5, 0, CELLS
   ; ( n -- cell_size*n )
+.ifdef FORTH_TIR
+  mul $TOS, $CELL
+.else
   pop $W
   mul $W, $CELL
   push $W
+.endif
   $NEXT
 
 
 $DEFCODE "CELL+", 5, 0, CELLADD
   ; ( a-addr1 -- a-addr2 )
+.ifdef FORTH_TIR
+  add $TOS, $CELL
+.else
   pop $W
   add $W, $CELL
   push $W
+.endif
   $NEXT
 
 
 $DEFCODE "CHAR+", 5, 0, CHARADD
   ; ( a-addr1 -- a-addr2 )
+.ifdef FORTH_TIR
+  inc $TOS
+.else
   pop $W
   inc $W
   push $W
+.endif
   $NEXT
 
 
 $DEFCODE "2@", 2, 0, TWOFETCH
   ; ( a-addr -- x1 x2 )
+.ifdef FORTH_TIR
+  lw $X, $TOS
+  lw $Y, $TOS[$CELL]
+  push $Y
+  mov $TOS, $X
+.else
   pop $W
   lw $X, $W
   lw $Y, $W[$CELL]
   push $Y
   push $X
+.endif
   $NEXT
 
 
 $DEFCODE "2!", 2, 0, TWOSTORE
   ; ( x1 x2 a-addr -- )
+.ifdef FORTH_TIR
+  pop $W ; x2
+  pop $X ; x1
+  stw $TOS, $W
+  stw $TOS[4], $X
+  pop $TOS
+.else
   pop $W
   pop $X
   pop $Y
   stw $W, $X
   stw $W[$CELL], $Y
+.endif
   $NEXT
 
 
 $DEFCODE "ALLOT", 5, 0, ALLOT
   ; (n -- )
+.ifdef FORTH_TIR
+  la $X, &var_DP
+  lw $Y, $X
+  add $Y, $TOS
+  stw $X, $Y
+  pop $TOS
+.else
   pop $W ; amount
   la $X, &var_DP
   lw $Y, $X
   add $Y, $W
   stw $X, $Y
+.endif
   $NEXT
 
 
@@ -845,19 +1031,34 @@ $DEFCODE "UNUSED", 6, 0, UNUSED
   li $W, $USERSPACE_SIZE
   sub $W, $X
   div $W, $CELL
+.ifdef FORTH_TIR
+  push $TOS
+  mov $TOS, $W
+.else
   push $W
+.endif
   $NEXT
 
 
 $DEFCODE "FILL", 4, 0, FILL
   ; ( c-addr u char -- )
+.ifdef FORTH_TIR
+  pop $W ; u
+  pop $X ; c-addr
+  cmp $W, 0
+  ble &__FILL_next
+__FILL_loop:
+  stb $X, $TOS
+  inc $X
+  dec $W
+  bnz &__FILL_loop
+  pop $TOS
+.else
   pop $W ; char
   pop $X ; u
   pop $Y ; c-addr
-
   cmp $W, 0
   ble &__FILL_next
-
 __FILL_loop:
   cmp $X, 0
   bz &__FILL_next
@@ -865,7 +1066,7 @@ __FILL_loop:
   inc $Y
   dec $X
   j &__FILL_loop
-
+.endif
 __FILL_next:
   $NEXT
 
@@ -929,10 +1130,16 @@ memmove:
 
 $DEFCODE "MOVE", 4, 0, MOVE
   ; ( addr1 addr2 u -- )
+.ifdef FORTH_TIR
+  mov r2, $TOS
+  pop r1
+  pop r0
+  pop $TOS
+.else
   pop r2 ; u
   pop r1 ; addr2
   pop r0 ; addr1
-
+.endif
   call &memmove
   $NEXT
 
@@ -1050,65 +1257,106 @@ __RESIZE_next:
 
 $DEFCODE "LSHIFT", 6, 0, LSHIFT
   ; ( n u -- n )
+.ifdef FORTH_TIR
+  pop $W
+  shiftl $W, $TOS
+  mov $TOS, $W
+.else
   pop $W
   pop $X
   shiftl $X, $W
   push $X
+.endif
   $NEXT
 
 
 $DEFCODE "RSHIFT", 6, 0, RSHIFT
   ; ( n u -- n )
+.ifdef FORTH_TIR
+  pop $W
+  shiftr $W, $TOS
+  mov $TOS, $W
+.else
   pop $W
   pop $X
   shiftr $X, $W
   push $X
+.endif
   $NEXT
 
 
 $DEFCODE "2*", 2, 0, TWOSTAR
   ; ( n -- n )
+.ifdef FORTH_TIR
+  shiftl $TOS, 1
+.else
   pop $W
   shiftl $W, 1
   push $W
+.endif
   $NEXT
 
 
 $DEFCODE "2/", 2, 0, TWOSLASH
   ; ( n -- n )
-  pop $W
-  mov $X, $W
   li $Y, 0x0000
   liu $Y, 0x8000
+.ifdef FORTH_TIR
+  mov $W, $TOS
+  shiftr $TOS, 1
+  and $W, $Y
+  bz &__TWOSLASH_next
+  or $TOS, $Y
+__TWOSLASH_next:
+.else
+  pop $W
+  mov $X, $W
   shiftr $W, 1
   and $X, $Y
   bz &__TWOSLASH_next
   or $W, $Y
 __TWOSLASH_next:
   push $W
+.endif
   $NEXT
 
 
 $DEFCODE "U<", 2, 0, ULT
   ; ( a b -- flag )
+.ifdef FORTH_TIR
+  pop $W
+  cmpu $W, $TOS
+.else
   pop $W
   pop $X
   cmpu $X, $W
+.endif
   bl &__CMP_true
   j &__CMP_false
 
 
 $DEFCODE "U>", 2, 0, UGT
   ; ( a b -- flag )
+.ifdef FORTH_TIR
+  pop $W
+  cmpu $W, $TOS
+.else
   pop $W
   pop $X
   cmpu $X, $W
+.endif
   bg &__CMP_true
   j &__CMP_false
 
 
 $DEFCODE "MAX", 3, 0, MAX
   ; ( a b -- n )
+.ifdef FORTH_TIR
+  pop $W
+  cmp $W, $TOS
+  ble &__MIN_next
+  mov $TOS, $W
+.else
   pop $W
   pop $X
   cmp $W, $X
@@ -1117,12 +1365,19 @@ $DEFCODE "MAX", 3, 0, MAX
   j &__MIN_next
 __MIN_greater:
   push $W
+.endif
 __MIN_next:
   $NEXT
 
 
 $DEFCODE "MIN", 3, 0, MIN
   ; ( a b -- n )
+.ifdef FORTH_TIR
+  pop $W
+  cmp $W, $TOS
+  bge &__MIN_next
+  mov $TOS, $W
+.else
   pop $W
   pop $X
   cmp $W, $X
@@ -1131,25 +1386,38 @@ $DEFCODE "MIN", 3, 0, MIN
   j &__MIN_next
 __MIN_lower:
   push $W
+.endif
 __MIN_next:
   $NEXT
 
 
 $DEFCODE "ABS", 3, 0, ABS
   ; ( n -- n )
+.ifdef FORTH_TIR
+  cmp $TOS, 0
+  bge &__ABS_next
+  mul $TOS, -1
+__ABS_next:
+.else
   pop $W
   cmp $W, 0
   bge &__ABS_next
   mul $W, -1
 __ABS_next:
   push $W
+.endif
   $NEXT
 
 
 ; - Printing ----------------------------------------------------------------------------
 
 $DEFCODE "U.", 2, 0, UDOT
+.ifdef FORTH_TIR
+  mov r0, $TOS
+  pop $TOS
+.else
   pop r0
+.endif
   call &__UDOT
   $NEXT
 
@@ -1183,10 +1451,28 @@ __UDOT_print_letters:
 
 
 $DEFCODE ".S", 2, 0, DOTS
+.ifdef FORTH_TIR
+  la $W, &var_SZ
+  lw $W, $W
+  sub $W, sp
+  bz &__DOTS_next
+  mov r0, $TOS
+  call &__UDOT
+  call &__SPACE
+  sub $W, $CELL
+  mov sp, $X
+__DOTS_loop:
+  bz &__DOTS_next
+  lw r0, $X
+  call &__UDOT
+  call &__SPACE
+  add $X, $CELL
+  dec $W
+  j &__DOTS_loop
+.else
   mov $W, sp
   la $X, &var_SZ
   lw $X, $X
-
 __DOTS_loop:
   lw r0, $W
   call &__UDOT
@@ -1194,12 +1480,19 @@ __DOTS_loop:
   add $W, $CELL
   cmp $W, $X
   bl &__DOTS_loop
+.endif
+__DOTS_next:
   $NEXT
 
 
 $DEFCODE "ID.", 3, 0, IDDOT
   ; ( a-addr -- )
+.ifdef FORTH_TIR
+  mov r0, $TOS
+  pop $TOS
+.else
   pop r0
+.endif
   call &__IDDOT
   $NEXT
 
