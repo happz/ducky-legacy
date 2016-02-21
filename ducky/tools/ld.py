@@ -414,7 +414,7 @@ def main():
   info = LinkerInfo()
 
   try:
-    process_files(logger, info, options.file_in, options.file_out, bases = dict([(e.split('=')[0], str2int(e.split('=')[1])) for e in options.section_base]))
+    process_files(logger, info, options.file_in, options.file_out, bases = {name: str2int(value) for name, value in (e.split('=') for e in options.section_base)})
 
   except IncompatibleLinkerFlagsError:
     logger.error('All input files must have the same mmapable setting')

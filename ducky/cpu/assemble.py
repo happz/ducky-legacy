@@ -348,7 +348,7 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
   includes = includes or []
   includes.insert(0, os.getcwd())
 
-  defines = {var[0]: var[1] if len(var) > 1 else None for var in [var.split('=') for var in defines]}
+  defines = {var[0]: var[1] if len(var) > 1 else None for var in (var.split('=') for var in defines)}
 
   DEBUG('translate_buffer: base_addres=%s, mmapable_sections=%s, writable_sections=%s, filename=%s, defines=%s, includes=%s, verify_disassemble=%s', UINT32_FMT(base_address), mmapable_sections, writable_sections, filename, defines, includes, verify_disassemble)
 

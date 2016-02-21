@@ -136,8 +136,8 @@ def main():
 
   config = process_config_options(logger,
                                   config_file = options.machine_config,
-                                  set_options = [(section,) + tuple(option.split('=')) for section, option in [option.split(':') for option in options.set_options]],
-                                  add_options = [(section,) + tuple(option.split('=')) for section, option in [option.split(':') for option in options.add_options]],
+                                  set_options = [(section,) + tuple(option.split('=')) for section, option in (option.split(':') for option in options.set_options)],
+                                  add_options = [(section,) + tuple(option.split('=')) for section, option in (option.split(':') for option in options.add_options)],
                                   enable_devices = options.enable_devices,
                                   disable_devices = options.disable_devices)
 
