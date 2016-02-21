@@ -20,6 +20,7 @@ function run_tests () {
   export PYPY="$pypy"
   export MMAPABLE_SECTIONS="$mmap"
   export DUCKY_BOOT_IMG=yes
+  export FORTH_TIR=yes
 
   make --keep-going tests-interim-clean tests
   [ $? -ne 0 ] && PASSED=no
