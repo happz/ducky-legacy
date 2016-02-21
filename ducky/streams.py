@@ -86,7 +86,16 @@ class Stream(object):
   def _raw_write_stream(self, data):
     self.DEBUG('%s._raw_write_stream: data="%s", len=%s, type=%s', self.__class__.__name__, data, len(data), type(data))
 
-    self.stream.write(data)
+    remaining_chars = len(data)
+
+    while remaining_chars > 0:
+      try:
+        self.stream.write(data)
+        return
+
+      except io.BlockingIOError as e:
+        remaining_chars -= e.characters_written
+        continue
 
   def _raw_write_fd(self, data):
     self.DEBUG('%s._raw_write_fd: data="%s", len=%s, type=%s', self.__class__.__name__, data, len(data), type(data))
