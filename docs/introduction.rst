@@ -3,8 +3,8 @@ ducky
 
 Ducky is a simple virtual CPU/machine simulator, with modular design and interesting features.
 
-.. image:: https://badge.fury.io/py/ducky.svg
-  :target: https://badge.fury.io/py/ducky
+.. image:: https://img.shields.io/pypi/v/ducky.svg
+  :target: https://pypi.python.org/pypi/ducky/
 
 .. image:: https://readthedocs.org/projects/ducky/badge/?version=latest
   :target: http://ducky.readthedocs.org/en/latest/
@@ -20,6 +20,9 @@ Ducky is a simple virtual CPU/machine simulator, with modular design and interes
 
 .. image:: https://coveralls.io/repos/happz/ducky/badge.svg?branch=master&service=github
   :target: https://coveralls.io/github/happz/ducky?branch=master
+
+.. image:: https://img.shields.io/docker/pulls/happz/ducky-forth-python2.7.svg
+  :target: https://hub.docker.com/r/happz/ducky-forth-python2.7/
 
 Ducky was created for learning purposes, no bigger ambitions. The goal was to experiment with
 CPU and virtual machine simulation, different instruction sets, and later working FORTH kernel
