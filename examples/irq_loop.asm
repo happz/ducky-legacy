@@ -1,4 +1,0 @@
-main:
-  idle
-  j &main
-
