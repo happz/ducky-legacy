@@ -20,7 +20,7 @@ from .mm import u8_t, u16_t, u32_t, UINT32_FMT, PAGE_SIZE, area_to_pages, PAGE_M
 from .mm.binary import SectionFlags, File, SectionTypes
 from .snapshot import SnapshotNode
 from .hdt import HDT
-from .debugging import Point
+from .debugging import Point  # noqa
 
 #: By default, Hardware Description Table starts at this address after boot.
 DEFAULT_HDT_ADDRESS        = 0x00000100
