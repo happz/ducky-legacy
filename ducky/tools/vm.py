@@ -1,4 +1,4 @@
-from .. import patch
+from .. import patch  # noqa
 from ..util import str2int, UINT32_FMT
 
 import optparse
