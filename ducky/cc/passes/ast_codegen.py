@@ -3,8 +3,8 @@ from pycparser import c_ast
 from six import iteritems, iterkeys
 
 from . import ASTVisitor
-from .. import *
-from ..types import *
+from .. import *  # noqa
+from ..types import *  # noqa
 
 class CodegenVisitor(ASTVisitor):
   priority = 1000
