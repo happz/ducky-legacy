@@ -97,6 +97,13 @@ class Stream(object):
         remaining_chars -= e.characters_written
         continue
 
+      except EnvironmentError as e:
+        # Resource temporarily unavailable
+        if e.errno == 11:
+          continue
+
+        raise e
+
   def _raw_write_fd(self, data):
     self.DEBUG('%s._raw_write_fd: data="%s", len=%s, type=%s', self.__class__.__name__, data, len(data), type(data))
 
