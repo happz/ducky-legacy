@@ -2,7 +2,7 @@ from . import run_forth_vm, logs_dir, tests_dir
 
 def __run_unit(name):
   options = [
-    '--add-option=device-3:streams_in=%s' % '/data/virtualenv/ducky-2.7/ducky/tests/forth/forth2012-test-suite/src/tester.fr',
+    '--add-option=device-3:streams_in=%s' % '/data/virtualenv/ducky-2.7/ducky/tests/forth/ans-testsuite/src/tester.fr',
     '--add-option=device-3:streams_in=%s' % tests_dir('forth', 'units', '%s.f' % name),
     '--add-option=device-3:streams_in=%s' % tests_dir('forth', 'run-test-word.f'),
   ]
