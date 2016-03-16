@@ -9,7 +9,7 @@ from six import exec_, print_
 
 if os.getenv('VMDEBUG_PATCH', None) == 'yes':
   def debug(s):
-    print_(s)
+    print_('PATCH:', s)
 
 else:
   def debug(s):
@@ -41,6 +41,10 @@ class RemoveLoggingVisitor(ast.NodeTransformer):
     if hasattr(f, "id"):
       if f.id == 'debug':
         debug('removing %s - it is "debug" call' % node)
+        return None
+
+      if f.id == 'DEBUG':
+        debug('removing %s - it is "DEBUG" call' % node)
         return None
 
       if f.id == 'log_cpu_core_state':
