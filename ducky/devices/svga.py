@@ -316,7 +316,7 @@ class SimpleVGA(IOProvider, Device):
     self.bank_offsets = list(range(0, self.memory_size, self.memory_size // self.memory_banks))
     self.pages_per_bank = self.memory_size // PAGE_SIZE // self.memory_banks
 
-    self.machine.DEBUG(F('sVGA: memory-size={memory_size:d}, memory-banks={memory_banks:d}, offsets=[{bank_offsets}], pages-per-bank={pages_per_bank:d}, address={address:A}', memory_size = self.memory_size, memory_banks = self.memory_banks, bank_offsets = ', '.join([UINT32_FMT(o) for o in self.bank_offsets]), pages_per_bank = self.pages_per_bank, address = self.memory_address))
+    self.machine.DEBUG(F('sVGA: memory-size={memory_size:d}, memory-banks={memory_banks:d}, offsets=[{bank_offsets}], pages-per-bank={pages_per_bank:d}, address={address:W}', memory_size = self.memory_size, memory_banks = self.memory_banks, bank_offsets = ', '.join([UINT32_FMT(o) for o in self.bank_offsets]), pages_per_bank = self.pages_per_bank, address = self.memory_address))
 
   @staticmethod
   def create_from_config(machine, config, section):
