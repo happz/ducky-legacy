@@ -1,6 +1,0 @@
-  .text
-
-  li r1, 0xFF
-  cli
-  li r1, 0xEE
-  hlt 0x00

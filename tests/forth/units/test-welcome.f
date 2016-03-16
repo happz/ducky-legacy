@@ -1,6 +1,0 @@
-: TEST
-  DECIMAL
-  ." DuckyFORTH VERSION " VERSION . CR
-  UNUSED . ." CELLS REMAINING" CR
-  ." OK "
-;

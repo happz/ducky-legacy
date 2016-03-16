@@ -1,6 +1,0 @@
-  .text
-
-  li r0, 0xABAB
-  liu r0, 0xDEDE
-  and r0, 0x7FFF
-  hlt 0x00

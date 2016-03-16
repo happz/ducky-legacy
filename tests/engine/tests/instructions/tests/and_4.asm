@@ -1,5 +1,0 @@
-  .text
-
-  li r0, 0x0008
-  and r0, 0x0004
-  hlt 0x00
