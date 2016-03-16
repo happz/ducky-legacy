@@ -1,0 +1,302 @@
+#! /usr/bin/env python
+
+import os
+import shutil
+import sys
+
+from six import print_, iteritems
+from functools import partial
+
+Import('ENV', 'DuckyCommand', 'DEFINES')
+
+ENV.Help("""
+  ${GREEN}Tests:${CLR}
+     ${BLUE}'scons tests'${CLR} to run all tests,
+""")
+
+
+def create_testsuite_config(target, source, env):
+  with open(target[0].abspath, 'w') as f:
+    print >> f, env.subst("""
+[dirs]
+tests = $TESTSDIR
+forth = $FORTHDIR
+logs  = $LOGDIR
+examples = $EXAMPLESDIR
+loader   = $LOADERDIR
+snapshot = $SNAPSHOTDIR
+
+[vm-runner]
+runner   = $PYTHON
+ducky-vm = $VIRTUAL_ENV/bin/ducky-vm
+ducky-cc = $VIRTUAL_ENV/bin/ducky-cc
+coverage = $VIRTUAL_ENV/bin/coverage run --rcfile=$TOPDIR/coveragerc
+""")
+
+
+def run_testsuite(env, target, source, tests = None):
+  tests = tests or []
+  stdout, stderr = None, None
+
+  if not GetOption('pass_testsuite_output'):
+    stdout, stderr = env['LOGFILE'], env['LOGFILE']
+
+  cmd = DuckyCommand(env, stdout = stdout, stderr = stderr)
+
+  coverage_flags = ''
+
+  if 'COVERAGEDIR' in env:
+    coverage_flags = '--with-coverage --cover-branches --cover-package=ducky'
+    cmd.env['COVERAGE_FILE'] = env.subst(os.path.join(env['COVERAGEDIR'], '.coverage.testsuite'))
+
+  cmd.env['HYPOTHESIS_PROFILE'] = GetOption('hypothesis_profile')
+
+  cmd.command = env.subst(""" \\
+    $VIRTUAL_ENV/bin/nosetests -v \\
+      --all-modules \\
+      --no-path-adjustment \\
+      --with-xunit --xunit-file=$RESULTSFILE --xunit-testsuite-name=testsuite-$TESTSETID \\
+      --with-html --html-report=$REPORTFILE \\
+      {coverage_flags} \\
+      --tc-file=$CONFIGFILE \\
+      --rednose \\
+      -w $TESTSDIR {tests}""".format(
+        coverage_flags = coverage_flags,
+        tests = ' '.join(tests)))
+
+  return cmd.run(env, 'TEST', 'Testsuite')
+
+def run_testsuite_engine(env, target, source):
+  #return run_testsuite(env, target, source, tests = ['cpu', 'devices', 'instructions', 'mm', 'storage'])
+  return run_testsuite(env, target, source, tests = ['instructions'])
+
+def run_testsuite_forth_units(env, target, source):
+  return run_testsuite(env, target, source, tests = ['forth.units'])
+
+def run_testsuite_forth_ans(env, target, source):
+  return run_testsuite(env, target, source, tests = ['forth.ans'])
+
+def run_testsuite_examples(env, target, source):
+  return run_testsuite(env, target, source, tests = ['examples'])
+
+def run_testsuite_compiler(env, target, source):
+  return run_testsuite(env, target, source, tests = ['compiler'])
+
+def generate_coverage_summary(target, source, env):
+  """
+  Merge all coverage data files into one.
+  """
+
+  cmd = DuckyCommand(env, runner = '')
+  cmd.command = env.subst('pushd $COVERAGEDIR > /dev/null && $VIRTUAL_ENV/bin/coverage combine --rcfile=$TOPDIR/coveragerc && popd > /dev/null')
+
+  return cmd.run(env, 'INFO', 'Generating coverage summary')
+
+
+def generate_coverage_report(target, source, env):
+  """
+  Create HTML report from coverage summary.
+  """
+
+  cmd = DuckyCommand(env, runner = '')
+  cmd.command = env.subst('$VIRTUAL_ENV/bin/coverage html --rcfile=$TOPDIR/coveragerc -d $REPORTDIR/coverage')
+  cmd.env['COVERAGE_FILE'] = os.path.join(env['COVERAGEDIR'], '.coverage')
+
+  return cmd.run(env, 'INFO', 'Generating coverage report')
+
+
+#
+# ENV Setup
+#
+
+ENV.Alias('.tests', [])
+
+if 'TESTSETDIR' in ENV:
+  ENV.Command(ENV['LOGDIR'], None, Mkdir(ENV['LOGDIR']))
+  ENV.Command(ENV['RESULTSDIR'], None, Mkdir(ENV['RESULTSDIR']))
+  ENV.Command(ENV['TMPDIR'], None, Mkdir(ENV['TMPDIR']))
+  ENV.Command(ENV['CONFIGDIR'], None, Mkdir(ENV['CONFIGDIR']))
+  ENV.Command(ENV['REPORTDIR'], None, Mkdir(ENV['REPORTDIR']))
+  ENV.Command(ENV['SNAPSHOTDIR'], None, Mkdir(ENV['SNAPSHOTDIR']))
+
+  for d in ['forth', 'examples', 'compiler']:
+    D = d.upper()
+
+    ENV.Append(**{'LOGDIR_' + D: os.path.join(ENV['LOGDIR'], d)})
+    ENV.Command(ENV['LOGDIR_' + D], None, Mkdir(ENV['LOGDIR_' + D]))
+
+  if 'COVERAGEDIR' in ENV:
+    ENV.Command(ENV['COVERAGEDIR'], None, Mkdir(ENV['COVERAGEDIR']))
+
+  if 'PROFILEDIR' in ENV:
+    ENV.Command(ENV['PROFILEDIR'], None, Mkdir(ENV['PROFILEDIR']))
+
+  ENV.Depends('tests', ENV['TESTSETDIR'])
+
+
+E = ENV.FullClone()
+E.Append(TESTSDIR = ENV.Dir('.').abspath)
+E.Append(FORTHDIR = ENV.Dir('#forth').abspath)
+E.Append(SECTION_BASES = ['.text=0x00000000'])
+
+if 'TESTSETDIR' in E:
+  E.Append(RESULTSFILE  = File(E.subst('$RESULTSDIR/testsuite.xml')).abspath)
+  E.Append(LOGFILE      = File(E.subst('$LOGDIR/testsuite.out')).abspath)
+  E.Append(REPORTFILE   = File(E.subst('$REPORTDIR/testsuite.html')).abspath)
+  E.Append(CONFIGFILE   = File(E.subst('$CONFIGDIR/testsuite.conf')).abspath)
+  E.Append(VMCONFIGFILE = File('forth/machine.conf').abspath)
+
+
+#
+# Engine unit tests
+#
+routines_sources = Glob('storage/*.asm')
+routines = []
+
+for routine_src in routines_sources:
+  routine = os.path.splitext(str(routine_src))[0]
+  routine_object = routine + '.o'
+
+  E.DuckyObject(routine_object, source = routine_src)
+  E.Depends(routine_object, DEFINES)
+
+  if 'COVERAGEDIR' in E:
+    E.Depends(routine_object, E['COVERAGEDIR'])
+
+  E.DuckyBinary(routine, routine_object)
+
+  routines.append(routine)
+
+if 'TESTSETDIR' in E:
+  common_requirements     = [E[v] for v in ['TMPDIR', 'RESULTSDIR', 'LOGDIR', 'REPORTDIR', 'CONFIGFILE', 'SNAPSHOTDIR']]
+  engine_requirements     = routines
+  forth_requirements      = [E.File('#forth/ducky-forth'), E['VMCONFIGFILE'], E['LOGDIR_FORTH']]
+  forth_unit_requirements = [E.Glob('forth-units/tests/*.f'), E.Glob('forth-units/tests/*.expected')]
+  forth_ans_requirements  = []
+  examples_requirements   = [E['LOGDIR_EXAMPLES'],
+                             E.File('#examples/hello-world/hello-world'),
+                             E.File('#examples/hello-world-lib/hello-world'),
+                             E.File('#examples/clock/clock'),
+                             E.File('#examples/vga/vga'),
+                             E.File('#examples/smp/smp'), E.File('#examples/smp/smp.img'),
+                             E.File('#boot/loader')]
+  compiler_requirements    = [E['LOGDIR_COMPILER']]
+
+  if 'COVERAGEDIR' in E:
+    common_requirements.append(E['COVERAGEDIR'])
+
+  E.Command(E['CONFIGFILE'], None, create_testsuite_config)
+
+  # Engine tests
+  E.Command('.tests-engine', None, run_testsuite_engine)
+  E.Depends('.tests-engine', common_requirements + engine_requirements)
+
+  # FORTH Units
+  E.Command('.tests-forth-units', None, run_testsuite_forth_units)
+  E.Depends('.tests-forth-units', common_requirements + forth_requirements + forth_unit_requirements)
+
+  # FORTH ANS
+  E.Command('.tests-forth-ans', None, run_testsuite_forth_ans)
+  E.Depends('.tests-forth-ans', common_requirements + forth_requirements + forth_ans_requirements)
+
+  # Examples
+  E.Command('.tests-examples', None, run_testsuite_examples)
+  E.Depends('.tests-examples', common_requirements + examples_requirements)
+
+  # Compiler
+  E.Command('.tests-compiler', None, run_testsuite_compiler)
+  E.Depends('.tests-compiler', common_requirements + compiler_requirements)
+
+  # Full testsuite
+  E.Command('.tests-all', None, run_testsuite)
+  E.Depends('.tests-all', common_requirements + engine_requirements + forth_requirements + forth_unit_requirements + forth_ans_requirements + examples_requirements + compiler_requirements)
+
+  E.Alias('tests-engine-routines', routines)
+  E.Alias('tests-engine',          File('.tests-engine'))
+  E.Alias('tests-forth-units',     File('.tests-forth-units'))
+  E.Alias('tests-forth-ans',       File('.tests-forth-ans'))
+  E.Alias('tests-examples',        File('.tests-examples'))
+
+  #E.AlwaysBuild(E['LOGDIR'])
+  #E.AlwaysBuild(E['REPORTDIR'])
+
+  if E['BUILD_TARGET'] == 'tests':
+    E.Depends('.tests', '.tests-all')
+
+  elif E['BUILD_TARGET'] == 'tests-engine':
+    E.Depends('.tests', '.tests-engine')
+
+  elif E['BUILD_TARGET'] == 'tests-forth-units':
+    E.Depends('.tests', '.tests-forth-units')
+
+  elif E['BUILD_TARGET'] == 'tests-forth-ans':
+    E.Depends('.tests', '.tests-forth-ans')
+
+  elif E['BUILD_TARGET'] == 'tests-examples':
+    E.Depends('.tests', '.tests-examples')
+
+  elif E['BUILD_TARGET'] == 'tests-compiler':
+    E.Depends('.tests', '.tests-compiler')
+
+  else:
+    E.ERROR('Unhandled tests target: %s' % E['BUILD_TARGET'])
+    E.Exit(1)
+
+  E.AlwaysBuild('.tests')
+
+  E.Alias(E['BUILD_TARGET'], [])
+  E.Depends(E['BUILD_TARGET'], '.tests')
+
+ENV.OnClean(routines)
+
+ENV.Help("""
+     ${BLUE}'scons tests-engine'${CLR} to run all VM tests,
+     ${BLUE}'scons tests-engine-routines'${CLR} to compile all VM unit tests,
+     ${BLUE}'scons tests-forth'${CLR} to run all FORTH tests,
+     ${BLUE}'scons tests-forth-units'${CLR} to run FORTH unit tests,
+     ${BLUE}'scons tests-forth-ans'${CLR} to run FORTH ANS testsuite,
+""")
+
+
+#ENV.Depends('tests', 'run-hello-world')
+#ENV.Depends('tests', 'run-hello-world-lib')
+#ENV.Depends('tests', 'run-clock')
+#ENV.Depends('tests', 'run-vga')
+#ENV.Depends('tests', 'run-smp')
+
+
+#
+# Finish
+#
+
+if 'COVERAGEDIR' in ENV:
+  def __add_coverage_cleanup(target, fn):
+    ENV.Command(target, None, fn)
+    ENV.AlwaysBuild(target)
+    ENV.Depends(E['BUILD_TARGET'], target)
+
+  __add_coverage_cleanup('tests-coverage-summary', generate_coverage_summary)
+  __add_coverage_cleanup('tests-coverage-report', generate_coverage_report)
+
+
+if 'CIRCLE_TEST_REPORTS' in os.environ:
+  ENV.Alias('tests-submit-results-to-circle', [])
+  ENV.AlwaysBuild('tests-submit-results-to-circle')
+  ENV.Depends('tests', 'tests-submit-results-to-circle')
+
+  for f in result_files:
+    submitted_file = os.path.join(os.environ['CIRCLE_TEST_REPORTS'], 'junit', ENV.subst('$RAW_TESTSETDIR-$TESTSETID-%s') % os.path.split(f)[1])
+
+    ENV.Command(submitted_file, None, Copy("$TARGET", f))
+    ENV.Depends('tests-submit-results-to-circle', submitted_file)
+
+if 'CIRCLE_ARTIFACTS' in os.environ:
+  submitted_dir = os.path.join(os.environ['CIRCLE_ARTIFACTS'], ENV.subst('$RAW_TESTSETDIR-$TESTSETID'))
+
+  ENV.Command(submitted_dir, None, Copy("$TARGET", "$TESTSETDIR"))
+  ENV.Alias('tests-submit-artifacts-to-circle', submitted_dir)
+  ENV.AlwaysBuild('tests-submit-artifacts-to-circle')
+  ENV.Depends('tests', 'tests-submit-artifacts-to-circle')
+
+ENV.OnClean('tests')
+ENV.Clean('tests', Glob('#/tests-*'))
