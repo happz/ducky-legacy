@@ -16,6 +16,7 @@ from .instructions import DuckyInstructionSet
 from ..errors import AccessViolationError, InvalidResourceError
 from ..util import LRUCache, Flags
 from ..snapshot import SnapshotNode
+from ..devices import IRQList
 
 #: Default IVT address
 DEFAULT_IVT_ADDRESS = 0x00000000
@@ -1134,6 +1135,9 @@ class CPUCore(ISnapshotable, IMachineWorker):
     """
 
     self.DEBUG('__enter_interrupt: index=%i', index)
+
+    if index >= IRQList.IRQ_COUNT:
+      raise InvalidResourceError('Interrupt index out of range: index=%d' % index)
 
     iv = self.__load_interrupt_vector(index)
 
