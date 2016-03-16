@@ -1004,6 +1004,9 @@ class CPUCore(ISnapshotable, IMachineWorker):
     :param u32_t new_ip: new ``IP`` value, defaults to zero
     """
 
+    self.instruction_set = DuckyInstructionSet
+    self.instruction_set_stack = []
+
     for reg in registers.RESETABLE_REGISTERS:
       self.REG(reg).value = 0
 
