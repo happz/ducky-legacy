@@ -1,0 +1,45 @@
+#! /usr/bin/env python
+
+Import('ENV')
+
+ENV.DuckyObject('smp.o', source = 'smp.asm')
+ENV.Depends('smp.o', ENV.GetDuckyDefine('boot', 'ducky', 'control', 'hdt', 'rtc'))
+
+ENV.DuckyBinary('smp', source = ['smp.o', '#boot/lib.o'], SECTION_BASES = ['.text=0x00000000'])
+ENV.Command('smp.img', 'smp', ENV.DuckyImage('smp.img', 'smp', bio = True))
+
+smp = ENV.Alias('smp', File('smp'))
+
+ENV.Command('.running-smp', [File('smp'), 'smp.img', '#boot/loader'], ENV.DuckyRun(config = 'smp.conf', set_options = ['bootloader:file=%s' % File('#boot/loader').abspath, 'device-6:filepath=%s' % File('smp.img').abspath], expected_exit = 1))
+
+run_smp = ENV.Alias('run-smp', '.running-smp')
+
+ENV.Depends('examples', 'smp')
+
+ENV.Help("""
+     ${BLUE}'scons smp'${CLR} to build SMP example,
+     ${BLUE}'scons run-smp'${CLR} to run SMP examples,
+""")
+
+"""
+test-run: build
+	$(Q) echo -n "[TEST] $(EXAMPLE) ... "
+	$(Q) COVERAGE_FILE=$(shell if [ "$(VMCOVERAGE)" = "yes" ]; then echo "$(TESTSETDIR)/coverage/.coverage.$(EXAMPLE).$(DB_PID)"; else echo ""; fi) \
+	     $(PYTHON) $(VMCOVERAGE_RUN) $(DVM) $(VMDEBUG) \
+			 --machine-config=$(CURDIR)/smp.conf \
+			 --set-option=bootloader:file=$(LOADER) \
+			 --set-option=device-6:filepath=$(CURDIR)/smp.img \
+			 -g $(VMPROFILE) &> $(TC_MACHINE); \
+			 if [[ $$? -ne 1 ]]; then touch $(TESTSET_FAILED); echo "$(CC_RED)FAIL$(CC_END)"; else echo "$(CC_GREEN)PASS$(CC_END)"; fi; \
+			 exit 0;
+	$(Q) echo -n "[TEST] $(EXAMPLE) coredump ... "
+	$(Q) COVERAGE_FILE=$(shell if [ "$(VMCOVERAGE)" = "yes" ]; then echo "$(TESTSETDIR)/coverage/.coverage.$(EXAMPLE).coredump.$(DB_PID)"; else echo ""; fi) \
+			 $(PYTHON) $(VMCOVERAGE_RUN) $(DCD) $(VMDEBUG) \
+			 -i ducky-snapshot.bin -q \
+			 -Q "STATE.get_child('machine').get_cpu_state_by_id(0).get_core_state_by_id(0).registers[0]" \
+			 -Q "STATE.get_child('machine').get_cpu_state_by_id(0).get_core_state_by_id(1).registers[0]" \
+			 -Q "STATE.get_child('machine').get_cpu_state_by_id(1).get_core_state_by_id(0).registers[0]" \
+			 -Q "STATE.get_child('machine').get_cpu_state_by_id(1).get_core_state_by_id(1).registers[0]" &> $(TC_OUT); \
+			 if [[ "$$(cat $(TC_OUT))" != $$'27816553665537' ]]; then touch $(TESTSET_FAILED); echo "$(CC_RED)FAIL$(CC_END)"; else echo "$(CC_GREEN)PASS$(CC_END)"; fi; \
+			 exit 0;
+"""

@@ -55,7 +55,7 @@ __vmdebug_off:
   .byte 57
 
   .type __build_stamp, string
-  .string "$FORTH_BUILD_STAMP"
+  .string "$BUILD_STAMP"
 
   .type bye_message, string
   .string "\r\nBye.\r\n"

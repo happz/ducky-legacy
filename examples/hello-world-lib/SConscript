@@ -1,0 +1,15 @@
+#! /usr/bin/env python
+
+Import('ENV', 'common_example')
+
+sources = {
+  'main.asm': [ ],
+  'lib.asm':  ENV.GetDuckyDefine('tty')
+}
+
+common_example(ENV, 'hello-world', alias_name = 'hello-world-lib', sources = sources, link_args = {'SECTION_BASES': ['.text=0x00000000']})
+
+ENV.Help("""
+     ${BLUE}'scons hello-world-lib'${CLR} to build another "Hello, world!" example,
+     ${BLUE}'scons run-hello-world-lib'${CLR} to run this another "Hello, world!" examples,
+""")

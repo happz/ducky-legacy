@@ -89,7 +89,7 @@ __primary_boot:
 
   la r26, &__primary_boot_halt
 
-.ifdef DUCKY_BOOT_IMG
+.ifdef BOOT_IMAGE
   ; load image from storage #0
 
   li r0, 0x00

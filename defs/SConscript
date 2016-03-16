@@ -1,0 +1,44 @@
+#! /usr/bin/env python
+
+import os
+from functools import partial
+from mako.template import Template
+from six import print_
+
+Import('ENV')
+
+def __create_define_file(env, src, dst):
+  def _X(i, padding = None):
+    padding = ('0' + str(padding)) if padding is not None else ''
+    return ('0x%' + padding + 'X') % i
+
+  X = _X
+  X2 = partial(_X, padding = 2)
+  X4 = partial(_X, padding = 4)
+  X8 = partial(_X, padding = 8)
+
+  with open(src, 'r') as f_in:
+    with open(dst, 'w') as f_out:
+      print_(Template(f_in.read()).render(X = X, X2 = X2, X4 = X4, X8 = X8), file = f_out)
+
+  return ''
+
+def create_define_file(source, target, env):
+  source = str(source[0])
+  target = str(target[0])
+
+  return env.RunSomething('DEFINE', target, __create_define_file, env, source, target)
+
+E = ENV.FullClone(
+  BUILDERS = {
+    'DuckyDefine': Builder(action = create_define_file)
+  }
+)
+
+DEFINES = [E.DuckyDefine(os.path.splitext(str(source))[0], source = source) for source in Glob('*.asm.in')]
+defines = E.Alias('defines', DEFINES)
+
+Export('DEFINES')
+
+E.OnClean(defines)
+E.Help("""     ${BLUE}'scons defines'${CLR} to build assembly include files,\n""")

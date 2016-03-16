@@ -1,0 +1,59 @@
+#! /usr/bin/env python
+
+import os
+from six import iteritems
+
+Import('ENV')
+
+def common_example(env, example_name, alias_name = None, sources = None, link_objects = None, link_args = None, set_options = None):
+  binary = env.File(example_name)
+
+  alias_name = alias_name or example_name
+  link_args = link_args or {}
+  set_options = set_options or ['bootloader:file=%s' % binary.abspath]
+
+  if sources is None:
+    sources = {
+      example_name + '.asm': []
+    }
+
+  # compile
+  objects = []
+  for source, requirements in iteritems(sources):
+    object_name = os.path.splitext(str(source))[0] + '.o'
+
+    env.DuckyObject(object_name, source = [source])
+    env.Depends(object_name, requirements)
+
+    if 'COVERAGEDIR' in env:
+      env.Depends(object_name, env['COVERAGEDIR'])
+
+    objects.append(object_name)
+
+  if link_objects is None:
+    link_objects = objects
+
+  # link
+  env.DuckyBinary(binary, source = link_objects, **link_args)
+  env.Alias(alias_name, binary)
+
+  # run
+  env.Command('.running-' + alias_name, binary, ENV.DuckyRun(config = File(example_name + '.conf'), set_options = set_options))
+  env.Alias('run-' + alias_name, '.running-' + alias_name)
+
+  # add to a list of examples
+  env.Depends('examples', binary)
+
+Export('common_example')
+
+ENV.Help("""
+  ${GREEN}Examples:${CLR}
+     ${BLUE}'scons examples'${CLR} to build all examples,
+""")
+
+ENV.Alias('examples', [])
+
+for dir in sorted([dir for dir in os.listdir('.') if os.path.isdir(dir) and os.path.exists(os.path.join(dir, 'SConscript'))]):
+  SConscript(os.path.join(dir, 'SConscript'))
+
+ENV.OnClean('examples')

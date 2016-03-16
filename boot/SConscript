@@ -1,0 +1,26 @@
+#! /usr/bin/env python
+
+import os
+
+Import('ENV')
+
+E = ENV.FullClone()
+E.PassVarAsDefine('BOOT_IMAGE')
+
+E.DuckyObject('loader.o', source = 'loader.asm')
+E.Depends('loader.o', E.GetDuckyDefine('ducky', 'boot', 'control', 'hdt', 'bio'))
+
+E.DuckyObject('lib.o', source = 'lib.asm')
+E.Depends('lib.o', E.GetDuckyDefine('ducky', 'hdt', 'boot'))
+
+E.DuckyBinary('loader', source = ['loader.o', 'lib.o'], SECTION_BASES = ['.text=0x00000000'])
+ENV.Command('loader.img', 'loader', E.DuckyImage('loader.img', 'loader'))
+
+E.Alias('loader', File('loader'))
+E.Alias('loader-image', File('loader.img'))
+
+E.Help("""
+  ${GREEN}Boot loader:${CLR}
+     ${BLUE}'scons loader'${CLR} to build basic boot loader,
+     ${BLUE}'scons loader-image'${CLR} to build basic boot loader image
+""")
