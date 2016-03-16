@@ -1,4 +1,5 @@
 import collections
+import os
 import sys
 
 from six import iteritems
@@ -7,7 +8,7 @@ from ..mm import u32_t, UINT32_FMT, u16_t, u8_t, UINT8_FMT, MalformedBinaryError
 from ..mm.binary import File, SectionTypes, SymbolEntry, SECTION_ITEM_SIZE, SectionFlags
 from ..cpu.assemble import align_to_next_page, align_to_next_mmap, sizeof
 from ..util import str2int
-from ..errors import UnalignedJumpTargetError, EncodingLargeValueError, IncompatibleLinkerFlagsError
+from ..errors import UnalignedJumpTargetError, EncodingLargeValueError, IncompatibleLinkerFlagsError, UnknownSymbolError
 
 def align_nop(n):
   return n
@@ -272,8 +273,7 @@ def resolve_relocations(logger, info, f_out, f_ins):
           break
 
         else:
-          logger.error('No such symbol: name=%s', s_name)
-          continue
+          raise UnknownSymbolError('No such symbol: name=%s' % s_name)
 
         patch_address = se.address
         if re.flags.relative == 1:
@@ -418,4 +418,10 @@ def main():
 
   except IncompatibleLinkerFlagsError:
     logger.error('All input files must have the same mmapable setting')
+    os.unlink(options.file_out)
+    sys.exit(1)
+
+  except UnknownSymbolError as e:
+    logger.exception(e)
+    os.unlink(options.file_out)
     sys.exit(1)

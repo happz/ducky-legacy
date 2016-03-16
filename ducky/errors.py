@@ -44,3 +44,6 @@ class EncodingLargeValueError(AssemblerError):
 
 class IncompatibleLinkerFlagsError(BaseException):
   pass
+
+class UnknownSymbolError(BaseException):
+  pass
