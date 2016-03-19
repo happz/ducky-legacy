@@ -291,32 +291,25 @@ ENV.Help("""
 
 if 'COVERAGEDIR' in ENV:
   def __add_coverage_cleanup(target, fn):
-    ENV.Command(target, None, fn)
-    ENV.AlwaysBuild(target)
-    ENV.Depends(E['BUILD_TARGET'], target)
+    E.Command(target, None, fn)
+    E.AlwaysBuild(target)
+    E.Depends(E['BUILD_TARGET'], target)
 
   __add_coverage_cleanup('tests-coverage-summary', generate_coverage_summary)
   __add_coverage_cleanup('tests-coverage-report', generate_coverage_report)
 
 
 if 'CIRCLE_TEST_REPORTS' in os.environ:
-  ENV.Alias('tests-submit-results-to-circle', [])
-  ENV.AlwaysBuild('tests-submit-results-to-circle')
-  ENV.Depends('tests', 'tests-submit-results-to-circle')
+  submitted_file = os.path.join(os.environ['CIRCLE_TEST_REPORTS'], 'junit', E.subst('$RAW_TESTSETDIR-${TESTSETID}.xml'))
+  E.Command(submitted_file, None, Copy(submitted_file, E['RESULTSFILE']))
 
-  for f in result_files:
-    submitted_file = os.path.join(os.environ['CIRCLE_TEST_REPORTS'], 'junit', ENV.subst('$RAW_TESTSETDIR-$TESTSETID-%s') % os.path.split(f)[1])
-
-    ENV.Command(submitted_file, None, Copy("$TARGET", f))
-    ENV.Depends('tests-submit-results-to-circle', submitted_file)
+  E.Depends(E['BUILD_TARGET'], submitted_file)
 
 if 'CIRCLE_ARTIFACTS' in os.environ:
-  submitted_dir = os.path.join(os.environ['CIRCLE_ARTIFACTS'], ENV.subst('$RAW_TESTSETDIR-$TESTSETID'))
+  submitted_dir = os.path.join(os.environ['CIRCLE_ARTIFACTS'], E.subst('$RAW_TESTSETDIR-$TESTSETID'))
+  E.Command(submitted_dir, None, Copy("$TARGET", "$TESTSETDIR"))
 
-  ENV.Command(submitted_dir, None, Copy("$TARGET", "$TESTSETDIR"))
-  ENV.Alias('tests-submit-artifacts-to-circle', submitted_dir)
-  ENV.AlwaysBuild('tests-submit-artifacts-to-circle')
-  ENV.Depends('tests', 'tests-submit-artifacts-to-circle')
+  E.Depends(E['BUILD_TARGET'], submitted_dir)
 
 ENV.OnClean('tests')
 ENV.Clean('tests', Glob('#/tests-*'))
