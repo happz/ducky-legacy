@@ -58,7 +58,7 @@ PROTECTED_REGISTERS = [
 FLAGS = Registers.REGISTER_COUNT.value + 100
 
 GENERAL_REGISTERS   = [r for r in Registers if r.value < Registers.REGISTER_SPECIAL.value]
-RESETABLE_REGISTERS = [r for r in Registers if r not in (Registers.REGISTER_SPECIAL, Registers.REGISTER_COUNT)]
+RESETABLE_REGISTERS = [r for r in Registers if r.value < Registers.CNT]
 
 REGISTER_NAMES = ['r{}'.format(r.value) for r in Registers if r.value < Registers.REGISTER_SPECIAL.value] + ['fp', 'sp', 'ip', 'cnt']
 

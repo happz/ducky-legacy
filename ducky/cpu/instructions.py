@@ -552,16 +552,18 @@ def RI_ADDR(core, inst, reg):
 
 def JUMP(core, inst):
   core.DEBUG('JUMP: inst=%s', inst)
+  core.DEBUG('  IP=%s', UINT32_FMT(core.registers.ip.value))
 
   if inst.immediate_flag == 0:
+    core.DEBUG('  register=%d, value=%s', inst.reg, UINT32_FMT(core.registers.map[inst.reg].value))
     core.registers.ip.value = core.registers.map[inst.reg].value
 
   else:
     v = inst.sign_extend_immediate(core.LOGGER, inst)
     nip = u32_t(core.registers.ip.value)
-    nip.value += v
+    nip.value += (v << 2)
     core.DEBUG('  offset=%s, aligned=%s, ip=%s, new=%s', UINT32_FMT(v), UINT32_FMT(v << 2), UINT32_FMT(core.registers.ip.value), UINT32_FMT(nip.value))
-    core.registers.ip.value += (v << 2)
+    core.registers.ip.value = nip.value
 
   core.DEBUG('JUMP: new ip=%s', UINT32_FMT(core.registers.ip.value))
 
@@ -933,9 +935,6 @@ class _BINOP(Descriptor_R_RI):
     if v > 0xFFFFFFFF:
       core.arith_overflow = True
 
-    if v < 0:
-      core.arith_sign = True
-
 class ADD(_BINOP):
   mnemonic = 'add'
   opcode = DuckyOpcodes.ADD
@@ -1015,7 +1014,7 @@ class _BRANCH(_COND):
     logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
     if 'register_n0' in operands:
-      ENCODE(logger, buffer, inst, 'reg1', 5, operands['register_n0'])
+      ENCODE(logger, buffer, inst, 'reg', 5, operands['register_n0'])
 
     else:
       v = operands['immediate']
@@ -1375,21 +1374,25 @@ class _BITOP(Descriptor_R_RI):
     v = RI_VAL(core, inst, 'reg2')
 
     if inst.opcode == DuckyOpcodes.AND:
-      r.value &= v
+      value = r.value & v
 
     elif inst.opcode == DuckyOpcodes.OR:
-      r.value |= v
+      value = r.value | v
 
     elif inst.opcode == DuckyOpcodes.XOR:
-      r.value ^= v
+      value = r.value ^ v
 
     elif inst.opcode == DuckyOpcodes.SHIFTL:
-      r.value <<= v
+      value = r.value << min(v, 32)
 
     elif inst.opcode == DuckyOpcodes.SHIFTR:
-      r.value >>= v
+      value = r.value >> min(v, 32)
 
+    r.value = value
     update_arith_flags(core, r)
+
+    if value > 0xFFFFFFFF:
+      core.arith_overflow = True
 
 class AND(_BITOP):
   mnemonic = 'and'
