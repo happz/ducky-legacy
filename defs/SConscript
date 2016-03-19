@@ -5,7 +5,7 @@ from functools import partial
 from mako.template import Template
 from six import print_
 
-Import('ENV')
+Import('ENV', 'DuckyCommand')
 
 def __create_define_file(env, src, dst):
   def _X(i, padding = None):
@@ -29,10 +29,13 @@ def __create_define_file(env, src, dst):
   return ''
 
 def create_define_file(source, target, env):
-  source = str(source[0])
-  target = str(target[0])
+  cmd = DuckyCommand(env)
+  cmd.command = env.subst('$VIRTUAL_ENV/bin/ducky-defs -i {source} -o {target}'.format(source = str(source[0]), target = str(target[0])))
 
-  return env.RunSomething('DEFINE', target, __create_define_file, env, source, target)
+  if 'COVERAGEDIR' in env:
+    cmd.wrap_by_coverage(env)
+
+  return cmd.run(env, 'DEFINE', target[0])
 
 E = ENV.FullClone(
   BUILDERS = {

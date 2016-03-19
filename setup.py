@@ -90,7 +90,8 @@ setup(name = 'ducky',
           'ducky-objdump = ducky.tools.objdump:main',
           'ducky-coredump = ducky.tools.coredump:main',
           'ducky-profile = ducky.tools.profile:main',
-          'ducky-img = ducky.tools.img:main'
+          'ducky-img = ducky.tools.img:main',
+          'ducky-defs = ducky.tools.defs:main'
         ]
       },
       package_dir = {'ducky': 'ducky'},
