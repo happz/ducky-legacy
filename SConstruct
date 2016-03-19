@@ -402,8 +402,8 @@ def __clone_env(self, *args, **kwargs):
 
 def print_info(source, target, env):
   env.INFO('Build stamp:           %s' % env['BUILD_STAMP'])
-  env.INFO('SCONS is using Python: %s (%s)' % (ENV['SCONS_PYTHON'], ENV['SCONS_PYTHON_VERSION']))
-  env.INFO('Default Python:        %s (%s)' % (ENV['PYTHON'], ENV['PYTHON_VERSION']))
+  env.INFO('SCONS is using Python: %s (%s)' % (ENV['SCONS_PYTHON'], ENV['SCONS_PYTHON_NAME']))
+  env.INFO('Default Python:        %s (%s)' % (ENV['PYTHON'], ENV['PYTHON_NAME']))
 
   if 'TESTSETDIR' in env:
     env.INFO('Test set dir:          %s' % ENV['TESTSETDIR'])
@@ -514,11 +514,13 @@ ENV = Environment(
 
   # Python version running scons
   SCONS_PYTHON = sys.executable,
-  SCONS_PYTHON_VERSION = sys.version.replace('\n', ' '),
+  SCONS_PYTHON_NAME = sys.version.replace('\n', ' '),
+  SCONS_PYTHON_VERSION = sys.version_info,
 
   # Python version provided by virtualenv
   PYTHON = subprocess.check_output('type python', shell = True).split('\n')[0].split(' ')[2].strip(),
-  PYTHON_VERSION = subprocess.check_output('python -c "import sys; print sys.version"', shell = True).replace('\n', ' ').strip(),
+  PYTHON_NAME = subprocess.check_output('python -c "from __future__ import print_function; import sys; print(sys.version)"', shell = True).replace('\n', ' ').strip(),
+  PYTHON_VERSION = eval(subprocess.check_output('python -c "from __future__ import print_function; import sys; print(list(sys.version_info))"', shell = True))
 )
 
 # Clone ENV to ENV, to add our methods
@@ -582,7 +584,7 @@ ENV.Help("""
 
 # Generic info and usefull stuff
 ENV.Command('info', None, print_info)
-ENV.Help("""     ${BLUE}'scons info'${CLR} to gather information about environment,\n""", append = True)
+ENV.Help("""     ${BLUE}'scons info'${CLR} to gather information about environment,\n""")
 
 # Defines
 SConscript(os.path.join('defs', 'SConscript'))

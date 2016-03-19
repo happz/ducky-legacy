@@ -17,9 +17,14 @@ def __create_define_file(env, src, dst):
   X4 = partial(_X, padding = 4)
   X8 = partial(_X, padding = 8)
 
+  import sys
+  sys.path = ['.'] + sys.path
+
   with open(src, 'r') as f_in:
     with open(dst, 'w') as f_out:
       print_(Template(f_in.read()).render(X = X, X2 = X2, X4 = X4, X8 = X8), file = f_out)
+
+  sys.path.pop(0)
 
   return ''
 

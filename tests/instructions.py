@@ -52,6 +52,8 @@ def setup():
   BUFFER = SimpleBuffer()
 
 def sign_extend(sign_mask, ext_mask, value):
+  LOGGER.debug('sign_extend: sign_mask=%s, ext_mas=%s, value=%s', sign_mask, ext_mask, value)
+
   return u32_t(ext_mask | value).value if value & sign_mask else u32_t(value).value
 
 sign_extend15 = partial(sign_extend, 0x4000,  0xFFFF8000)
@@ -210,7 +212,7 @@ def __base_branch_test_immediate(state, offset, inst_class = None, cond = None):
 
   inst = encode_inst(inst_class, {'immediate': offset})
 
-  expected_value = ((state.ip + sign_extend16(offset / 4) * 4) % (2 ** 32)) if cond(state) else state.ip
+  expected_value = ((state.ip + sign_extend16(offset // 4) * 4) % (2 ** 32)) if cond(state) else state.ip
 
   state.reset()
 
@@ -593,7 +595,7 @@ def test_call_immediate(state, ip, offset):
 
   inst = encode_inst(CALL, {'immediate': offset})
 
-  expected_value = (ip + sign_extend20(offset / 4) * 4) % (2 ** 32)
+  expected_value = (ip + sign_extend20(offset // 4) * 4) % (2 ** 32)
 
   state.reset()
   CORE.registers.ip.value = ip
@@ -1132,7 +1134,7 @@ def test_j_immediate(state, ip, offset):
 
   inst = encode_inst(J, {'immediate': offset})
 
-  expected_value = (ip + sign_extend20(offset / 4) * 4) % (2 ** 32)
+  expected_value = (ip + sign_extend20(offset // 4) * 4) % (2 ** 32)
 
   state.reset()
   CORE.registers.ip.value = ip

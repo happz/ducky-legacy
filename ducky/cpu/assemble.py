@@ -767,6 +767,7 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
 
         except IOError:
           DEBUG('    failed to read')
+          pass  # "empty body on ExceptHandler" without this, because of patching
 
         else:
           DEBUG('    read as replacement')

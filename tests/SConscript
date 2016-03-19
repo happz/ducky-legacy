@@ -51,23 +51,29 @@ def run_testsuite(env, target, source, tests = None):
 
   cmd.env['HYPOTHESIS_PROFILE'] = GetOption('hypothesis_profile')
 
-  cmd.command = env.subst(""" \\
-    $VIRTUAL_ENV/bin/nosetests -v \\
-      --all-modules \\
-      --no-path-adjustment \\
-      --with-xunit --xunit-file=$RESULTSFILE --xunit-testsuite-name=testsuite-$TESTSETID \\
-      --with-html --html-report=$REPORTFILE \\
-      {coverage_flags} \\
-      --tc-file=$CONFIGFILE \\
-      --rednose \\
-      -w $TESTSDIR {tests}""".format(
-        coverage_flags = coverage_flags,
-        tests = ' '.join(tests)))
+  cmdline = [
+    '$VIRTUAL_ENV/bin/nosetests',
+    '-v',
+    '--all-modules',
+    '--no-path-adjustment',
+    '--with-xunit --xunit-file=$RESULTSFILE --xunit-testsuite-name=testsuite-$TESTSETID',
+    coverage_flags,
+    '--tc-file=$CONFIGFILE',
+    '--rednose',
+    '-w $TESTSDIR'
+  ]
+
+  if env['PYTHON_VERSION'][0] < 3:
+    cmdline.append('--with-html --html-report=$REPORTFILE')
+
+  cmdline.append(' '.join(tests))
+
+  cmd.command = env.subst(' '.join(cmdline))
 
   return cmd.run(env, 'TEST', 'Testsuite')
 
 def run_testsuite_engine(env, target, source):
-  #return run_testsuite(env, target, source, tests = ['cpu', 'devices', 'instructions', 'mm', 'storage'])
+  return run_testsuite(env, target, source, tests = ['cpu', 'devices', 'instructions', 'mm', 'storage'])
   return run_testsuite(env, target, source, tests = ['instructions'])
 
 def run_testsuite_forth_units(env, target, source):
