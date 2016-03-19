@@ -6,7 +6,7 @@ dependencies:
   pre:
     - pip install --upgrade pip
     - pip install tox tox-pyenv virtualenv
-    - sudo apt-get update; sudo apt-get install scons
+    - sudo apt-get update; sudo apt-get install scons python-mako
     - pyenv local 2.7.10 3.3.3 3.4.3 3.5.0 pypy-2.5.0
 
 test:
