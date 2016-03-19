@@ -39,6 +39,10 @@ def common_example(env, example_name, alias_name = None, sources = None, link_ob
 
   # run
   env.Command('.running-' + alias_name, binary, ENV.DuckyRun(config = File(example_name + '.conf'), set_options = set_options))
+
+  if 'PROFILEDIR' in env:
+    env.Depends(binary, ENV['PROFILEDIR'])
+
   env.Alias('run-' + alias_name, '.running-' + alias_name)
 
   # add to a list of examples

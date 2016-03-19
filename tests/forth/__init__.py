@@ -27,11 +27,14 @@ def run_forth_vm(out = None, machine = None, options = None, diff_expected = Non
 
   env = os.environ.copy()
 
-  if 'COVERAGE_FILE' in os.environ:
+  if config['options']['coverage'] == 'yes':
     assert coverage_name is not None
 
     cmd[0] = '%s %s' % (config['vm-runner']['coverage'], cmd[0])
     env['COVERAGE_FILE'] = '%s.%s' % (env['COVERAGE_FILE'], coverage_name)
+
+  if config['options']['profile'] == 'yes':
+    cmd.append('-p -P %s' % config['dirs']['profile'])
 
   cmd[0] = '%s %s' % (config['vm-runner']['runner'], cmd[0])
 

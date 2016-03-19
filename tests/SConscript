@@ -25,14 +25,22 @@ logs  = $LOGDIR
 examples = $EXAMPLESDIR
 loader   = $LOADERDIR
 snapshot = $SNAPSHOTDIR
+{coveragedir}
+{profiledir}
 
 [vm-runner]
 runner   = $PYTHON
 ducky-vm = $VIRTUAL_ENV/bin/ducky-vm
 ducky-cc = $VIRTUAL_ENV/bin/ducky-cc
 coverage = $VIRTUAL_ENV/bin/coverage run --rcfile=$TOPDIR/coveragerc
-""")
 
+[options]
+coverage = {coverage}
+profile = {profile}
+""".format(coverage = 'yes' if 'COVERAGEDIR' in env else 'no',
+           coveragedir = ('coverage = %s' % env['COVERAGEDIR']) if 'COVERAGEDIR' in env else '',
+           profile = 'yes' if 'PROFILEDIR' in env else 'no',
+           profiledir = ('profile = %s' % env['PROFILEDIR']) if 'PROFILEDIR' in env else ''))
 
 def run_testsuite(env, target, source, tests = None):
   tests = tests or []
@@ -48,6 +56,9 @@ def run_testsuite(env, target, source, tests = None):
   if 'COVERAGEDIR' in env:
     coverage_flags = '--with-coverage --cover-branches --cover-package=ducky'
     cmd.env['COVERAGE_FILE'] = env.subst(os.path.join(env['COVERAGEDIR'], '.coverage.testsuite'))
+
+  if GetOption('jit') is True:
+    cmd.env['JIT'] = 'yes'
 
   cmd.env['HYPOTHESIS_PROFILE'] = GetOption('hypothesis_profile')
 
@@ -190,6 +201,9 @@ if 'TESTSETDIR' in E:
 
   if 'COVERAGEDIR' in E:
     common_requirements.append(E['COVERAGEDIR'])
+
+  if 'PROFILEDIR' in E:
+    common_requirements.append(E['PROFILEDIR'])
 
   E.Command(E['CONFIGFILE'], None, create_testsuite_config)
 

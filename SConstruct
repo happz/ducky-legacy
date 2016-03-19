@@ -50,6 +50,12 @@ AddOption('--testset-dir',
           metavar = 'NAME',
           help = 'Store test results in this test set')
 
+AddOption('--with-jit',
+          dest = 'jit',
+          action = 'store_true',
+          default = False,
+          help = 'Run with JIT enabled')
+
 AddOption('--with-coverage',
           dest = 'coverage',
           action = 'store_true',
@@ -300,6 +306,9 @@ class DuckyCommand(object):
     self.env['COVERAGE_FILE'] = env.subst('$COVERAGEDIR/.coverage.' + hashlib.sha256(self.command.replace(' ', '-').replace('/', '-')).hexdigest())
     self.runner = self.runner + ' ' + env.subst('$VIRTUAL_ENV/bin/coverage run --rcfile=$TOPDIR/coveragerc')
 
+  def wrap_by_profiling(self, env):
+    self.command += ' ' + env.subst('-p -P $PROFILEDIR')
+
 def __compile_ducky_object(source, target, env):
   cmd = DuckyCommand(env)
   cmd.command = env.subst('$VIRTUAL_ENV/bin/ducky-as {inputs} {defines} {includes} -o {target}'.format(
@@ -345,6 +354,12 @@ def __run_ducky_binary(self, config, set_options = None, goon = True, expected_e
 
   if 'COVERAGEDIR' in self:
     cmd.wrap_by_coverage(self)
+
+  if 'PROFILEDIR' in self:
+    cmd.wrap_by_profiling(self)
+
+  if GetOption('jit'):
+    cmd.env['JIT'] = 'yes'
 
   return partial(_run_ducky_binary, cmd = cmd, expected_exit = expected_exit)
 
@@ -576,6 +591,16 @@ if ENV['BUILD_TARGET'].startswith('tests'):
 
   print_info(None, None, ENV)
 
+else:
+  if GetOption('coverage') is True:
+    ENV.Append(COVERAGEDIR = Dir('coverage').abspath)
+    ENV.Command(ENV['COVERAGEDIR'], None, Mkdir(ENV['COVERAGEDIR']))
+
+  if GetOption('profiling') is True:
+    ENV.Append(PROFILEDIR  = Dir('profile').abspath)
+    ENV.Command(ENV['PROFILEDIR'], None, Mkdir(ENV['PROFILEDIR']))
+
+
 Export('ENV', 'GREEN', 'RED', 'DuckyCommand')
 
 ENV.Help("""
@@ -627,6 +652,7 @@ ENV.Help("""
     --testset=NAME              Store test results in this test set.
     --with-coverage             Run tests with coverage enabled.
     --with-profiling            Run tests with profiling enabled.
+    --with-jit                  Run with JIT enabled.
     --pass-testsuite-output     If set, output of testsuites will be passed
                                     directly to stdout/stderr.
     --hypothesis-profile        Set Hypothesis profile to PROFILE ("Default" by default)

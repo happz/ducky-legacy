@@ -352,6 +352,9 @@ class Machine(ISnapshotable, IMachineWorker):
     self.INFO('Ducky VM, version %s', __version__)
     self.INFO('Running on %s', sys.version.replace('\n', ' '))
 
+    if self.config.getbool('machine', 'jit', False) is True:
+      self.INFO('JIT enabled')
+
     self.DEBUG('Machine.boot')
 
     self.events.add_listener('on-core-alive', self.on_core_alive)

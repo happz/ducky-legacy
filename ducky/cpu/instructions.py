@@ -2,12 +2,13 @@ import ctypes
 import enum
 import re
 import sys
+import types
 
-from six import integer_types, string_types, add_metaclass
+from six import integer_types, string_types, add_metaclass, exec_
 from six.moves import range
 from functools import partial
 
-from .registers import Registers, REGISTER_NAMES
+from .registers import Registers, REGISTER_NAMES, FLAGS
 from ..mm import u32_t, i32_t, UINT16_FMT, UINT32_FMT
 from ..util import str2int
 from ..errors import EncodingLargeValueError, UnalignedJumpTargetError
@@ -218,6 +219,10 @@ class Descriptor(object):
     self.pattern = re.compile(pattern, re.MULTILINE)
 
     self.instruction_set.instructions.append(self)
+
+  @staticmethod
+  def jit(core, inst):
+    return None
 
   @staticmethod
   def execute(core, inst):
@@ -765,6 +770,26 @@ class J(_JUMP):
   def execute(core, inst):
     JUMP(core, inst)
 
+  @staticmethod
+  def jit(core, inst):
+    ip = core.registers.ip
+
+    if inst.immediate_flag == 0:
+      reg = core.registers.map[inst.reg]
+
+      def __jit_j():
+        ip.value = reg.value
+
+      return __jit_j
+
+    else:
+      i = inst.sign_extend_immediate(core.LOGGER, inst) << 2
+
+      def __jit_j():
+        ip.value += i
+
+      return __jit_j
+
 class RET(Descriptor):
   mnemonic = 'ret'
   opcode   = DuckyOpcodes.RET
@@ -857,6 +882,26 @@ class PUSH(Descriptor_RI):
   def execute(core, inst):
     core.raw_push(RI_VAL(core, inst, 'reg'))
 
+  @staticmethod
+  def jit(core, inst):
+    push = core.raw_push
+
+    if inst.immediate_flag == 0:
+      reg = core.registers.map[inst.reg]
+
+      def __jit_push():
+        push(reg.value)
+
+      return __jit_push
+
+    else:
+      i = inst.sign_extend_immediate(core.LOGGER, inst)
+
+      def __jit_push():
+        push(i)
+
+      return __jit_push
+
 class POP(Descriptor_R):
   mnemonic = 'pop'
   opcode = DuckyOpcodes.POP
@@ -866,6 +911,26 @@ class POP(Descriptor_R):
     core.pop(inst.reg1)
     update_arith_flags(core, core.registers.map[inst.reg1])
 
+  @staticmethod
+  def jit(core, inst):
+    pop = core.raw_pop
+
+    if inst.reg1 == FLAGS:
+      def __jit_pop():
+        core.flags = CoreFlags.from_int(pop())
+
+      return __jit_pop
+
+    else:
+      reg = core.registers.map[inst.reg1]
+
+      def __jit_pop():
+        reg.value = v = pop()
+        core.arith_zero = v == 0
+        core.arith_overflow = False
+        core.arith_sign = (v & 0x80000000) != 0
+
+      return __jit_pop
 
 #
 # Arithmetic
@@ -939,13 +1004,98 @@ class ADD(_BINOP):
   mnemonic = 'add'
   opcode = DuckyOpcodes.ADD
 
+  @staticmethod
+  def jit(core, inst):
+    core.DEBUG('JIT: %s', inst)
+
+    if inst.immediate_flag == 1:
+      reg = core.registers.map[inst.reg1]
+      i = inst.sign_extend_immediate(core.LOGGER, inst)
+
+      def __jit_add():
+        reg.value = v = reg.value + i
+        core.DEBUG('reg=0x%08X, v=0x%08X', reg.value, v)
+        core.arith_zero = reg.value == 0
+        core.arith_overflow = v > 0xFFFFFFFF
+        core.arith_sign = (v & 0x80000000) != 0
+
+      return __jit_add
+
+    else:
+      reg1 = core.registers.map[inst.reg1]
+      reg2 = core.registers.map[inst.reg2]
+
+      def __jit_add():
+        reg1.value = v = reg1.value + reg2.value
+        core.arith_zero = reg1.value == 0
+        core.arith_overflow = v > 0xFFFFFFFF
+        core.arith_sign = (v & 0x80000000) != 0
+
+      return __jit_add
+
 class SUB(_BINOP):
   mnemonic = 'sub'
   opcode = DuckyOpcodes.SUB
 
+  @staticmethod
+  def jit(core, inst):
+    core.DEBUG('JIT: %s', inst)
+
+    if inst.immediate_flag == 1:
+      reg = core.registers.map[inst.reg1]
+      i = inst.sign_extend_immediate(core.LOGGER, inst)
+
+      def __jit_sub():
+        reg.value = v = reg.value - i
+        core.arith_zero = reg.value == 0
+        core.arith_overflow = v > 0xFFFFFFFF
+        core.arith_sign = (v & 0x80000000) != 0
+
+      return __jit_sub
+
+    else:
+      reg1 = core.registers.map[inst.reg1]
+      reg2 = core.registers.map[inst.reg2]
+
+      def __jit_sub():
+        reg1.value = v = reg1.value - reg2.value
+        core.arith_zero = reg1.value == 0
+        core.arith_overflow = v > 0xFFFFFFFF
+        core.arith_sign = (v & 0x80000000) != 0
+
+      return __jit_sub
+
 class MUL(_BINOP):
   mnemonic = 'mul'
   opcode = DuckyOpcodes.MUL
+
+  @staticmethod
+  def jit(core, inst):
+    core.DEBUG('JIT: %s', inst)
+
+    if inst.immediate_flag == 1:
+      reg = core.registers.map[inst.reg1]
+      i = i32_t(inst.sign_extend_immediate(core.LOGGER, inst)).value
+
+      def __jit_mul():
+        reg.value = v = i32_t(reg.value).value * i
+        core.arith_zero = reg.value == 0
+        core.arith_overflow = v > 0xFFFFFFFF
+        core.arith_sign = (v & 0x80000000) != 0
+
+      return __jit_mul
+
+    else:
+      reg1 = core.registers.map[inst.reg1]
+      reg2 = core.registers.map[inst.reg2]
+
+      def __jit_mul():
+        reg1.value = v = i32_t(reg1.value).value * i32_t(reg2.value).value
+        core.arith_zero = reg1.value == 0
+        core.arith_overflow = v > 0xFFFFFFFF
+        core.arith_sign = (v & 0x80000000) != 0
+
+      return __jit_mul
 
 class DIV(_BINOP):
   mnemonic = 'div'
@@ -1098,6 +1248,145 @@ class _BRANCH(_COND):
     if _COND.evaluate(core, inst):
       JUMP(core, inst)
 
+  @staticmethod
+  def jit(core, inst):
+    core.DEBUG('JIT: %s', inst)
+
+    if inst.immediate_flag == 1:
+      i = inst.sign_extend_immediate(core.LOGGER, inst) << 2
+
+    else:
+      reg = core.registers.map[inst.reg]
+
+    ip = core.registers.ip
+
+    if inst.flag in _COND.GFLAGS:
+      if inst.flag == 0:
+        if inst.value == 0:
+          if inst.immediate_flag == 0:
+            def __branch_ne():
+              if core.arith_equal is False:
+                ip.value = reg.value
+
+            return __branch_ne
+
+          else:
+            def __branch_ne():
+              if core.arith_equal is False:
+                ip.value += i
+
+            return __branch_ne
+
+        else:
+          if inst.immediate_flag == 0:
+            def __branch_e():
+              if core.arith_equal is True:
+                ip.value = reg.value
+
+            return __branch_e
+
+          else:
+            def __branch_e():
+              if core.arith_equal is True:
+                ip.value += i
+
+            return __branch_e
+
+      elif inst.flag == 1:
+        if inst.value == 0:
+          if inst.immediate_flag == 0:
+            def __branch_nz():
+              if core.arith_zero is False:
+                ip.value = reg.value
+
+            return __branch_nz
+
+          else:
+            def __branch_nz():
+              if core.arith_zero is False:
+                ip.value += i
+
+            return __branch_nz
+
+        else:
+          if inst.immediate_flag == 0:
+            def __branch_z():
+              if core.arith_zero is True:
+                ip.value = reg.value
+
+            return __branch_z
+
+          else:
+            def __branch_z():
+              if core.arith_zero is True:
+                ip.value += i
+
+            return __branch_z
+
+      elif inst.flag == 2:
+        if inst.value == 0:
+          if inst.immediate_flag == 0:
+            def __branch_no():
+              if core.arith_overflow is False:
+                ip.value = reg.value
+
+            return __branch_no
+
+          else:
+            def __branch_no():
+              if core.arith_overflow is False:
+                ip.value += i
+
+            return __branch_no
+
+        else:
+          if inst.immediate_flag == 0:
+            def __branch_o():
+              if core.arith_overflow is True:
+                ip.value = reg.value
+
+            return __branch_o
+
+          else:
+            def __branch_o():
+              if core.arith_overflow is True:
+                ip.value += i
+
+            return __branch_o
+
+      elif inst.flag == 3:
+        if inst.value == 0:
+          if inst.immediate_flag == 0:
+            def __branch_ns():
+              if core.arith_sign is False:
+                ip.value = reg.value
+
+            return __branch_ns
+
+          else:
+            def __branch_ns():
+              if core.arith_sign is False:
+                ip.value += i
+
+            return __branch_ns
+
+        else:
+          if inst.immediate_flag == 0:
+            def __branch_s():
+              if core.arith_sign is True:
+                ip.value = reg.value
+
+            return __branch_s
+
+          else:
+            def __branch_s():
+              if core.arith_sign is True:
+                ip.value += i
+
+            return __branch_s
+
+    return None
+
 class _SET(_COND):
   operands = 'r'
   opcode = DuckyOpcodes.SET
@@ -1207,6 +1496,55 @@ class CMP(_CMP):
   @staticmethod
   def execute(core, inst):
     _CMP.evaluate(core, core.registers.map[inst.reg1].value, RI_VAL(core, inst, 'reg2'))
+
+  @staticmethod
+  def jit(core, inst):
+
+    if inst.immediate_flag == 0:
+      reg1 = core.registers.map[inst.reg1]
+      reg2 = core.registers.map[inst.reg2]
+
+      def __jit_cmp():
+        x = reg1.value
+        y = reg2.value
+
+        core.arith_overflow = False
+
+        if x == y:
+          core.arith_equal = True
+          core.arith_zero = x == 0
+          core.arith_sign = False
+          return
+
+        core.arith_equal = False
+        core.arith_zero  = False
+        core.arith_sign = i32_t(x).value < i32_t(y).value
+
+      return __jit_cmp
+
+    else:
+      reg = core.registers.map[inst.reg1]
+      y = inst.sign_extend_immediate(core.LOGGER, inst)
+      y_signed = i32_t(y).value
+
+      def __jit_cmp():
+        x = reg.value
+
+        core.arith_overflow = False
+
+        if x == y:
+          core.arith_equal = True
+          core.arith_zero = x == 0
+          core.arith_sign = False
+          return
+
+        core.arith_equal = False
+        core.arith_zero  = False
+        core.arith_sign = i32_t(x).value < y_signed
+
+      return __jit_cmp
+
+    return None
 
 class CMPU(_CMP):
   mnemonic = 'cmpu'
@@ -1515,6 +1853,112 @@ class _LOAD(Descriptor):
 
     update_arith_flags(core, r)
 
+  @staticmethod
+  def jit(core, inst):
+    reg1 = core.registers.map[inst.reg1]
+    reg2 = core.registers.map[inst.reg2]
+
+    if inst.opcode == DuckyOpcodes.LW:
+      reader = core.MEM_IN32
+
+      if inst.immediate_flag == 1:
+        offset = inst.sign_extend_immediate(core.LOGGER, inst)
+
+        if offset == 0:
+          def __jit_lw():
+            reg1.value = v = reader(reg2.value)
+            core.arith_zero = v == 0
+            core.arith_overflow = False
+            core.arith_sign = (v & 0x80000000) != 0
+
+          return __jit_lw
+
+        else:
+          def __jit_lw():
+            reg1.value = v = reader(reg2.value + offset)
+            core.arith_zero = v == 0
+            core.arith_overflow = False
+            core.arith_sign = (v & 0x80000000) != 0
+
+          return __jit_lw
+
+      else:
+        def __jit_lw():
+          reg1.value = v = reader(reg2.value)
+          core.arith_zero = v == 0
+          core.arith_overflow = False
+          core.arith_sign = (v & 0x80000000) != 0
+
+        return __jit_lw
+
+    elif inst.opcode == DuckyOpcodes.LS:
+      reader = core.MEM_IN16
+
+      if inst.immediate_flag == 1:
+        offset = inst.sign_extend_immediate(core.LOGGER, inst)
+
+        if offset == 0:
+          def __jit_ls():
+            reg1.value = v = reader(reg2.value)
+            core.arith_zero = v == 0
+            core.arith_overflow = False
+            core.arith_sign = False
+
+          return __jit_ls
+
+        else:
+          def __jit_ls():
+            reg1.value = v = reader(reg2.value + offset)
+            core.arith_zero = v == 0
+            core.arith_overflow = False
+            core.arith_sign = False
+
+          return __jit_ls
+
+      else:
+        def __jit_ls():
+          reg1.value = v = reader(reg2.value)
+          core.arith_zero = v == 0
+          core.arith_overflow = False
+          core.arith_sign = False
+
+        return __jit_ls
+
+    elif inst.opcode == DuckyOpcodes.LB:
+      reader = core.MEM_IN8
+
+      if inst.immediate_flag == 1:
+        offset = inst.sign_extend_immediate(core.LOGGER, inst)
+
+        if offset == 0:
+          def __jit_lb():
+            reg1.value = v = reader(reg2.value)
+            core.arith_zero = v == 0
+            core.arith_overflow = False
+            core.arith_sign = False
+
+          return __jit_lb
+
+        else:
+          def __jit_lb():
+            reg1.value = v = reader(reg2.value + offset)
+            core.arith_zero = v == 0
+            core.arith_overflow = False
+            core.arith_sign = False
+
+          return __jit_lb
+
+      else:
+        def __jit_lb():
+          reg1.value = v = reader(reg2.value)
+          core.arith_zero = v == 0
+          core.arith_overflow = False
+          core.arith_sign = False
+
+        return __jit_lb
+
+    return None
+
 class _STORE(Descriptor):
   operands = 'a,r'
   encoding = EncodingR
@@ -1588,6 +2032,31 @@ class LI(_LOAD_IMM):
   def load(cls, core, inst):
     core.registers.map[inst.reg].value = inst.sign_extend_immediate(core.LOGGER, inst)
 
+  @staticmethod
+  def jit(core, inst):
+    reg = core.registers.map[inst.reg]
+    i = inst.sign_extend_immediate(core.LOGGER, inst)
+
+    if i == 0:
+      def __jit_li():
+        reg.value = 0
+        core.arith_zero = True
+        core.arith_overflow = False
+        core.arith_sign = False
+
+      return __jit_li
+
+    else:
+      sign = (i & 0x80000000) != 0
+
+      def __jit_li():
+        reg.value = i
+        core.arith_zero = False
+        core.arith_overflow = False
+        core.arith_sign = sign
+
+      return __jit_li
+
 class LIU(_LOAD_IMM):
   mnemonic = 'liu'
   opcode   = DuckyOpcodes.LIU
@@ -1606,6 +2075,30 @@ class LA(_LOAD_IMM):
   @classmethod
   def load(cls, core, inst):
     core.registers.map[inst.reg].value = core.registers.ip.value + inst.sign_extend_immediate(core.LOGGER, inst)
+
+  @staticmethod
+  def jit(core, inst):
+    reg = core.registers.map[inst.reg]
+    ip = core.registers.ip
+    offset = inst.sign_extend_immediate(core.LOGGER, inst)
+
+    if offset == 0:
+      def __jit_la():
+        reg.value = v = ip.value
+        core.arith_zero = v == 0
+        core.arith_overflow = False
+        core.arith_sign = (v & 0x80000000) != 0
+
+      return __jit_la
+
+    else:
+      def __jit_la():
+        reg.value = v = ip.value + offset
+        core.arith_zero = v == 0
+        core.arith_overflow = False
+        core.arith_sign = (v & 0x80000000) != 0
+
+      return __jit_la
 
 class STW(_STORE):
   mnemonic = 'stw'
@@ -1628,6 +2121,16 @@ class MOV(Descriptor_R_R):
   def execute(core, inst):
     core.registers.map[inst.reg1].value = core.registers.map[inst.reg2].value
 
+  @staticmethod
+  def jit(core, inst):
+    reg1 = core.registers.map[inst.reg1]
+    reg2 = core.registers.map[inst.reg2]
+
+    def __jit_mov():
+      reg1.value = reg2.value
+
+    return __jit_mov
+
 class SWP(Descriptor_R_R):
   mnemonic = 'swp'
   opcode = DuckyOpcodes.SWP
@@ -1639,6 +2142,16 @@ class SWP(Descriptor_R_R):
     r2 = core.registers.map[inst.reg2]
 
     r1.value, r2.value = r2.value, r1.value
+
+  @staticmethod
+  def jit(core, inst):
+    reg1 = core.registers.map[inst.reg1]
+    reg2 = core.registers.map[inst.reg2]
+
+    def __jit_swp():
+      reg1.value, reg2.value = reg2.value, reg1.value
+
+    return __jit_swp
 
 #
 # Control instructions

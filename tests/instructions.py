@@ -22,7 +22,6 @@ settings.register_profile('CI', settings(max_examples = 1000))
 
 settings.load_profile(os.environ.get('HYPOTHESIS_PROFILE', 'Default'))
 
-
 CORE = None
 LOGGER = logging.getLogger()
 BUFFER = None
@@ -67,6 +66,25 @@ def encode_inst(desc, operands):
   LOGGER.debug('TEST: inst=%s' % DuckyInstructionSet.disassemble_instruction(LOGGER, inst))
 
   return inst
+
+JIT = os.environ.get('JIT', 'no') == 'yes'
+
+if JIT:
+  def normal_execute_inst(core, inst_class, inst):
+    inst_class.execute(core, inst)
+
+  def execute_inst(core, inst_class, inst):
+    fn = inst_class.jit(core, inst)
+
+    if fn is None:
+      normal_execute_inst(core, inst_class, inst)
+
+    else:
+      fn()
+
+else:
+  def execute_inst(core, inst_class, inst):
+    inst_class.execute(core, inst)
 
 class CoreState(object):
   register_names = REGISTER_NAMES
@@ -199,7 +217,7 @@ def __base_setting_test(state, reg, inst_class = None, cond = None):
 
   state.reset()
 
-  inst_class.execute(CORE, inst)
+  execute_inst(CORE, inst_class, inst)
 
   state.check((reg, expected_value), zero = expected_value == 0, overflow = False, sign = False)
 
@@ -216,7 +234,7 @@ def __base_branch_test_immediate(state, offset, inst_class = None, cond = None):
 
   state.reset()
 
-  inst_class.execute(CORE, inst)
+  execute_inst(CORE, inst_class, inst)
 
   state.check(ip = expected_value)
 
@@ -234,7 +252,7 @@ def __base_branch_test_register(state, reg, addr, inst_class = None, cond = None
   state.reset()
   CORE.registers.map[reg].value = addr
 
-  inst_class.execute(CORE, inst)
+  execute_inst(CORE, inst_class, inst)
 
   state.check((reg, addr), ip = expected_value)
 
@@ -249,7 +267,7 @@ def __base_arith_test_immediate(state, reg, a, b, inst_class = None, compute = N
   state.reset()
   CORE.registers.map[reg].value = a
 
-  inst_class.execute(CORE, inst)
+  execute_inst(CORE, inst_class, inst)
 
   state.check((reg, expected_value), zero = expected_value == 0, overflow = value > 0xFFFFFFFF, sign = expected_value & 0x80000000 != 0)
 
@@ -265,7 +283,7 @@ def __base_arith_test_register(state, reg1, reg2, a, b, inst_class = None, compu
   CORE.registers.map[reg1].value = a
   CORE.registers.map[reg2].value = b
 
-  inst_class.execute(CORE, inst)
+  execute_inst(CORE, inst_class, inst)
 
   state.check((reg1, expected_value), (reg2, expected_value if reg1 == reg2 else b), zero = expected_value == 0, overflow = value > 0xFFFFFFFF, sign = expected_value & 0x80000000 != 0)
 
@@ -280,7 +298,7 @@ def __base_arith_by_zero_immediate(state, reg, a, inst_class = None):
   CORE.registers.map[reg].value = a
 
   try:
-    inst_class.execute(CORE, inst)
+    execute_inst(CORE, inst_class, inst)
 
   except ZeroDivisionError:
     pass
@@ -302,7 +320,7 @@ def __base_arith_by_zero_register(state, reg1, reg2, a, inst_class = None):
   CORE.registers.map[reg2].value = b
 
   try:
-    inst_class.execute(CORE, inst)
+    execute_inst(CORE, inst_class, inst)
 
   except ZeroDivisionError:
     pass
@@ -600,7 +618,7 @@ def test_call_immediate(state, ip, offset):
   state.reset()
   CORE.registers.ip.value = ip
 
-  CALL.execute(CORE, inst)
+  execute_inst(CORE, CALL, inst)
 
   state.check(ip = expected_value, fp = u32_t(state.sp - 8).value, sp = u32_t(state.sp - 8).value)
 
@@ -632,7 +650,7 @@ def test_call_register(state, ip, reg, addr):
   CORE.registers.ip.value = ip
   CORE.registers.map[reg].value = addr
 
-  CALL.execute(CORE, inst)
+  execute_inst(CORE, CALL, inst)
 
   state.check((reg, addr), ip = expected_ip, fp = expected_fp, sp = expected_sp)
 
@@ -658,7 +676,7 @@ def __base_cas_test(state, reg1, reg2, reg3, addr, memory_value, register_value,
   CORE.registers.map[reg3].value = replace
   CORE.mmu.memory.write_u32(addr, memory_value)
 
-  CAS.execute(CORE, inst)
+  execute_inst(CORE, CAS, inst)
 
   compare()
 
@@ -691,7 +709,7 @@ def test_cli(state):
 
   state.reset()
 
-  CLI.execute(CORE, inst)
+  execute_inst(CORE, CLI, inst)
 
   state.check(hwint_allowed = False)
 
@@ -709,7 +727,7 @@ def test_cli_unprivileged(state):
   state.reset()
 
   try:
-    CLI.execute(CORE, inst)
+    execute_inst(CORE, CLI, inst)
 
   except AccessViolationError:
     pass
@@ -738,7 +756,7 @@ def test_cmp_immediate(state, reg, a, b):
   state.reset()
   CORE.registers.map[reg].value = a
 
-  CMP.execute(CORE, inst)
+  execute_inst(CORE, CMP, inst)
 
   state.check((reg, a),
               equal = a == b,
@@ -762,7 +780,7 @@ def test_cmp_register(state, reg1, reg2, a, b):
   CORE.registers.map[reg1].value = a
   CORE.registers.map[reg2].value = b
 
-  CMP.execute(CORE, inst)
+  execute_inst(CORE, CMP, inst)
 
   state.check((reg1, b if reg1 == reg2 else a), (reg2, b),
               equal = True if reg1 == reg2 else a == b,
@@ -789,7 +807,7 @@ def test_cmpu_immediate(state, reg, a, b):
   state.reset()
   CORE.registers.map[reg].value = a
 
-  CMPU.execute(CORE, inst)
+  execute_inst(CORE, CMPU, inst)
 
   state.check((reg, a),
               equal = a == b,
@@ -813,7 +831,7 @@ def test_cmpu_register(state, reg1, reg2, a, b):
   CORE.registers.map[reg1].value = a
   CORE.registers.map[reg2].value = b
 
-  CMPU.execute(CORE, inst)
+  execute_inst(CORE, CMPU, inst)
 
   state.check((reg1, b if reg1 == reg2 else a), (reg2, b),
               equal = True if reg1 == reg2 else a == b,
@@ -842,7 +860,7 @@ def test_dec(state, reg, a):
   state.reset()
   CORE.registers.map[reg].value = a
 
-  DEC.execute(CORE, inst)
+  execute_inst(CORE, DEC, inst)
 
   state.check((reg, expected_value), zero = expected_value == 0, overflow = False, sign = expected_value & 0x80000000 != 0)
 
@@ -917,7 +935,7 @@ def test_hlt_immediate(state, a):
   CORE.boot()
   state.reset()
 
-  HLT.execute(CORE, inst)
+  execute_inst(CORE, HLT, inst)
 
   state.check(exit_code = expected_exit_code, alive = False, running = False)
 
@@ -940,7 +958,7 @@ def test_hlt_register(state, reg, a):
   state.reset()
   CORE.registers.map[reg].value = a
 
-  HLT.execute(CORE, inst)
+  execute_inst(CORE, HLT, inst)
 
   state.check((reg, a), exit_code = a, alive = False, running = False)
 
@@ -962,7 +980,7 @@ def test_hlt_unprivileged(state):
   state.reset()
 
   try:
-    HLT.execute(CORE, inst)
+    execute_inst(CORE, HLT, inst)
 
   except AccessViolationError:
     pass
@@ -990,7 +1008,7 @@ def test_idle(state):
 
   state.reset()
 
-  IDLE.execute(CORE, inst)
+  execute_inst(CORE, IDLE, inst)
 
   state.check(idle = True)
 
@@ -1016,7 +1034,7 @@ def test_inc(state, reg, a):
   state.reset()
   CORE.registers.map[reg].value = a
 
-  INC.execute(CORE, inst)
+  execute_inst(CORE, INC, inst)
 
   state.check((reg, expected_value), zero = expected_value == 0, overflow = value > 2 ** 32, sign = expected_value & 0x80000000 != 0)
 
@@ -1042,7 +1060,7 @@ def test_int_immediate(state, index, ip, sp):
   CORE.mmu.memory.write_u32(CORE.ivt_address + index * 8,     ip)
   CORE.mmu.memory.write_u32(CORE.ivt_address + index * 8 + 4, sp)
 
-  INT.execute(CORE, inst)
+  execute_inst(CORE, INT, inst)
 
   state.check(ip = ip, fp = u32_t(sp - 16).value, sp = u32_t(sp - 16).value, privileged = True)
 
@@ -1060,7 +1078,7 @@ def test_int_immediate_out_of_range(state, index):
   state.reset()
 
   try:
-    INT.execute(CORE, inst)
+    execute_inst(CORE, INT, inst)
 
   except InvalidResourceError:
     pass
@@ -1089,7 +1107,7 @@ def test_int_register(state, reg, index, ip, sp):
   CORE.mmu.memory.write_u32(CORE.ivt_address + index * 8,     ip)
   CORE.mmu.memory.write_u32(CORE.ivt_address + index * 8 + 4, sp)
 
-  INT.execute(CORE, inst)
+  execute_inst(CORE, INT, inst)
 
   state.check((reg, index), ip = ip, fp = u32_t(sp - 16).value, sp = u32_t(sp - 16).value, privileged = True)
 
@@ -1108,7 +1126,7 @@ def test_int_register_out_of_range(state, reg, index):
   CORE.registers.map[reg].value = index
 
   try:
-    INT.execute(CORE, inst)
+    execute_inst(CORE, INT, inst)
 
   except InvalidResourceError:
     pass
@@ -1139,7 +1157,7 @@ def test_j_immediate(state, ip, offset):
   state.reset()
   CORE.registers.ip.value = ip
 
-  J.execute(CORE, inst)
+  execute_inst(CORE, J, inst)
 
   state.check(ip = expected_value)
 
@@ -1158,7 +1176,7 @@ def test_j_register(state, ip, reg, addr):
   CORE.registers.ip.value = ip
   CORE.registers.map[reg].value = addr
 
-  J.execute(CORE, inst)
+  execute_inst(CORE, J, inst)
 
   state.check((reg, addr), ip = addr)
 
@@ -1198,7 +1216,7 @@ def test_la(state, reg, ip, offset):
   state.reset()
   CORE.registers.ip.value = ip
 
-  LA.execute(CORE, inst)
+  execute_inst(CORE, LA, inst)
 
   state.check((reg, expected_value), ip = ip, zero = expected_value == 0, overflow = False, sign = expected_value & 0x80000000 != 0)
 
@@ -1219,7 +1237,7 @@ def test_li(state, reg, a):
 
   state.reset()
 
-  LI.execute(CORE, inst)
+  execute_inst(CORE, LI, inst)
 
   state.check((reg, expected_value), zero = expected_value == 0, overflow = False, sign = expected_value & 0x80000000 != 0)
 
@@ -1241,7 +1259,7 @@ def test_liu(state, reg, a, b):
   state.reset()
   CORE.registers.map[reg].value = a
 
-  LIU.execute(CORE, inst)
+  execute_inst(CORE, LIU, inst)
 
   state.check((reg, expected_value), zero = expected_value == 0, overflow = False, sign = expected_value & 0x80000000 != 0)
 
@@ -1262,7 +1280,7 @@ def test_lpm(state):
 
   state.reset()
 
-  LPM.execute(CORE, inst)
+  execute_inst(CORE, LPM, inst)
 
   state.check(privileged = False)
 
@@ -1280,7 +1298,7 @@ def test_lpm_unprivileged(state):
   state.reset()
 
   try:
-    LPM.execute(CORE, inst)
+    execute_inst(CORE, LPM, inst)
 
   except AccessViolationError:
     pass
@@ -1353,7 +1371,7 @@ def test_mov(state, reg1, reg2, a, b):
   CORE.registers.map[reg1].value = a
   CORE.registers.map[reg2].value = b
 
-  MOV.execute(CORE, inst)
+  execute_inst(CORE, MOV, inst)
 
   state.check((reg1, b), (reg2, b))
 
@@ -1398,7 +1416,7 @@ def test_nop(state):
 
   state.reset()
 
-  NOP.execute(CORE, inst)
+  execute_inst(CORE, NOP, inst)
 
   state.check()
 
@@ -1424,7 +1442,7 @@ def test_not(state, reg, a):
   state.reset()
   CORE.registers.map[reg].value = a
 
-  NOT.execute(CORE, inst)
+  execute_inst(CORE, NOT, inst)
 
   state.check((reg, expected_value), zero = expected_value == 0, overflow = False, sign  = expected_value & 0x80000000 != 0)
 
@@ -1477,7 +1495,7 @@ def test_ret(state, fp, ip):
   CORE.mmu.memory.write_u32(state.sp, ip)
   state.sp = (state.sp + 4) % (2 ** 32)
 
-  RET.execute(CORE, inst)
+  execute_inst(CORE, RET, inst)
 
   state.check(fp = fp, ip = ip)
 
@@ -1515,7 +1533,7 @@ def test_retint(state, fp, ip, user_flags, sp):
   CORE.mmu.memory.write_u32(state.sp, sp)
   state.sp = (state.sp + 4) % (2 ** 32)
 
-  RETINT.execute(CORE, inst)
+  execute_inst(CORE, RETINT, inst)
 
   state.flags_from_int(user_flags)
   state.check(fp = fp, ip = ip, sp = sp)
@@ -1535,7 +1553,7 @@ def test_retint_unprivileged(state):
   state.reset()
 
   try:
-    RETINT.execute(CORE, inst)
+    execute_inst(CORE, RETINT, inst)
 
   except AccessViolationError:
     pass
@@ -1562,7 +1580,7 @@ def test_rst(state):
 
   state.reset()
 
-  RST.execute(CORE, inst)
+  execute_inst(CORE, RST, inst)
 
   state.check(*[(i, 0x00000000) for i, _ in enumerate(REGISTER_NAMES) if i != ducky.cpu.registers.Registers.CNT], hwint_allowed = False, equal = False, zero = False, overflow = False, sign = False)
 
@@ -1751,7 +1769,7 @@ def test_sti(state):
 
   state.reset()
 
-  STI.execute(CORE, inst)
+  execute_inst(CORE, STI, inst)
 
   state.check(hwint_allowed = True)
 
@@ -1769,7 +1787,7 @@ def test_sti_unprivileged(state):
   state.reset()
 
   try:
-    STI.execute(CORE, inst)
+    execute_inst(CORE, STI, inst)
 
   except AccessViolationError:
     pass
@@ -1820,7 +1838,7 @@ def test_swap(state, reg1, reg2, a, b):
   CORE.registers.map[reg1].value = a
   CORE.registers.map[reg2].value = b
 
-  SWP.execute(CORE, inst)
+  execute_inst(CORE, SWP, inst)
 
   state.check((reg1, b), (reg2, a if reg1 != reg2 else b))
 

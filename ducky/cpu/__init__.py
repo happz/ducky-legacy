@@ -187,6 +187,9 @@ class InstructionCache(LRUCache):
     self.mmu = mmu
     self.core = mmu.core
 
+    if mmu.core.cpu.machine.config.getbool('machine', 'jit', False):
+      self.get_object = self.get_object_jit
+
   def get_object(self, addr):
     """
     Read instruction from memory. This method is responsible for the real job of
@@ -200,8 +203,28 @@ class InstructionCache(LRUCache):
     core = self.core
 
     inst, desc, opcode = core.instruction_set.decode_instruction(core.LOGGER, core.mmu.MEM_IN32(addr, not_execute = False), core = core)
+    return inst, opcode, partial(desc.execute, core, inst)
 
-    return (inst, opcode, desc.execute)
+  def get_object_jit(self, addr):
+    """
+    Read instruction from memory. This method is responsible for the real job of
+    fetching instructions and filling the cache.
+
+    :param u24 addr: absolute address to read from
+    :return: instruction
+    :rtype: ``InstBinaryFormat_Master``
+    """
+
+    core = self.core
+
+    inst, desc, opcode = core.instruction_set.decode_instruction(core.LOGGER, core.mmu.MEM_IN32(addr, not_execute = False), core = core)
+
+    fn = desc.jit(core, inst)
+
+    if fn is None:
+      return inst, opcode, partial(desc.execute, core, inst)
+
+    return inst, opcode, fn
 
 class CPUDataCache(LRUCache):
   """
@@ -1290,7 +1313,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
       self.DEBUG('"EXECUTE" phase: %s %s', UINT32_FMT(self.current_ip), self.instruction_set.disassemble_instruction(self.LOGGER, self.current_instruction))
       log_cpu_core_state(self)
 
-      execute(self, self.current_instruction)
+      execute()
 
     except (InvalidOpcodeError, AccessViolationError, InvalidResourceError) as e:
       self.die(e)

@@ -2,6 +2,7 @@ from .. import patch  # noqa
 from ..util import str2int, UINT32_FMT
 
 import optparse
+import os
 import signal
 import sys
 
@@ -41,6 +42,9 @@ def process_config_options(logger, config_file = None, set_options = None, add_o
 
   for dev in disable_devices:
     config.set(dev, 'enabled', False)
+
+  if os.environ.get('JIT', 'no') != 'no':
+    config.set('machine', 'jit', True)
 
   return config
 
