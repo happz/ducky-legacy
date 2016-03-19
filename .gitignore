@@ -9,14 +9,14 @@ lse
 # Global wildcards
 *.o
 *.swp
-*.testbin
 
 forth/ducky-forth
-interrupts
-tests/instructions/interrupts-basic
 
 # Test logs
 tests-*
+
+.sconsign.dblite
+tests/.hypothesis/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
