@@ -75,7 +75,7 @@ class RemoveLoggingVisitor(ast.NodeTransformer):
       return node.orelse
 
     if not node.body:
-      debug('removing %s - it is empty if body')
+      debug('removing %s - it is empty if body' % node)
       return None
 
     return node
