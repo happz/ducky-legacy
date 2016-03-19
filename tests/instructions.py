@@ -1,5 +1,6 @@
 import logging
 import os
+import sys
 
 from functools import partial
 from six import iteritems, integer_types
@@ -12,6 +13,8 @@ from ducky.mm import u32_t, i32_t
 
 from hypothesis import given, example, assume, settings
 from hypothesis.strategies import integers, lists, booleans, composite
+
+PYPY = hasattr(sys, 'pypy_version_info')
 
 #
 # Hypothesis setup
@@ -1708,12 +1711,19 @@ def test_setz(state, reg):
 #
 # SHIFTL
 #
+if PYPY:
+  cap_shift = partial(min, 32)
+
+else:
+  def cap_shift(n):
+    return n
+
 @given(state = STATE, reg = REGISTER, a = VALUE, b = IMMEDIATE15)
 def test_shiftl_immediate(state, reg, a, b):
   from ducky.cpu.instructions import SHIFTL
 
   def compute(state, reg, a, b):
-    value = a << sign_extend15(b)
+    value = a << cap_shift(sign_extend15(b))
     return value, u32_t(value).value
 
   __base_arith_test_immediate(state, reg, a, b, inst_class = SHIFTL, compute = compute)
@@ -1723,7 +1733,7 @@ def test_shiftl_register(state, reg1, reg2, a, b):
   from ducky.cpu.instructions import SHIFTL
 
   def compute(state, reg1, reg2, a, b):
-    value = b << b if reg1 == reg2 else a << b
+    value = b << cap_shift(b) if reg1 == reg2 else a << cap_shift(b)
     return value, u32_t(value).value
 
   __base_arith_test_register(state, reg1, reg2, a, b, inst_class = SHIFTL, compute = compute)
@@ -1737,7 +1747,7 @@ def test_shiftr_immediate(state, reg, a, b):
   from ducky.cpu.instructions import SHIFTR
 
   def compute(state, reg, a, b):
-    value = a >> sign_extend15(b)
+    value = a >> cap_shift(sign_extend15(b))
     return value, u32_t(value).value
 
   __base_arith_test_immediate(state, reg, a, b, inst_class = SHIFTR, compute = compute)
@@ -1747,7 +1757,7 @@ def test_shiftr_register(state, reg1, reg2, a, b):
   from ducky.cpu.instructions import SHIFTR
 
   def compute(state, reg1, reg2, a, b):
-    value = b >> b if reg1 == reg2 else a >> b
+    value = b >> cap_shift(b) if reg1 == reg2 else a >> cap_shift(b)
     return value, u32_t(value).value
 
   __base_arith_test_register(state, reg1, reg2, a, b, inst_class = SHIFTR, compute = compute)
