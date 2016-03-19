@@ -14,7 +14,9 @@ test:
     - git submodule init
     - git submodule update
     - tox -e py27
-    - tox -e py33
-    - tox -e py34
-    - tox -e py35
-    - tox -e pypy
+    #- tox -e py33
+    #- tox -e py34
+    #- tox -e py35
+    - tox -e py27-jit -- --with-jit
+    #- tox -e py35-jit -- --with-jit
+    #- tox -e pypy
