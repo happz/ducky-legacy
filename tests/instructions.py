@@ -18,7 +18,7 @@ from hypothesis.strategies import integers, lists, booleans, composite
 #
 settings.register_profile('Sanity', settings(max_examples = 50))
 settings.register_profile('Default', settings(max_examples = 200))
-settings.register_profile('CI', settings(max_examples = 1000))
+settings.register_profile('CI', settings(max_examples = 2000))
 
 settings.load_profile(os.environ.get('HYPOTHESIS_PROFILE', 'Default'))
 
