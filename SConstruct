@@ -56,6 +56,12 @@ AddOption('--with-jit',
           default = False,
           help = 'Run with JIT enabled')
 
+AddOption('--with-mmap',
+          dest = 'mmap',
+          action = 'store_true',
+          default = False,
+          help = 'Run using mmap as binary loading method.')
+
 AddOption('--with-coverage',
           dest = 'coverage',
           action = 'store_true',
@@ -80,6 +86,12 @@ AddOption('--hypothesis-profile',
           default = 'Default',
           metavar = 'PROFILE',
           help = 'Set Hypothesis profile to PROFILE')
+
+AddOption('--clean-testsets',
+          dest = 'clean_testsets',
+          action = 'store_true',
+          default = False,
+          help = 'Remove testset dirs when building "clean" target.')
 
 VARS = Variables(None, ARGUMENTS)
 VARS.Add(             'BUILD_STAMP',        'Set to force FORTH kernel build stamp', generate_build_stamp())
@@ -319,6 +331,9 @@ def __compile_ducky_object(source, target, env):
 
   if 'COVERAGEDIR' in env:
     cmd.wrap_by_coverage(env)
+
+  if GetOption('mmap') is True:
+    cmd.command += ' --mmapable-sections'
 
   return cmd.run(env, 'COMPILE', target[0])
 
@@ -653,9 +668,11 @@ ENV.Help("""
     --with-coverage             Run tests with coverage enabled.
     --with-profiling            Run tests with profiling enabled.
     --with-jit                  Run with JIT enabled.
+    --with-mmap                 Run using mmap as binary loading method.
     --pass-testsuite-output     If set, output of testsuites will be passed
                                     directly to stdout/stderr.
     --hypothesis-profile        Set Hypothesis profile to PROFILE ("Default" by default)
+    --clean-testsets            Remove testset dirs when building "clean" target.
 
   ${GREEN}Available variables:${CLR}
 """)

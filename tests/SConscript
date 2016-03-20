@@ -278,13 +278,6 @@ ENV.Help("""
 """)
 
 
-#ENV.Depends('tests', 'run-hello-world')
-#ENV.Depends('tests', 'run-hello-world-lib')
-#ENV.Depends('tests', 'run-clock')
-#ENV.Depends('tests', 'run-vga')
-#ENV.Depends('tests', 'run-smp')
-
-
 #
 # Finish
 #
@@ -312,4 +305,6 @@ if 'CIRCLE_ARTIFACTS' in os.environ:
   E.Depends(E['BUILD_TARGET'], submitted_dir)
 
 ENV.OnClean('tests')
-ENV.Clean('tests', Glob('#/tests-*'))
+
+if GetOption('clean_testsets') is True:
+  ENV.Clean('tests', Glob('#/tests-*'))
