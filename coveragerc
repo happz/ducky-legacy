@@ -1,5 +1,6 @@
 [run]
 branch = True
+parallel = True
 omit = */python2.7/*, */python3.5/*
 
 [report]
@@ -10,12 +11,3 @@ exclude_lines =
   def __str__
   raise NotImplementedError
   logger.debug
-
-[paths]
-source =
-  /data/virtualenv/ducky-2.7/ducky
-  /data/virtualenv/ducky-3.5/ducky
-
-bins =
-  /data/virtualenv/ducky-2.7/bin
-  /data/virtualenv/ducky-3.5/bin

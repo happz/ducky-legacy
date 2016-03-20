@@ -5,7 +5,7 @@ import sys
 
 from testconfig import config
 from functools import partial
-from six import print_
+from six import print_, iteritems
 
 tests_dir = partial(os.path.join, config['dirs']['tests'])
 forth_dir = partial(os.path.join, config['dirs']['forth'])
@@ -31,16 +31,24 @@ def run_forth_vm(out = None, machine = None, options = None, diff_expected = Non
     assert coverage_name is not None
 
     cmd[0] = '%s %s' % (config['vm-runner']['coverage'], cmd[0])
-    env['COVERAGE_FILE'] = '%s.%s' % (env['COVERAGE_FILE'], coverage_name)
+    env['COVERAGE_FILE'] = os.path.join(config['dirs']['coverage'], '.coverage.%s' % coverage_name)
 
   if config['options']['profile'] == 'yes':
     cmd.append('-p -P %s' % config['dirs']['profile'])
 
   cmd[0] = '%s %s' % (config['vm-runner']['runner'], cmd[0])
 
+  cmd = ' '.join(cmd)
+
+  with open(config['log']['trace'], 'a') as f_trace:
+    f_trace.write('CMD: %s\n' % cmd)
+    f_trace.write('ENV:\n')
+    for k, v in iteritems(env):
+      f_trace.write('   %s=%s\n' % (k, v))
+
   with open(machine, 'w') as f_out:
     try:
-      subprocess.check_call(' '.join(cmd), stdout = f_out, stderr = f_out, shell = True, env = env)
+      subprocess.check_call(cmd, stdout = f_out, stderr = f_out, shell = True, env = env)
 
     except subprocess.CalledProcessError as e:
       assert False, 'FORTH VM failed with exit code %s' % e.returncode

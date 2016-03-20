@@ -26,7 +26,7 @@ def run_compiler(label, file_in, file_out, options = None, diff_expected = None,
 
   if 'COVERAGE_FILE' in os.environ:
     cmd[0] = '%s %s' % (config['vm-runner']['coverage'], cmd[0])
-    env['COVERAGE_FILE'] = '%s.%s' % (env['COVERAGE_FILE'], label)
+    env['COVERAGE_FILE'] = os.path.join(config['dirs']['coverage'], '.coverage.compiler.%s' % label)
 
   cmd[0] = '%s %s' % (config['vm-runner']['runner'], cmd[0])
 

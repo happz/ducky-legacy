@@ -37,6 +37,9 @@ coverage = $VIRTUAL_ENV/bin/coverage run --rcfile=$TOPDIR/coveragerc
 [options]
 coverage = {coverage}
 profile = {profile}
+
+[log]
+trace = $TRACE_FILE
 """.format(coverage = 'yes' if 'COVERAGEDIR' in env else 'no',
            coveragedir = ('coverage = %s' % env['COVERAGEDIR']) if 'COVERAGEDIR' in env else '',
            profile = 'yes' if 'PROFILEDIR' in env else 'no',
@@ -162,6 +165,7 @@ if 'TESTSETDIR' in E:
   E.Append(REPORTFILE   = File(E.subst('$REPORTDIR/testsuite.html')).abspath)
   E.Append(CONFIGFILE   = File(E.subst('$CONFIGDIR/testsuite.conf')).abspath)
   E.Append(VMCONFIGFILE = File('forth/machine.conf').abspath)
+  E.Append(TRACE_FILE   = File(E.subst('$LOGDIR/testsuite.trace')).abspath)
 
 
 #

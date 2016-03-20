@@ -36,7 +36,7 @@ def run_example(name, label, options = None, exit_code = 0, snapshot_device = No
 
   if 'COVERAGE_FILE' in os.environ:
     cmd[0] = '%s %s' % (config['vm-runner']['coverage'], cmd[0])
-    env['COVERAGE_FILE'] = '%s.%s' % (env['COVERAGE_FILE'], label)
+    env['COVERAGE_FILE'] = os.path.join(config['dirs']['coverage'], '.coverage.example.%s' % label)
 
   cmd[0] = '%s %s' % (config['vm-runner']['runner'], cmd[0])
 
