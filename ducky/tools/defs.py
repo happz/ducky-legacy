@@ -41,4 +41,3 @@ def main():
     sys.exit(1)
 
   parse_template(options.file_in, options.file_out)
-                 
