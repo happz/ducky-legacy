@@ -296,7 +296,7 @@ if 'COVERAGEDIR' in ENV:
   __add_coverage_cleanup('tests-coverage-report', generate_coverage_report)
 
 
-if 'CIRCLE_TEST_REPORTS' in os.environ:
+if 'CIRCLE_TEST_REPORTS' in os.environ and 'RESULTSFILE' in E:
   submitted_file = os.path.join(os.environ['CIRCLE_TEST_REPORTS'], 'junit', E.subst('$RAW_TESTSETDIR-${TESTSETID}.xml'))
   E.Command(submitted_file, None, Copy(submitted_file, E['RESULTSFILE']))
 
