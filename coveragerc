@@ -1,7 +1,7 @@
 [run]
 branch = True
 parallel = True
-omit = */python2.7/*, */python3.5/*
+omit = */python2.7/*, */python3.5/*, */pypy*/*, */.tox/*, */vhdl/*
 
 [report]
 exclude_lines =
