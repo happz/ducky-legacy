@@ -2,7 +2,6 @@
 
 import sys
 
-from six import print_
 from mako.template import Template
 from functools import partial
 

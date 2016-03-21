@@ -2,9 +2,8 @@ import ctypes
 import enum
 import re
 import sys
-import types
 
-from six import integer_types, string_types, add_metaclass, exec_
+from six import integer_types, string_types, add_metaclass
 from six.moves import range
 from functools import partial
 
@@ -916,6 +915,7 @@ class POP(Descriptor_R):
     pop = core.raw_pop
 
     if inst.reg1 == FLAGS:
+      from . import CoreFlags
       def __jit_pop():
         core.flags = CoreFlags.from_int(pop())
 
