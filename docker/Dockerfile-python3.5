@@ -2,13 +2,17 @@ FROM python:3.5.1-alpine
 
 MAINTAINER Milos Prchlik <happz@happz.cz>
 
-RUN apk update && apk add make bash wget curl jq
+ENV VIRTUAL_ENV=/usr/local
+
+RUN apk update && apk add make bash wget curl jq scons git
 COPY get-last-build.sh /tmp/
-RUN mkdir -p /home && wget -O /home/ducky.zip --no-check-certificate https://github.com/happz/ducky/archive/master.zip && cd /home && unzip ducky.zip && mv ducky-master ducky && cd /home/ducky && make install-edit && BUILD_STAMP="$(/bin/bash /tmp/get-last-build.sh)" make forth
+RUN mkdir -p /home && wget -O /home/ducky.zip --no-check-certificate https://github.com/happz/ducky/archive/master.zip && cd /home && unzip ducky.zip && mv ducky-master ducky && cd /home/ducky && make install-edit && scons -sQ BUILD_STAMP="$(/bin/bash /tmp/get-last-build.sh)" forth
 
 ENV PYTHONUNBUFFERED=yes
 
-ENTRYPOINT ["/usr/local/bin/ducky-vm", \
+ENTRYPOINT ["/usr/local/bin/python", \
+            "-OO", \
+            "/usr/local/bin/ducky-vm", \
             "-g", \
             "--machine-config=/home/ducky/forth/forth.conf", \
             "--set-option=bootloader:file=/home/ducky/forth/ducky-forth", \
@@ -16,4 +20,5 @@ ENTRYPOINT ["/usr/local/bin/ducky-vm", \
             "--add-option=device-3:streams_in=<stdin>", \
             "--set-option=device-3:stream_out=<stderr>", \
             "--set-option=device-3:echo=no" \
+	    "--jit" \
            ]
