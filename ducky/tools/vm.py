@@ -9,7 +9,7 @@ import sys
 from six.moves import input
 
 
-def process_config_options(logger, config_file = None, set_options = None, add_options = None, enable_devices = None, disable_devices = None):
+def process_config_options(logger, options, config_file = None, set_options = None, add_options = None, enable_devices = None, disable_devices = None):
   logger.debug('process_config_options: config_file=%s, set_options=%s, add_options=%s, enable_devices=%s, disable_devices=%s', config_file, set_options, add_options, enable_devices, disable_devices)
 
   set_options = set_options or []
@@ -43,8 +43,11 @@ def process_config_options(logger, config_file = None, set_options = None, add_o
   for dev in disable_devices:
     config.set(dev, 'enabled', False)
 
-  if os.environ.get('JIT', 'no') != 'no':
-    config.set('machine', 'jit', True)
+  if 'JIT' in os.environ:
+    config.set('machine', 'jit', os.environ['JIT'] == 'yes')
+
+  else:
+    config.set('machine', 'jit', options.jit is True)
 
   return config
 
@@ -91,6 +94,7 @@ def main():
                        metavar = 'DEVICE',
                        help = 'Disable device')
   opt_group.add_option('--poke', dest = 'poke', action = 'append', default = [], metavar = 'ADDRESS:VALUE:<124>', help = 'Modify content of memory before running binaries')
+  opt_group.add_option('--jit', dest = 'jit', action = 'store_true', default = False, help = 'Optimize instructions')
 
   # Debug options
   opt_group = optparse.OptionGroup(parser, 'Debug options')
@@ -139,6 +143,7 @@ def main():
     M.console.connect(console_slave)
 
   config = process_config_options(logger,
+                                  options,
                                   config_file = options.machine_config,
                                   set_options = [(section,) + tuple(option.split('=')) for section, option in (option.split(':') for option in options.set_options)],
                                   add_options = [(section,) + tuple(option.split('=')) for section, option in (option.split(':') for option in options.add_options)],
