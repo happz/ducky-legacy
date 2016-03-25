@@ -100,7 +100,7 @@ class InvalidInstructionSetError(CPUException):
 
     self.inst_set = inst_set
 
-def do_log_cpu_core_state(core, logger = None, disassemble = True):
+def do_log_cpu_core_state(core, logger = None, disassemble = True, inst_set = None):
   """
   Log state of a CPU core. Content of its registers, and other interesting or
   useful internal variables are logged.
@@ -111,6 +111,7 @@ def do_log_cpu_core_state(core, logger = None, disassemble = True):
   """
 
   logger = logger or core.DEBUG
+  inst_set = inst_set or core.instruction_set
 
   for i in range(0, Registers.REGISTER_SPECIAL, 4):
     regs = [(i + j) for j in range(0, 4) if (i + j) < Registers.REGISTER_SPECIAL]
@@ -131,12 +132,12 @@ def do_log_cpu_core_state(core, logger = None, disassemble = True):
 
   if disassemble is True:
     if core.current_instruction is not None:
-      inst = core.instruction_set.disassemble_instruction(core.LOGGER, core.current_instruction)
-      logger('current=%s', inst)
+      inst = inst_set.disassemble_instruction(core.LOGGER, core.current_instruction)
+      logger('inst-set=%02d current=%s', inst_set.instruction_set_id, inst)
     else:
-      logger('current=<none>')
+      logger('inst-set=%02d current=<none>', inst_set.instruction_set_id)
   else:
-    logger('current=<unknown>')
+    logger('inst-set=%02d current=<unknown>', inst_set.instruction_set_id)
 
   for index, frame in enumerate(core.backtrace()):
     logger('Frame #%i: %s', index, frame)
@@ -1238,7 +1239,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
     self.change_runnable_state(idle = False)
 
     self.DEBUG('__do_irq: CPU state prepared to handle IRQ')
-    log_cpu_core_state(self)
+    log_cpu_core_state(self, inst_set = self.instruction_set_stack[-1])
 
   def irq(self, index):
     try:
