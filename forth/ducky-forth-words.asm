@@ -1538,7 +1538,6 @@ $DEFCODE "#", 1, 0, NUMBERSIGN
 
 $DEFCODE "#S", 2, 0, NUMBERSIGNS
   ; ( ud1 - 0 0 )
-  call &__vmdebug_on
   la $W, &var_BASE
   lw $W, $W
 .ifdef FORTH_TIR
