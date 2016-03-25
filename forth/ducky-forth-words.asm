@@ -18,6 +18,7 @@
 ;
 
 .include "ducky-forth-defs.asm"
+.include "math.asm"
 
 ;
 ; - Environment queries -----------------------------------------------------------------
@@ -1052,6 +1053,7 @@ __FILL_loop:
   inc $X
   dec $W
   bnz &__FILL_loop
+__FILL_next:
   pop $TOS
 .else
   pop $W ; char
@@ -1066,8 +1068,8 @@ __FILL_loop:
   inc $Y
   dec $X
   j &__FILL_loop
-.endif
 __FILL_next:
+.endif
   $NEXT
 
 
@@ -1410,6 +1412,228 @@ __ABS_next:
 
 
 ; - Printing ----------------------------------------------------------------------------
+
+  .data
+
+  .type pno_buffer, space
+  .space $PNO_BUFFER_SIZE
+
+  .type pno_ptr, int
+  .int 0
+
+  .type pno_chars, string
+  .string "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+__reset_pno_buffer:
+  push r0
+  push r1
+  push r2
+  la r0, &pno_buffer
+  la r1, &pno_ptr
+  add r0, $PNO_BUFFER_SIZE
+  stw r1, r0
+  sub r0, $PNO_BUFFER_SIZE
+  li r1, $PNO_BUFFER_SIZE
+  li r2, 0xBF
+  call &memset
+  pop r2
+  pop r1
+  pop r0
+  ret
+
+__pno_append_char:
+  push r1
+  push r2
+  la r1, &pno_ptr
+  lw r2, r1
+  dec r2
+  stb r2, r0
+  stw r1, r2
+  pop r2
+  pop r1
+  ret
+
+__pno_append_number:
+  push r1
+  la r1, &pno_chars
+  add r0, r1
+  lb r0, r0
+  pop r1
+  j &__pno_append_char
+
+
+$DEFCODE "<#", 2, 0, LESSNUMBERSIGN
+  ; ( -- )
+  call &__reset_pno_buffer
+  $NEXT
+
+$DEFCODE "#>", 2, 0, NUMBERSIGNGREATER
+  ; ( xd -- c-addr u )
+  la $X, &pno_ptr    ; pno_ptr addr
+  lw $Y, $X          ; pno_ptr
+
+  la $W, &pno_buffer
+  add $W, $PNO_BUFFER_SIZE
+  sub $W, $Y
+.ifdef FORTH_TIR
+  stw sp, $Y
+  mov $TOS, $W
+.else
+  stw sp, $W
+  stw sp[$CELL], $Y
+.endif
+  $NEXT
+
+$DEFCODE "SIGN", 4, 0, SIGN
+.ifdef FORTH_TIR
+  pop r0
+  swp r0, $TOS
+  cmp r0, 0
+.else
+  pop r0
+.endif
+  bns &__SIGN_next
+  li r0, 0x2D
+  call &__pno_append_char
+__SIGN_next:
+  $NEXT
+
+
+$DEFCODE "HOLD", 4, 0, HOLD
+.ifdef FORTH_TIR
+  mov r0, $TOS
+  pop $TOS
+.else
+  pop r0
+.endif
+  call &__pno_append_char
+  $NEXT
+
+
+$DEFCODE "#", 1, 0, NUMBERSIGN
+  ; ( ud1 - ud2 )
+  la $W, &var_BASE
+  lw $W, $W
+.ifdef FORTH_TIR
+  push $TOS          ; push TOS on stack so we can use pop to load it to math stack
+.endif
+  sis $MATH_INST_SET
+  pop                ; ud1
+  loadw $W           ; ud1 n
+  dup2               ; ud1 n ud1 n
+  umodl              ; ud1 n rem
+  savew r0           ; ud1 n
+  udivl              ; quot
+.ifdef FORTH_TIR
+  save $TOS, $X      ; split quot between TOS and stack
+  sis $DUCKY_INST_SET
+  push $X
+.else
+  push               ; just push double on stack
+  sis $DUCKY_INST_SET
+.else
+  call &__pno_append_number
+  $NEXT
+
+
+$DEFCODE "#S", 2, 0, NUMBERSIGNS
+  ; ( ud1 - 0 0 )
+  call &__vmdebug_on
+  la $W, &var_BASE
+  lw $W, $W
+.ifdef FORTH_TIR
+  push $TOS          ; push TOS on stack so we can use pop to load it to math stack
+.endif
+  sis $MATH_INST_SET
+  pop                ; ud1
+__NUMBERSIGNS_loop:
+  sis $MATH_INST_SET ; turn math inst set on at the beginning of each iteration
+  loadw $W           ; ud base
+  dup2               ; ud base ud base
+  umodl              ; ud base rem
+  savew r0           ; ud base
+  udivl              ; quot
+  dup                ; quot quot
+  save $Y, $Z        ; quot
+  sis $DUCKY_INST_SET
+  call &__pno_append_number
+
+  cmp $Y, $Z
+  bnz &__NUMBERSIGNS_loop
+  sis $MATH_INST_SET
+  drop               ;
+  sis $DUCKY_INST_SET
+
+  push 0x00
+.ifdef FORTH_TIR
+  li $TOS, 0x00
+.else
+  push 0x00
+.endif
+  $NEXT
+
+
+$DEFCODE ">NUMBER", 7, 0, TONUMBER
+  ; ( ud1 c-addr1 u1 -- ud2 c-addr2 u2 )
+.ifdef FORTH_TIR
+                                  ; u1 is in TOS
+  pop $W                          ; c-addr
+.else
+  pop $Z                          ; u1
+  pop $W                          ; c-addr
+.endif
+  sis $MATH_INST_SET
+  pop                             ;  -- ud1
+  sis $DUCKY_INST_SET
+  la r10, &pno_chars              ; cache char table ptr
+  la r11, &var_BASE               ; cache BASE
+  lw r11, r11
+  mov r12, r10                    ; compute pointer to the digit right *after* the BASE reach
+  add r12, r11
+.ifdef FORTH_TIR
+  cmp $TOS, 0                     ; check if there are any chars left
+.else
+  cmp $Z, 0
+.endif
+__TONUMBER_loop:
+  bz &__TONUMBER_complete
+  lb $X, $W                       ; fetch char
+  mov r13, r10                    ; lookup char in table
+__TONUMBER_find_char:
+  lb r14, r13
+  cmp r14, $X
+  be &__TONUMBER_char_found       ; found
+  inc r13
+  cmp r13, r12                    ; if our table ptr points to the char outside the base, not found
+  be &__TONUMBER_complete
+  j &__TONUMBER_find_char
+__TONUMBER_char_found:
+  sub r13, r10                    ; char represents value (offset - PNO chars table)
+  sis $MATH_INST_SET              ; add digit to accumulator
+  loadw r11                       ; ud1 -- ud1 base
+  mull                            ; ud1 base -- (ud1 * base)
+  loadw r13                       ; (ud1 * base) -- (ud1 * base) digit
+  addl                            ; (ud1 * base) digit -- (ud1 * base + digit) = ud1
+  sis $DUCKY_INST_SET
+  inc $W                          ; move to the next digit
+.ifdef FORTH_TIR
+  dec $TOS                        ; and decrement remaining chars counter
+.else
+  dec $Z
+.endif
+  j &__TONUMBER_loop
+__TONUMBER_complete:
+  sis $MATH_INST_SET
+  push                            ; save accumulator
+  sis $DUCKY_INST_SET
+  push $W                         ; save string pointer
+.ifdef FORTH_TIR
+                                  ; counter stays in TOS
+.else
+  push $Z                         ; push counter
+.endif
+  $NEXT
+
 
 $DEFCODE "U.", 2, 0, UDOT
 .ifdef FORTH_TIR
