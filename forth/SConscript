@@ -17,6 +17,7 @@ E.PassVarAsDefine('BUILD_STAMP', to_boolean = False)
 E.PassVarAsDefine('FORTH_DEBUG')
 E.PassVarAsDefine('FORTH_DEBUG_FIND')
 E.PassVarAsDefine('FORTH_TIR')
+E.PassVarAsDefine('FORTH_FAIL_ON_UNDEF')
 
 E.DuckyObject('ducky-forth.o', source = 'ducky-forth.asm')
 E.Depends('ducky-forth.o', ['ducky-forth.asm', 'double-cell-ints.asm', 'ducky-forth-defs.asm', 'ducky-forth-words.asm'])
@@ -25,8 +26,23 @@ E.Depends('ducky-forth.o', E.GetDuckyDefine('ducky', 'control', 'keyboard', 'rtc
 E.DuckyBinary('ducky-forth', source = 'ducky-forth.o')
 E.Alias('forth', File('ducky-forth'))
 
+set_options = [
+  'bootloader:file=%s' % File('ducky-forth').abspath,
+  'device-3:streams_in=%s' % File('ducky-forth.f').abspath,
+  'device-3:stream_out="<stderr>"',
+  'device-3:echo=no',
+]
+
+add_options = [
+  'device-3:streams_in="<stdin>"'
+]
+
+E.Command('.running-forth', File('ducky-forth'), E.DuckyRun(config = File('forth.conf'), set_options = set_options, add_options = add_options, environ = {'PYTHONUNBUFFERED': 'yes'}))
+E.Alias('run-forth', '.running-forth')
+
 E.OnClean('forth')
 E.Help("""
   ${GREEN}FORTH:${CLR}
      ${BLUE}'scons forth'${CLR} to build basic FORTH kernel,
+     ${BLUE}'scons run-forth'${CLR} to run FORTH,
 """)

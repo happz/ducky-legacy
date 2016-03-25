@@ -45,6 +45,9 @@
 ; 32 chars should be enough for any word
 .def WORD_BUFFER_SIZE:   32
 
+;
+.def PNO_BUFFER_SIZE:   64
+
 ; 255 chars should be enough for a string length (and it fits into 1 byte)
 .def STRING_SIZE:       255
 

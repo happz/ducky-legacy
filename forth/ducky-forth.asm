@@ -70,6 +70,26 @@ halt:
   hlt r0
 
 
+memset:
+  cmp r1, 0
+__memset_loop:
+  bz &__memset_finished
+  stb r0, r2
+  inc r0
+  dec r1
+  j &__memset_loop
+__memset_finished:
+  ret
+
+
+memzero:
+  push r2
+  li r2, 0x00
+  call &memset
+  pop r2
+  ret
+
+
 ;
 ; void memcpy(void *src, void *dst, u32_t length)
 ;
@@ -534,6 +554,9 @@ __boot_phase2_ivt_failsafe_loop:
   la r1, &name_BYE
   stw r0, r1
 
+  ; init pictured numeric output buffer
+  call &__reset_pno_buffer
+
   ; init words' crcs
   call &init_crcs
 
@@ -733,13 +756,15 @@ __ERR_undefined_word:
   la r0, &__input_buffer_label
   call &writes
   call &write_input_buffer
-  call &write_new_line
   la r0, &__word_buffer_label
   call &writes
   call &write_word_buffer
-  call &write_new_line
   li r0, $ERR_UNDEFINED_WORD
+.ifdef FORTH_FAIL_ON_UNDEF
   j &halt
+.else
+  ret
+.endif
 
 
 ;
@@ -1030,7 +1055,7 @@ __refill_input:
   push r0
   push r1
 
-  ; Since the current input source is obviously empty, check theinput stack,
+  ; Since the current input source is obviously empty, check the input stack,
   ; and restore the previous input source if possible.
   la r0, &input_stack_ptr
   lw r0, r0
@@ -1500,10 +1525,10 @@ __FIND_loop:
 
 .ifdef FORTH_DEBUG_FIND
   ; print name
-  ;push r0
-  ;mov r0, r2
-  ;call &write_word_name
-  ;pop r0
+  push r0
+  mov r0, r2
+  call &write_word_name
+  pop r0
 .endif
 
   ; check HIDDEN flag
@@ -1902,7 +1927,7 @@ __interpret_as_lit:
   mov r1, r11
   call &__NUMBER
   cmp r1, r1                 ; non-zero unparsed chars means NaN
-  bnz &__ERR_undefined_word
+  bnz &__interpret_undefined
   mov r1, r0                 ; save number for later
   la r0, &LIT                ; and set "the word" to LIT
 
@@ -1954,6 +1979,15 @@ __interpret_refill:
 
 __interpret_next:
   $NEXT
+
+__interpret_undefined:
+  call &__ERR_undefined_word
+  la r0, &var_STATE
+  li r1, 0
+  stw r0, r1
+  call &__refill_input
+  $NEXT
+
 
 
 $DEFWORD "QUIT", 4, 0, QUIT
@@ -2845,42 +2879,69 @@ __PAREN_LOOP_next:
   $NEXT
 
 
-$DEFCODE "(+LOOP)", 7, 0, PAREN_PLUSLOOP
+$DEFCODE "(+LOOP)", 7, 0, PAREN_PLUS
   $poprsp $W ; index
   $poprsp $X ; control
-.ifdef FORTH_TIR
-  cmp $TOS, 0
-.else
-  pop $Y     ; increment N
-.endif
-  bs &__PAREN_PLUSLOOP_dec
+  mov $Z, $W  ; save old index for later
 .ifdef FORTH_TIR
   add $W, $TOS
   pop $TOS
 .else
+  pop $Y
   add $W, $Y
 .endif
-  cmp $W, $X
-  bg &__PAREN_PLUSLOOP_next
-  j &__PAREN_PLUSLOOP_iter
-__PAREN_PLUSLOOP_dec:
-.ifdef FORTH_TIR
-  add $W, $TOS
-  pop $TOS
-.else
-  add $W, $Y
-.endif
-  cmp $W, $X
-  bl &__PAREN_PLUSLOOP_next
-__PAREN_PLUSLOOP_iter:
+  sub $Z, $X  ; (index - limit)
+  mov $Y, $W  ; (index + n)
+  sub $Y, $X  ; (index - limit + n)
+  xor $Z, $Y
+  bs &__PARENPLUS_next
   $pushrsp $X
   $pushrsp $W
   lw $W, $FIP
   add $FIP, $W
   $NEXT
-__PAREN_PLUSLOOP_next:
+__PARENPLUS_next:
   add $FIP, $CELL
   $NEXT
+
+
+
+;$DEFCODE "(+LOOP)", 7, 0, PAREN_PLUSLOOP
+;  $poprsp $W ; index
+;  $poprsp $X ; control
+;.ifdef FORTH_TIR
+;  cmp $TOS, 0
+;.else
+;  pop $Y     ; increment N
+;.endif
+;  bs &__PAREN_PLUSLOOP_dec
+;.ifdef FORTH_TIR
+;  add $W, $TOS
+;  pop $TOS
+;.else
+;  add $W, $Y
+;.endif
+;  cmp $W, $X
+;  bg &__PAREN_PLUSLOOP_next
+;  j &__PAREN_PLUSLOOP_iter
+;__PAREN_PLUSLOOP_dec:
+;.ifdef FORTH_TIR
+;  add $W, $TOS
+;  pop $TOS
+;.else
+;  add $W, $Y
+;.endif
+;  cmp $W, $X
+;  bl &__PAREN_PLUSLOOP_next
+;__PAREN_PLUSLOOP_iter:
+;  $pushrsp $X
+;  $pushrsp $W
+;  lw $W, $FIP
+;  add $FIP, $W
+;  $NEXT
+;__PAREN_PLUSLOOP_next:
+;  add $FIP, $CELL
+;  $NEXT
 
 
 $DEFCODE "UNLOOP", 6, 0, UNLOOP
