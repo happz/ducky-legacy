@@ -1,0 +1,4 @@
+[submodule "tests/forth/ans-testsuite"]
+	path = tests/forth/ans-testsuite
+	url = https://github.com/happz/forth2012-test-suite.git
+	branch = ducky
