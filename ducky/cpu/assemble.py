@@ -226,7 +226,7 @@ class ByteSlot(DataSlot):
     if self.refers_to:
       return
 
-    self.value = u8_t(self.value or 0)
+    self.value = [u8_t(self.value or 0)]
 
   def __repr__(self):
     return '<ByteSlot: name={}, size={}, section={}, value={}>'.format(self.name, self.size, self.section.name if self.section else '', self.value)
@@ -240,7 +240,8 @@ class ShortSlot(DataSlot):
     if self.refers_to:
       return
 
-    self.value = u16_t(self.value or 0)
+    value = self.value or 0
+    self.value = [u8_t(value), u8_t(value >> 8)]
 
   def __repr__(self):
     return '<ShortSlot: name={}, size={}, section={}, value={}, refers_to={}>'.format(self.name, self.size, self.section.name if self.section else '', self.value, self.refers_to)
@@ -254,7 +255,8 @@ class IntSlot(DataSlot):
     if self.refers_to:
       return
 
-    self.value = u32_t(self.value or 0)
+    value = self.value or 0
+    self.value = [u8_t(value), u8_t(value >> 8), u8_t(value >> 16), u8_t(value >> 24)]
 
   def __repr__(self):
     return '<IntSlot: name={}, size={}, section={}, value={}, refers_to={}>'.format(self.name, self.size, self.section.name if self.section else '', self.value, self.refers_to)
@@ -300,6 +302,17 @@ class StringSlot(DataSlot):
 
   def __repr__(self):
     return '<StringSlot: name={}, size={}, section={}, value={}>'.format(self.name, self.size, self.section.name if self.section else '', self.value)
+
+class BytesSlot(DataSlot):
+  symbol_type = mm.binary.SymbolDataTypes.ASCII
+
+  def close(self):
+    self.value = self.value or ''
+    self.value = [u8_t(b) for b in self.value]
+    self.size = len(self.value)
+
+  def __repr__(self):
+    return '<BytesSlot: name={}, size={}, section={}, value={}>'.format(self.name, self.size, self.section.name if self.section else '', self.value)
 
 class AlignSlot(DataSlot):
   def __init__(self, boundary):
@@ -1188,10 +1201,7 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
 
         if isinstance(var, IntSlot):
           if var.value is not None:
-            section.content.append(u8_t(var.value.value & 0xFF))
-            section.content.append(u8_t(var.value.value >> 8))
-            section.content.append(u8_t(var.value.value >> 16))
-            section.content.append(u8_t(var.value.value >> 24))
+            section.content += var.value
             DEBUG(ptr_prefix + '  value stored')
 
           else:
@@ -1201,22 +1211,18 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
           section.ptr += 4
 
         elif isinstance(var, ShortSlot):
-          section.content.append(u8_t(var.value.value & 0xFF))
-          section.content.append(u8_t(var.value.value >> 8))
+          section.content += var.value
           section.ptr += var.size
           DEBUG(ptr_prefix + '  value stored')
 
         elif isinstance(var, ByteSlot):
-          section.content.append(u8_t(var.value.value))
+          section.content += var.value
           section.ptr += var.size
           DEBUG(ptr_prefix + '  value stored')
 
-        elif type(var) == AsciiSlot or type(var) == StringSlot:
-          for b in var.value:
-            section.content.append(b)
-
+        elif type(var) == AsciiSlot or type(var) == StringSlot or isinstance(var, BytesSlot):
+          section.content += var.value
           section.ptr += var.size
-
           DEBUG(ptr_prefix + '  value stored')
 
         elif type(var) == SpaceSlot:
@@ -1313,8 +1319,7 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
           item.value = 0x79797979
 
         item.close()
-
-        item = [u8_t(item.value.value), u8_t((item.value.value >> 8)), u8_t((item.value.value >> 16)), u8_t((item.value.value >> 24))]
+        item = item.value
 
       elif hasattr(item, 'refers_to') and item.refers_to:
         reference, item.refers_to = item.refers_to, None
