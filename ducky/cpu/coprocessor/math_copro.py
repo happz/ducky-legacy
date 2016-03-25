@@ -208,13 +208,17 @@ class MathCoprocessorOpcodes(enum.IntEnum):
   MODL    = 12
   SYMDIVL = 13
   SYMMODL = 14
+  UDIVL   = 15
+  UMODL   = 16
 
   DUP     = 20
   DUP2    = 21
   SWP     = 22
+  DROP    = 23
 
   INCL    = 30
   DECL    = 31
+  ADDL    = 32
 
   SIS     = 63
 
@@ -451,6 +455,19 @@ class DECL(Descriptor_MATH):
   def execute(core, inst):
     core.math_coprocessor.registers.tos().value -= 1
 
+class ADDL(Descriptor_MATH):
+  mnemonic = 'addl'
+  opcode = MathCoprocessorOpcodes.ADDL
+
+  @staticmethod
+  def execute(core, inst):
+    RS = core.math_coprocessor.registers
+
+    a = RS.pop()
+    b = RS.pop()
+
+    RS.push(u64_t(a.value + b.value))
+
 class MULL(Descriptor_MATH):
   """
   Multiply two top-most numbers on the stack.
@@ -498,6 +515,36 @@ class MODL(Descriptor_MATH):
 
     RS.push(u64_t(tos.value % divider.value))
 
+class UDIVL(Descriptor_MATH):
+  """
+  Divide the value below the top of the math stack by the topmost value.
+  """
+
+  mnemonic = 'udivl'
+  opcode = MathCoprocessorOpcodes.UDIVL
+
+  @staticmethod
+  def execute(core, inst):
+    RS = core.math_coprocessor.registers
+
+    divider = RS.pop()
+    tos = RS.pop()
+
+    RS.push(u64_t(tos.value // divider.value))
+
+class UMODL(Descriptor_MATH):
+  mnemonic = 'umodl'
+  opcode = MathCoprocessorOpcodes.UMODL
+
+  @staticmethod
+  def execute(core, inst):
+    RS = core.math_coprocessor.registers
+
+    divider = RS.pop()
+    tos = RS.pop()
+
+    RS.push(u64_t(tos.value % divider.value))
+
 class DUP(Descriptor_MATH):
   mnemonic = 'dup'
   opcode = MathCoprocessorOpcodes.DUP
@@ -536,6 +583,16 @@ class SWP(Descriptor_MATH):
     M.registers.push(a)
     M.registers.push(b)
 
+class DROP(Descriptor_MATH):
+  mnemonic = 'drop'
+  opcode = MathCoprocessorOpcodes.DROP
+
+  @staticmethod
+  def execute(core, inst):
+    M = core.math_coprocessor
+
+    M.registers.pop()
+
 class SYMDIVL(Descriptor_MATH):
   """
   The same operation like ``DIVL`` but provides symmetric results.
@@ -568,16 +625,20 @@ class SYMMODL(Descriptor_MATH):
 
     RS.push(u64_t(int(math.fmod(tos.value, divider.value))))
 
+ADDL(MathCoprocessorInstructionSet)
 INCL(MathCoprocessorInstructionSet)
 DECL(MathCoprocessorInstructionSet)
 MULL(MathCoprocessorInstructionSet)
 DIVL(MathCoprocessorInstructionSet)
 MODL(MathCoprocessorInstructionSet)
+UDIVL(MathCoprocessorInstructionSet)
+UMODL(MathCoprocessorInstructionSet)
 SYMDIVL(MathCoprocessorInstructionSet)
 SYMMODL(MathCoprocessorInstructionSet)
 DUP(MathCoprocessorInstructionSet)
 DUP2(MathCoprocessorInstructionSet)
 SWP(MathCoprocessorInstructionSet)
+DROP(MathCoprocessorInstructionSet)
 PUSHW(MathCoprocessorInstructionSet)
 SAVEW(MathCoprocessorInstructionSet)
 POPW(MathCoprocessorInstructionSet)
