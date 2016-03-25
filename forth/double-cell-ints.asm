@@ -169,12 +169,15 @@ $DEFCODE "*/", 2, 0, STARSLASH
   savew $TOS
   sis $DUCKY_INST_SET
 .else
-  pop $W ; n3
-  pop $X ; n2
-  pop $Y ; n1
-  mul $X, $Y
-  div $X, $W
-  push $X
+  sis $MATH_INST_SET
+  popw   ; n3
+  popw   ; n2
+  popw   ; n1
+  mull
+  swp
+  divl
+  pushw
+  sis $DUCKY_INST_SET
 .endif
   $NEXT
 
@@ -194,14 +197,17 @@ $DEFCODE "*/MOD", 5, 0, STARMOD
   savew $TOS
   sis $DUCKY_INST_SET
 .else
-  pop $W ; n3
-  pop $X ; n2
-  pop $Y ; n1
-  mul $Y, $X
-  mov $X, $Y
-  div $X, $W
-  mod $Y, $W
-  push $Y
-  push $X
+  sis $MATH_INST_SET
+  popw   ; n3
+  popw   ; n3 n2
+  popw   ; n3 n2 n1
+  mull   ; n3 (n2 * n1)
+  swp    ; (n2 * n1) n3
+  dup2   ; (n2 * n1) n3 (n2 * n1) n3
+  modl
+  pushw
+  divl
+  pushw
+  sis $DUCKY_INST_SET
 .endif
   $NEXT
