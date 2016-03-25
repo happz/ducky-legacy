@@ -411,6 +411,10 @@ def main():
     logger.error('All input files must be object files')
     sys.exit(1)
 
+  if os.path.exists(options.file_out) and not options.force:
+    logger.error('Output file %s already exists, use -f to force overwrite', options.file_out)
+    sys.exit(1)
+
   info = LinkerInfo()
 
   try:
