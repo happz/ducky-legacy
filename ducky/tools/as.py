@@ -1,22 +1,80 @@
 import os
 import sys
 
-from six import iteritems
+from six import iteritems, PY2
 
-def translate_buffer(logger, buffer, file_in, file_out, options):
-  from ..cpu.assemble import translate_buffer, AssemblerError, sizeof
-  from ..mm.binary import File, SectionTypes, SymbolEntry, RelocEntry
+def translate_buffer(logger, buffer, file_in, options):
+  from ..cpu.assemble import AssemblerError, translate_buffer
 
   try:
-    sections = translate_buffer(logger, buffer, mmapable_sections = options.mmapable_sections, writable_sections = options.writable_sections, filename = file_in, defines = options.defines, includes = options.includes, verify_disassemble = options.verify_disassemble)
+    return translate_buffer(logger, buffer, mmapable_sections = options.mmapable_sections, writable_sections = options.writable_sections, filename = file_in, defines = options.defines, includes = options.includes, verify_disassemble = options.verify_disassemble)
 
   except AssemblerError as exc:
     logger.exception(exc)
     sys.exit(1)
 
+
+def encode_blob(logger, file_in, options):
+  logger.debug('encode_blob: file_in=%s', file_in)
+
+  from ..cpu.assemble import DataSection, SymbolsSection, IntSlot, AsciiSlot, Label, sizeof, BytesSlot, RelocSection
+  from ..mm.binary import SectionFlags
+  from ..mm import u8_t
+  from ..util import BinaryFile
+
+  section_name = '__' + os.path.split(file_in)[1].replace('.', '_').replace('-', '_')
+  section = DataSection('.%s' % section_name, flags = SectionFlags.from_string(options.blob_flags.upper()))
+  section.base = section.ptr = 0
+
+  symtab = SymbolsSection('.symtab')
+  symtab.base = symtab.ptr = 0
+
+  reloc = RelocSection('.reloc')
+  reloc.base = reloc.ptr = 0
+
+  if options.mmapable_sections is True:
+    section.flags.mmapable = True
+
+  logger.debug('section: %s', section)
+
+  with open(file_in, 'rb') as f_in:
+    if PY2:
+      data = bytearray([ord(c) for c in f_in.read()])
+
+    else:
+      data = f_in.read()
+
+  var_size = IntSlot()
+  var_size.name = Label('%s_size' % section_name, section, file_in, 0)
+  var_size.value = len(data)
+  var_size.section = section
+  var_size.section_ptr = 0
+  var_size.close()
+
+  section.content += var_size.value
+  symtab.content.append(var_size)
+
+  var_content = BytesSlot()
+  var_content.name = Label('%s_start' % section_name, section, file_in, 0)
+  var_content.value = data
+  var_content.section = section
+  var_content.section_ptr = sizeof(var_size)
+  var_content.close()
+
+  section.content += var_content.value
+  symtab.content.append(var_content)
+
+  logger.debug('section: %s', section)
+
+  return {section.name: section, '.symtab': symtab, '.reloc': reloc}
+
+def save_object_file(logger, sections, file_out, options):
   if os.path.exists(file_out) and not options.force:
-    logger.error('Output file %s already exists, use -f to force overwrite' % options.file_out)
+    logger.error('Output file %s already exists, use -f to force overwrite', file_out)
     sys.exit(1)
+
+  from ..cpu.assemble import sizeof
+  from ..mm.binary import File, SectionTypes, SymbolEntry, RelocEntry
 
   section_name_to_index = {}
 
@@ -130,6 +188,8 @@ def main():
 
   group = optparse.OptionGroup(parser, 'Binary options')
   parser.add_option_group(group)
+  group.add_option('-b', '--blob',              dest = 'blob',              action = 'store_true', default = False, help = 'Create object file wrapping a binary blob')
+  group.add_option('-B', '--blob-flags',        dest = 'blob_flags',        action = 'store',      default = 'rl',  help = 'Flags of blob section')
   group.add_option('-m', '--mmapable-sections', dest = 'mmapable_sections', action = 'store_true', default = False, help = 'Create mmap\'able sections')
   group.add_option('-w', '--writable-sections', dest = 'writable_sections', action = 'store_true', default = False, help = '.text and other read-only sections will be marked as writable too')
 
@@ -153,4 +213,10 @@ def main():
     else:
       file_out = os.path.splitext(file_in)[0] + '.o'
 
-    translate_buffer(logger, buffer, file_in, file_out, options)
+    if options.blob is True:
+      sections = encode_blob(logger, file_in, options)
+
+    else:
+      sections = translate_buffer(logger, buffer, file_in, options)
+
+    save_object_file(logger, sections, file_out, options)
