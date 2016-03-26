@@ -91,7 +91,7 @@ $ENV_ENTRY RETURN_STACK_CELLS, "RETURN-STACK-CELLS", 18
   j &__ENVIRONMENT_QUERY_next_pass
 
 $ENV_ENTRY STACK_CELLS, "STACK-CELLS", 11
-  li r0, $PAGE_SIZE
+  li r0, $DSTACK_SIZE
   div r0, $CELL
   push r0
   j &__ENVIRONMENT_QUERY_next_pass
@@ -139,8 +139,8 @@ $ENV_ENTRY ENV_MEMORY_ALLOC_EXT, "MEMORY-ALLOC-EXT", 16
 $DEFCODE "ENVIRONMENT?", 12, 0, ENVIRONMENT_QUERY
   ; ( c-addr u -- false | i*x true )
 .ifdef FORTH_TIR
-  pop $W
-  mov $X, $TOS
+  pop $X
+  mov $W, $TOS
 .else
   pop $W ; u
   pop $X ; c-addr
