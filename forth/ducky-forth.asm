@@ -2184,6 +2184,7 @@ $DEFCODE "0<=", 3, 0, ZLE
   cmp $TOS, 0
 .else
   pop $W
+  cmp $W, 0
 .endif
   ble &__CMP_true
   j &__CMP_false
@@ -2194,6 +2195,7 @@ $DEFCODE "0>=", 3, 0, ZGE
   cmp $TOS, 0
 .else
   pop $W
+  cmp $W, 0
 .endif
   bge &__CMP_true
   j &__CMP_false
