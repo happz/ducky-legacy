@@ -96,6 +96,9 @@ def run_testsuite_forth_units(env, target, source):
 def run_testsuite_forth_ans(env, target, source):
   return run_testsuite(env, target, source, tests = ['forth.ans'])
 
+def run_testsuite_forth(env, target, source):
+  return run_testsuite(env, target, source, tests = ['forth.ans', 'forth.units'])
+
 def run_testsuite_examples(env, target, source):
   return run_testsuite(env, target, source, tests = ['examples'])
 
@@ -223,6 +226,10 @@ if 'TESTSETDIR' in E:
   E.Command('.tests-forth-ans', None, run_testsuite_forth_ans)
   E.Depends('.tests-forth-ans', common_requirements + forth_requirements + forth_ans_requirements)
 
+  # FORTH
+  E.Command('.tests-forth', None, run_testsuite_forth)
+  E.Depends('.tests-forth', common_requirements + forth_requirements + forth_ans_requirements + forth_unit_requirements)
+
   # Examples
   E.Command('.tests-examples', None, run_testsuite_examples)
   E.Depends('.tests-examples', common_requirements + examples_requirements)
@@ -255,6 +262,9 @@ if 'TESTSETDIR' in E:
 
   elif E['BUILD_TARGET'] == 'tests-forth-ans':
     E.Depends('.tests', '.tests-forth-ans')
+
+  elif E['BUILD_TARGET'] == 'tests-forth':
+    E.Depends('.tests', '.tests-forth')
 
   elif E['BUILD_TARGET'] == 'tests-examples':
     E.Depends('.tests', '.tests-examples')
