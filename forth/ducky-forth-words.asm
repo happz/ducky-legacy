@@ -56,9 +56,6 @@ __ENV_ENTRY_HANDLER_#name:
   cmp r0, 0
   bnz &__ENVIRONMENT_QUERY_next_#name
   ; found!
-.ifdef FORTH_TIR
-  push $TOS ; mov TOS to stack, it will be replaced (or worse...) by the exit code
-.endif
   j &__ENV_ENTRY_HANDLER_#name
 __ENVIRONMENT_QUERY_next_#name:
   mov r0, r2 ; restore string ptr
