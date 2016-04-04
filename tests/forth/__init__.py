@@ -36,6 +36,9 @@ def run_forth_vm(out = None, machine = None, options = None, diff_expected = Non
   if config['options']['profile'] == 'yes':
     cmd.append('-p -P %s' % config['dirs']['profile'])
 
+  if os.environ.get('JIT', 'no') == 'yes':
+    cmd.append('--jit')
+
   cmd[0] = '%s %s' % (config['vm-runner']['runner'], cmd[0])
 
   cmd = ' '.join(cmd)
