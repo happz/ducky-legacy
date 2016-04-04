@@ -35,7 +35,9 @@ def add_common_options(parser):
   group.add_option('-q', '--quiet', dest = 'quiet', action = 'count', default = 0, help = 'Decrease verbosity. This option can be used multiple times')
   group.add_option('-v', '--verbose', dest = 'verbose', action = 'count', default = 0, help = 'Increase verbosity. This option can be used multiple times')
 
-def parse_options(parser, default_loglevel = logging.INFO):
+def parse_options(parser, default_loglevel = logging.INFO, stream = None):
+  stream = stream or sys.stdout
+
   if isinstance(parser, argparse.ArgumentParser):
     options = parser.parse_args()
   else:

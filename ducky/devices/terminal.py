@@ -4,7 +4,7 @@ from . import Device
 from ..streams import InputStream, OutputStream
 
 class Terminal(Device):
-  def __init__(self, machine, name, echo = False, *args, **kwargs):
+  def __init__(self, machine, name, echo = False, dont_close = False, *args, **kwargs):
     super(Terminal, self).__init__(machine, 'terminal', name, *args, **kwargs)
 
     self.input = None
@@ -12,6 +12,8 @@ class Terminal(Device):
 
     self.echo = echo
     self._input_read_u8_orig = None
+
+    self.dont_close = dont_close
 
   def _input_read_u8_echo(self, *args, **kwargs):
     c = self._input_read_u8_orig(*args, **kwargs)
@@ -52,10 +54,10 @@ def parse_io_streams(machine, config, section):
   streams_in, stream_out = None, None
 
   if config.has_option(section, 'streams_in'):
-    streams_in = [InputStream.create(machine.LOGGER, e.strip()) for e in config.get(section, 'streams_in').split(',')]
+    streams_in = [InputStream.create(machine, e.strip()) for e in config.get(section, 'streams_in').split(',')]
 
   if config.has_option(section, 'stream_out'):
-    stream_out = OutputStream.create(machine.LOGGER, config.get(section, 'stream_out'))
+    stream_out = OutputStream.create(machine, config.get(section, 'stream_out'))
 
   return (streams_in, stream_out)
 
@@ -136,7 +138,7 @@ class StandardIOTerminal(StreamIOTerminal):
     input_device, output_device = get_slave_devices(machine, config, section)
 
     term = StandardIOTerminal(machine, section, input = input_device, output = output_device)
-    term.enqueue_streams(streams_in = [InputStream.create(machine.LOGGER, '<stdin>')], stream_out = OutputStream.create(machine.LOGGER, '<stdout>'))
+    term.enqueue_streams(streams_in = [InputStream.create(machine, '<stdin>')], stream_out = OutputStream.create(machine, '<stdout>'))
 
     return term
 
@@ -150,7 +152,7 @@ class StandalonePTYTerminal(StreamIOTerminal):
   def create_from_config(machine, config, section):
     input_device, output_device = get_slave_devices(machine, config, section)
 
-    term = StandalonePTYTerminal(machine, section, input = input_device, output = output_device, echo = config.getbool(section, 'echo', False))
+    term = StandalonePTYTerminal(machine, section, input = input_device, output = output_device, echo = config.getbool(section, 'echo', False), dont_close = config.getbool(section, 'dont_close', False))
 
     streams_in, stream_out = parse_io_streams(machine, config, section)
     term.enqueue_streams(streams_in = streams_in, stream_out = stream_out)
@@ -171,7 +173,7 @@ class StandalonePTYTerminal(StreamIOTerminal):
 
     self.machine.DEBUG('  set I/O stream: pttys=%s', pttys)
 
-    self.enqueue_streams(streams_in = [InputStream.create(self.machine.LOGGER, pttys[0])], stream_out = OutputStream.create(self.machine.LOGGER, pttys[0]))
+    self.enqueue_streams(streams_in = [InputStream.create(self.machine, pttys[0])], stream_out = OutputStream.create(self.machine, pttys[0]))
 
     self.terminal_device = os.ttyname(pttys[1]) if pttys else '/dev/unknown'
 
@@ -193,14 +195,20 @@ class StandalonePTYTerminal(StreamIOTerminal):
     self.input.halt()
     self.output.halt()
 
-    try:
-      os.close(self.pttys[1])
-      os.close(self.pttys[0])
+    if self.dont_close is True:
+      import curses.ascii
 
-      self.pttys = None
-      self.terminal_device = None
+      os.write(self.pttys[0], chr(curses.ascii.EOT))
 
-    except Exception:
-      self.machine.EXCEPTION('Exception raised while closing PTY')
+    else:
+      try:
+        os.close(self.pttys[1])
+        os.close(self.pttys[0])
+
+        self.pttys = None
+        self.terminal_device = None
+
+      except Exception:
+        self.machine.EXCEPTION('Exception raised while closing PTY')
 
     self.machine.DEBUG('StandalonePTYTerminal: halted')

@@ -214,7 +214,7 @@ class Display(Device):
   @staticmethod
   def create_from_config(machine, config, section):
     gpu = Display.get_slave_gpu(machine, config, section)
-    stream_out =  OutputStream.create(machine.LOGGER, config.get(section, 'stream_out', '<stdout>'))
+    stream_out =  OutputStream.create(machine, config.get(section, 'stream_out', '<stdout>'))
 
     return Display(machine, section, gpu = gpu, stream_out = stream_out)
 

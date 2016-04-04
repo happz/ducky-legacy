@@ -139,7 +139,11 @@ class Machine(ISnapshotable, IMachineWorker):
 
     raise InvalidResourceError(F('No such CPU core: cid={cid}', cid = cid))
 
-  def __init__(self, logger = None):
+  def __init__(self, logger = None, stdin = None, stdout = None, stderr = None):
+    self.stdin  = stdin or sys.stdin
+    self.stdout = stdout or sys.stdout
+    self.stderr = stderr or sys.stderr
+
     self.reactor = Reactor(self)
 
     # Setup logging

@@ -1,5 +1,3 @@
-import sys
-
 from . import IOProvider, Device
 from ..errors import InvalidResourceError
 from ..mm import UINT16_FMT, UINT8_FMT
@@ -58,8 +56,5 @@ class TTY(IOProvider, Device):
       self.machine.unregister_port(port)
 
     if self.output:
-      if self.output != sys.stdout:
-        self.output.close()
-
       self.output = None
       self.output_fd = None

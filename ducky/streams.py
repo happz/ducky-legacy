@@ -9,21 +9,35 @@ and ``file``/descriptor differencies.
 """
 
 import abc
+import fcntl
 import io
 import os
-import sys
 
 from six import PY2, integer_types, string_types, add_metaclass
 
 from .errors import InvalidResourceError
 from .util import isfile
 
+def fd_blocking(fd, block = None):
+  flags = fcntl.fcntl(fd, fcntl.F_GETFL)
+
+  if block is None:
+    return (flags & os.O_NONBLOCK) == 0
+
+  if block is True:
+    flags &= ~os.O_NONBLOCK
+
+  else:
+    flags |= os.O_NONBLOCK
+
+  fcntl.fcntl(fd, fcntl.F_SETFL, flags)
+
 @add_metaclass(abc.ABCMeta)
 class Stream(object):
   """
   Abstract base class of all streams.
 
-  :param logger: logger object used for logging.
+  :param machine: parent :py:class`ducky.machine.Machine` object.
   :param desc: description of stream. This is a short, string representation
     of the stream.
   :param stream: ``file``-like stream that provides IO method (``read()`` or
@@ -35,12 +49,12 @@ class Stream(object):
     object.
   """
 
-  def __init__(self, logger, desc, stream = None, fd = None, close = True):
+  def __init__(self, machine, desc, stream = None, fd = None, close = True):
     if stream is None and fd is None:
       raise InvalidResourceError('Stream "%s" must have stream object or raw file descriptor.' % desc)
 
-    self.logger = logger
-    self.DEBUG = logger.debug
+    self.logger = machine.LOGGER
+    self.DEBUG = machine.LOGGER.debug
 
     self.desc = desc
     self.stream = stream
@@ -166,47 +180,47 @@ class InputStream(Stream):
     raise NotImplementedError('%s does not implement write method' % self.__class__.__name__)
 
   @staticmethod
-  def create(logger, desc):
-    logger.debug('InputStream.create: desc=%s', desc)
+  def create(machine, desc):
+    machine.LOGGER.debug('InputStream.create: desc=%s', desc)
 
     if isfile(desc):
-      return FileInputStream(logger, desc)
+      return FileInputStream(machine, desc)
 
     if hasattr(desc, 'read'):
-      return MethodInputStream(logger, desc)
+      return MethodInputStream(machine, desc)
 
     if hasattr(desc, 'fileno'):
-      return FDInputStream(logger, desc.fileno())
+      return FDInputStream(machine, desc.fileno())
 
     if isinstance(desc, integer_types):
-      return FDInputStream(logger, desc)
+      return FDInputStream(machine, desc)
 
     if desc == '<stdin>':
-      return StdinStream(logger)
+      return StdinStream(machine)
 
     if isinstance(desc, string_types):
-      return FileInputStream(logger, open(desc, 'rb'))
+      return FileInputStream(machine, open(desc, 'rb'))
 
     raise InvalidResourceError('Unknown stream description: desc=%s' % desc)
 
 class FileInputStream(InputStream):
-  def __init__(self, logger, f, **kwargs):
-    super(FileInputStream, self).__init__(logger, '<file %s>' % f.name, stream = f, fd = f.fileno())
+  def __init__(self, machine, f, **kwargs):
+    super(FileInputStream, self).__init__(machine, '<file %s>' % f.name, stream = f, fd = f.fileno())
 
 class MethodInputStream(InputStream):
-  def __init__(self, logger, desc, **kwargs):
-    super(MethodInputStream, self).__init__(logger, repr(desc), stream = desc)
+  def __init__(self, machine, desc, **kwargs):
+    super(MethodInputStream, self).__init__(machine, repr(desc), stream = desc)
 
 class FDInputStream(InputStream):
-  def __init__(self, logger, fd, **kwargs):
-    super(FDInputStream, self).__init__(logger, '<fd %s>' % fd, fd = fd)
+  def __init__(self, machine, fd, **kwargs):
+    super(FDInputStream, self).__init__(machine, '<fd %s>' % fd, fd = fd)
 
 class StdinStream(InputStream):
-  def __init__(self, logger, **kwargs):
-    DEBUG = logger.debug
+  def __init__(self, machine, **kwargs):
+    DEBUG = machine.LOGGER.debug
 
-    stream = sys.stdin.buffer if hasattr(sys.stdin, 'buffer') else sys.stdin
-    fd = sys.stdin.fileno() if hasattr(sys.stdin, 'fileno') else None
+    stream = machine.stdin.buffer if hasattr(machine.stdin, 'buffer') else machine.stdin
+    fd = machine.stdin.fileno() if hasattr(machine.stdin, 'fileno') else None
 
     if fd is not None:
       DEBUG('%s.__init__: re-pack <stdin> fd as a new stream to avoid colisions', self.__class__.__name__)
@@ -216,11 +230,9 @@ class StdinStream(InputStream):
 
       DEBUG('%s.__init__: set <stdin> fd to non-blocking mode', self.__class__.__name__)
 
-      import fcntl
-      orig_fl = fcntl.fcntl(fd, fcntl.F_GETFL)
-      fcntl.fcntl(fd, fcntl.F_SETFL, orig_fl | os.O_NONBLOCK)
+      fd_blocking(fd, block = False)
 
-    super(StdinStream, self).__init__(logger, '<stdin>', stream = stream, fd = fd, close = False, **kwargs)
+    super(StdinStream, self).__init__(machine, '<stdin>', stream = stream, fd = fd, close = False, **kwargs)
 
   def get_selectee(self):
     return self.stream
@@ -242,54 +254,54 @@ class OutputStream(Stream):
       self._raw_write(bytes(buff))
 
   @staticmethod
-  def create(logger, desc):
-    logger.debug('OutputStream.create: desc=%s', desc)
+  def create(machine, desc):
+    machine.LOGGER.debug('OutputStream.create: desc=%s', desc)
 
     if isfile(desc):
-      return FileOutputStream(logger, desc)
+      return FileOutputStream(machine, desc)
 
     if hasattr(desc, 'write'):
-      return MethodOutputStream(logger, desc)
+      return MethodOutputStream(machine, desc)
 
     if hasattr(desc, 'fileno'):
-      return FDOutputStream(logger, desc.fileno())
+      return FDOutputStream(machine, desc.fileno())
 
     if isinstance(desc, integer_types):
-      return FDOutputStream(logger, desc)
+      return FDOutputStream(machine, desc)
 
     if desc == '<stdout>':
-      return StdoutStream(logger)
+      return StdoutStream(machine)
 
     if desc == '<stderr>':
-      return StderrStream(logger)
+      return StderrStream(machine)
 
     if isinstance(desc, string_types):
-      return FileOutputStream(logger, open(desc, 'wb'))
+      return FileOutputStream(machine, open(desc, 'wb'))
 
     raise InvalidResourceError('Unknown stream description: desc=%s' % desc)
 
 class FileOutputStream(OutputStream):
-  def __init__(self, logger, f, **kwargs):
-    super(FileOutputStream, self).__init__(logger, '<file %s>' % f.name, stream = f, fd = f.fileno())
+  def __init__(self, machine, f, **kwargs):
+    super(FileOutputStream, self).__init__(machine, '<file %s>' % f.name, stream = f, fd = f.fileno())
 
 class FDOutputStream(OutputStream):
-  def __init__(self, logger, fd, **kwargs):
-    super(FDOutputStream, self).__init__(logger, '<fd %s>' % fd, fd = fd)
+  def __init__(self, machine, fd, **kwargs):
+    super(FDOutputStream, self).__init__(machine, '<fd %s>' % fd, fd = fd)
 
 class MethodOutputStream(OutputStream):
-  def __init__(self, logger, desc, **kwargs):
-    super(MethodOutputStream, self).__init__(logger, repr(desc), stream = desc)
+  def __init__(self, machine, desc, **kwargs):
+    super(MethodOutputStream, self).__init__(machine, repr(desc), stream = desc)
 
 class StdoutStream(OutputStream):
-  def __init__(self, logger):
-    stream = sys.stdout.buffer if hasattr(sys.stdout, 'buffer') else sys.stdout
-    fd = sys.stdout.fileno() if hasattr(sys.stdout, 'fileno') else None
+  def __init__(self, machine):
+    stream = machine.stdout.buffer if hasattr(machine.stdout, 'buffer') else machine.stdout
+    fd = machine.stdout.fileno() if hasattr(machine.stdout, 'fileno') else None
 
-    super(StdoutStream, self).__init__(logger, '<stdout>', stream = stream, fd = fd, close = False)
+    super(StdoutStream, self).__init__(machine, '<stdout>', stream = stream, fd = fd, close = False)
 
 class StderrStream(OutputStream):
-  def __init__(self, logger):
-    stream = sys.stderr.buffer if hasattr(sys.stderr, 'buffer') else sys.stderr
-    fd = sys.stderr.fileno() if hasattr(sys.stderr, 'fileno') else None
+  def __init__(self, machine):
+    stream = machine.stderr.buffer if hasattr(machine.stderr, 'buffer') else machine.stderr
+    fd = machine.stderr.fileno() if hasattr(machine.stderr, 'fileno') else None
 
-    super(StderrStream, self).__init__(logger, '<stderr>', stream = stream, fd = fd, close = False)
+    super(StderrStream, self).__init__(machine, '<stderr>', stream = stream, fd = fd, close = False)

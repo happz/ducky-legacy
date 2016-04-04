@@ -63,7 +63,6 @@ class KeyboardController(IRQProvider, IOProvider, Device):
 
     self.machine.reactor.remove_fd(self.input.get_selectee())
 
-    self.input.close()
     self.input = None
 
   def open_input(self):

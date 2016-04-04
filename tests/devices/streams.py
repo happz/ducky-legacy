@@ -6,17 +6,36 @@ import ducky.streams
 import ducky.tools
 from ducky.errors import InvalidResourceError
 
-from .. import get_tempfile, assert_raises
+from .. import get_tempfile, assert_raises, mock
+from functools import partial
 
 LOGGER = logging.getLogger()
 
+def setup_machine():
+  M = mock.Mock()
+  M.LOGGER = LOGGER
+
+  for stream in ('stdout', 'stderr', 'stdin'):
+    setattr(M, stream, getattr(sys, stream))
+
+  return M, partial(ducky.streams.InputStream.create, M), partial(ducky.streams.OutputStream.create, M)
+
 def test_no_stream():
-  assert_raises(lambda: ducky.streams.InputStream(LOGGER, 'dummy stream description'), InvalidResourceError)
+  M, create_input, create_output = setup_machine()
+
+  assert_raises(lambda: create_input(object()), InvalidResourceError)
+
+def test_no_file():
+  M, create_input, create_output = setup_machine()
+
+  assert_raises(lambda: create_input('dummy stream description'), IOError)
 
 def test_file():
   with get_tempfile(keep = False) as f:
+    M, create_input, create_output = setup_machine()
     g = open(f.name, 'rb')
-    s = ducky.streams.InputStream.create(LOGGER, g)
+
+    s = create_input(g)
 
     assert s.desc == '<file %s>' % f.name
     assert s.stream == g
@@ -26,7 +45,7 @@ def test_file():
     assert s._raw_read == s._raw_read_stream
     assert s.get_selectee() == s.fd
 
-    s = ducky.streams.OutputStream.create(LOGGER, g)
+    s = create_output(g)
 
     assert s.desc == '<file %s>' % f.name
     assert s.stream == g
@@ -37,6 +56,8 @@ def test_file():
     assert s.get_selectee() == s.fd
 
 def test_method_proxy():
+  M, create_input, create_output = setup_machine()
+
   with get_tempfile(keep = False) as f:
     class Proxy(object):
       def __init__(self):
@@ -45,7 +66,7 @@ def test_method_proxy():
 
     proxy = Proxy()
 
-    s = ducky.streams.InputStream.create(LOGGER, proxy)
+    s = create_input(proxy)
 
     assert s.desc == repr(proxy)
     assert s.stream == proxy
@@ -55,7 +76,7 @@ def test_method_proxy():
     assert s._raw_read == s._raw_read_stream
     assert s.get_selectee() == s.fd
 
-    s = ducky.streams.OutputStream.create(LOGGER, proxy)
+    s = create_output(proxy)
 
     assert s.desc == repr(proxy)
     assert s.stream == proxy
@@ -66,6 +87,8 @@ def test_method_proxy():
     assert s.get_selectee() == s.fd
 
 def test_fileno_proxy():
+  M, create_input, create_output = setup_machine()
+
   with get_tempfile(keep = False) as f:
     class Proxy(object):
       def __init__(self):
@@ -73,7 +96,7 @@ def test_fileno_proxy():
 
     proxy = Proxy()
 
-    s = ducky.streams.InputStream.create(LOGGER, proxy)
+    s = create_input(proxy)
 
     assert s.desc == '<fd %s>' % f.fileno()
     assert s.stream is None
@@ -83,7 +106,7 @@ def test_fileno_proxy():
     assert s._raw_read == s._raw_read_fd
     assert s.get_selectee() == s.fd
 
-    s = ducky.streams.OutputStream.create(LOGGER, proxy)
+    s = create_output(proxy)
 
     assert s.desc == '<fd %s>' % f.fileno()
     assert s.stream is None
@@ -94,8 +117,10 @@ def test_fileno_proxy():
     assert s.get_selectee() == s.fd
 
 def test_fd():
+  M, create_input, create_output = setup_machine()
+
   with get_tempfile(keep = False) as f:
-    s = ducky.streams.InputStream.create(LOGGER, f.fileno())
+    s = create_input(f.fileno())
 
     assert s.desc == '<fd %s>' % f.fileno()
     assert s.stream is None
@@ -105,7 +130,7 @@ def test_fd():
     assert s._raw_read == s._raw_read_fd
     assert s.get_selectee() == s.fd
 
-    s = ducky.streams.OutputStream.create(LOGGER, f.fileno())
+    s = create_output(f.fileno())
 
     assert s.desc == '<fd %s>' % f.fileno()
     assert s.stream is None
@@ -116,8 +141,10 @@ def test_fd():
     assert s.get_selectee() == s.fd
 
 def test_path():
+  M, create_input, create_output = setup_machine()
+
   with get_tempfile(keep = False) as f:
-    s = ducky.streams.InputStream.create(LOGGER, f.name)
+    s = create_input(f.name)
 
     assert s.desc == '<file %s>' % f.name
     assert s.stream.name == f.name
@@ -127,7 +154,7 @@ def test_path():
     assert s._raw_read == s._raw_read_stream
     assert s.get_selectee() == s.fd
 
-    s = ducky.streams.OutputStream.create(LOGGER, f.name)
+    s = create_output(f.name)
 
     assert s.desc == '<file %s>' % f.name
     assert s.stream.name == f.name
@@ -138,7 +165,9 @@ def test_path():
     assert s.get_selectee() == s.fd
 
 def test_stdin():
-  s = ducky.streams.InputStream.create(LOGGER, '<stdin>')
+  M, create_input, create_output = setup_machine()
+
+  s = create_input('<stdin>')
 
   assert s.desc == '<stdin>'
   assert s.fd == sys.stdin.fileno()
@@ -148,7 +177,9 @@ def test_stdin():
   assert s.get_selectee() == s.stream
 
 def test_stdout():
-  s = ducky.streams.OutputStream.create(LOGGER, '<stdout>')
+  M, create_input, create_output = setup_machine()
+
+  s = create_output('<stdout>')
 
   assert s.desc == '<stdout>'
   assert s.stream == sys.stdout
@@ -158,7 +189,9 @@ def test_stdout():
   assert s.get_selectee() == s.fd
 
 def test_stderr():
-  s = ducky.streams.OutputStream.create(LOGGER, '<stderr>')
+  M, create_input, create_output = setup_machine()
+
+  s = create_output('<stderr>')
 
   assert s.desc == '<stderr>'
   assert s.stream == sys.stderr
@@ -168,10 +201,12 @@ def test_stderr():
   assert s.get_selectee() == s.fd
 
 def test_unknown():
+  M, create_input, create_output = setup_machine()
+
   class Proxy(object):
     pass
 
   proxy = Proxy()
 
-  assert_raises(lambda: ducky.streams.InputStream.create(LOGGER, proxy), InvalidResourceError)
-  assert_raises(lambda: ducky.streams.OutputStream.create(LOGGER, proxy), InvalidResourceError)
+  assert_raises(lambda: create_input(proxy), InvalidResourceError)
+  assert_raises(lambda: create_output(proxy), InvalidResourceError)

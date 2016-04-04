@@ -26,7 +26,7 @@ class Tests(TestCase):
 
     kbd = common_case()
     kbd.machine.reactor.add_fd = mock.MagicMock()
-    kbd.enqueue_input(ducky.streams.InputStream.create(kbd.machine.LOGGER, f.name))
+    kbd.enqueue_input(ducky.streams.InputStream.create(kbd.machine, f.name))
     kbd.machine.boot()
 
     assert kbd.machine.reactor.add_fd.called_with(kbd.input.fd, on_read = kbd.handle_raw_input, on_error = kbd.handle_input_error)
