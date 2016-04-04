@@ -17,10 +17,8 @@ def translate_buffer(logger, buffer, file_in, options):
 def encode_blob(logger, file_in, options):
   logger.debug('encode_blob: file_in=%s', file_in)
 
-  from ..cpu.assemble import DataSection, SymbolsSection, IntSlot, AsciiSlot, Label, sizeof, BytesSlot, RelocSection
+  from ..cpu.assemble import DataSection, SymbolsSection, IntSlot, Label, sizeof, BytesSlot, RelocSection
   from ..mm.binary import SectionFlags
-  from ..mm import u8_t
-  from ..util import BinaryFile
 
   section_name = '__' + os.path.split(file_in)[1].replace('.', '_').replace('-', '_')
   section = DataSection('.%s' % section_name, flags = SectionFlags.from_string(options.blob_flags.upper()))

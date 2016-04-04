@@ -916,6 +916,7 @@ class POP(Descriptor_R):
 
     if inst.reg1 == FLAGS:
       from . import CoreFlags
+
       def __jit_pop():
         core.flags = CoreFlags.from_int(pop())
 

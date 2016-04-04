@@ -12,7 +12,7 @@ from .. import mm
 from ..cpu.coprocessor.math_copro import MathCoprocessorInstructionSet  # noqa - it's not unused, SIS instruction may need it but that's hidden from flake
 from ..cpu.instructions import encoding_to_u32
 
-from ..mm import u8_t, u16_t, u32_t, PAGE_SIZE, UINT32_FMT
+from ..mm import u8_t, PAGE_SIZE, UINT32_FMT
 from ..mm.binary import SectionTypes, SectionFlags, SymbolFlags, RelocFlags
 from ..util import align, str2bytes
 from ..errors import AssemblerError, IncompleteDirectiveError, UnknownFileError, DisassembleMismatchError
