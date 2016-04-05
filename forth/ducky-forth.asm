@@ -1834,7 +1834,7 @@ $DEFCODE "IMMEDIATE", 9, $F_IMMED, IMMEDIATE
   lw $X, $W
   add $X, $wr_flags
   lb $Y, $X
-  xor $Y, $F_IMMED
+  or $Y, $F_IMMED
   stb $X, $Y
   $NEXT
 
