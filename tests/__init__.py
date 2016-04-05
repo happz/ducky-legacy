@@ -1,6 +1,5 @@
 import os
 import logging
-import sys
 import tempfile
 
 from six import iteritems
@@ -12,7 +11,6 @@ import ducky.console
 import ducky.machine
 import ducky.mm
 import ducky.snapshot
-import ducky.streams
 import ducky.util
 
 from ducky.util import F
@@ -24,9 +22,6 @@ try:
 
 except ImportError:
   import mock  # noqa
-
-if hasattr(sys.stdout, 'fileno'):
-  ducky.streams.fd_blocking(sys.stdout.fileno(), block = True)
 
 def get_tempfile(keep = True):
   return tempfile.NamedTemporaryFile('w+b', delete = not keep, dir = os.getenv('TMPDIR'))
