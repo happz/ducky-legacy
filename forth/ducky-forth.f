@@ -11,17 +11,6 @@
 \
 
 
-: CONSTANT DWORD HEADER, DOCOL , ['] LIT , , ['] EXIT , ;
-: VARIABLE DWORD HEADER, DODOES , 0 ,  1 CELLS ALLOT ;
-: CREATE   DWORD HEADER, DODOES , 0 ,  ;
-: DOES> R> LATEST @ >DFA ! ;
-: VALUE DWORD HEADER, DOCOL , ['] LIT , , ['] EXIT , ;
-
-
-: REPEAT IMMEDIATE ['] BRANCH , SWAP HERE - , DUP HERE SWAP - SWAP ! ;
-: AGAIN IMMEDIATE ['] BRANCH , HERE - , ;
-: UNLESS IMMEDIATE ['] NOT , [COMPILE] IF ;
-
 CREATE LEAVE-SP 32 CELLS ALLOT
 LEAVE-SP LEAVE-SP !
 
@@ -164,34 +153,6 @@ LEAVE-SP LEAVE-SP !
 
 	DROP			( restore stack )
 	BASE !			( restore saved BASE )
-;
-
-\ - CASE ---------------------------------------------------------------------
-
-: CASE IMMEDIATE
-	0		( push 0 to mark the bottom of the stack )
-;
-
-: OF IMMEDIATE
-	['] OVER , ( compile OVER )
-	['] = ,		( compile = )
-	[COMPILE] IF	( compile IF )
-	['] DROP , ( compile DROP )
-;
-
-: ENDOF IMMEDIATE
-	[COMPILE] ELSE	( ENDOF is the same as ELSE )
-;
-
-: ENDCASE IMMEDIATE
-	['] DROP , ( compile DROP )
-
-	( keep compiling THEN until we get to our zero marker )
-	BEGIN
-		?DUP
-	WHILE
-		[COMPILE] THEN
-	REPEAT
 ;
 
 \ - DECOMPILER ---------------------------------------------------------------------

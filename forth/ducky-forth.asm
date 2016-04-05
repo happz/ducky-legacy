@@ -3061,6 +3061,71 @@ $DEFCODE "DODOES", 6, 0, __DODOES
   $NEXT
 
 
+$DEFWORD "CONSTANT", 8, 0, CONSTANT
+  .int &DWORD
+  .int &HEADER_COMMA
+  .int &__DOCOL
+  .int &COMMA
+  .int &BRACKET_TICK
+  .int &LIT
+  .int &COMMA
+  .int &COMMA
+  .int &BRACKET_TICK
+  .int &EXIT
+  .int &COMMA
+  .int &EXIT
+
+
+$DEFWORD "VARIABLE", 8, 0, VARIABLE
+  .int &DWORD
+  .int &HEADER_COMMA
+  .int &__DODOES
+  .int &COMMA
+  .int &LIT
+  .int 0
+  .int &COMMA
+  .int &LIT
+  .int 1
+  .int &CELLS
+  .int &ALLOT
+  .int &EXIT
+
+
+$DEFWORD "CREATE", 6, 0, CREATE
+  .int &DWORD
+  .int &HEADER_COMMA
+  .int &__DODOES
+  .int &COMMA
+  .int &LIT
+  .int 0
+  .int &COMMA
+  .int &EXIT
+
+
+$DEFWORD "DOES>", 5, 0, DOESTO
+  .int &FROMR
+  .int &LATEST
+  .int &FETCH
+  .int &TDFA
+  .int &STORE
+  .int &EXIT
+
+
+$DEFWORD "VALUE", 5, 0, VALUE
+  .int &DWORD
+  .int &HEADER_COMMA
+  .int &__DOCOL
+  .int &COMMA
+  .int &BRACKET_TICK
+  .int &LIT
+  .int &COMMA
+  .int &COMMA
+  .int &BRACKET_TICK
+  .int &EXIT
+  .int &COMMA
+  .int &EXIT
+
+
 ; Include non-kernel words
  .include "forth/ducky-forth-words.asm"
  .include "forth/double-cell-ints.asm"

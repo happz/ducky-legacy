@@ -556,8 +556,7 @@ $DEFCODE "2R>", 3, 0, TWORFROM
 .endif
   $NEXT
 
-; - Conditions --------------------------------------------------------------------------
-
+; - Control structures --------------------------------------------------------------------------
 
 $DEFWORD "IF", 2, $F_IMMED, IF
   .int &LIT
@@ -596,9 +595,6 @@ $DEFWORD "THEN", 4, $F_IMMED, THEN
   .int &SWAP
   .int &STORE
   .int &EXIT
-
-
-; - Loops -------------------------------------------------------------------------------
 
 
 $DEFCODE "RECURSE", 7, $F_IMMED, RECURSE
@@ -648,6 +644,79 @@ $DEFWORD "UNTIL", 5, $F_IMMED, UNTIL
   .int &HERE
   .int &SUB
   .int &COMMA
+  .int &EXIT
+
+
+$DEFWORD "REPEAT", 6, $F_IMMED, REPEAT
+  .int &BRACKET_TICK
+  .int &BRANCH
+  .int &COMMA
+  .int &SWAP
+  .int &HERE
+  .int &SUB
+  .int &COMMA
+  .int &DUP
+  .int &HERE
+  .int &SWAP
+  .int &SUB
+  .int &SWAP
+  .int &STORE
+  .int &EXIT
+
+
+$DEFWORD "AGAIN", 5, $F_IMMED, AGAIN
+  .int &BRACKET_TICK
+  .int &BRANCH
+  .int &COMMA
+  .int &HERE
+  .int &SUB
+  .int &COMMA
+  .int &EXIT
+
+
+$DEFWORD "UNLESS", 6, $F_IMMED, UNLESS
+  .int &BRACKET_TICK
+  .int &NOT
+  .int &COMMA
+  .int &IF
+  .int &EXIT
+
+
+$DEFWORD "CASE", 4, $F_IMMED, CASE
+  .int &LIT
+  .int 0
+  .int &EXIT
+
+
+$DEFWORD "OF", 2, $F_IMMED, OF
+  .int &BRACKET_TICK
+  .int &OVER
+  .int &COMMA
+  .int &BRACKET_TICK
+  .int &EQU
+  .int &COMMA
+  .int &IF
+  .int &BRACKET_TICK
+  .int &DROP
+  .int &COMMA
+  .int &EXIT
+
+
+$DEFWORD "ENDOF", 5, $F_IMMED, ENDOF
+  .int &ELSE
+  .int &EXIT
+
+
+$DEFWORD "ENDCASE", 7, $F_IMMED, ENDCASE
+  .int &BRACKET_TICK
+  .int &DROP
+  .int &COMMA
+  .int &QDUP
+  .int &ZBRANCH
+  .int 0x00000010
+  .int &THEN
+  .int &BRANCH
+  .int 0xFFFFFFEC
   .int &EXIT
 
 
