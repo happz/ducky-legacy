@@ -63,6 +63,9 @@ def test_hello_world():
 def test_clock():
   run_example('clock', 'clock')
 
+def test_fib():
+  run_example('fib', 'fib')
+
 def test_svga():
   run_example('vga', 'vga')
 
