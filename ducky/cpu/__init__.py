@@ -209,7 +209,7 @@ class InstructionCache(LRUCache):
 
     core = self.core
 
-    inst, desc, opcode = core.instruction_set.decode_instruction(core.LOGGER, core.mmu.MEM_IN32(addr, not_execute = False), core = core)
+    inst, desc, opcode = core.instruction_set.decode_instruction(core.LOGGER, core.MEM_IN32(addr, not_execute = False), core = core)
 
     fn = desc.jit(core, inst)
 
