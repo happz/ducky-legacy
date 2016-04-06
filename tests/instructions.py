@@ -748,6 +748,7 @@ def test_cli_unprivileged(state):
 @example(state = STATE.example(), reg = REGISTER.example(), a = 0, b = 0)
 @example(state = STATE.example(), reg = REGISTER.example(), a = 1, b = 1)
 @example(state = STATE.example(), reg = REGISTER.example(), a = 10, b = 20)
+@example(state = STATE.example(), reg = 0, a = 0xFFFFFFFF, b = 0x00007FFF)
 def test_cmp_immediate(state, reg, a, b):
   from ducky.cpu.instructions import CMP
 
@@ -756,16 +757,18 @@ def test_cmp_immediate(state, reg, a, b):
 
   inst = encode_inst(CMP, {'register_n0': reg, 'immediate': b})
 
+  b_extended = sign_extend15(b)
+
   state.reset()
   CORE.registers.map[reg].value = a
 
   execute_inst(CORE, CMP, inst)
 
   state.check((reg, a),
-              equal = a == b,
-              zero = a == b and a == 0,
+              equal = a == b_extended,
+              zero = a == b_extended and a == 0,
               overflow = False,
-              sign = i32_t(a).value < i32_t(inst.sign_extend_immediate(LOGGER, inst)).value)
+              sign = i32_t(a).value < i32_t(b_extended).value)
 
 @given(state = STATE, reg1 = REGISTER, reg2 = REGISTER, a = VALUE, b = VALUE)
 @example(state = STATE.example(), reg1 = 0, reg2 = 0, a = 0, b = 0)
@@ -799,6 +802,7 @@ def test_cmp_register(state, reg1, reg2, a, b):
 @example(state = STATE.example(), reg = 0, a = 0, b = 0)
 @example(state = STATE.example(), reg = 0, a = 1, b = 1)
 @example(state = STATE.example(), reg = 0, a = 10, b = 20)
+@example(state = STATE.example(), reg = 0, a = 0xFFFFFFFF, b = 0x00007FFF)
 def test_cmpu_immediate(state, reg, a, b):
   from ducky.cpu.instructions import CMPU
 
@@ -816,7 +820,7 @@ def test_cmpu_immediate(state, reg, a, b):
               equal = a == b,
               zero = a == b and a == 0,
               overflow = False,
-              sign = a < sign_extend15(b))
+              sign = a < b)
 
 @given(state = STATE, reg1 = REGISTER, reg2 = REGISTER, a = VALUE, b = VALUE)
 @example(state = STATE.example(), reg1 = REGISTER.example(), reg2 = REGISTER.example(), a = 0, b = 0)

@@ -1553,7 +1553,7 @@ class CMPU(_CMP):
 
   @staticmethod
   def execute(core, inst):
-    _CMP.evaluate(core, core.registers.map[inst.reg1].value, RI_VAL(core, inst, 'reg2'), signed = False)
+    _CMP.evaluate(core, core.registers.map[inst.reg1].value, RI_VAL(core, inst, 'reg2', sign_extend = False), signed = False)
 
 class BE(_BRANCH):
   mnemonic = 'be'
