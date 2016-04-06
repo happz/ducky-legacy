@@ -286,13 +286,6 @@ class MMU(ISnapshotable):
     self.core.MEM_OUT16 = self.full_write_u16
     self.core.MEM_OUT32 = self.full_write_u32
 
-    #self.MEM_IN8   = self.full_read_u8
-    #self.MEM_IN16  = self.full_read_u16
-    #self.MEM_IN32  = self.full_read_u32
-    #self.MEM_OUT8  = self.full_write_u8
-    #self.MEM_OUT16 = self.full_write_u16
-    #self.MEM_OUT32 = self.full_write_u32
-
     if self.core.debug is not None:
       self.core.MEM_IN8   = partial(self.__debug_wrapper_read,  self.core.MEM_IN8)
       self.core.MEM_IN16  = partial(self.__debug_wrapper_read,  self.core.MEM_IN16)
