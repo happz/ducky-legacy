@@ -44,7 +44,6 @@ Code Documentation
    ducky.log
    ducky.machine
    ducky.mm
-   ducky.native
    ducky.patch
    ducky.profiler
    ducky.reactor

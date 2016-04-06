@@ -27,15 +27,6 @@ DEFAULT_PT_ADDRESS = 0x00010000
 #: Default size of core instruction cache, in instructions.
 DEFAULT_CORE_INST_CACHE_SIZE = 256
 
-#: Default size of core data cache, in bytes.
-DEFAULT_CORE_DATA_CACHE_SIZE = 8192
-
-#: Default data cache line length, in bytes.
-DEFAULT_CORE_DATA_CACHE_LINE_LENGTH = 32
-
-#: Default data cache associativity
-DEFAULT_CORE_DATA_CACHE_LINE_ASSOC  = 4
-
 class CPUState(SnapshotNode):
   def get_core_states(self):
     return [__state for __name, __state in iteritems(self.get_children()) if __name.startswith('core')]
@@ -203,7 +194,7 @@ class InstructionCache(LRUCache):
 
     core = self.core
 
-    inst, desc, opcode = core.instruction_set.decode_instruction(core.LOGGER, core.mmu.MEM_IN32(addr, not_execute = False), core = core)
+    inst, desc, opcode = core.instruction_set.decode_instruction(core.LOGGER, core.MEM_IN32(addr, not_execute = False), core = core)
     return inst, opcode, partial(desc.execute, core, inst)
 
   def get_object_jit(self, addr):
@@ -227,414 +218,6 @@ class InstructionCache(LRUCache):
 
     return inst, opcode, fn
 
-class CPUDataCache(LRUCache):
-  """
-  Simple data cache class, based on LRU dictionary, with a limited size.
-  Operates on words, and only write-back policy is supported.
-
-  All modified entries are marked as dirty, and are NOT written back to
-  memory until cache is flushed or there is a need for space and entry is
-  to be removed from cache.
-
-  Helper methods are provided, to wrap cache API to a standardized "memory
-  access" API. In the future, I may extend support to more sizes, or
-  restructure internal storage to keep longer blocks keyed by address (like the
-  real caches do). Therefore, all CPU memory IO should access memory using
-  `ducky.cpu.CPUCore.MEM_IN*` and `ducky.cpu.CPUCache.MEM_OUT*` methods.
-
-  Cache "owns" its entries until someone else realizes it's time to give them
-  up. The cache then have to "release" entries in question - it does not have
-  to remove such entries, but it has to make sure they are consistent with
-  the content of main memory.
-
-  :param ducky.cpu.CPUCacheController controller: cache controller that will
-    dispatch notifications to all caches that share this core's main memory.
-  :param ducky.cpu.MMU mmu: parent MMU.
-  :param int size: maximal number of entries this cache can store.
-  """
-
-  def __init__(self, controller, mmu, size, *args, **kwargs):
-    super(CPUDataCache, self).__init__(mmu.core.cpu.machine.LOGGER, size, *args, **kwargs)
-
-    self.controller = controller
-    self.mmu = mmu
-    self.core = mmu.core
-
-    self.forced_writes = 0
-
-  def __repr__(self):
-    return 'dictionary-based cache, %i slots' % self.size
-
-  def make_space(self):
-    """
-    Removes at least one of entries in cache, saving its content into memory
-    when necessary.
-    """
-
-    addr, value = self.popitem(last = False)
-    dirty, value = value
-
-    self.core.DEBUG('%s.make_space: addr=%s, value=%s', self.__class__.__name__, UINT32_FMT(addr), UINT16_FMT(value))
-
-    if dirty:
-      self.mmu.MEM_OUT32(addr, value)
-
-    self.prunes += 1
-
-  def get_object(self, addr):
-    """
-    Read word from memory. This method is responsible for the real job of
-    fetching data and filling the cache.
-
-    :param u32_t addr: absolute address to read from.
-    :returns: cache entry
-    :rtype: ``list``
-    """
-
-    self.core.DEBUG('%s.get_object: address=%s', self.__class__.__name__, UINT32_FMT(addr))
-
-    self.controller.flush_entry_references(addr, caller = self.core)
-
-    return [False, self.mmu.MEM_IN32(addr)]
-
-  def read_u8(self, addr):
-    """
-    Read byte from cache. Value is read from memory if it is not yet present
-    in cache.
-
-    :param u32_t addr: absolute address to read from.
-    :rtype: u8_t
-    """
-
-    word_addr = addr & ~3
-
-    self.core.DEBUG('%s.read_u8: addr=%s, word_addr=%s', self.__class__.__name__, UINT32_FMT(addr), UINT32_FMT(word_addr))
-
-    word = self.read_u32(word_addr)
-
-    if addr == word_addr:
-      return word & 0xFF
-
-    if addr == word_addr + 1:
-      return (word >> 8) & 0xFF
-
-    if addr == word_addr + 2:
-      return (word >> 16) & 0xFF
-
-    return (word >> 24) & 0xFF
-
-  def write_u8(self, addr, value):
-    """
-    Write byte to cache. Value in cache is overwritten, and marked as dirty. It
-    is not written back to the memory yet.
-
-    :param u32_t addr: absolute address to modify.
-    :param u8_t value: new value to write.
-    """
-
-    word_addr = addr & ~3
-
-    self.core.DEBUG('%s.write_u8: addr=%s, word_addr=%s, vaue=%s', self.__class__.__name__, UINT32_FMT(addr), UINT32_FMT(word_addr), UINT16_FMT(value))
-
-    word = self.read_u32(word_addr)
-    value &= 0xFF
-
-    if addr == word_addr:
-      self.write_u32(word_addr, (word & 0xFFFFFF00) | value)
-
-    elif addr == word_addr + 1:
-      self.write_u32(word_addr, (word & 0xFFFF00FF) | (value << 8))
-
-    elif addr == word_addr + 2:
-      self.write_u32(word_addr, (word & 0xFF00FFFF) | (value << 16))
-
-    else:
-      self.write_u32(word_addr, (word & 0x00FFFFFF) | (value << 24))
-
-  def read_u16(self, addr):
-    """
-    Read word from cache. Value is read from memory if it is not yet present
-    in cache.
-
-    :param u32_t addr: absolute address to read from.
-    :rtype: u16_t
-    """
-
-    word_addr = addr & ~3
-
-    self.core.DEBUG('%s.read_u16: addr=%s, word_addr=%s', self.__class__.__name__, UINT32_FMT(addr), UINT32_FMT(word_addr))
-
-    word = self.read_u32(word_addr)
-
-    if addr == word_addr:
-      return word & 0xFFFF
-
-    return (word >> 16) & 0xFFFF
-
-  def write_u16(self, addr, value):
-    """
-    Write word to cache. Value in cache is overwritten, and marked as dirty. It
-    is not written back to the memory yet.
-
-    :param u32_t addr: absolute address to modify.
-    :param u16_t value: new value to write.
-    """
-
-    word_addr = addr & ~3
-
-    self.core.DEBUG('%s.write_u16: addr=%s, word_addr=%s, value=%s', self.__class__.__name__, UINT32_FMT(addr), UINT32_FMT(word_addr), UINT16_FMT(value))
-
-    value &= 0xFFFF
-
-    word = self.read_u32(word_addr)
-
-    if addr == word_addr:
-      self.write_u32(word_addr, (word & 0xFFFF0000) | value)
-
-    else:
-      self.write_u32(word_addr, (word & 0x0000FFFF) | (value << 16))
-
-  def read_u32(self, addr):
-    """
-    Read word from cache. Value is read from memory if it is not yet present
-    in cache.
-
-    :param u32_t addr: absolute address to read from.
-    :rtype: u32_t
-    """
-
-    self.core.DEBUG('%s.read_u32: addr=%s', self.__class__.__name__, UINT32_FMT(addr))
-
-    if self.mmu.get_pte(addr).cache != 1:
-      self.core.DEBUG('%s.read_u32: read directly from uncacheable page', self.__class__.__name__)
-      return self.mmu.MEM_IN32(addr)
-
-    return self[addr][1]
-
-  def write_u32(self, addr, value):
-    """
-    Write word to cache. Value in cache is overwritten, and marked as dirty. It
-    is not written back to the memory yet.
-
-    :param u32_t addr: absolute address to modify.
-    :param u32_t value: new value to write.
-    """
-
-    self.core.DEBUG('%s.write_u32: addr=%s, value=%s', self.__class__.__name__, UINT32_FMT(addr), UINT32_FMT(value))
-
-    if self.mmu.get_pte(addr).cache != 1:
-      self.core.DEBUG('%s.write_u32: write directly to uncacheable page', self.__class__.__name__)
-      self.mmu.MEM_OUT32(addr, value)
-      return
-
-    if addr not in self:
-      self.__missing__(addr)
-
-    self[addr] = [True, value]
-
-    self.controller.release_entry_references(addr, caller = self.core)
-
-  def release_entry_references(self, addr, writeback = True, remove = True):
-    """
-    Give up cached entry.
-
-    :param u24 addr: entry address.
-    :param bool writeback: if ``True``, entries is written back to memory.
-    :param bool remove: if ``True``, entry is removed from cache.
-    """
-
-    self.core.DEBUG('%s.release_entry_references: address=%s, writeback=%s, remove=%s', self.__class__.__name__, UINT32_FMT(addr), writeback, remove)
-
-    if writeback:
-      dirty, value = self.get(addr, (None, None))
-
-      if dirty is None and value is None:
-        self.core.DEBUG('%s.release_entry_references: not cached', self.__class__.__name__,)
-        return
-
-      if dirty:
-        self.core.DEBUG('%s.release_entry_reference: write back', self.__class__.__name__)
-        self.mmu.MEM_OUT32(addr, value)
-
-      if not remove:
-        self[addr] = (False, value)
-        return
-
-    if remove:
-      self.core.DEBUG('%s.release_entry_reference: remove', self.__class__.__name__)
-
-      try:
-        del self[addr]
-
-      except KeyError:
-        pass
-
-  def release_page_references(self, page, writeback = True, remove = True):
-    """
-    Give up cached entries located a specific memory page.
-
-    :param ducky.mm.MemoryPage page: referenced page.
-    :param bool writeback: if ``True``, entries are written back to memory.
-    :param bool remove: if ``True``, entries are removed from cache.
-    """
-
-    self.core.DEBUG('%s.release_page_references: page=%s, writeback=%s, remove=%s', self.__class__.__name__, page.index, writeback, remove)
-
-    addresses = [i for i in range(page.base_address, page.base_address + PAGE_SIZE, 2)]
-
-    for addr in [addr for addr in iterkeys(self) if addr in addresses]:
-      self.release_entry_references(addr, writeback = writeback, remove = remove)
-
-  def release_area_references(self, address, size, writeback = True, remove = True):
-    """
-    Give up cached entries located in a specific memory range.
-
-    :param u24 address: address of the first byte of area.
-    :param u24 size: length of the area in bytes.
-    :param bool writeback: if ``True``, entries are written back to memory.
-    :param bool remove: if ``True``, entries are removed from cache.
-    """
-
-    self.core.DEBUG('%s.remove_area_references: address=%s, size=%s, writeback=%s, remove=%s', self.__class__.__name__, UINT32_FMT(address), UINT16_FMT(size), writeback, remove)
-
-    addresses = [i for i in range(address, address + size, 2)]
-
-    for addr in [addr for addr in iterkeys(self) if addr in addresses]:
-      self.release_entry_references(addr, writeback = writeback, remove = remove)
-
-  def release_references(self, writeback = True, remove = True):
-    """
-    Give up all cached entries.
-
-    :param boolean writeback: if ``True``, entries are written back to memory.
-    :param boolean remove: if ``True``, entries are removed from cache.
-    """
-
-    self.core.DEBUG('%s.release_references: writeback=%s, remove=%s', self.__class__.__name__, writeback, remove)
-
-    for addr in list(iterkeys(self)):
-      self.release_entry_references(addr, writeback = writeback, remove = remove)
-
-class CPUCacheController(object):
-  """
-  Cache controllers manages consistency and coherency of all CPU caches.
-  Provides methods that informs all involved parties about invalidation
-  of cache entries.
-
-  :param ducky.machine.Machine machine: VM this controller belongs to.
-  """
-
-  def __init__(self, machine):
-    self.machine = machine
-
-    self.cores = []
-
-  def register_core(self, core):
-    """
-    Register CPU core as a listener. Core's data cache will get all
-    notifications about invalidated cache entries.
-
-    :param ducky.cpu.CPUCore core: core to be registered.
-    """
-
-    self.machine.DEBUG('%s.register_core: core=%s', self.__class__.__name__, core)
-
-    self.cores.append(core)
-
-  def unregister_core(self, core):
-    """
-    Unregister CPU core. Core's data cache will no longer receive any
-    notifications about invalidated cache entries.
-    """
-
-    self.machine.DEBUG('%s.unregister_core: core=%s', self.__class__.__name__, core)
-
-    self.cores.remove(core)
-
-  def flush_entry_references(self, address, caller = None):
-    """
-    Instruct caches to save a single entry back to memory.
-
-    :param u24 address: entry address.
-    :param ducky.cpu.CPUCore caller: core requesting this action. If set, all
-      cores except this particular one will be instruct to save their cached
-      entry.
-    """
-
-    self.machine.DEBUG('%s.flush_entry_references: caller=%s, address=%s', self.__class__.__name__, caller, UINT32_FMT(address))
-
-    for core in [core for core in self.cores if core is not caller]:
-      core.mmu.data_cache.release_entry_references(address, writeback = True, remove = False)
-
-  def release_entry_references(self, address, caller = None):
-    """
-    Instruct caches to give up one cached entry.
-
-    :param u24 address: entry address.
-    :caller ducky.cpu.CPUCore caller: core requesting this action. If set, all
-      cores except this particular one will be instruct to throw away cached
-      entry without saving it back to memory. Otherwise, caches will save their
-      version of entry before removing it.
-    """
-
-    self.machine.DEBUG('%s.release_entry_references: caller=%s, addresss=%s', self.__class__.__name__, caller, UINT32_FMT(address))
-
-    writeback = True if caller is None else False
-    for core in [core for core in self.cores if core is not caller]:
-      core.mmu.data_cache.release_entry_references(address, writeback = writeback, remove = True)
-
-  def release_page_references(self, pg, caller = None):
-    """
-    Instruct caches to give up entries located on one page.
-
-    :param ducky.mm.MemoryPage pg: referenced page.
-    :caller ducky.cpu.CPUCore caller: core requesting this action. If set, all
-      cores except this particular one will be instruct to throw away cached
-      entries without saving them back to memory. Otherwise, caches will save
-      their version of entries before removing it.
-    """
-
-    self.machine.DEBUG('%s.release_page_references: caller=%s, pg=%s', self.__class__.__name__, caller, pg)
-
-    writeback = True if caller is None else False
-    for core in [core for core in self.cores if core is not caller]:
-      core.mmu.data_cache.release_page_references(pg, writeback = writeback, remove = True)
-
-  def release_area_references(self, address, size, caller = None):
-    """
-    Instruct caches to give up entries in memory area.
-
-    :param u24 address: address of the first byte of area.
-    :param u24 size: length of the area in bytes.
-    :caller ducky.cpu.CPUCore caller: core requesting this action. If set, all
-      cores except this particular one will be instruct to throw away cached
-      entries without saving them back to memory. Otherwise, caches will save
-      their version of entries before removing it.
-    """
-
-    self.machine.DEBUG('%s.release_area_references: caller=%s, address=%s, size=%s', self.__class__.__name__, caller, UINT32_FMT(address), UINT32_FMT(size))
-
-    writeback = True if caller is None else False
-    for core in [core for core in self.cores if core is not caller]:
-      core.mmu.data_cache.release_area_references(address, size, writeback = writeback, remove = True)
-
-  def release_references(self, caller = None):
-    """
-    Instruct caches to give up all cached entries.
-
-    :param ducky.cpu.CPUCore caller: core requesting this action. If set, all
-      cores except this particular one will be instruct to throw away all their
-      entries without saving them back. Otherwise, caches will save their entries
-      before removing them.
-    """
-
-    self.machine.DEBUG('%s.release_references: caller=%s', self.__class__.__name__, caller)
-
-    writeback = True if caller is None else False
-    for core in [core for core in self.cores if core is not caller]:
-      core.mmu.data_cache.release_references(writeback = writeback, remove = True)
-
-
 class MMU(ISnapshotable):
   """
   Memory management unit (aka MMU) provides a single point handling all core's memory operations.
@@ -644,18 +227,15 @@ class MMU(ISnapshotable):
   :param ducky.cpu.CPUCore core: parent core.
   :param ducky.mm.MemoryController memory_controller: memory controller that provides access
     to the main memory.
-  :param ducky.cpu.CPUCacheController cache_controller: cache controller that provides
-    access to cache coherency mechanisms.
   """
 
-  def __init__(self, core, memory_controller, cache_controller):
+  def __init__(self, core, memory_controller):
     super(MMU, self).__init__()
 
     config = core.cpu.machine.config
 
     self.core = core
     self.memory = memory_controller
-    self.cache_controller = cache_controller
 
     self.force_aligned_access = config.getbool('memory', 'force-aligned-access', default = False)
     self.pt_address = config.getint('cpu', 'pt-address', DEFAULT_PT_ADDRESS)
@@ -667,40 +247,6 @@ class MMU(ISnapshotable):
     self.DEBUG = core.DEBUG
 
     self.instruction_cache = InstructionCache(self, config.getint('cpu', 'inst-cache', default = DEFAULT_CORE_INST_CACHE_SIZE))
-
-    self.data_cache = None
-    if config.getbool('cpu', 'data-cache-enabled', True):
-      driver = config.get('cpu', 'data-cache-driver', 'python')
-
-      import platform
-
-      if platform.python_implementation() == 'PyPy':
-        if driver != 'python':
-          self.WARN('Running on PyPy, forcing Python data cache implementation')
-          driver = 'python'
-
-      elif platform.python_implementation() == 'CPython':
-        pass
-
-      elif driver != 'python':
-        self.WARN('Running on unsupported platform, forcing Python data cache implementation')
-        driver = 'python'
-
-      if driver == 'native':
-        from ..native.data_cache import CPUDataCache as DC
-
-        self.data_cache = DC(cache_controller, self,
-                             config.getint('cpu', 'data-cache-size', DEFAULT_CORE_DATA_CACHE_SIZE),
-                             config.getint('cpu', 'data-cache-line', DEFAULT_CORE_DATA_CACHE_LINE_LENGTH),
-                             config.getint('cpu', 'data-cache-assoc', DEFAULT_CORE_DATA_CACHE_LINE_ASSOC))
-
-      elif driver == 'python':
-        self.data_cache = CPUDataCache(cache_controller, self, config.getint('cpu', 'data-cache-size', default = DEFAULT_CORE_DATA_CACHE_SIZE))
-
-      else:
-        raise InvalidResourceError('Unknown data cache driver: driver=%s' % driver)
-
-      cache_controller.register_core(core)
 
     self.set_access_methods()
 
@@ -733,28 +279,19 @@ class MMU(ISnapshotable):
 
     self.DEBUG('MMU.set_access_methods')
 
-    if self.data_cache is None:
-      self.core.MEM_IN8   = self.full_read_u8
-      self.core.MEM_IN16  = self.full_read_u16
-      self.core.MEM_IN32  = self.full_read_u32
-      self.core.MEM_OUT8  = self.full_write_u8
-      self.core.MEM_OUT16 = self.full_write_u16
-      self.core.MEM_OUT32 = self.full_write_u32
+    self.core.MEM_IN8   = self.full_read_u8
+    self.core.MEM_IN16  = self.full_read_u16
+    self.core.MEM_IN32  = self.full_read_u32
+    self.core.MEM_OUT8  = self.full_write_u8
+    self.core.MEM_OUT16 = self.full_write_u16
+    self.core.MEM_OUT32 = self.full_write_u32
 
-    else:
-      self.core.MEM_IN8   = self.data_cache.read_u8
-      self.core.MEM_IN16  = self.data_cache.read_u16
-      self.core.MEM_IN32  = self.data_cache.read_u32
-      self.core.MEM_OUT8  = self.data_cache.write_u8
-      self.core.MEM_OUT16 = self.data_cache.write_u16
-      self.core.MEM_OUT32 = self.data_cache.write_u32
-
-    self.MEM_IN8   = self.full_read_u8
-    self.MEM_IN16  = self.full_read_u16
-    self.MEM_IN32  = self.full_read_u32
-    self.MEM_OUT8  = self.full_write_u8
-    self.MEM_OUT16 = self.full_write_u16
-    self.MEM_OUT32 = self.full_write_u32
+    #self.MEM_IN8   = self.full_read_u8
+    #self.MEM_IN16  = self.full_read_u16
+    #self.MEM_IN32  = self.full_read_u32
+    #self.MEM_OUT8  = self.full_write_u8
+    #self.MEM_OUT16 = self.full_write_u16
+    #self.MEM_OUT32 = self.full_write_u32
 
     if self.core.debug is not None:
       self.core.MEM_IN8   = partial(self.__debug_wrapper_read,  self.core.MEM_IN8)
@@ -767,16 +304,11 @@ class MMU(ISnapshotable):
   def reset(self):
     self.instruction_cache.clear()
 
-    if self.data_cache is not None:
-      self.data_cache.clear()
-
     self.pt_enabled = False
     self.pte_cache = {}
 
   def halt(self):
-    if self.data_cache is not None:
-      self.data_cache.release_references()
-      self.core.cpu.machine.cpu_cache_controller.unregister_core(self.core)
+    pass
 
   def release_ptes(self):
     self.DEBUG('MMU.release_ptes')
@@ -880,7 +412,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
     access main memory.
   """
 
-  def __init__(self, coreid, cpu, memory_controller, cache_controller):
+  def __init__(self, coreid, cpu, memory_controller):
     super(CPUCore, self).__init__()
 
     config = cpu.machine.config
@@ -908,7 +440,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
 
     self.debug = None
 
-    self.mmu = MMU(self, memory_controller, cache_controller)
+    self.mmu = MMU(self, memory_controller)
 
     self.registers = registers.RegisterSet()
 
@@ -1024,7 +556,6 @@ class CPUCore(ISnapshotable, IMachineWorker):
     """
     Reset core's state. All registers are set to zero, all flags are set to zero,
     except ``HWINT`` flag which is set to one, and ``IP`` is set to requested value.
-    Both instruction and data cached are flushed.
 
     :param u32_t new_ip: new ``IP`` value, defaults to zero
     """
@@ -1420,8 +951,6 @@ class CPUCore(ISnapshotable, IMachineWorker):
       self.core_profiler.enable()
 
     self.INFO('CPU core is up')
-    if self.mmu.data_cache is not None:
-      self.INFO('  {}'.format(repr(self.mmu.data_cache)))
     if self.mmu.instruction_cache is not None:
       self.INFO('  {} IC slots'.format(self.mmu.instruction_cache.size))
     self.INFO('  check-frames: %s', 'yes' if self.check_frames else 'no')
@@ -1429,7 +958,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
       self.INFO('  coprocessor: %s', ' '.join(sorted(iterkeys(self.coprocessors))))
 
 class CPU(ISnapshotable, IMachineWorker):
-  def __init__(self, machine, cpuid, memory_controller, cache_controller, cores = 1):
+  def __init__(self, machine, cpuid, memory_controller, cores = 1):
     super(CPU, self).__init__()
 
     self.cpuid_prefix = '#{}:'.format(cpuid)
@@ -1454,7 +983,7 @@ class CPU(ISnapshotable, IMachineWorker):
     self.suspended_cores = []
 
     for i in range(0, cores):
-      __core = CPUCore(i, self, memory_controller, cache_controller)
+      __core = CPUCore(i, self, memory_controller)
       self.cores.append(__core)
 
       self.halted_cores.append(__core)

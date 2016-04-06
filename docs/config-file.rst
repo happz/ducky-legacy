@@ -73,29 +73,6 @@ Number of slots in instruction cache.
 ``int``, default ``256``
 
 
-data-cache-enabled
-^^^^^^^^^^^^^^^^^^
-
-When set, each CPU core will have its own data cache.
-
-``bool``, default ``yes``
-
-data-cache-driver
-^^^^^^^^^^^^^^^^^
-
-Data cache implementation, one of ``python`` or ``native``.
-
-``str``, default ``python``
-
-
-data-cache-size
-^^^^^^^^^^^^^^^
-
-Number of slots in data cache.
-
-``int``, default ``8192``
-
-
 check-frame
 ^^^^^^^^^^^
 

@@ -38,7 +38,7 @@ def setup():
   machine = Machine(logger = logging.getLogger())
   machine.config = MachineConfig()
   mm = MemoryController(machine)
-  cpu = CPU(machine, 0, mm, machine.cpu_cache_controller)
+  cpu = CPU(machine, 0, mm)
 
   global CORE
   CORE = cpu.cores[0]

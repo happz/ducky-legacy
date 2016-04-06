@@ -254,8 +254,6 @@ class ROMLoader(IMachineWorker):
   def unmmap_area(self, mmap_area):
     mc = self.machine.memory
 
-    self.machine.cpu_cache_controller.release_area_references(mc.get_page(mmap_area.pages_start).base_address, mmap_area.pages_cnt * PAGE_SIZE)
-
     for pg in mc.get_pages(pages_start = mmap_area.pages_start, pages_cnt = mmap_area.pages_cnt):
       mc.unregister_page(pg)
 

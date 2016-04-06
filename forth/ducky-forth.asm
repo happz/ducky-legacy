@@ -383,10 +383,7 @@ __init_crcs_loop:
   j &__init_crcs_loop
 
 __init_crcs_quit:
-  ; Flush data and PTE caches
-  ; It is possible to flush data cache *after* enabling
-  ; read-only access because we're still in privileged mode,
-  ; but if this changes, it would cause an access violation.
+  ; Flush PTE cache
   fptc
 
   ret

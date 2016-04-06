@@ -196,9 +196,6 @@ def main():
   table_inst_caches = [
     ['Core', 'Reads', 'Inserts', 'Hits', 'Misses', 'Prunes']
   ]
-  table_data_caches = [
-    ['Core', 'Reads', 'Hits', 'Misses', 'Prunes', 'Forced writes']
-  ]
   table_cnts = [
     ['Core', 'Ticks']
   ]
@@ -215,16 +212,6 @@ def main():
       core.mmu.instruction_cache.prunes
     ])
 
-    if core.mmu.data_cache is not None:
-      table_data_caches.append([
-        str(core),
-        core.mmu.data_cache.reads,
-        core.mmu.data_cache.hits,
-        core.mmu.data_cache.misses,
-        core.mmu.data_cache.prunes,
-        core.mmu.data_cache.forced_writes
-      ])
-
     table_cnts.append([
       str(core),
       core.registers.cnt.value
@@ -239,9 +226,6 @@ def main():
   logger.info('')
   logger.info('Instruction caches')
   logger.table(table_inst_caches)
-  logger.info('')
-  logger.info('Data caches')
-  logger.table(table_data_caches)
   logger.info('')
   logger.table(table_cnts)
   logger.info('')

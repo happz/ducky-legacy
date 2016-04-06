@@ -9,6 +9,7 @@ Submodules
    ducky.tools.as
    ducky.tools.cc
    ducky.tools.coredump
+   ducky.tools.defs
    ducky.tools.img
    ducky.tools.ld
    ducky.tools.objdump

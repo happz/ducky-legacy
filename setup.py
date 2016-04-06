@@ -78,7 +78,6 @@ setup(name = 'ducky',
         'ducky.cpu.coprocessor',
         'ducky.mm',
         'ducky.devices',
-        'ducky.native',
         'ducky.tools'
       ],
       entry_points = {
@@ -100,8 +99,5 @@ setup(name = 'ducky',
       tests_require = tests_requires,
       cmdclass = {
         'test': Tox
-      },
-      ext_modules = [
-        #mod_native_data_cache
-      ]
+      }
      )

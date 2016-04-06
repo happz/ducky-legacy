@@ -42,4 +42,3 @@
 .def PTE_WRITE:     ${X2(ducky.mm.PageTableEntry.WRITE)}
 .def PTE_EXECUTE:   ${X2(ducky.mm.PageTableEntry.EXECUTE)}
 .def PTE_DIRTY:     ${X2(ducky.mm.PageTableEntry.DIRTY)}
-.def PTE_CACHE:     ${X2(ducky.mm.PageTableEntry.CACHE)}

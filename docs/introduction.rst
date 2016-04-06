@@ -18,6 +18,10 @@ Ducky is a simple virtual CPU/machine simulator, with modular design and interes
 .. image:: https://api.codacy.com/project/badge/23fdf5e716e64cddadb42e9ae672dbbc
   :target: https://www.codacy.com/app/happz/ducky
 
+.. image:: https://codeclimate.com/github/happz/ducky/badges/issue_count.svg
+  :target: https://codeclimate.com/github/happz/ducky
+  :alt: Issue Count
+
 .. image:: https://coveralls.io/repos/happz/ducky/badge.svg?branch=master&service=github
   :target: https://coveralls.io/github/happz/ducky?branch=master
 

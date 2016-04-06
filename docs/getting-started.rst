@@ -218,7 +218,6 @@ You should get output similar to this:
   1441740855.83 [INFO] irq: loading routines from file interrupts
   1441740856.02 [INFO] binary: loading from from file examples/hello-world/hello-world
   1441740856.02 [INFO] #0:#0: CPU core is up
-  1441740856.02 [INFO] #0:#0:   cache: 1024 DC slots, 256 IC slots
   1441740856.02 [INFO] #0:#0:   check-frames: yes
   1441740856.02 [INFO] #0:#0:   coprocessor: math
   1441740856.02 [INFO] #0: CPU is up
@@ -237,11 +236,6 @@ You should get output similar to this:
   1441740856.06 [INFO] Core      Reads    Inserts    Hits    Misses    Prunes
   1441740856.06 [INFO] ------  -------  ---------  ------  --------  --------
   1441740856.06 [INFO] #0:#0       133         34      99        34         0
-  1441740856.06 [INFO] 
-  1441740856.06 [INFO] Data caches
-  1441740856.06 [INFO] Core      Reads    Inserts    Hits    Misses    Prunes
-  1441740856.06 [INFO] ------  -------  ---------  ------  --------  --------
-  1441740856.06 [INFO] #0:#0        93        173      85         8         0
   1441740856.06 [INFO] 
   1441740856.06 [INFO] Core    Ticks
   1441740856.06 [INFO] ------  -------

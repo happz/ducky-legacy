@@ -170,9 +170,6 @@ class Machine(ISnapshotable, IMachineWorker):
 
     self.living_cores = []
 
-    from .cpu import CPUCacheController
-    self.cpu_cache_controller = CPUCacheController(self)
-
     self.cpus = []
     self.memory = None
 
@@ -323,7 +320,7 @@ class Machine(ISnapshotable, IMachineWorker):
 
     from .cpu import CPU
     for cpuid in range(0, self.nr_cpus):
-      self.cpus.append(CPU(self, cpuid, self.memory, self.cpu_cache_controller, cores = self.nr_cores))
+      self.cpus.append(CPU(self, cpuid, self.memory, cores = self.nr_cores))
 
     from .devices import VIRTUAL_INTERRUPTS
     for index, cls in iteritems(VIRTUAL_INTERRUPTS):

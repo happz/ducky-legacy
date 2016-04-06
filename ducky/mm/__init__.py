@@ -57,14 +57,13 @@ def area_to_pages(addr, size):
   return ((addr & PAGE_MASK) >> PAGE_SHIFT, align(PAGE_SIZE, size) // PAGE_SIZE)
 
 class PageTableEntry(Flags):
-  _flags = ['read', 'write', 'execute', 'dirty', 'cache']
-  _labels = 'RWXDSC'
+  _flags = ['read', 'write', 'execute', 'dirty']
+  _labels = 'RWXD'
 
   READ    = 0x01
   WRITE   = 0x02
   EXECUTE = 0x04
   DIRTY   = 0x08
-  CACHE   = 0x10
 
 class MemoryPageState(SnapshotNode):
   def __init__(self, *args, **kwargs):
@@ -87,8 +86,6 @@ class MemoryPage(object):
   | ``execute`` | content of the page can be used as executable instructions                  | ``False`` |
   +-------------+-----------------------------------------------------------------------------+-----------+
   | ``dirty``   | there have been write access to this page, its content has changed          | ``False`` |
-  +-------------+-----------------------------------------------------------------------------+-----------+
-  | ``cache``   | all RW accesses to this page made by CPU cores go through their data caches | ``True``  |
   +-------------+-----------------------------------------------------------------------------+-----------+
 
   :param ducky.mm.MemoryController controller: Controller that owns this page.
