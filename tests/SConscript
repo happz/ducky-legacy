@@ -198,6 +198,7 @@ if 'TESTSETDIR' in E:
   forth_unit_requirements = [E.Glob('forth-units/tests/*.f'), E.Glob('forth-units/tests/*.expected')]
   forth_ans_requirements  = []
   examples_requirements   = [E['LOGDIR_EXAMPLES'],
+                             E.File('#examples/fib/fib'),
                              E.File('#examples/hello-world/hello-world'),
                              E.File('#examples/hello-world-lib/hello-world'),
                              E.File('#examples/clock/clock'),
