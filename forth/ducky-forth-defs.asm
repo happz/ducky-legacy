@@ -270,3 +270,4 @@ code_#label:
 .def ERR_UNKNOWN:             -1
 .def ERR_UNDEFINED_WORD:      -2
 .def ERR_UNHANDLED_IRQ:       -3
+.def ERR_NO_INTERPRET_SEMANTICS: -4

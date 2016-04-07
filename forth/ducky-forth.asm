@@ -738,6 +738,16 @@ __ERR_die:
   hlt r1
 
 
+__ERR_print_input:
+  la r0, &__input_buffer_label
+  call &writes
+  call &write_input_buffer
+  la r0, &__word_buffer_label
+  call &writes
+  call &write_word_buffer
+  ret
+
+
 ;
 ; void __ERR_undefined_word(void) __attribute__((noreturn))
 ;
@@ -750,18 +760,31 @@ __ERR_die:
 __ERR_undefined_word:
   la r0, &__ERR_undefined_word_message
   call &writes
-  la r0, &__input_buffer_label
-  call &writes
-  call &write_input_buffer
-  la r0, &__word_buffer_label
-  call &writes
-  call &write_word_buffer
+  call &__ERR_print_input
   li r0, $ERR_UNDEFINED_WORD
 .ifdef FORTH_FAIL_ON_UNDEF
   j &halt
 .else
   ret
 .endif
+
+
+;
+; void __ERR_no_interpretation_semantics(void) __attribute__((noreturn))
+;
+; Raised when word with undefined interpretation semantics is executed
+; in interpretation state.
+;
+  .section .rodata
+  .type __ERR_no_interpretation_semantics_message, string
+  .string "\r\nERROR: $ERR_NO_INTERPRET_SEMANTICS: Word has undefined interpretation semantics\r\n"
+
+__ERR_no_interpretation_semantics:
+  la r0, &__ERR_no_interpretation_semantics_message
+  call &writes
+  call &__ERR_print_input
+  li r0, $ERR_NO_INTERPRET_SEMANTICS
+  j &halt
 
 
 ;

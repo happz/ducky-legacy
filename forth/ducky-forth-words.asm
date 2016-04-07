@@ -24,6 +24,26 @@
 ; - Environment queries -----------------------------------------------------------------
 ;
 
+;
+; Known queries
+;
+; /COUNTED-STRING         STRING_SIZE
+; ADDRESS-UNIT-BITS       8
+; CORE                    FALSE
+; CORE-EXT                FALSE
+; FLOORED                 TRUE
+; MAX-CHAR                127
+; MAX-D                   0xFFFFFFFF 0x7FFFFFFF
+; MAX-N                   0x7FFFFFFF
+; MAX-U                   0xFFFFFFFF
+; MAX-UD                  0xFFFFFFFF 0xFFFFFFFF
+; MEMORY-ALLOC            TRUE
+; MEMORY-ALLOC-EXT        TRUE
+; RETURN-STACK-CELLS      RSTACK_SIZE / CELL
+; STACK-CELLS             DSTACK_SIZE / CELL
+; TIR-ENABLED             <FLAG>
+;
+
 .macro ENV_ENTRY name, str, len:
   .section .rodata
 
@@ -131,6 +151,14 @@ $ENV_ENTRY ENV_MEMORY_ALLOC, "MEMORY-ALLOC", 12
 
 $ENV_ENTRY ENV_MEMORY_ALLOC_EXT, "MEMORY-ALLOC-EXT", 16
   $push_true $W
+  j &__ENVIRONMENT_QUERY_next_pass
+
+$ENV_ENTRY ENV_TIR_ENABLED, "TIR-ENABLED", 11
+.ifdef FORTH_TIR
+  $push_true $W
+.else
+  push $FORTH_FALSE
+.endif
   j &__ENVIRONMENT_QUERY_next_pass
 
 $DEFCODE "ENVIRONMENT?", 12, 0, ENVIRONMENT_QUERY
@@ -424,28 +452,29 @@ $DEFCODE "HEX", 3, 0, HEX
 
 
 $DEFCODE "SPACES", 6, 0, SPACES
+  ; ( n -- )
 .ifdef FORTH_TIR
-  li r0, 32
-  cmp $TOS, 0
-__SPACES_loop:
-  ble &__SPACES_next
-  call &writec
-  dec $TOS
-  j &__SPACES_loop
-__SPACES_next:
+  mov r0, $TOS
   pop $TOS
 .else
-  pop $W
-  li r0, 32
-__SPACES_loop:
-  cmp $W, 0
-  ble &__SPACES_next
-  call &writec
-  dec $W
-  j &__SPACES_loop
-__SPACES_next:
+  pop r0
 .endif
+  call &__SPACES
   $NEXT
+
+__SPACES:
+  push r1
+  mov r1, r0
+  li r0, 32
+  cmp r1, 0
+__SPACES_loop:
+  ble &__SPACES_quit
+  call &writec
+  dec r1
+  j &__SPACES_loop
+__SPACES_quit:
+  pop r1
+  ret
 
 
 $DEFCODE "FORGET", 6, 0, FORGET
@@ -1700,17 +1729,7 @@ __TONUMBER_complete:
   $NEXT
 
 
-$DEFCODE "U.", 2, 0, UDOT
-.ifdef FORTH_TIR
-  mov r0, $TOS
-  pop $TOS
-.else
-  pop r0
-.endif
-  call &__UDOT
-  $NEXT
-
-__UDOT:
+__print_unsigned:
   ; BASE
   push r1
   la r1, &var_BASE
@@ -1718,25 +1737,148 @@ __UDOT:
 
   push r0 ; save r0 for mod later
   udiv r0, r1
-  bz &__UDOT_print
-  call &__UDOT
+  bz &__print_unsigned_print
+  call &__print_unsigned
 
-__UDOT_print:
+__print_unsigned_print:
   pop r0 ; restore saved number and mod it
   mod r0, r1
   cmp r0, 10
-  bge &__UDOT_print_letters
+  bge &__print_unsigned_print_letters
   add r0, 48
 
-__UDOT_emit:
+__print_unsigned_emit:
   call &__write_stdout
   pop r1 ; restore saved r1 (BASE)
   ret
 
-__UDOT_print_letters:
+__print_unsigned_print_letters:
   sub r0, 10
   add r0, 65
-  j &__UDOT_emit
+  j &__print_unsigned_emit
+
+__print_signed:
+  push r1
+  mov r1, r0
+  cmp r0, 0
+  bns &__print_signed_print
+  li r0, 0x2D ; '-'
+  call &writec
+  li r0, 0x00
+  sub r0, r1 ; abs()
+__print_signed_print:
+  pop r1
+  call &__print_unsigned
+  ret
+
+
+$DEFCODE "U.R", 3, 0, UDOTR
+  ; ( u n -- )
+.ifdef FORTH_TIR
+  pop $X ; load U from stack
+  mov r0, $X
+  call &__UWIDTH
+  sub $TOS, r0 ; how many spaces we need to print? may be negative, but __SPACES dont care
+  swp $TOS, r0
+  call &__SPACES
+  mov r0, $X
+  call &__print_unsigned
+  pop $TOS
+.else
+  pop $W ; N
+  pop $X ; U
+  mov r0, $X
+  call &__UWIDTH
+  sub $W, r0
+  swp $W, r0
+  call &__SPACES
+  mov r0, $X
+  call &__print_unsigned
+.endif
+  $NEXT
+
+
+$DEFCODE "U.", 2, 0, UDOT
+  ; ( u -- )
+.ifdef FORTH_TIR
+  mov r0, $TOS
+  pop $TOS
+.else
+  pop r0
+.endif
+  call &__print_unsigned
+  call &__SPACE
+  $NEXT
+
+
+$DEFCODE ".R", 2, 0, DOTR
+  ; ( n n -- )
+.ifdef FORTH_TIR
+  li $X, 0                             ; is N negative?
+  pop r0                               ; get N
+  mov $Y, r0                           ; save N for later
+  bns &__DOTR_unsigned
+  li $X, 1                             ; yes, N is negative
+  li r0, 0
+  sub r0, $Y                           ; make it positive. positive is good.
+__DOTR_unsigned:
+  call &__UWIDTH                       ; find Ns width
+  sub $TOS, r0                         ; how many spaces we need to print? may be negative, but __SPACES dont care
+  sub $TOS, $X                         ; add one character for '-' sign
+  swp $TOS, r0
+  call &__SPACES
+  mov r0, $Y
+  call &__print_signed
+  pop $TOS
+.else
+  li $X, 0
+  pop $W
+  pop r0
+  mov $Y, r0
+  bns &__DOTR_unsigned
+  li $X, 1
+  li r0, 0
+  sub r0, $Y
+__DOTR_unsigned:
+  call &__UWIDTH
+  sub $W, r0
+  sub $W, $X
+  swp $W, r0
+  call &__SPACES
+  mov r0, $Y
+  call &__print_signed
+.endif
+  $NEXT
+
+
+$DEFCODE ".", 1, 0, DOT
+  ; ( n -- )
+  call &__vmdebug_on
+.ifdef FORTH_TIR
+  mov r0, $TOS
+  pop $TOS
+.else
+  pop r0
+.endif
+  call &__print_signed
+  call &__SPACE
+  $NEXT
+
+
+$DEFCODE "?", 1, 0, QUESTION
+  ; ( a-addr -- )
+.ifdef FORTH_TIR
+  lw r0, $TOS
+  pop $TOS
+  call &__print_signed
+  call &__SPACE
+.else
+  pop r0
+  lw r0, r0
+  call &__print_signed
+  call &__SPACE
+.endif
+  $NEXT
 
 
 $DEFCODE ".S", 2, 0, DOTS
@@ -1746,14 +1888,14 @@ $DEFCODE ".S", 2, 0, DOTS
   sub $W, sp
   bz &__DOTS_next
   mov r0, $TOS
-  call &__UDOT
+  call &__print_unsigned
   call &__SPACE
   sub $W, $CELL
   mov sp, $X
 __DOTS_loop:
   bz &__DOTS_next
   lw r0, $X
-  call &__UDOT
+  call &__print_unsigned
   call &__SPACE
   add $X, $CELL
   dec $W
@@ -1764,7 +1906,7 @@ __DOTS_loop:
   lw $X, $X
 __DOTS_loop:
   lw r0, $W
-  call &__UDOT
+  call &__print_unsigned
   call &__SPACE
   add $W, $CELL
   cmp $W, $X
@@ -1818,3 +1960,27 @@ __WORDS_quit:
   pop r10
   pop r0
   ret
+
+
+$DEFCODE ".\"", 2, $F_IMMED, DOTQUOTE
+  la $W, &var_STATE
+  lw $W, $W
+  bz &__DOTQUOTE_interpret
+
+  ; __string_quote will read string, and store it in current definition.
+  ; It also updates DP, and places SQUOTE_LITSTRING before the string
+  li r0, &SQUOTE_LITSTRING
+  call &__string_quote
+
+  ; compile TELL
+  la $W, &TELL
+  la $X, &var_DP
+  lw $Y, $X
+  stw $Y, $W
+  add $Y, $CELL
+  stw $X, $Y
+
+  $NEXT
+
+__DOTQUOTE_interpret:
+  j &__ERR_no_interpretation_semantics
