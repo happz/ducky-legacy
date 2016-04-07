@@ -75,5 +75,5 @@ def run_forth_vm(out = None, machine = None, options = None, diff_expected = Non
     with open(out, 'r') as f_actual:
       diff = '\n'.join(list(difflib.unified_diff(f_expected.readlines(), f_actual.readlines(), lineterm = '')))
       if diff:
-        print_(diff, file = sys.stderr)
+        print_('\n' + diff, file = sys.stderr)
         assert False, 'Actual output does not match the expected.'
