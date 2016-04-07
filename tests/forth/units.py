@@ -7,7 +7,7 @@ def __run_unit(name):
     '--add-option=device-3:streams_in=%s' % tests_dir('forth', 'run-test-word.f'),
   ]
 
-  return run_forth_vm(out = logs_dir('forth-unit-%s.out' % name), machine = logs_dir('forth-unit-%s.machine' % name), options = options, diff_expected = tests_dir('units', '%s.expected' % name), coverage_name = 'forth-unit-%s' % name)
+  return run_forth_vm(out = logs_dir('forth-unit-%s.out' % name), machine = logs_dir('forth-unit-%s.machine' % name), options = options, diff_expected = ('forth', 'units', '%s.expected' % name), coverage_name = 'forth-unit-%s' % name)
 
 def test_box():
   __run_unit('box')
