@@ -10,7 +10,6 @@ sphinx-rtd-theme
 nose
 virtualenv
 mako
-nose-html-reporting
 nose-testconfig
 coverage
 hypothesis

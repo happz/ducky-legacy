@@ -77,9 +77,6 @@ def run_testsuite(env, target, source, tests = None):
     '-w $TESTSDIR'
   ]
 
-  if env['PYTHON_VERSION'][0] < 3:
-    cmdline.append('--with-html --html-report=$REPORTFILE')
-
   cmdline.append(' '.join(tests))
 
   cmd.command = env.subst(' '.join(cmdline))
