@@ -44,7 +44,7 @@ def setup():
   CORE = cpu.cores[0]
 
   global LOGGER
-  LOGGER.setLevel(logging.INFO)
+  LOGGER.setLevel(logging.DEBUG)
 
   class SimpleBuffer(object):
     def get_error(self, cls, msg):
@@ -199,6 +199,8 @@ class CoreState(object):
 
 REGISTER    = integers(min_value = 0, max_value = 31)
 VALUE       = integers(min_value = 0, max_value = 0xFFFFFFFF)
+VALUE16     = integers(min_value = 0, max_value = 0xFFFF)
+VALUE8      = integers(min_value = 0, max_value = 0xFF)
 IMMEDIATE15 = integers(min_value = 0, max_value = 0x7FFF)
 IMMEDIATE16 = integers(min_value = 0, max_value = 0xFFFF)
 IMMEDIATE20 = integers(min_value = 0, max_value = 0xFFFFF)
@@ -332,6 +334,83 @@ def __base_arith_by_zero_register(state, reg1, reg2, a, inst_class = None):
     assert 'Instruction expected to divide by zero'
 
   state.check((reg1, a), (reg2, b))
+
+def __base_load_test(state, reg1, reg2, address, value, inst_class, size, offset = None):
+  LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
+  LOGGER.debug('TEST: state=%r, reg1=%d, reg2=%d, address=0x%08X, value=0x%08X, offset=%s', state, reg1, reg2, address, value, 'None' if offset is None else '0x%08X' % offset)
+
+  # reset machine, to get clear memory
+  setup()
+
+  operands = {
+    'register_n0': reg1,
+    'areg': reg2
+  }
+
+  if offset is not None:
+    operands['offset_immediate'] = offset
+
+  offset = sign_extend15(offset or 0)
+  memory_address = u32_t(address + offset).value
+
+  inst = encode_inst(inst_class, operands)
+
+  state.reset()
+  CORE.registers.map[reg2].value = address
+
+  if size == 1:
+    CORE.mmu.memory.write_u8(memory_address, value)
+
+  elif size == 2:
+    CORE.mmu.memory.write_u16(memory_address, value)
+
+  else:
+    CORE.mmu.memory.write_u32(memory_address, value)
+
+  execute_inst(CORE, inst_class, inst)
+
+  state.check((reg1, value), (reg2, value if reg1 == reg2 else address), zero = value == 0, overflow = False, sign = (value & 0x80000000) != 0)
+
+def __base_store_test(state, reg1, reg2, address, value, inst_class, size, offset = None):
+  LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
+  LOGGER.debug('TEST: state=%r, reg1=%d, reg2=%d, address=0x%08X, value=0x%08X, offset=%s, inst=%s, size=%d', state, reg1, reg2, address, value, 'None' if offset is None else '0x%08X' % offset, inst_class, size)
+
+  # reset machine, to get clear memory
+  setup()
+
+  operands = {
+    'areg': reg1,
+    'register_n1': reg2
+  }
+
+  if offset is not None:
+    operands['offset_immediate'] = offset
+
+  offset = sign_extend15(offset or 0)
+  memory_address = u32_t(address + offset).value
+
+  expected_value = (value & 0xFF) if size == 1 else ((value & 0xFFFF) if size == 2 else value)
+
+  inst = encode_inst(inst_class, operands)
+
+  state.reset()
+  CORE.registers.map[reg1].value = address
+
+  if reg1 != reg2:
+    CORE.registers.map[reg2].value = value
+
+  execute_inst(CORE, inst_class, inst)
+
+  regs = [(reg1, address)]
+  if reg1 != reg2:
+    regs.append((reg2, value))
+
+  state.check(*regs)
+
+  reader = CORE.MEM_IN8 if size == 1 else (CORE.MEM_IN16 if size == 2 else CORE.MEM_IN32)
+
+  memory_value = reader(memory_address)
+  assert expected_value == memory_value, 'Memory contains 0x%08X, 0x%08X expected' % (memory_value, value)
 
 
 #
@@ -1229,6 +1308,23 @@ def test_la(state, reg, ip, offset):
 
 
 #
+# LB
+#
+@given(state = STATE, reg1 = REGISTER, reg2 = REGISTER, address = VALUE, value = VALUE8)
+def test_lb(state, reg1, reg2, address, value):
+  from ducky.cpu.instructions import LB
+
+  __base_load_test(state, reg1, reg2, address, value, LB, 1)
+
+@given(state = STATE, reg1 = REGISTER, reg2 = REGISTER, address = VALUE, value = VALUE8, offset = IMMEDIATE15)
+@example(state = STATE.example(), reg1 = REGISTER.example(), reg2 = REGISTER.example(), address = VALUE.example(), value = VALUE8.example(), offset = 0)
+def test_lb_offset(state, reg1, reg2, address, value, offset):
+  from ducky.cpu.instructions import LB
+
+  __base_load_test(state, reg1, reg2, address, value, LB, 1, offset = offset)
+
+
+#
 # LI
 #
 @given(state = STATE, reg = REGISTER, a = IMMEDIATE20)
@@ -1314,6 +1410,50 @@ def test_lpm_unprivileged(state):
     assert False, 'Access violation error expected'
 
   state.check()
+
+
+#
+# LS
+#
+@given(state = STATE, reg1 = REGISTER, reg2 = REGISTER, address = VALUE, value = VALUE16)
+def test_ls(state, reg1, reg2, address, value):
+  assume(address & 0x1 == 0)
+
+  from ducky.cpu.instructions import LS
+
+  __base_load_test(state, reg1, reg2, address, value, LS, 2)
+
+@given(state = STATE, reg1 = REGISTER, reg2 = REGISTER, address = VALUE, value = VALUE16, offset = IMMEDIATE15)
+@example(state = STATE.example(), reg1 = REGISTER.example(), reg2 = REGISTER.example(), address = VALUE.example() & 0xFFFFFFFE, value = VALUE16.example(), offset = 0)
+def test_ls_offset(state, reg1, reg2, address, value, offset):
+  assume(address & 0x1 == 0)
+  assume(offset & 0x1 == 0)
+
+  from ducky.cpu.instructions import LS
+
+  __base_load_test(state, reg1, reg2, address, value, LS, 2, offset = offset)
+
+
+#
+# LW
+#
+@given(state = STATE, reg1 = REGISTER, reg2 = REGISTER, address = VALUE, value = VALUE)
+def test_lw(state, reg1, reg2, address, value):
+  assume(address & 0x3 == 0)
+
+  from ducky.cpu.instructions import LW
+
+  __base_load_test(state, reg1, reg2, address, value, LW, 4)
+
+@given(state = STATE, reg1 = REGISTER, reg2 = REGISTER, address = VALUE, value = VALUE, offset = IMMEDIATE15)
+@example(state = STATE.example(), reg1 = REGISTER.example(), reg2 = REGISTER.example(), address = VALUE.example() & 0xFFFFFFFC, value = VALUE.example(), offset = 0)
+def test_lw_offset(state, reg1, reg2, address, value, offset):
+  assume(address & 0x3 == 0)
+  assume(offset & 0x3 == 0)
+
+  from ducky.cpu.instructions import LW
+
+  __base_load_test(state, reg1, reg2, address, value, LW, 4, offset = offset)
 
 
 #
@@ -1768,6 +1908,85 @@ def test_shiftr_register(state, reg1, reg2, a, b):
 
 
 #
+# STB
+#
+@given(state = STATE, reg1 = REGISTER, reg2 = REGISTER, address = VALUE, value = VALUE8)
+def test_stb(state, reg1, reg2, address, value):
+  from ducky.cpu.instructions import STB
+
+  if reg1 == reg2:
+    value = address & 0xFF
+
+  __base_store_test(state, reg1, reg2, address, value, STB, 1)
+
+@given(state = STATE, reg1 = REGISTER, reg2 = REGISTER, address = VALUE, value = VALUE8, offset = IMMEDIATE15)
+@example(state = STATE.example(), reg1 = REGISTER.example(), reg2 = REGISTER.example(), address = VALUE8.example(), value = VALUE.example(), offset = 0)
+def test_stb_offset(state, reg1, reg2, address, value, offset):
+  from ducky.cpu.instructions import STB
+
+  if reg1 == reg2:
+    value = address & 0xFF
+
+  __base_store_test(state, reg1, reg2, address, value, STB, 1, offset = offset)
+
+
+#
+# STS
+#
+@given(state = STATE, reg1 = REGISTER, reg2 = REGISTER, address = VALUE, value = VALUE16)
+def test_sts(state, reg1, reg2, address, value):
+  assume(address & 0x1 == 0)
+
+  from ducky.cpu.instructions import STS
+
+  if reg1 == reg2:
+    value = address & 0xFFFF
+
+  __base_store_test(state, reg1, reg2, address, value, STS, 2)
+
+@given(state = STATE, reg1 = REGISTER, reg2 = REGISTER, address = VALUE, value = VALUE16, offset = IMMEDIATE15)
+@example(state = STATE.example(), reg1 = REGISTER.example(), reg2 = REGISTER.example(), address = VALUE.example() & 0xFFFFFFFE, value = VALUE16.example(), offset = 0)
+def test_sts_offset(state, reg1, reg2, address, value, offset):
+  assume(address & 0x1 == 0)
+  assume(offset & 0x1 == 0)
+
+  from ducky.cpu.instructions import STS
+
+  if reg1 == reg2:
+    value = address & 0xFFFF
+
+  __base_store_test(state, reg1, reg2, address, value, STS, 2, offset = offset)
+
+
+#
+# STW
+#
+@given(state = STATE, reg1 = REGISTER, reg2 = REGISTER, address = VALUE, value = VALUE)
+def test_stw(state, reg1, reg2, address, value):
+  assume(address & 0x3 == 0)
+
+  from ducky.cpu.instructions import STW
+
+  if reg1 == reg2:
+    value = address
+
+  __base_store_test(state, reg1, reg2, address, value, STW, 4)
+
+@given(state = STATE, reg1 = REGISTER, reg2 = REGISTER, address = VALUE, value = VALUE, offset = IMMEDIATE15)
+@example(state = STATE.example(), reg1 = REGISTER.example(), reg2 = REGISTER.example(), address = VALUE.example() & 0xFFFFFFFC, value = VALUE.example(), offset = 0)
+def test_stw_offset(state, reg1, reg2, address, value, offset):
+  assume(address & 0x3 == 0)
+  assume(offset & 0x3 == 0)
+
+  from ducky.cpu.instructions import STW
+
+  if reg1 == reg2:
+    value = address
+
+  __base_store_test(state, reg1, reg2, address, value, STW, 4, offset = offset)
+
+
+#
 # STI
 #
 @given(state = STATE)
@@ -1928,46 +2147,3 @@ def test_xor_register(state, reg1, reg2, a, b):
     return value, u32_t(value).value
 
   __base_arith_test_register(state, reg1, reg2, a, b, inst_class = XOR, compute = compute)
-
-
-"""
-def test_lw():
-  data_base = DEFAULT_BOOTLOADER_ADDRESS + (0x1000 if os.getenv('MMAPABLE_SECTIONS')  == 'yes' else 0x0100)
-
-  common_case(binary = 'lw_1', r0 = data_base, r1 = 0xDEADBEEF, s = 1)
-
-def test_ls():
-  data_base = DEFAULT_BOOTLOADER_ADDRESS + (0x1000 if os.getenv('MMAPABLE_SECTIONS')  == 'yes' else 0x0100)
-
-  common_case(binary = 'ls_1', r0 = data_base + 4, r1 = 0xBEEF)
-  common_case(binary = 'ls_2', r0 = data_base + 6, r1 = 0xDEAD)
-
-def test_lb():
-  data_base = DEFAULT_BOOTLOADER_ADDRESS + (0x1000 if os.getenv('MMAPABLE_SECTIONS')  == 'yes' else 0x0100)
-
-  common_case(binary = 'lb_1', r0 = data_base + 4, r1 = 0xEF)
-  common_case(binary = 'lb_2', r0 = data_base + 5, r1 = 0xBE)
-
-def test_stw():
-  data_base = DEFAULT_BOOTLOADER_ADDRESS + (0x1000 if os.getenv('MMAPABLE_SECTIONS')  == 'yes' else 0x0100)
-
-  common_case(binary = 'stw_1', r0 = data_base, r1 = 0xDEADBEEF, r2 = 0xFD0CADDE, s = 1, mm_asserts = [(data_base, 0xFD0CADDE), (data_base + 4, 0)])
-
-def test_sts():
-  data_base = DEFAULT_BOOTLOADER_ADDRESS + (0x1000 if os.getenv('MMAPABLE_SECTIONS')  == 'yes' else 0x0100)
-
-  common_case(binary = 'sts_1', r0 = data_base, r2 = 0xBEEFDEAD, s = 1, mm_asserts = [(data_base, 0xDEAD), (data_base + 4, 0)])
-  common_case(binary = 'sts_2', r0 = data_base + 2, r2 = 0xDEAD,      mm_asserts = [(data_base, 0xDEAD0000)])
-
-def test_stb():
-  data_base = DEFAULT_BOOTLOADER_ADDRESS + (0x1000 if os.getenv('MMAPABLE_SECTIONS')  == 'yes' else 0x0100)
-
-  common_case(binary = 'stb_1', r0 = data_base, r2 = 0xBEEFDEAD, s = 1, mm_asserts = [(data_base, 0xAD), (data_base + 4, 0)])
-  common_case(binary = 'stb_2', r0 = data_base + 1, r2 = 0xDE,      mm_asserts = [(data_base, 0xDE00)])
-
-def test_cas():
-  data_base = DEFAULT_BOOTLOADER_ADDRESS + (0x1000 if os.getenv('MMAPABLE_SECTIONS') == 'yes' else 0x0100)
-
-  common_case(binary  ='cas_1', r1 = data_base, r2 = 0x0A, r3 = 0x0B, e = 1, mm_asserts = [(data_base, 0x0B)])
-  common_case(binary = 'cas_2', r1 = data_base, r2 = 0x0A, r3 = 0x0C, mm_asserts = [(data_base, 0x0A)])
-"""

@@ -550,9 +550,9 @@ def RI_ADDR(core, inst, reg):
   core.DEBUG('RI_ADDR: inst=%s, reg=%s', inst, reg)
 
   base = core.registers.map[reg].value
-  offset = inst.immediate if inst.immediate_flag == 1 else 0
+  offset = inst.sign_extend_immediate(core.LOGGER, inst) if inst.immediate_flag == 1 else 0
 
-  return base + offset
+  return u32_t(base + offset).value
 
 def JUMP(core, inst):
   core.DEBUG('JUMP: inst=%s', inst)
@@ -913,25 +913,15 @@ class POP(Descriptor_R):
   @staticmethod
   def jit(core, inst):
     pop = core.raw_pop
+    reg = core.registers.map[inst.reg1]
 
-    if inst.reg1 == FLAGS:
-      from . import CoreFlags
+    def __jit_pop():
+      reg.value = v = pop()
+      core.arith_zero = v == 0
+      core.arith_overflow = False
+      core.arith_sign = (v & 0x80000000) != 0
 
-      def __jit_pop():
-        core.flags = CoreFlags.from_int(pop())
-
-      return __jit_pop
-
-    else:
-      reg = core.registers.map[inst.reg1]
-
-      def __jit_pop():
-        reg.value = v = pop()
-        core.arith_zero = v == 0
-        core.arith_overflow = False
-        core.arith_sign = (v & 0x80000000) != 0
-
-      return __jit_pop
+    return __jit_pop
 
 #
 # Arithmetic
@@ -1876,7 +1866,7 @@ class _LOAD(Descriptor):
 
         else:
           def __jit_lw():
-            reg1.value = v = reader(reg2.value + offset)
+            reg1.value = v = reader((reg2.value + offset) % 4294967296)
             core.arith_zero = v == 0
             core.arith_overflow = False
             core.arith_sign = (v & 0x80000000) != 0
@@ -1909,7 +1899,7 @@ class _LOAD(Descriptor):
 
         else:
           def __jit_ls():
-            reg1.value = v = reader(reg2.value + offset)
+            reg1.value = v = reader((reg2.value + offset) % 4294967296)
             core.arith_zero = v == 0
             core.arith_overflow = False
             core.arith_sign = False
@@ -1942,7 +1932,7 @@ class _LOAD(Descriptor):
 
         else:
           def __jit_lb():
-            reg1.value = v = reader(reg2.value + offset)
+            reg1.value = v = reader((reg2.value + offset) % 4294967296)
             core.arith_zero = v == 0
             core.arith_overflow = False
             core.arith_sign = False
