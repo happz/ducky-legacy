@@ -12,3 +12,4 @@
 .def CONTROL_FLAGS:       r${ControlRegisters.CR3.value}
 
 .def CONTROL_FLAG_PT_ENABLED: 0x00000001
+.def CONTROL_FLAG_JIT:        0x00000002

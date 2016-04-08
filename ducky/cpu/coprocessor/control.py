@@ -22,8 +22,8 @@ class ControlRegisters(enum.IntEnum):
   CR3 = 3  # Flags
 
 class CoreFlags(Flags):
-  _flags = ['pt_enabled']
-  _labels = 'P'
+  _flags = ['pt_enabled', 'jit']
+  _labels = 'PJ'
 
 class ControlCoprocessor(ISnapshotable, Coprocessor):
   def read_cr0(self):
@@ -42,7 +42,7 @@ class ControlCoprocessor(ISnapshotable, Coprocessor):
     self.core.mmu.pt_address = address
 
   def read_cr3(self):
-    return CoreFlags.create(pt_enabled = self.core.mmu.pt_enabled).to_int()
+    return CoreFlags.create(pt_enabled = self.core.mmu.pt_enabled, jit = mmu.core.cpu.machine.config.getbool('machine', 'jit', False)).to_int()
 
   def write_cr3(self, value):
     flags = CoreFlags.from_int(value)
