@@ -42,7 +42,7 @@ class ControlCoprocessor(ISnapshotable, Coprocessor):
     self.core.mmu.pt_address = address
 
   def read_cr3(self):
-    return CoreFlags.create(pt_enabled = self.core.mmu.pt_enabled, jit = mmu.core.cpu.machine.config.getbool('machine', 'jit', False)).to_int()
+    return CoreFlags.create(pt_enabled = self.core.mmu.pt_enabled, jit = self.core.cpu.machine.config.getbool('machine', 'jit', False)).to_int()
 
   def write_cr3(self, value):
     flags = CoreFlags.from_int(value)
