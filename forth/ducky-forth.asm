@@ -676,6 +676,49 @@ $DEFVAR "SOURCE-ID", 9, 0, SOURCE_ID, 0
 $DEFVAR "SHOW-PROMPT", 11, 0, SHOW_PROMPT, 0
 
 
+$DEFWORD "WELCOME", 7, 0, WELCOME
+  .int &CQUOTE_LITSTRING
+  .int 0x53455409
+  .int 0x4F4D2D54
+  .int 0x00004544
+  .int &FIND
+  .int &SWAP
+  .int &DROP
+  .int &NOT
+  .int &ZBRANCH
+  .int 0x00000078
+  .int &SQUOTE_LITSTRING
+  .int 0x63754413
+  .int 0x4F46796B
+  .int 0x20485452
+  .int 0x53524556
+  .int 0x204E4F49
+  .int &TELL
+  .int &VERSION
+  .int &DOT
+  .int &CR
+  .int &SQUOTE_LITSTRING
+  .int 0x69754206
+  .int 0x0020646C
+  .int &TELL
+  .int &BUILD_STAMP
+  .int &TYPE
+  .int &CR
+  .int &UNUSED
+  .int &DOT
+  .int &SQUOTE_LITSTRING
+  .int 0x4C45430F
+  .int 0x5220534C
+  .int 0x49414D45
+  .int 0x474E494E
+  .int &TELL
+  .int &CR
+  .int &TRUE
+  .int &SHOW_PROMPT
+  .int &STORE
+  .int &EXIT
+
+
 $DEFCODE "BUILD-STAMP", 11, 0, BUILD_STAMP
   ; ( -- addr u )
 .ifdef FORTH_TIR
@@ -2927,45 +2970,6 @@ __PARENPLUS_next:
   $NEXT
 
 
-
-;$DEFCODE "(+LOOP)", 7, 0, PAREN_PLUSLOOP
-;  $poprsp $W ; index
-;  $poprsp $X ; control
-;.ifdef FORTH_TIR
-;  cmp $TOS, 0
-;.else
-;  pop $Y     ; increment N
-;.endif
-;  bs &__PAREN_PLUSLOOP_dec
-;.ifdef FORTH_TIR
-;  add $W, $TOS
-;  pop $TOS
-;.else
-;  add $W, $Y
-;.endif
-;  cmp $W, $X
-;  bg &__PAREN_PLUSLOOP_next
-;  j &__PAREN_PLUSLOOP_iter
-;__PAREN_PLUSLOOP_dec:
-;.ifdef FORTH_TIR
-;  add $W, $TOS
-;  pop $TOS
-;.else
-;  add $W, $Y
-;.endif
-;  cmp $W, $X
-;  bl &__PAREN_PLUSLOOP_next
-;__PAREN_PLUSLOOP_iter:
-;  $pushrsp $X
-;  $pushrsp $W
-;  lw $W, $FIP
-;  add $FIP, $W
-;  $NEXT
-;__PAREN_PLUSLOOP_next:
-;  add $FIP, $CELL
-;  $NEXT
-
-
 $DEFCODE "UNLOOP", 6, 0, UNLOOP
   add $RSP, 8 ; CELL * 2
   $NEXT
@@ -2991,6 +2995,186 @@ $DEFCODE "J", 1, 0, J
   push $W
 .endif
   $NEXT
+
+
+$DEFDOESWORD "LEAVE-SP", 8, 0, LEAVE_SP
+  .int 0x00000000
+__LEAVE_SP_payload:
+  .int &__LEAVE_SP_payload
+  .int 0x00000000
+  .int 0x00000000
+  .int 0x00000000
+  .int 0x00000000
+  .int 0x00000000
+  .int 0x00000000
+  .int 0x00000000
+  .int 0x00000000
+  .int 0x00000000
+  .int 0x00000000
+  .int 0x00000000
+  .int 0x00000000
+  .int 0x00000000
+  .int 0x00000000
+  .int 0x00000000
+  .int 0x00000000
+  .int 0x00000000
+  .int 0x00000000
+  .int 0x00000000
+  .int 0x00000000
+  .int 0x00000000
+  .int 0x00000000
+  .int 0x00000000
+  .int 0x00000000
+  .int 0x00000000
+  .int 0x00000000
+  .int 0x00000000
+  .int 0x00000000
+  .int 0x00000000
+  .int 0x00000000
+  .int 0x00000000
+
+
+$DEFWORD "LEAVE", 5, $F_IMMED, LEAVE
+  .int &BRACKET_TICK
+  .int &UNLOOP
+  .int &COMMA
+  .int &BRACKET_TICK
+  .int &BRANCH
+  .int &COMMA
+  .int &LEAVE_SP
+  .int &FETCH
+  .int &LEAVE_SP
+  .int &SUB
+  .int &LIT
+  .int 0x0000001F
+  .int &CELLS
+  .int &GT
+  .int &ZBRANCH
+  .int 0x00000008
+  .int &ABORT
+  .int &LIT
+  .int 0x00000001
+  .int &CELLS
+  .int &LEAVE_SP
+  .int &ADDSTORE
+  .int &HERE
+  .int &LEAVE_SP
+  .int &FETCH
+  .int &STORE
+  .int &LIT
+  .int 0x00000000
+  .int &COMMA
+  .int &EXIT
+
+
+$DEFWORD "RESOLVE-DO", 10, 0, RESOLVE_DO
+  .int &ZBRANCH
+  .int 0x00000044
+  .int &DUP
+  .int &HERE
+  .int &SUB
+  .int &COMMA
+  .int &DUP
+  .int &LIT
+  .int 0x00000002
+  .int &CELLS
+  .int &SUB
+  .int &HERE
+  .int &OVER
+  .int &SUB
+  .int &SWAP
+  .int &STORE
+  .int &BRANCH
+  .int 0x00000014
+  .int &DUP
+  .int &HERE
+  .int &SUB
+  .int &COMMA
+  .int &EXIT
+
+
+$DEFWORD "RESOLVE-LEAVES", 14, 0, RESOLVE_LEAVES
+  .int &LEAVE_SP
+  .int &FETCH
+  .int &FETCH
+  .int &OVER
+  .int &GT
+  .int &LEAVE_SP
+  .int &FETCH
+  .int &LEAVE_SP
+  .int &GT
+  .int &AND
+  .int &ZBRANCH
+  .int 0x00000048
+  .int &HERE
+  .int &LEAVE_SP
+  .int &FETCH
+  .int &FETCH
+  .int &SUB
+  .int &LEAVE_SP
+  .int &FETCH
+  .int &FETCH
+  .int &STORE
+  .int &LIT
+  .int 0x00000001
+  .int &CELLS
+  .int &NEGATE
+  .int &LEAVE_SP
+  .int &ADDSTORE
+  .int &BRANCH
+  .int 0xFFFFFF90
+  .int &DROP
+  .int &EXIT
+
+
+$DEFWORD "DO", 2, $F_IMMED, DO
+  .int &BRACKET_TICK
+  .int &PAREN_DO
+  .int &COMMA
+  .int &HERE
+  .int &LIT
+  .int 0x00000000
+  .int &EXIT
+
+
+$DEFWORD "?DO", 3, $F_IMMED, QUESTIONDO
+  .int &BRACKET_TICK
+  .int &TWODUP
+  .int &COMMA
+  .int &BRACKET_TICK
+  .int &NEQU
+  .int &COMMA
+  .int &BRACKET_TICK
+  .int &ZBRANCH
+  .int &COMMA
+  .int &LIT
+  .int 0x00000000
+  .int &COMMA
+  .int &BRACKET_TICK
+  .int &PAREN_DO
+  .int &COMMA
+  .int &HERE
+  .int &LIT
+  .int 0x00000001
+  .int &EXIT
+
+
+$DEFWORD "LOOP", 4, $F_IMMED, LOOP
+  .int &BRACKET_TICK
+  .int &PAREN_LOOP
+  .int &COMMA
+  .int &RESOLVE_DO
+  .int &RESOLVE_LEAVES
+  .int &EXIT
+
+
+$DEFWORD "+LOOP", 5, $F_IMMED, PLUSLOOP
+  .int &BRACKET_TICK
+  .int &PAREN_PLUS
+  .int &COMMA
+  .int &RESOLVE_DO
+  .int &RESOLVE_LEAVES
+  .int &EXIT
 
 
 ;

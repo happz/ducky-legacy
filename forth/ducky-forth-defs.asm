@@ -159,6 +159,31 @@
   .int &DOCOL
 .end
 
+.macro DEFDOESWORD name, len, flags, label:
+  .section .rodata
+  .align 4
+
+  .type name_#label, int
+  .int link
+  .set link, &name_#label
+
+  .type __crc_#label, short
+  .short 0x7979
+
+  .type __flags_#label, byte
+  .byte #flags
+
+  .type __len_#label, byte
+  .byte #len
+
+  .type __name_#label, ascii
+  .ascii #name
+
+  .align 4
+  .type #label, int
+  .int &DODOES
+.end
+
 .macro DEFCODE name, len, flags, label:
   .section .rodata
   .align 4
