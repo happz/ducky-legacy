@@ -5,8 +5,15 @@ MAINTAINER Milos Prchlik <happz@happz.cz>
 ENV VIRTUAL_ENV=/usr/local
 
 RUN apk update && apk add make bash wget curl jq scons git
-COPY get-last-build.sh /tmp/
-RUN mkdir -p /home && wget -O /home/ducky.zip --no-check-certificate https://github.com/happz/ducky/archive/master.zip && cd /home && unzip ducky.zip && mv ducky-master ducky && cd /home/ducky && make install-edit && scons -sQ BUILD_STAMP="$(/bin/bash /tmp/get-last-build.sh)" forth
+
+# Fetch the last built FORTH kernel
+# This is a necessary workaround, because it's not possible to build
+# it directly in the image, since scons does not support Python 3.
+ADD http://fanny.happz.cz/~happz/ducky-forth/latest/ducky-forth /tmp/
+ADD http://fanny.happz.cz/~happz/ducky-forth/latest/ducky-forth.f /tmp/
+ADD http://fanny.happz.cz/~happz/ducky-forth/latest/forth.conf /tmp/
+
+RUN mkdir -p /home && wget -O /home/ducky.zip --no-check-certificate https://github.com/happz/ducky/archive/master.zip && cd /home && unzip ducky.zip && mv ducky-master ducky && cd /home/ducky && make install-edit
 
 ENV PYTHONUNBUFFERED=yes
 
@@ -14,9 +21,9 @@ ENTRYPOINT ["/usr/local/bin/python", \
             "-OO", \
             "/usr/local/bin/ducky-vm", \
             "-g", \
-            "--machine-config=/home/ducky/forth/forth.conf", \
-            "--set-option=bootloader:file=/home/ducky/forth/ducky-forth", \
-            "--set-option=device-3:streams_in=/home/ducky/forth/ducky-forth.f", \
+            "--machine-config=/tmp/forth.conf", \
+            "--set-option=bootloader:file=/tmp/ducky-forth", \
+            "--set-option=device-3:streams_in=/tmp/ducky-forth.f", \
             "--add-option=device-3:streams_in=<stdin>", \
             "--set-option=device-3:stream_out=<stderr>", \
             "--set-option=device-3:echo=no", \
