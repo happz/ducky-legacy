@@ -623,17 +623,11 @@ class SYMMODL(Descriptor_MATH):
     divider = i64_t(RS.pop().value).value
     tos = i64_t(RS.pop().value).value
 
-    def __mod(a, b):
+    if (tos < 0) == (divider < 0):
       RS.push(u64_t(tos % divider))
 
-    def __fmod(a, b):
-      RS.push(u64_t(int(math.fmod(tos, divider))))
-
-    if (tos < 0) == (divider < 0):
-      __mod(tos, divider)
-
     else:
-      __fmod(tos, divider)
+      RS.push(u64_t(int(math.fmod(tos, divider))))
 
 ADDL(MathCoprocessorInstructionSet)
 INCL(MathCoprocessorInstructionSet)
