@@ -40,6 +40,11 @@ profile = {profile}
 
 [log]
 trace = $TRACE_FILE
+
+[hypothesis]
+Sanity = 50
+Default = 200
+CI = 4000
 """.format(coverage = 'yes' if 'COVERAGEDIR' in env else 'no',
            coveragedir = ('coverage = %s' % env['COVERAGEDIR']) if 'COVERAGEDIR' in env else '',
            profile = 'yes' if 'PROFILEDIR' in env else 'no',
