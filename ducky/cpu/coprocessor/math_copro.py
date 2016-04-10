@@ -608,7 +608,7 @@ class SYMDIVL(Descriptor_MATH):
     divider = i64_t(RS.pop().value)
     tos = i64_t(RS.pop().value)
 
-    RS.push(u64_t(int(tos.value // divider.value)))
+    RS.push(u64_t(int(float(tos.value) / float(divider.value))))
 
 class SYMMODL(Descriptor_MATH):
   mnemonic = 'symmodl'
@@ -620,10 +620,20 @@ class SYMMODL(Descriptor_MATH):
 
     RS = core.math_coprocessor.registers
 
-    divider = i64_t(RS.pop().value)
-    tos = i64_t(RS.pop().value)
+    divider = i64_t(RS.pop().value).value
+    tos = i64_t(RS.pop().value).value
 
-    RS.push(u64_t(int(math.fmod(tos.value, divider.value))))
+    def __mod(a, b):
+      RS.push(u64_t(tos % divider))
+
+    def __fmod(a, b):
+      RS.push(u64_t(int(math.fmod(tos, divider))))
+
+    if (tos < 0) == (divider < 0):
+      __mod(tos, divider)
+
+    else:
+      __fmod(tos, divider)
 
 ADDL(MathCoprocessorInstructionSet)
 INCL(MathCoprocessorInstructionSet)

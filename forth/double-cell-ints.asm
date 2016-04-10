@@ -139,18 +139,18 @@ $DEFCODE "UM/MOD", 6, 0, UMMOD
   pop
   swp
   dup2
-  modl
+  umodl
   pushw
-  divl
+  udivl
   savew $TOS
 .else
   popuw ; u1
   pop   ; u1 ud
   swp   ; ud u1
   dup2  ; ud u1 ud u1
-  modl  ; ud u1 u2
+  umodl  ; ud u1 u2
   pushw ; ud u1
-  divl  ; u3
+  udivl  ; u3
   pushw ;
 .endif
   sis $DUCKY_INST_SET

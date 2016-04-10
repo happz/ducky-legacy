@@ -781,18 +781,32 @@ __ERR_die:
   hlt r1
 
 
+;
+; void __ERR_print_input(char *word, u32_t length)
+;
+; Prints input buffer and word
+;
 __ERR_print_input:
+  push r0
+  push r1
   la r0, &__input_buffer_label
   call &writes
   call &write_input_buffer
   la r0, &__word_buffer_label
   call &writes
-  call &write_word_buffer
+  la r0, &__buffer_prefix
+  call &writes
+  pop r1
+  pop r0
+  call &write
+  la r0, &__buffer_postfix
+  call &writesln
   ret
 
 
+
 ;
-; void __ERR_undefined_word(void) __attribute__((noreturn))
+; void __ERR_undefined_word(char *s, u32_t length) __attribute__((noreturn))
 ;
 ; Raised when word is not in dictionary nor a number.
 ;
@@ -801,8 +815,12 @@ __ERR_print_input:
   .string "\r\nERROR: $ERR_UNDEFINED_WORD: Undefined word\r\n"
 
 __ERR_undefined_word:
+  push r0
+  push r1
   la r0, &__ERR_undefined_word_message
   call &writes
+  pop r1
+  pop r0
   call &__ERR_print_input
   li r0, $ERR_UNDEFINED_WORD
 .ifdef FORTH_FAIL_ON_UNDEF
@@ -1210,10 +1228,6 @@ __read_word_eof:
 ;
 ; char * __read_word_with_refill(char delimiter)
 ;
-  .section .rodata
-  .type __B__, string
-  .string "*"
-
 __read_word_with_refill:
   push r2
   push r3
@@ -1273,6 +1287,61 @@ $DEFCODE "DWORD", 5, 0, DWORD
 .else
   call &__read_dword_with_refill
   push r0
+.endif
+  $NEXT
+
+
+$DEFCODE "PARSE", 5, 0, PARSE
+  ; ( char "ccc<char>" -- c-addr u )
+  ; parse input buffer, no copying, no modifications
+
+.ifdef FORTH_TIR
+  mov $Y, $TOS
+.else
+  pop $Y
+.endif
+
+  ; init pointer to the parsed word
+  ; right now, it points to the first character we're gonna read, which
+  ; may be invalid, but this won't matter if a) word is parsed, X will
+  ; get proper value, b) there's no word, TOS will be zero
+  la $W, &input_buffer_address
+  lw $W, $W
+  la $X, &input_buffer_index
+  add $W, $X
+  li $W, 0                             ; length counter
+
+  ; skip over leading delimiters
+__PARSE_read_leading_input:
+  call &__read_input
+  cmp r0, 0x00                         ; no input left?
+  bz &__PARSE_quit
+  cmp r0, $Y                           ; delimiter?
+  be &__PARSE_read_leading_input
+  cmp r0, 0x20                         ; space?
+  be &__PARSE_read_leading_input
+
+  ; now parse the word
+  la $W, &input_buffer_address
+  lw $W, $W
+  la $X, &input_buffer_index
+  add $W, $X                           ; now, X has address of the first valid character of a word
+  li $W, 0                             ; length counter
+__PARSE_read_word:
+  call &__read_input
+  cmp r0, 0x00                         ; no input left?
+  bz &__PARSE_quit
+  cmp r0, $Y                           ; delimiter? quit
+  be &__PARSE_quit
+  inc $W
+  j &__PARSE_read_word
+
+__PARSE_quit:
+  push $X
+.ifdef FORTH_TIR
+  mov $TOS, $W
+.else
+  push $W
 .endif
   $NEXT
 
@@ -1439,46 +1508,94 @@ $DEFCODE "NUMBER", 6, 0, NUMBER
   $NEXT
 
 
-__NUMBER:
-  cmp r1, r1
-  bz &__NUMBER_quit_noclean
-  ; save working registers
-  push r2 ; BASE
-  push r3 ; char ptr
-  push r4 ; current char
-  ; set up working registers
-  la r2, &var_BASE
-  lw r2, r2
-  mov r3, r0
-  li r0, 0
-  ; read first char and check if it's minus
+.macro __NUMBER_getch:
   lb r4, r3
   inc r3
   dec r1
-  ; 0 on stack means non-negative number
-  push 0
-  cmp r4, 0x2D
+.end
+
+__NUMBER:
+  call &__vmdebug_on
+  cmp r1, r1                           ; if the string is empty, leave
+  bz &__NUMBER_quit_noclean
+
+  ; setup working registers
+  push r2                              ; BASE
+  push r3                              ; char ptr
+  push r4                              ; current char
+  push r5                              ; negative flag
+  li r2, 0                             ; set BASE register to zero, to signal we don't know it yet
+  mov r3, r0
+  li r0, 0
+  li r5, 0                             ; so far, number is non-negative
+
+  ; read first char, and check if it's a prefix
+  $__NUMBER_getch
+  cmp r4, 0x23                         ; # - decimal
+  be &__NUMBER_base_decimal
+  cmp r4, 0x26                         ; & - decimal
+  be &__NUMBER_base_decimal
+  cmp r4, 0x24                         ; $ - hexadecimal
+  be &__NUMBER_base_hexadecimal
+  cmp r4, 0x25                         ; % - binary
+  be &__NUMBER_base_binary
+  cmp r4, 0x27                         ; ' - number is the next char's ASCII code
+  be &__NUMBER_ascii
+  la r2, &var_BASE                     ; no prefix - use default base
+  lw r2, r2
+
+__NUMBER_sign_test:
+  ; we have a character to examine - prefix branches fetched a new one
+  cmp r4, 0x2D                         ; '-'
   bne &__NUMBER_convert_digit
-  pop r4 ; it's minus, no need to preserve r4, so pop 0 from stack...
-  push 1 ; ... and push 1 to indicate negative number
-  ; if there are no remaining chars, we got only '-' - that's bad, quit
-  cmp r1, r1
+  li r5, 1                             ; mark as negative
+  cmp r1, r1                           ; if there are no remaining chars, we got only '-' - that's bad, quit
   bnz &__NUMBER_loop
-  pop r1 ; 1 was on stack to signal negative number, reuse it as error message
 __NUMBER_quit:
+  pop r5
   pop r4
   pop r3
   pop r2
 __NUMBER_quit_noclean:
+  call &__vmdebug_off
   ret
+
+__NUMBER_base_decimal:
+  li r2, 10
+  j &__NUMBER_base_known
+
+__NUMBER_base_hexadecimal:
+  li r2, 16
+  j &__NUMBER_base_known
+
+__NUMBER_base_binary:
+  li r2, 2
+  j &__NUMBER_base_known
+
+__NUMBER_base_known:
+  ; read next character after prefix
+  $__NUMBER_getch
+  j &__NUMBER_sign_test
+
+__NUMBER_ascii:
+  $__NUMBER_getch
+  mov r0, r4                           ; converting to char's ASCII code is quite easy...
+  cmp r1, r1                           ; if we're out of chars, quit
+  bz &__NUMBER_quit
+  cmp r1, 1                            ; optional trailing '
+  bne &__NUMBER_fail                   ; there are still some other chars after 'c' - that's bad, quit
+  $__NUMBER_getch
+  cmp r4, 0x27                         ; trailing char must be ', otherwise it's bad
+  bne &__NUMBER_fail
+  j &__NUMBER_quit
+
+__NUMBER_trailing_tick:
+  dec r1
 
 __NUMBER_loop:
   cmp r1, r1
   bz &__NUMBER_negate
-
-  lb r4, r3
-  inc r3
-  dec r1
+  $__NUMBER_getch
 
 __NUMBER_convert_digit:
   ; if char is lower than '0' then it's bad - quit
@@ -1487,9 +1604,15 @@ __NUMBER_convert_digit:
   ; if char is lower than 10, it's a digit, convert it according to base
   cmp r4, 10
   bl &__NUMBER_check_base
-  ; if it's outside the alphabet, it's bad - quit
+  ; if it's between '9' and 'A', it's bad - quit
   sub r4, 17 ; 'A' - '0' = 17
   bs &__NUMBER_fail
+  ; if it's 'a' and above, convert to upper case
+  cmp r4, 32
+  bl &__NUMBER_shift_digit
+  sub r4, 32
+  ; and shift it above 9
+__NUMBER_shift_digit:
   add r4, 10
 
 __NUMBER_check_base:
@@ -1505,8 +1628,7 @@ __NUMBER_fail:
   li r1, 1
 
 __NUMBER_negate:
-  pop r2 ; BASE no longer needed, use its register
-  cmp r2, r2
+  cmp r5, r5
   bz &__NUMBER_quit
   not r0
   inc r0
@@ -1517,7 +1639,7 @@ __NUMBER_negate:
   .section .rodata
 
   .type find_debug_header, string
-  .string "FIND WORD:\r\n"
+  .string "\r\n---------------------------\r\nFIND WORD:\r\n"
 .endif
 
 $DEFCODE "FIND", 4, 0, FIND
@@ -1565,11 +1687,20 @@ __FIND:
   la r0, &find_debug_header
   call &writesln
   pop r0
-  call &write_word_buffer
+  push r0
+  push r1
+  call &__ERR_print_input
+  pop r1
+  pop r0
 .endif
 
   ; r0 - address
   ; r1 - length
+
+  cmp r1, r1
+  bz &__FIND_fail_noclean
+
+
   ; save working registers
   push r2 ; word ptr
   push r3 ; crc
@@ -1662,6 +1793,7 @@ __FIND_finish:
 __FIND_fail:
   pop r3
   pop r2
+__FIND_fail_noclean:
   li r0, 0
   li r1, 0
   ret
@@ -1962,8 +2094,8 @@ $DEFCODE "INTERPRET", 9, 0, INTERPRET
 
   ; save stuff for later
   inc r0                     ; point to string
-  mov r10, r0                ; string length
-  mov r11, r1                ; string address
+  mov r10, r0                ; string address
+  mov r11, r1                ; string length
   li r12, 0                  ; "interpret as LIT?" flag
 
   ; *** Search for the word in the dictionary
@@ -2044,6 +2176,8 @@ __interpret_next:
   $NEXT
 
 __interpret_undefined:
+  mov r0, r10                          ; pass word to error handler
+  mov r1, r11
   call &__ERR_undefined_word
   la r0, &var_STATE
   li r1, 0

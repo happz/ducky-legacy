@@ -236,27 +236,19 @@ $DEFCODE "POSTPONE", 8, $F_IMMED, POSTPONE
 
 
 $DEFCODE "(", 1, $F_IMMED, PAREN
-  li $W, 1 ; depth counter
-
 __PAREN_loop:
-  call &__read_dword_with_refill ; r0 - counted string
-  lb $X, r0
-  cmp $X, 0x0001
-  bne &__PAREN_loop
-  inc r0
-  lb $X, r0
-  cmp $X, 0x28
-  be &__PAREN_enter
-  cmp $X, 0x29
+  call &__read_input
+  cmp r0, 0x00
+  bz &__PAREN_refill
+  cmp r0, 0x29
   be &__PAREN_exit
   j &__PAREN_loop
-__PAREN_enter:
-  inc $W
-  j &__PAREN_loop
 __PAREN_exit:
-  dec $W
-  bnz &__PAREN_loop
   $NEXT
+
+__PAREN_refill:
+  call &__refill_input
+  j &__PAREN_loop
 
 
 ; - Character constants -----------------------------------------------------------------
@@ -342,13 +334,13 @@ $DEFWORD "'.'", 3, 0, CHAR_DOT
 
 ; - Helpers -----------------------------------------------------------------------------
 
-$DEFWORD "CR", 2, 0, CR
+$DEFCODE "CR", 2, 0, CR
   ; ( -- )
-  .int &CHAR_CR
-  .int &EMIT
-  .int &CHAR_NL
-  .int &EMIT
-  .int &EXIT
+  li r0, 13
+  call &__write_stdout
+  li r0, 10
+  call &__write_stdout
+  $NEXT
 
 
 $DEFCODE "SPACE", 5, 0, SPACE
@@ -1853,7 +1845,6 @@ __DOTR_unsigned:
 
 $DEFCODE ".", 1, 0, DOT
   ; ( n -- )
-  call &__vmdebug_on
 .ifdef FORTH_TIR
   mov r0, $TOS
   pop $TOS
