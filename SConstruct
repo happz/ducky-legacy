@@ -513,6 +513,12 @@ def run_flake(target, source, env):
 
   return cmd.run(env, 'INFO', 'flake')
 
+def run_pylint(target, source, env):
+  cmd = DuckyCommand(env, runner = '')
+  cmd.command = 'pylint --rcfile=pylintrc ducky'
+
+  return cmd.run(env, 'INFO', 'pylint')
+
 DuckyObject = Builder(action = __compile_ducky_object)
 DuckyBinary = Builder(action = __link_ducky_binary)
 
@@ -649,6 +655,7 @@ SConscript(os.path.join('tests', 'SConscript'))
 
 # Utilities
 ENV.Alias('flake', ENV.Command('.flake', None, run_flake))
+ENV.Alias('pylint', ENV.Command('.pylint', None, run_pylint))
 
 # Documentation
 ENV.Command('docs/introduction.rst', 'README.rst', 'cp README.rst docs/introduction.rst')
@@ -663,6 +670,8 @@ ENV.Help("""
   ${GREEN}Utilities:${CLR}
      ${BLUE}'scons flake'${CLR} to run flake8 utility, and check for violations of Python
          style conventions,
+     ${BLUE}'scons pylint'${CLR} to run pylint utility, and chack for even more violations
+         of Python conventions, and possible errors,
      ${BLUE}'scons docs'${CLR} to generate documentation,
 
   or ${BLUE}'scons -h'${CLR} to see this help.
