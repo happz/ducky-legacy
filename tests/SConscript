@@ -89,23 +89,22 @@ def run_testsuite(env, target, source, tests = None):
   return cmd.run(env, 'TEST', 'Testsuite')
 
 def run_testsuite_engine(env, target, source):
-  return run_testsuite(env, target, source, tests = ['cpu', 'devices', 'instructions', 'mm', 'storage'])
-  return run_testsuite(env, target, source, tests = ['instructions'])
+  return run_testsuite(env, target, source, tests = ['tests.%s' % p for p in ['cpu', 'devices', 'hdt', 'instructions', 'mm', 'storage']])
 
 def run_testsuite_forth_units(env, target, source):
-  return run_testsuite(env, target, source, tests = ['forth.units'])
+  return run_testsuite(env, target, source, tests = ['tests.forth.units'])
 
 def run_testsuite_forth_ans(env, target, source):
-  return run_testsuite(env, target, source, tests = ['forth.ans'])
+  return run_testsuite(env, target, source, tests = ['tests.forth.ans'])
 
 def run_testsuite_forth(env, target, source):
-  return run_testsuite(env, target, source, tests = ['forth.ans', 'forth.units'])
+  return run_testsuite(env, target, source, tests = ['tests.forth.ans', 'tests.forth.units'])
 
 def run_testsuite_examples(env, target, source):
-  return run_testsuite(env, target, source, tests = ['examples'])
+  return run_testsuite(env, target, source, tests = ['tests.examples'])
 
 def run_testsuite_compiler(env, target, source):
-  return run_testsuite(env, target, source, tests = ['compiler'])
+  return run_testsuite(env, target, source, tests = ['tests.compiler'])
 
 def generate_coverage_summary(target, source, env):
   """
