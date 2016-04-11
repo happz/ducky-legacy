@@ -83,6 +83,19 @@ class DummyCPUCoreProfiler(object):
 
     pass
 
+class ProfileRecord(object):
+  def __init__(self):
+    self.ip = None
+    self.instruction_set_id = None
+    self.count = 0
+
+  def merge(self, other):
+    assert self.ip is None or self.ip == other.ip
+
+    self.ip = other.ip
+    self.instruction_set_id = other.instruction_set_id
+    self.count += other.count
+
 class RealCPUCoreProfiler(DummyCPUCoreProfiler):
   """
   Real code profiler. This class actually does collect data.
@@ -100,16 +113,18 @@ class RealCPUCoreProfiler(DummyCPUCoreProfiler):
     if self.core.registers.cnt.value % self.frequency != 0:
       return
 
-    self.data.append(self.core.current_ip)
+    self.data.append((self.core.instruction_set.instruction_set_id, self.core.current_ip))
 
   def dump_stats(self, filename):
-    d = collections.defaultdict(int)
+    processed = collections.defaultdict(ProfileRecord)
 
-    for e in self.data:
-      d[e] += 1
+    for inst_set, ip in self.data:
+      processed[ip].ip = ip
+      processed[ip].instruction_set_id = inst_set
+      processed[ip].count += 1
 
     with open(filename, 'wb') as f:
-      pickle.dump(d, f)
+      pickle.dump(processed, f)
 
 class DummyMachineProfiler(object):
   """
