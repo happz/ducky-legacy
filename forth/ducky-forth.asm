@@ -1515,7 +1515,6 @@ $DEFCODE "NUMBER", 6, 0, NUMBER
 .end
 
 __NUMBER:
-  call &__vmdebug_on
   cmp r1, r1                           ; if the string is empty, leave
   bz &__NUMBER_quit_noclean
 
@@ -1557,7 +1556,6 @@ __NUMBER_quit:
   pop r3
   pop r2
 __NUMBER_quit_noclean:
-  call &__vmdebug_off
   ret
 
 __NUMBER_base_decimal:
