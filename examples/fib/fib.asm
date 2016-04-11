@@ -9,7 +9,7 @@ main:
   la sp, &stack
   add sp, 4096
 
-  li r0, 20
+  li r0, 30
   call &fib
   hlt 0x00
 
