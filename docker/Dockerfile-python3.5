@@ -27,5 +27,6 @@ ENTRYPOINT ["/usr/local/bin/python", \
             "--add-option=device-3:streams_in=<stdin>", \
             "--set-option=device-3:stream_out=<stderr>", \
             "--set-option=device-3:echo=no", \
+            "--set-option=cpu:check-frames=no", \
             "--jit" \
            ]
