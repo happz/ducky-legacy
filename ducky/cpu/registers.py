@@ -1,6 +1,6 @@
 import enum
 
-from ..mm import u32_t
+from ..mm import u32_t, u64_t
 
 class Registers(enum.IntEnum):
   # General purpose registers
@@ -69,7 +69,7 @@ class RegisterSet(object):
     self.map = {}
 
     for register_name, register_id in zip(REGISTER_NAMES, Registers):
-      register = u32_t(0)
+      register = u32_t(0) if register_name != 'cnt' else u64_t(0)
 
       setattr(self, register_name, register)
       self.map[register_name] = register
