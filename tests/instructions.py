@@ -1,6 +1,5 @@
 import logging
 import os
-import sys
 
 from functools import partial
 from six import iteritems, integer_types
@@ -11,36 +10,11 @@ from ducky.cpu.registers import REGISTER_NAMES
 from ducky.errors import UnalignedJumpTargetError, AccessViolationError, InvalidResourceError
 from ducky.mm import u32_t, i32_t
 
-from testconfig import config
+from . import LOGGER, PYPY
 
-from hypothesis import given, example, assume, settings
+from hypothesis import given, example, assume
 from hypothesis.strategies import integers, lists, booleans, composite
 
-PYPY = hasattr(sys, 'pypy_version_info')
-
-LOGGER = logging.getLogger()
-
-#
-# Hypothesis setup
-#
-DEFAULT_EXAMPLES = 200
-
-if 'HYPOTHESIS_PROFILE' in os.environ:
-  profile = os.environ['HYPOTHESIS_PROFILE'].lower()
-
-  if profile not in config['hypothesis']:
-    LOGGER.warning('Unknown hypothesis profile "%s"', profile)
-    profile = settings(max_examples = DEFAULT_EXAMPLES)
-
-  else:
-    profile = settings(max_examples = int(config['hypothesis'][profile]))
-
-  settings.register_profile('ducky-profile', profile)
-
-else:
-  settings.register_profile('ducky-profile', settings(max_examples = DEFAULT_EXAMPLES))
-
-settings.load_profile('ducky-profile')
 
 CORE = None
 BUFFER = None

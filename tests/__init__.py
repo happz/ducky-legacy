@@ -1,5 +1,6 @@
 import os
 import logging
+import sys
 import tempfile
 
 from six import iteritems
@@ -22,6 +23,37 @@ try:
 
 except ImportError:
   import mock  # noqa
+
+from testconfig import config
+
+LOGGER = logging.getLogger()
+PYPY = hasattr(sys, 'pypy_version_info')
+
+
+#
+# Hypothesis setup
+#
+from hypothesis import settings
+
+DEFAULT_EXAMPLES = 200
+
+if 'HYPOTHESIS_PROFILE' in os.environ:
+  profile = os.environ['HYPOTHESIS_PROFILE'].lower()
+
+  if profile not in config['hypothesis']:
+    LOGGER.warning('Unknown hypothesis profile "%s"', profile)
+    profile = settings(max_examples = DEFAULT_EXAMPLES)
+
+  else:
+    profile = settings(max_examples = int(config['hypothesis'][profile]))
+
+  settings.register_profile('ducky-profile', profile)
+
+else:
+  settings.register_profile('ducky-profile', settings(max_examples = DEFAULT_EXAMPLES))
+
+settings.load_profile('ducky-profile')
+
 
 def get_tempfile(keep = True):
   return tempfile.NamedTemporaryFile('w+b', delete = not keep, dir = os.getenv('TMPDIR'))
