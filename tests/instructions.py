@@ -1112,7 +1112,7 @@ def test_inc(state, reg, a):
 
   execute_inst(CORE, INC, inst)
 
-  state.check((reg, expected_value), zero = expected_value == 0, overflow = value > 2 ** 32, sign = expected_value & 0x80000000 != 0)
+  state.check((reg, expected_value), zero = expected_value == 0, overflow = a == 0xFFFFFFFF, sign = expected_value & 0x80000000 != 0)
 
 
 #
