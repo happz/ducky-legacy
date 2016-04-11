@@ -15,8 +15,9 @@ class HDTEntryTypes(IntEnum):
   Types of different HDT entries.
   """
 
-  CPU    = 0
-  MEMORY = 1
+  UNDEFINED = 0
+  CPU       = 1
+  MEMORY    = 2
 
 class HDTStructure(LittleEndianStructure):
   """
@@ -36,16 +37,11 @@ class HDTHeader(HDTStructure):
     ('entries', u32_t)
   ]
 
-  @staticmethod
-  def create(logger, config):
-    logger.debug('HDTHeader.create')
+  def __init__(self):
+    HDTStructure.__init__(self)
 
-    header = HDTHeader()
-
-    header.magic = HDT_MAGIC
-    header.entries = 0
-
-    return header
+    self.magic = HDT_MAGIC
+    self.entries = 0
 
 class HDTEntry(HDTStructure):
   """
@@ -58,23 +54,15 @@ class HDTEntry(HDTStructure):
   :param u16_t length: length of entry, in bytes.
   """
 
+  def __init__(self, entry_type, length):
+    HDTStructure.__init__(self)
+
+    self.type = entry_type
+    self.length = length
+
   @classmethod
-  def create(cls, entry_type):
-    """
-    Create instance of HDT entry. Helper method that creates a new instance, and
-    sets its common properties.
-
-    :param u16_t entry_type: type of entry. See :py:class:`ducky.hdt.HDTEntryTypes`.
-    :rtype: HDTEntry
-    :returns: new instance of a :py:class:`ducky.hdt.HDTEntry` subclass.
-    """
-
-    entry = cls()
-
-    entry.type = entry_type
-    entry.length = sizeof(cls)
-
-    return entry
+  def create(cls, *args, **kwargs):
+    return [cls(*args, **kwargs)]
 
 class HDTEntry_CPU(HDTEntry):
   """
@@ -91,15 +79,13 @@ class HDTEntry_CPU(HDTEntry):
     ('nr_cores', u16_t)
   ]
 
-  @classmethod
-  def create(cls, logger, config):
-    entry = super(HDTEntry_CPU, cls).create(HDTEntryTypes.CPU)
-    entry.nr_cpus = config.getint('machine', 'cpus')
-    entry.nr_cores = config.getint('machine', 'cores')
+  def __init__(self, logger, config):
+    HDTEntry.__init__(self, HDTEntryTypes.CPU, sizeof(HDTEntry_CPU))
 
-    logger.debug('HDTEntry_CPU.create: nr_cpus=%s, nr_cores=%s', entry.nr_cpus, entry.nr_cores)
+    self.nr_cpus = config.getint('machine', 'cpus')
+    self.nr_cores = config.getint('machine', 'cores')
 
-    return [entry]
+    logger.debug('HDTEntry_CPU: nr_cpus=%s, nr_cores=%s', self.nr_cpus, self.nr_cores)
 
 class HDTEntry_Memory(HDTEntry):
   """
@@ -114,18 +100,19 @@ class HDTEntry_Memory(HDTEntry):
     ('size',   u32_t)
   ]
 
-  @classmethod
-  def create(cls, logger, config):
-    entry = super(HDTEntry_Memory, cls).create(HDTEntryTypes.MEMORY)
-    entry.size = config.getint('memory', 'size', 0x1000000)
+  def __init__(self, logger, config):
+    HDTEntry.__init__(self, HDTEntryTypes.MEMORY, sizeof(HDTEntry_Memory))
 
-    logger.debug('HDTEntry_Memory.create: size=%s', entry.size)
+    self.size = config.getint('memory', 'size', 0x1000000)
 
-    return [entry]
+    logger.debug('HDTEntry_Memory: size=%s', self.size)
 
 class HDT(object):
   """
   Root of HDT. Provides methods for creating HDT for a given machine configuration.
+
+  :param logging.Logger logger: logger instance used for logging.
+  :param ducky.config.MachineConfig config: configuration file HDT should reflect.
   """
 
   klasses = [
@@ -141,7 +128,11 @@ class HDT(object):
     self.entries = []
 
   def create(self):
-    self.header = HDTHeader.create(self.logger, self.config)
+    """
+    Create HDT header and entries from config file.
+    """
+
+    self.header = HDTHeader()
 
     for klass in HDT.klasses:
       self.entries += klass.create(self.logger, self.config)
