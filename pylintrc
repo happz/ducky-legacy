@@ -23,11 +23,11 @@ load-plugins=
 
 # Deprecated. It was used to include message's id in output. Use --msg-template
 # instead.
-include-ids=no
+# include-ids=no
 
 # Deprecated. It was used to include symbolic ids of messages in output. Use
 # --msg-template instead.
-symbols=no
+# symbols=no
 
 # Use multiple processes to speed up Pylint.
 jobs=1
@@ -73,7 +73,7 @@ confidence=
 #
 # C0111 - missing-docstring
 # C0326 - bad-whitespace
-disable=missing-docstring,bad-whitespace
+disable=missing-docstring,bad-whitespace,invalid-name,line-too-long,too-few-public-methods
 
 
 [REPORTS]
