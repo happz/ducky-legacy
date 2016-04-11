@@ -1,19 +1,19 @@
-class BaseException(Exception):
+class Error(Exception):
   def __init__(self, message = None):
-    super(BaseException, self).__init__()
+    super(Error, self).__init__()
 
     self.message = message or ''
 
   def __str__(self):
     return self.message
 
-class InvalidResourceError(BaseException):
+class InvalidResourceError(Error):
   pass
 
-class AccessViolationError(BaseException):
+class AccessViolationError(Error):
   pass
 
-class AssemblerError(BaseException):
+class AssemblerError(Error):
   def __init__(self, filename, lineno, msg, line):
     super(AssemblerError, self).__init__(message = '{}:{}: {}'.format(filename, lineno, msg))
 
@@ -42,8 +42,8 @@ class EncodingLargeValueError(AssemblerError):
   def __init__(self, filename, lineno, msg, line):
     super(EncodingLargeValueError, self).__init__(filename, lineno, 'Value cannot fit into field: %s' % msg, line)
 
-class IncompatibleLinkerFlagsError(BaseException):
+class IncompatibleLinkerFlagsError(Error):
   pass
 
-class UnknownSymbolError(BaseException):
+class UnknownSymbolError(Error):
   pass

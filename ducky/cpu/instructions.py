@@ -7,7 +7,7 @@ from six import integer_types, string_types, add_metaclass
 from six.moves import range
 from functools import partial
 
-from .registers import Registers, REGISTER_NAMES, FLAGS
+from .registers import Registers, REGISTER_NAMES
 from ..mm import u32_t, i32_t, UINT16_FMT, UINT32_FMT
 from ..util import str2int
 from ..errors import EncodingLargeValueError, UnalignedJumpTargetError
