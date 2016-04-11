@@ -27,6 +27,8 @@ PAGE_SHIFT = 8
 PAGE_SIZE = (1 << PAGE_SHIFT)
 PAGE_MASK = (~(PAGE_SIZE - 1))
 
+MINIMAL_SIZE = 16
+
 class MMOperationList(enum.IntEnum):
   ALLOC    = 3
   FREE     = 4
@@ -417,6 +419,9 @@ class MemoryController(object):
   def __init__(self, machine, size = 0x1000000):
     if size % PAGE_SIZE != 0:
       raise InvalidResourceError('Memory size must be multiple of PAGE_SIZE')
+
+    if size < MINIMAL_SIZE * PAGE_SIZE:
+      raise InvalidResourceError('Memory size must be at least %d pages' % MINIMAL_SIZE)
 
     self.machine = machine
 
