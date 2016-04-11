@@ -36,8 +36,14 @@ def test_loop():
 def test_number():
   __run_unit('number')
 
+def test_sieve():
+  __run_unit('sieve')
+
 def test_stack():
   __run_unit('stack')
+
+def test_sumint():
+  __run_unit('sum-int')
 
 def test_welcome():
   __run_unit('welcome')

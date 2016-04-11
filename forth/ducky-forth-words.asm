@@ -1160,6 +1160,20 @@ __FILL_next:
   $NEXT
 
 
+$DEFCODE "ERASE", 5, 0, ERASE
+  ; ( addr u -- )
+.ifdef FORTH_TIR
+  pop r0
+  mov r1, $TOS
+  pop $TOS
+.else
+  pop r1
+  pop r0
+.endif
+  call &memzero
+  $NEXT
+
+
 ;
 ; void memcpy(void *src, void *dst, u32_t length)
 ;
