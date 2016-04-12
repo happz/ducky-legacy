@@ -133,23 +133,20 @@ class KeyboardController(IRQProvider, IOProvider, Device):
   def __read_char(self):
     self.machine.DEBUG('KeyboardController.__read_char')
 
-    while True:
-      try:
-        b = self.queue.pop(0)
+    try:
+      b = self.queue.pop(0)
 
-      except IndexError:
-        self.machine.DEBUG('KeyboardController.__read_char: no available chars in queue')
-        return None
+    except IndexError:
+      self.machine.DEBUG('KeyboardController.__read_char: no available chars in queue')
+      return None
 
-      self.machine.DEBUG('KeyboardController.__read_char: queue now has %i bytes', len(self.queue))
+    self.machine.DEBUG('KeyboardController.__read_char: queue now has %i bytes', len(self.queue))
 
-      if b == ControlMessages.HALT:
-        self.machine.DEBUG('KeyboardController.__read_char: planned halt, execute')
-        self.machine.halt()
+    if b == ControlMessages.HALT:
+      self.machine.DEBUG('KeyboardController.__read_char: planned halt, execute')
+      self.machine.halt()
 
-        return None
-
-      break
+      return None
 
     self.machine.DEBUG('KeyboardController.__read_char: c=%s ()', b)
 
