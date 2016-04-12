@@ -1731,6 +1731,30 @@ class _IN(Descriptor_R_RI):
 
     update_arith_flags(core, r)
 
+  @staticmethod
+  def jit(core, inst):
+    reg = core.registers.map[inst.reg1]
+
+    if inst.immediate_flag == 1:
+      port = inst.sign_extend_immediate(core.LOGGER, inst)
+      dev = core.cpu.machine.ports[port]
+      is_protected = partial(dev.is_port_protected, port)
+
+      if inst.opcode == DuckyOpcodes.INB:
+        reader = dev.read_u8
+
+        def __jit_inb():
+          if not core.privileged and is_protected():
+            raise AccessViolationError('Access to port not allowed in unprivileged mode: inst={}, port={}'.format(inst, port))
+
+          reg.value = v = reader(port)
+          core.arith_zero = v == 0
+          core.arith_overflow = core.arith_sign = False
+
+        return __jit_inb
+
+    return None
+
 class INB(_IN):
   mnemonic = 'inb'
   opcode   = DuckyOpcodes.INB
@@ -1763,6 +1787,28 @@ class _OUT(Descriptor_RI_R):
 
     else:
       dev.write_u32(port, r.value)
+
+  @staticmethod
+  def jit(core, inst):
+    reg = core.registers.map[inst.reg2]
+
+    if inst.immediate_flag == 1:
+      port = inst.sign_extend_immediate(core.LOGGER, inst)
+      dev = core.cpu.machine.ports[port]
+      is_protected = partial(dev.is_port_protected, port)
+
+      if inst.opcode == DuckyOpcodes.OUTB:
+        writer = dev.write_u8
+
+        def __jit_outb():
+          if not core.privileged and is_protected():
+            raise AccessViolationError('Access to port not allowed in unprivileged mode: inst={}, port={}'.format(inst, port))
+
+          writer(port, reg.value & 0xFF)
+
+        return __jit_outb
+
+    return None
 
 class OUTB(_OUT):
   mnemonic      = 'outb'
@@ -1932,7 +1978,7 @@ class SHIFTL(_BITOP):
         def __jit_shiftl():
           v = reg.value << i
           reg.value = v
-          core.arith_zero = v == 0
+          core.arith_zero = (v & 0xFFFFFFFF) == 0
           core.arith_overflow = (v & ~0xFFFFFFFF) != 0
           core.arith_sign = (v & 0x80000000) != 0
 
@@ -1961,7 +2007,7 @@ class SHIFTL(_BITOP):
         else:
           v = reg1.value << i
           reg1.value = v
-          core.arith_zero = v == 0
+          core.arith_zero = (v & 0xFFFFFFFF) == 0
           core.arith_overflow = (v & ~0xFFFFFFFF) != 0
           core.arith_sign = (v & 0x80000000) != 0
 

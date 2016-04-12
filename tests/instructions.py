@@ -1853,6 +1853,7 @@ else:
     return n
 
 @given(state = STATE, reg = REGISTER, a = VALUE, b = IMMEDIATE15)
+@example(state = STATE.example(), reg = 0, a = 0x01000000, b = 8)
 def test_shiftl_immediate(state, reg, a, b):
   from ducky.cpu.instructions import SHIFTL
 
@@ -1863,6 +1864,7 @@ def test_shiftl_immediate(state, reg, a, b):
   __base_arith_test_immediate(state, reg, a, b, inst_class = SHIFTL, compute = compute)
 
 @given(state = STATE, reg1 = REGISTER, reg2 = REGISTER, a = VALUE, b = VALUE)
+@example(state = STATE.example(), reg1 = 0, reg2 = 1, a = 0x01000000, b = 8)
 def test_shiftl_register(state, reg1, reg2, a, b):
   from ducky.cpu.instructions import SHIFTL
 
