@@ -10,7 +10,7 @@ from functools import partial
 from .registers import Registers, REGISTER_NAMES
 from ..mm import u32_t, i32_t, UINT16_FMT, UINT32_FMT
 from ..util import str2int
-from ..errors import EncodingLargeValueError, UnalignedJumpTargetError
+from ..errors import EncodingLargeValueError, UnalignedJumpTargetError, AccessViolationError, AssemblerError
 
 PO_REGISTER  = r'(?P<register_n{operand_index}>(?:r\d\d?)|(?:sp)|(?:fp))'
 PO_AREGISTER = r'(?P<address_register>r\d\d?|sp|fp)(?:\[(?:(?P<offset_sign>-|\+)?(?P<offset_immediate>0x[0-9a-fA-F]+|\d+))\])?'
@@ -169,7 +169,7 @@ def ENCODE(logger, buffer, inst, field, size, value, raise_on_large_value = Fals
     if raise_on_large_value is True:
       raise e
 
-    logger.warn(e.message)
+    e.log(logger.warn)
 
 class Descriptor(object):
   mnemonic      = None
@@ -311,7 +311,12 @@ class Descriptor(object):
     else:
       pass
 
-    self.assemble_operands(logger, buffer, binst, operands)
+    try:
+      self.assemble_operands(logger, buffer, binst, operands)
+
+    except AssemblerError as e:
+      e.location = buffer.location.copy()
+      raise e
 
     return binst
 

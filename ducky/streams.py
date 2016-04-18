@@ -9,9 +9,12 @@ and ``file``/descriptor differencies.
 """
 
 import abc
+import errno
 import fcntl
 import io
 import os
+import termios
+import tty
 
 from six import PY2, integer_types, string_types, add_metaclass
 
@@ -63,7 +66,8 @@ class Stream(object):
     self._raw_read = self._raw_read_stream if stream is not None else self._raw_read_fd
     self._raw_write = self._raw_write_stream if stream is not None else self._raw_write_fd
 
-    self.close = stream.close if close and stream is not None and hasattr(stream, 'close') else self._close_dummy
+    if close is True and stream is not None and hasattr(stream, 'close'):
+      self.close = stream.close
 
   def __repr__(self):
     return '<%s %s>' % (self.__class__.__name__, self.desc)
@@ -145,7 +149,7 @@ class Stream(object):
 
     raise NotImplementedError('%s does not implement write method' % self.__class__.__name__)
 
-  def _close_dummy(self):
+  def close(self):
     """
     Dummy close method, used when stream is not expected to close underlying IO object.
     """
@@ -219,6 +223,8 @@ class StdinStream(InputStream):
   def __init__(self, machine, **kwargs):
     DEBUG = machine.LOGGER.debug
 
+    self.old_termios = None
+
     stream = machine.stdin.buffer if hasattr(machine.stdin, 'buffer') else machine.stdin
     fd = machine.stdin.fileno() if hasattr(machine.stdin, 'fileno') else None
 
@@ -232,7 +238,23 @@ class StdinStream(InputStream):
 
       fd_blocking(fd, block = False)
 
+      try:
+        self.old_termios = termios.tcgetattr(fd)
+        tty.setcbreak(fd)
+
+      except termios.error as e:
+        if e.args[0] != errno.ENOTTY:
+          raise e
+
+      DEBUG('%s.__init__: stream=%r, fd=%r', self.__class__.__name__, stream, fd)
+
     super(StdinStream, self).__init__(machine, '<stdin>', stream = stream, fd = fd, close = False, **kwargs)
+
+  def close(self):
+    self.DEBUG('%s.close', self.__class__.__name__)
+
+    if self.old_termios is not None:
+      termios.tcsetattr(self.fd, termios.TCSADRAIN, self.old_termios)
 
   def get_selectee(self):
     return self.stream

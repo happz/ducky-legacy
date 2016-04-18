@@ -323,12 +323,12 @@ def resolve_relocations(logger, info, f_out, f_ins):
 
           if re.flags.inst_aligned == 1:
             if patch & 0x3:
-              raise UnalignedJumpTargetError(None, None, 'address=%s' % UINT32_FMT(patch), None)
+              raise UnalignedJumpTargetError(info = 'address=%s' % UINT32_FMT(patch))
 
             patch >>= 2
 
           if patch >= 2 ** re.patch_size:
-            raise EncodingLargeValueError(None, None, 'size=%s, value=%s' % (re.patch_size, UINT32_FMT(patch)), None)
+            raise EncodingLargeValueError(info = 'size=%s, value=%s' % (re.patch_size, UINT32_FMT(patch)))
 
           patch = u32_t(patch << re.patch_offset)
           D('patch: %s', UINT32_FMT(patch))

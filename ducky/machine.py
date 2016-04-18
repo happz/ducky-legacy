@@ -6,7 +6,6 @@ and other necessary properties.
 
 import itertools
 import collections
-import importlib
 import os
 import sys
 import time
@@ -39,6 +38,50 @@ class MachineState(SnapshotNode):
 
   def get_cpu_state_by_id(self, cpuid):
     return self.get_children()['cpu{}'.format(cpuid)]
+
+class CommQueue(object):
+  def __init__(self, channel):
+    self.channel = channel
+
+    self.queue_in = []
+    self.queue_out = []
+
+  def write_out(self, o):
+    self.queue_out.append(o)
+
+  def write_in(self, o):
+    self.queue_in.append(o)
+
+  def __read(self, queue):
+    try:
+      return queue.pop(0)
+
+    except IndexError:
+      return None
+
+  def read_out(self):
+    return self.__read(self.queue_out)
+
+  def read_in(self):
+    return self.__read(self.queue_in)
+
+class CommChannel(object):
+  def __init__(self, machine):
+    self.machine = machine
+
+    self._queues = {}
+
+  def create_queue(self, name):
+    queue = CommQueue(self)
+    self._queues[name] = queue
+    return queue
+
+  def get_queue(self, name):
+    return self._queues[name]
+
+  def unregister_queue(self, name):
+    del self._queues[name]
+
 
 class IRQRouterTask(IReactorTask):
   """
@@ -166,6 +209,8 @@ class Machine(ISnapshotable, IMachineWorker):
     self.check_living_cores_task = HaltMachineTask(self)
     self.reactor.add_task(self.check_living_cores_task)
 
+    self.comm_channel = CommChannel(self)
+
     self.events = EventBus(self)
 
     self.living_cores = []
@@ -280,6 +325,8 @@ class Machine(ISnapshotable, IMachineWorker):
     self.memory.load_state(state.get_children()['memory'])
 
   def setup_devices(self):
+    from .devices import get_driver_creator
+
     for section in self.config.iter_devices():
       _get, _getbool, _getint = self.config.create_getters(section)
 
@@ -294,10 +341,7 @@ class Machine(ISnapshotable, IMachineWorker):
         self.DEBUG('Device %s disabled', section)
         continue
 
-      driver = driver.split('.')
-      driver_module = importlib.import_module('.'.join(driver[0:-1]))
-      driver_class = getattr(driver_module, driver[-1])
-      dev = driver_class.create_from_config(self, self.config, section)
+      dev = get_driver_creator(driver)(self, self.config, section)
       self.devices[klass][section] = dev
 
       if _get('master', None) is not None:

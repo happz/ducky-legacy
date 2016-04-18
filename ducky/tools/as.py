@@ -10,14 +10,14 @@ def translate_buffer(logger, buffer, file_in, options):
     return translate_buffer(logger, buffer, mmapable_sections = options.mmapable_sections, writable_sections = options.writable_sections, filename = file_in, defines = options.defines, includes = options.includes, verify_disassemble = options.verify_disassemble)
 
   except AssemblerError as exc:
-    logger.exception(exc)
+    exc.log(logger.error)
     sys.exit(1)
 
 
 def encode_blob(logger, file_in, options):
   logger.debug('encode_blob: file_in=%s', file_in)
 
-  from ..cpu.assemble import DataSection, SymbolsSection, IntSlot, Label, sizeof, BytesSlot, RelocSection
+  from ..cpu.assemble import DataSection, SymbolsSection, IntSlot, Label, sizeof, BytesSlot, RelocSection, SourceLocation
   from ..mm.binary import SectionFlags
 
   section_name = '__' + os.path.split(file_in)[1].replace('.', '_').replace('-', '_')
@@ -43,7 +43,7 @@ def encode_blob(logger, file_in, options):
       data = f_in.read()
 
   var_size = IntSlot()
-  var_size.name = Label('%s_size' % section_name, section, file_in, 0)
+  var_size.name = Label('%s_size' % section_name, section, SourceLocation(filename = file_in, lineno = 0))
   var_size.value = len(data)
   var_size.section = section
   var_size.section_ptr = 0
@@ -53,7 +53,7 @@ def encode_blob(logger, file_in, options):
   symtab.content.append(var_size)
 
   var_content = BytesSlot()
-  var_content.name = Label('%s_start' % section_name, section, file_in, 0)
+  var_content.name = Label('%s_start' % section_name, section, SourceLocation(filename = file_in, lineno = 0))
   var_content.value = data
   var_content.section = section
   var_content.section_ptr = sizeof(var_size)
@@ -124,13 +124,15 @@ def save_object_file(logger, sections, file_out, options):
           entry.size = se.size
           entry.section = section_name_to_index[se.section.name]
 
-          if se.filename:
-            if se.filename not in filenames:
-              filenames[se.filename] = f_out.string_table.put_string(se.filename)
-            entry.filename = filenames[se.filename]
+          if se.location is not None:
+            loc = se.location
 
-          if se.lineno:
-            entry.lineno = se.lineno
+            if loc.filename not in filenames:
+              filenames[loc.filename] = f_out.string_table.put_string(loc.filename)
+            entry.filename = filenames[loc.filename]
+
+            if loc.lineno:
+              entry.lineno = loc.lineno
 
           entry.type = se.symbol_type
 

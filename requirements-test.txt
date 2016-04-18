@@ -14,3 +14,4 @@ nose-testconfig
 coverage
 hypothesis
 rednose
+msgpack-python

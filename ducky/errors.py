@@ -14,33 +14,59 @@ class AccessViolationError(Error):
   pass
 
 class AssemblerError(Error):
-  def __init__(self, filename, lineno, msg, line):
-    super(AssemblerError, self).__init__(message = '{}:{}: {}'.format(filename, lineno, msg))
-
-    self.filename = filename
-    self.lineno   = lineno
-    self._msg     = msg
+  def __init__(self, location = None, message = None, line = None, info = None):
+    self.location = location
+    self.message  = message
     self.line     = line
+    self.info     = info
+
+    self.create_text()
+
+    super(AssemblerError, self).__init__(message = self.text[0])
+
+  def create_text(self):
+    text = ['{coor}: {message}'.format(coor = str(self.location), message = self.message)]
+
+    if self.line is not None:
+      text.append(self.line)
+
+    if self.location.column is not None:
+      text.append(' ' * self.location.column + '^')
+
+    self.text = text
+
+  def log(self, logger):
+    logger('')
+    for line in self.text:
+      logger(line)
+
+class TooManyLabelsError(AssemblerError):
+  def __init__(self, **kwargs):
+    super(TooManyLabelsError, self).__init__(message = 'Too many consecutive labels', **kwargs)
+
+class UnknownPatternError(AssemblerError):
+  def __init__(self, **kwargs):
+    super(UnknownPatternError, self).__init__(message = 'Unknown pattern: "{info}"'.format(**kwargs), **kwargs)
 
 class IncompleteDirectiveError(AssemblerError):
-  def __init__(self, filename, lineno, msg, line):
-    super(IncompleteDirectiveError, self).__init__(filename, lineno, 'Incomplete directive: %s' % msg, line)
+  def __init__(self, **kwargs):
+    super(IncompleteDirectiveError, self).__init__(message = 'Incomplete directive: {info}'.format(**kwargs), **kwargs)
 
 class UnknownFileError(AssemblerError):
-  def __init__(self, filename, lineno, msg, line):
-    super(UnknownFileError, self).__init__(filename, lineno, 'Unknown file: %s' % msg, line)
+  def __init__(self, **kwargs):
+    super(UnknownFileError, self).__init__(message = 'Unknown file: {info}'.format(**kwargs), **kwargs)
 
 class DisassembleMismatchError(AssemblerError):
-  def __init__(self, filename, lineno, msg, line):
-    super(DisassembleMismatchError, self).__init__(filename, lineno, 'Disassembled instruction does not match input: %s' % msg, line)
+  def __init__(self, **kwargs):
+    super(DisassembleMismatchError, self).__init__(message = 'Disassembled instruction does not match input: {info}'.format(**kwargs), **kwargs)
 
 class UnalignedJumpTargetError(AssemblerError):
-  def __init__(self, filename, lineno, msg, line):
-    super(UnalignedJumpTargetError, self).__init__(filename, lineno, 'Jump destination address is not 4-byte aligned: %s' % msg, line)
+  def __init__(self, **kwargs):
+    super(UnalignedJumpTargetError, self).__init__(message = 'Jump destination address is not 4-byte aligned: {info}'.format(**kwargs), **kwargs)
 
 class EncodingLargeValueError(AssemblerError):
-  def __init__(self, filename, lineno, msg, line):
-    super(EncodingLargeValueError, self).__init__(filename, lineno, 'Value cannot fit into field: %s' % msg, line)
+  def __init__(self, **kwargs):
+    super(EncodingLargeValueError, self).__init__(message = 'Value cannot fit into field: {info}'.format(**kwargs), **kwargs)
 
 class IncompatibleLinkerFlagsError(Error):
   pass

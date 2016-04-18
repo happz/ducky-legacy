@@ -74,6 +74,12 @@ AddOption('--with-profiling',
           default = False,
           help = 'Run tests with profiling enabled')
 
+AddOption('--with-debug',
+          dest = 'debug',
+          action = 'store_true',
+          default = False,
+          help = 'Run with debugging enabled')
+
 AddOption('--pass-testsuite-output',
           dest = 'pass_testsuite_output',
           action = 'store_true',
@@ -323,6 +329,9 @@ class DuckyCommand(object):
   def wrap_by_profiling(self, env):
     self.command += ' ' + env.subst('-p -P $PROFILEDIR')
 
+  def wrap_by_debugging(self, env):
+    self.command += ' -d'
+
 def __compile_ducky_object(source, target, env):
   cmd = DuckyCommand(env)
   cmd.command = env.subst('$VIRTUAL_ENV/bin/ducky-as {inputs} {defines} {includes} -o {target}'.format(
@@ -337,6 +346,9 @@ def __compile_ducky_object(source, target, env):
   if GetOption('mmap') is True:
     cmd.command += ' --mmapable-sections'
 
+  if GetOption('debug') is True:
+    cmd.wrap_by_debugging(env)
+
   return cmd.run(env, 'COMPILE', target[0])
 
 def __link_ducky_binary(source, target, env):
@@ -348,6 +360,9 @@ def __link_ducky_binary(source, target, env):
 
   if 'COVERAGEDIR' in env:
     cmd.wrap_by_coverage(env)
+
+  if GetOption('debug') is True:
+    cmd.wrap_by_debugging(env)
 
   return cmd.run(env, 'LINK', target[0])
 
@@ -373,11 +388,16 @@ def __run_ducky_binary(self, config, set_options = None, add_options = None, goo
   cmd.command = cmdline
   cmd.env.update(environ)
 
+  cmd.env['PYTHONUNBUFFERED'] = 'yes'
+
   if 'COVERAGEDIR' in self:
     cmd.wrap_by_coverage(self)
 
   if 'PROFILEDIR' in self:
     cmd.wrap_by_profiling(self)
+
+  if GetOption('debug') is True:
+    cmd.wrap_by_debugging(self)
 
   if GetOption('jit'):
     cmd.env['JIT'] = 'yes'
@@ -398,6 +418,9 @@ def __create_ducky_image(self, _target, _source, mode = 'binary', bio = False):
 
   if 'COVERAGEDIR' in self:
     cmd.wrap_by_coverage(self)
+
+  if GetOption('debug') is True:
+    cmd.wrap_by_debugging(self)
 
   return partial(_create_ducky_image, cmd = cmd)
 

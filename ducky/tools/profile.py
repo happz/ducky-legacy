@@ -8,6 +8,8 @@ import collections
 import optparse
 import sys
 
+from six import itervalues
+
 def read_profiling_data(logger, files_in):
   from ..profiler import ProfileRecord
 

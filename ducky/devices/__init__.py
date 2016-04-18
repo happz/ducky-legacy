@@ -1,4 +1,5 @@
 import enum
+import importlib
 
 from ..interfaces import IMachineWorker
 from ..mm import UINT16_FMT
@@ -29,24 +30,41 @@ class IOPorts(enum.IntEnum):
 
 
 class Device(IMachineWorker):
-  def __init__(self, machine, klass, name, *args, **kwargs):
+  def __init__(self, machine, klass, name):
     super(Device, self).__init__()
 
     self.machine = machine
     self.klass = klass
     self.name = name
 
+    self.logger = machine.LOGGER
     self.master = None
 
   @staticmethod
   def create_from_config(machine, config, section):
-    return None
+    raise NotImplementedError()
+
+  def boot(self):
+    self.logger.debug('%s.boot', self.__class__.__name__)
+    pass
+
+  def halt(self):
+    self.logger.debug('%s.halt', self.__class__.__name__)
+    pass
 
   def is_slave(self):
     return self.master is not None
 
   def get_master(self):
     return self.master
+
+
+class DeviceFrontend(Device):
+  pass
+
+
+class DeviceBackend(Device):
+  pass
 
 
 class IRQProvider(object):
@@ -74,3 +92,12 @@ class IOProvider(object):
 
   def write_u32(self, port, value):
     raise InvalidResourceError('Unhandled port: port={}'.format(UINT16_FMT(port)))
+
+
+def get_driver_creator(driver_class):
+  driver = driver_class.split('.')
+
+  driver_module = importlib.import_module('.'.join(driver[0:-1]))
+  driver_class = getattr(driver_module, driver[-1])
+
+  return driver_class.create_from_config

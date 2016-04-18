@@ -639,7 +639,7 @@ __DODOES_push:
   .section .rodata
   .align 4
 cold_start:
-  ;.int &BYE
+  .int &WELCOME
   .int &QUIT
 
 
@@ -666,6 +666,7 @@ cold_start:
 ;
 ; Variables
 ;
+$DEFVAR "ECHO", 4, 0, ECHO, 0
 $DEFVAR "UP", 2, 0, UP, $USERSPACE_BASE
 $DEFVAR "STATE", 5, 0, STATE, 0
 $DEFVAR "DP", 2, 0, DP, $USERSPACE_BASE
@@ -715,6 +716,9 @@ $DEFWORD "WELCOME", 7, 0, WELCOME
   .int &CR
   .int &TRUE
   .int &SHOW_PROMPT
+  .int &STORE
+  .int &TRUE
+  .int &ECHO
   .int &STORE
   .int &EXIT
 
@@ -975,6 +979,9 @@ __read_line:
   bz &__ERR_unknown
   push r2                              ; counter
   push r3                              ; character
+  push r4                              ; echo?
+  la r4, &var_ECHO
+  lw r4, r4
   li r2, 0x00                          ; reset counter
   cmp r1, 0x00                         ; set flags properly to allow check in the loop
 __read_line_loop:
@@ -982,6 +989,10 @@ __read_line_loop:
   inb r3, $KBD_PORT_DATA
   cmp r3, 0xFF
   be &__read_line_wait
+  cmp r4, 0x00
+  bz &__read_line_tests
+  outb $TTY_PORT_DATA, r3
+__read_line_tests:
   cmp r3, 0x0A                         ; nl
   be &__read_line_quit
   cmp r3, 0x0D                         ; cr
@@ -993,6 +1004,7 @@ __read_line_loop:
   j &__read_line_loop
 __read_line_quit:
   mov r0, r2
+  pop r4
   pop r3
   pop r2
   ret

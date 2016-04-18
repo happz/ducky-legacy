@@ -38,7 +38,7 @@ def common_example(env, example_name, alias_name = None, sources = None, link_ob
   env.Alias(alias_name, binary)
 
   # run
-  env.Command('.running-' + alias_name, binary, ENV.DuckyRun(config = File(example_name + '.conf'), set_options = set_options))
+  env.Command('.running-' + alias_name, binary, ENV.DuckyRun(config = File(example_name + '.conf'), set_options = set_options, environ = {'PYTHONUNBUFFERED': 'yes'}))
 
   if 'PROFILEDIR' in env:
     env.Depends(binary, ENV['PROFILEDIR'])

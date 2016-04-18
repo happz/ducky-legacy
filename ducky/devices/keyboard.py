@@ -5,7 +5,7 @@ Keyboard controller - provides events for pressed and released keys.
 import enum
 import io
 
-from . import IRQProvider, IOProvider, Device, IRQList
+from . import IRQProvider, IOProvider, DeviceFrontend, DeviceBackend, IRQList
 from ..errors import InvalidResourceError
 from ..mm import UINT16_FMT
 
@@ -18,151 +18,209 @@ class ControlMessages(enum.IntEnum):
 
   CONTROL_MESSAGE_FIRST = 1024
 
+class Frontend(DeviceFrontend):
+  def __init__(self, machine, name):
+    super(Frontend, self).__init__(machine, 'input', name)
 
-def escape_char(c):
-  return chr(c).replace(chr(10), '\\n').replace(chr(13), '\\r')
+    self._comm_queue = machine.comm_channel.get_queue(name)
+    self._streams = []
+    self._stream = None
 
-
-class KeyboardController(IRQProvider, IOProvider, Device):
-  def __init__(self, machine, name, streams = None, port = None, irq = None, *args, **kwargs):
-    super(KeyboardController, self).__init__(machine, 'input', name, *args, **kwargs)
-
-    self.streams = streams[:] if streams else []
-    self.port = port or DEFAULT_PORT_RANGE
-    self.ports = [port]
-    self.irq = irq or DEFAULT_IRQ
-
-    self.input = None
-
-    self.queue = []
+    self._backend = machine.get_device_by_name(name)
 
   @staticmethod
   def create_from_config(machine, config, section):
-    return KeyboardController(machine,
-                              section,
-                              streams = None,
-                              port = config.getint(section, 'port', DEFAULT_PORT_RANGE),
-                              irq = config.getint(section, 'irq', IRQList.KEYBOARD))
+    slave = config.get(section, 'slave', default = section)
 
-  def __repr__(self):
-    return 'basic keyboard controller on [%s] as %s' % (', '.join([UINT16_FMT(port) for port in self.ports]), self.name)
+    return Frontend(machine, slave)
 
-  def enqueue_input(self, stream):
-    self.machine.DEBUG('KeyboardController.enqueue_input: stream=%s', stream)
+  def boot(self):
+    super(Frontend, self).boot()
+
+    self._open_input()
+    self._backend.boot()
+
+  def halt(self):
+    self._close_input()
+    self._backend.halt()
+
+    super(Frontend, self).halt()
+
+  def enqueue_stream(self, stream):
+    self.machine.DEBUG('%s.enqueue_input: stream=%s', self.__class__.__name__, stream)
 
     if not stream.has_select_support():
       raise InvalidResourceError('Keyboard controller requires input stream with fd support')
 
-    self.streams.append(stream)
+    self._streams.append(stream)
 
-  def close_input(self):
-    self.machine.DEBUG('KeyboardController.close_input: input=%s', self.input)
+  def _close_input(self):
+    self.machine.DEBUG('%s._close_input: input=%s', self.__class__.__name__, self._stream)
 
-    if self.input is None:
+    if self._stream is None:
       return
 
-    self.machine.reactor.remove_fd(self.input.get_selectee())
+    self.machine.reactor.remove_fd(self._stream.get_selectee())
+    self._stream = None
 
-    self.input = None
+  def _open_input(self):
+    self.machine.DEBUG('%s._open_input', self.__class__.__name__)
 
-  def open_input(self):
-    self.machine.DEBUG('KeyboardController.open_input')
+    self._close_input()
 
-    self.close_input()
+    if not self._streams:
+      self.machine.DEBUG('%s._open_input: no additional input streams', self.__class__.__name__)
+      self._comm_queue.write_in(ControlMessages.HALT)
 
-    if not self.streams:
-      self.machine.DEBUG('no additional input streams')
-      if not self.queue or self.queue[-1] != ControlMessages.HALT:
-        self.machine.DEBUG('signal halt')
-        self.queue.append(ControlMessages.HALT)
+      # if not self.queue or self.queue[-1] != ControlMessages.HALT:
+      #   self.machine.DEBUG('signal halt')
+      #   self.queue.append(ControlMessages.HALT)
       return
 
-    self.input = self.streams.pop(0)
-    self.machine.DEBUG('KeyboardController.input=%s', self.input)
+    self._stream = self._streams.pop(0)
+    self.machine.DEBUG('%s._open_input: stream=%r', self.__class__.__name__, self._stream)
 
-    self.machine.reactor.add_fd(self.input.get_selectee(), on_read = self.handle_raw_input, on_error = self.handle_input_error)
+    self.machine.reactor.add_fd(self._stream.get_selectee(), on_read = self._handle_raw_input, on_error = self._handle_input_error)
 
-  def boot(self):
-    self.machine.DEBUG('KeyboardController.boot')
+  def _handle_input_error(self):
+    self.machine.DEBUG('%s._handle_input_error')
 
-    for port in self.ports:
-      self.machine.register_port(port, self)
+    self._open_input()
 
-    self.open_input()
+  def _handle_raw_input(self):
+    self.machine.DEBUG('%s._handle_raw_input', self.__class__.__name__)
 
-    self.machine.INFO('hid: %s', self)
+    assert self._stream is not False
 
-  def halt(self):
-    self.machine.DEBUG('KeyboardController.halt')
-
-    for port in self.ports:
-      self.machine.unregister_port(port)
-
-    self.close_input()
-
-  def handle_input_error(self):
-    self.machine.DEBUG('KeyboardController.handle_input_error')
-
-    self.open_input()
-
-  def handle_raw_input(self):
-    self.machine.DEBUG('KeyboardController.handle_raw_input')
-
-    assert self.input is not False
-
-    buff = self.input.read(size = io.DEFAULT_BUFFER_SIZE)
-    self.machine.DEBUG('KeyboardController.handle_raw_input: buff=%s (%s)', buff, type(buff))
+    buff = self._stream.read(size = io.DEFAULT_BUFFER_SIZE)
+    self.machine.DEBUG('%s._handle_raw_input: buff=%s (%s)', self.__class__.__name__, buff, type(buff))
 
     if buff is None:
-      self.machine.DEBUG('KeyboardController.handle_raw_input: nothing to do, no input')
+      self.machine.DEBUG('%s._handle_raw_input: nothing to do, no input', self.__class__.__name__)
       return
 
     if not buff:
       # EOF
-      self.open_input()
+      self._open_input()
       return
 
-    self.machine.DEBUG('KeyboardController.handle_raw_input: adding %i chars', len(buff))
+    self.machine.DEBUG('%s._handle_raw_input: adding %i chars', self.__class__.__name__, len(buff))
 
-    self.queue += buff
+    self._comm_queue.write_in(buff)
 
-    self.machine.DEBUG('KeyboardController.handle_raw_input: queue now has %i bytes', len(self.queue))
+    self.machine.trigger_irq(self._backend)
 
-    self.machine.trigger_irq(self)
+class Backend(IRQProvider, IOProvider, DeviceBackend):
+  def __init__(self, machine, name, port = None, irq = None):
+    super(Backend, self).__init__(machine, 'input', name)
 
-  def __read_char(self):
-    self.machine.DEBUG('KeyboardController.__read_char')
+    self.port = port or DEFAULT_PORT_RANGE
+    self.ports = [port]
+    self.irq = irq or DEFAULT_IRQ
 
-    try:
-      b = self.queue.pop(0)
+    self._comm_queue = machine.comm_channel.create_queue(name)
+    self._key_queue = []
 
-    except IndexError:
-      self.machine.DEBUG('KeyboardController.__read_char: no available chars in queue')
+  @staticmethod
+  def create_from_config(machine, config, section):
+    return Backend(machine, section,
+                   port = config.getint(section, 'port', DEFAULT_PORT_RANGE),
+                   irq = config.getint(section, 'irq', IRQList.KEYBOARD))
+
+  def __repr__(self):
+    return 'basic keyboard controller on [%s] as %s' % (', '.join([UINT16_FMT(port) for port in self.ports]), self.name)
+
+  def boot(self):
+    self.machine.DEBUG('%s.boot', self.__class__.__name__)
+
+    for port in self.ports:
+      self.machine.register_port(port, self)
+
+    self.machine.INFO('hid: %s', self)
+
+  def halt(self):
+    self.machine.DEBUG('%s.halt', self.__class__.__name__)
+
+    for port in self.ports:
+      self.machine.unregister_port(port)
+
+  def _process_input_event(self, e):
+    self.machine.DEBUG('%s.__process_input_event: e=%r', self.__class__.__name__, e)
+
+    if isinstance(e, list):
+      buff = e
+
+    elif isinstance(e, ControlMessages):
+      buff = [e]
+
+    elif isinstance(e, bytearray):
+      buff = e
+
+    else:
+      print e, type(e)
+
+    for key in buff:
+      self._key_queue.append(key)
+
+  def _process_input_events(self):
+    self.machine.DEBUG('%s.__process_input_events', self.__class__.__name__)
+
+    while True:
+      e = self._comm_queue.read_in()
+      if e is None:
+        return
+
+      self._process_input_event(e)
+
+  def _read_char(self):
+    self.machine.DEBUG('%s._read_char', self.__class__.__name__)
+
+    def __do_read_char():
+      try:
+        b = self._key_queue.pop(0)
+
+      except IndexError:
+        self.machine.DEBUG('%s._read_char: no available chars in queue', self.__class__.__name__)
+        return None
+
+      return b
+
+    def __process_char(b):
+      self.machine.DEBUG('%s._read_char: queue now has %i bytes', self.__class__.__name__, len(self._key_queue))
+
+      if b == ControlMessages.HALT:
+        self.machine.DEBUG('%s._read_char: planned halt, execute', self.__class__.__name__)
+        self.machine.halt()
+
+        return None
+
+      self.machine.DEBUG('%s._read_char: c=%s ()', self.__class__.__name__, b)
+
+      return b
+
+    b = __do_read_char()
+    if b is not None:
+      return __process_char(b)
+
+    self._process_input_events()
+
+    b = __do_read_char()
+    if b is None:
       return None
 
-    self.machine.DEBUG('KeyboardController.__read_char: queue now has %i bytes', len(self.queue))
-
-    if b == ControlMessages.HALT:
-      self.machine.DEBUG('KeyboardController.__read_char: planned halt, execute')
-      self.machine.halt()
-
-      return None
-
-    self.machine.DEBUG('KeyboardController.__read_char: c=%s ()', b)
-
-    return b
+    return __process_char(b)
 
   def read_u8(self, port):
-    self.machine.DEBUG('KeyboardController.read_u8: port=%s', UINT16_FMT(port))
+    self.machine.DEBUG('%s.read_u8: port=%s', self.__class__.__name__, UINT16_FMT(port))
 
     if port not in self.ports:
       raise InvalidResourceError('Unhandled port: %s' % UINT16_FMT(port))
 
-    b = self.__read_char()
+    b = self._read_char()
     if not b:
-      self.machine.DEBUG('KeyboardController.read_u8: empty input, signal it downstream')
+      self.machine.DEBUG('%s.read_u8: empty input, signal it downstream', self.__class__.__name__)
       return 0xFF
 
-    self.machine.DEBUG('KeyboardController.read_u8: input byte is %i', b)
+    self.machine.DEBUG('%s.read_u8: input byte is %i', self.__class__.__name__, b)
 
     return b

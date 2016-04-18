@@ -10,6 +10,7 @@ There are two different kinds of objects that reactor manages:
 """
 
 import collections
+import errno
 import select
 
 from .interfaces import IReactorTask
@@ -79,42 +80,88 @@ class SelectTask(IReactorTask):
     super(SelectTask, self).__init__(*args, **kwargs)
 
     self.machine = machine
+
     self.fds = fds
+    self.real_fds = {}
+
+    self.poll = select.poll()
+
+  def add_fd(self, fd, on_read = None, on_write = None, on_error = None):
+    """
+    Register file descriptor with reactor. File descriptor will be checked for
+    read/write/error posibilities, and appropriate callbacks will be fired.
+
+    No arguments are passed to callbacks.
+
+    :param int fd: file descriptor.
+    :param on_read: function that will be called when file descriptor is available for
+      reading.
+    :param on_write: function that will be called when file descriptor is available for
+      write.
+    :param on_error: function that will be called when error state raised on file
+      descriptor.
+    """
+
+    self.machine.DEBUG('%s.add_fd: fd=%s, on_read=%s, on_write=%s, on_error=%s', self.__class__.__name__, fd, on_read, on_write, on_error)
+
+    if not isinstance(fd, int):
+      fd = fd.fileno()
+
+    self.fds[fd] = FDCallbacks(on_read, on_write, on_error)
+    self.poll.register(fd, select.POLLERR | (select.POLLIN if on_read is not None else 0) | (select.POLLOUT if on_write is not None else 0))
+
+  def remove_fd(self, fd):
+    """
+    Unregister file descriptor. It will no longer be checked by its main loop.
+
+    :param int fd: previously registered file descriptor.
+    """
+
+    self.machine.DEBUG('%s.remove_fd: fd=%s', self.__class__.__name__, fd)
+
+    if not isinstance(fd, int):
+      fd = fd.fileno()
+
+    self.poll.unregister(fd)
+    del self.fds[fd]
 
   def run(self):
-    fds = self.fds.keys()
-    self.machine.DEBUG('SelectTask: fds=%s', fds)
+    self.machine.DEBUG('%s.run: fds=%s', self.__class__.__name__, self.fds.keys())
 
-    f_read, f_write, f_err = select.select(fds, fds, fds, 0.1)
+    try:
+      events = self.poll.poll(0.1)
 
-    self.machine.DEBUG('  select: f_read=%s, f_write=%s, f_err=%s', f_read, f_write, f_err)
+    except select.error as e:
+      if e.args[0] == errno.EINTR:
+        self.machine.DEBUG('%s.run: interrupted syscall', self.__class__.__name__)
+        return
 
-    for fd in f_err:
-      if self.fds[fd].on_error is None:
+      raise e
+
+    if not events:
+      return
+
+    self.machine.DEBUG('%s.run: events=%s', self.__class__.__name__, events)
+
+    for fd, events in events:
+      callbacks = self.fds[fd]
+
+      if events & select.POLLERR:
+        if callbacks.on_error is None:
+          self.machine.WARN('  unhandled error: fd=%s', fd)
+          continue
+
+        self.machine.DEBUG('  trigger err: fd=%s, handler=%s', fd, callbacks.on_error)
+        callbacks.on_error()
         continue
 
-      self.machine.DEBUG('  trigger err: fd=%s, handler=%s', fd, self.fds[fd].on_error)
-      self.fds[fd].on_error()
+      if events & select.POLLIN and callbacks.on_read is not None:
+        self.machine.DEBUG('  trigger read: fd=%s, handler=%s', fd, callbacks.on_read)
+        callbacks.on_read()
 
-    for fd in f_read:
-      if fd in f_err:
-        continue
-
-      if fd not in self.fds or self.fds[fd].on_read is None:
-        continue
-
-      self.machine.DEBUG('  trigger read: fd=%s, handler=%s', fd, self.fds[fd].on_read)
-      self.fds[fd].on_read()
-
-    for fd in f_write:
-      if fd in f_err:
-        continue
-
-      if fd not in self.fds or self.fds[fd].on_write is None:
-        continue
-
-      self.machine.DEBUG('  trigger err: fd=%s, handler=%s', fd, self.fds[fd].on_write)
-      self.fds[fd].on_write()
+      if events & select.POLLOUT and callbacks.on_write is not None:
+        self.machine.DEBUG('  trigger err: fd=%s, handler=%s', fd, callbacks.on_write)
+        callbacks.on_write()
 
 class Reactor(object):
   """
@@ -196,11 +243,8 @@ class Reactor(object):
       descriptor.
     """
 
-    self.machine.DEBUG('Reactor.add_fd: fd=%s, on_read=%s, on_write=%s, on_error=%s', fd, on_read, on_write, on_error)
-
-    assert fd not in self.fds
-
-    self.fds[fd] = FDCallbacks(on_read, on_write, on_error)
+    self.machine.DEBUG('%s.add_fd: fd=%s, on_read=%s, on_write=%s, on_error=%s', self.__class__.__name__, fd, on_read, on_write, on_error)
+    self.fds_task.add_fd(fd, on_read = on_read, on_write = on_write, on_error = on_error)
 
     if len(self.fds) == 1:
       self.add_task(self.fds_task)
@@ -214,10 +258,7 @@ class Reactor(object):
     """
 
     self.machine.DEBUG('Reactor.remove_fd: fd=%s', fd)
-
-    assert fd in self.fds
-
-    del self.fds[fd]
+    self.fds_task.remove_fd(fd)
 
     if not self.fds:
       self.remove_task(self.fds_task)

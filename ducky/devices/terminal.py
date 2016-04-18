@@ -1,54 +1,20 @@
+"""
+*Terminal* is a device that groups together character two input and output
+devices, thus forming a simple channel for bidirectional communication
+between VM and user.
+
+Terminal has two slave frontends:
+  - *input*, usually a keyboard
+  - *output*, from simple TTY to more powerful devices
+
+Terminal then manages input and input streams, passing them to its slave
+devices, which then transports events between streams and VM's comm channel.
+"""
+
 import os
 
-from . import Device
+from . import DeviceFrontend, get_driver_creator
 from ..streams import InputStream, OutputStream
-
-class Terminal(Device):
-  def __init__(self, machine, name, echo = False, dont_close = False, *args, **kwargs):
-    super(Terminal, self).__init__(machine, 'terminal', name, *args, **kwargs)
-
-    self.input = None
-    self.output = None
-
-    self.echo = echo
-    self._input_read_u8_orig = None
-
-    self.dont_close = dont_close
-
-  def _input_read_u8_echo(self, *args, **kwargs):
-    c = self._input_read_u8_orig(*args, **kwargs)
-
-    if c != 0xFF:
-      self.output.write_u8(self.output.port, c)
-
-    return c
-
-  def patch_echo(self, restore = False):
-    D = self.machine.DEBUG
-
-    D('%s.patch_echo: echo=%s, restore=%s', self.__class__.__name__, self.echo, restore)
-
-    if restore is True and self._input_read_u8_orig is not None:
-      self.input.read_u8, self._input_read_u8_orig = self._input_read_u8_orig, None
-
-    elif self.echo is True:
-      assert self.input is not None
-      assert hasattr(self.input, 'read_u8')
-      assert hasattr(self.output, 'write_u8')
-
-      self._input_read_u8_orig, self.input.read_u8 = self.input.read_u8, self._input_read_u8_echo
-
-    D('%s.patch_echo: input.read_u8=%s, orig_input.read_u8=%s', self.__class__.__name__, self.input.read_u8, self._input_read_u8_orig)
-
-  def boot(self):
-    super(Terminal, self).boot()
-
-    self.patch_echo()
-
-  def halt(self):
-    super(Terminal, self).halt()
-
-    self.patch_echo(restore = True)
 
 def parse_io_streams(machine, config, section):
   streams_in, stream_out = None, None
@@ -62,32 +28,89 @@ def parse_io_streams(machine, config, section):
   return (streams_in, stream_out)
 
 def get_slave_devices(machine, config, section):
-  input_name = config.get(section, 'input', None)
-  input_device = machine.get_device_by_name(input_name)
+  machine.DEBUG('get_slave_devices: section=%s', section)
 
-  if not input_name or not input_device:
-    machine.ERROR('Unknown slave device %s', input_name)
+  input_device, output_device = None, None
 
-  output_name = config.get(section, 'output', None)
-  output_device = machine.get_device_by_name(output_name)
+  input_spec = config.get(section, 'input', None)
+  output_spec = config.get(section, 'output', None)
 
-  if not output_name or not output_device:
-    machine.ERROR('Unknown slave device %s', output_name)
+  if input_spec is not None:
+    backend_name, frontend_driver = input_spec.split(':')
+
+    input_device = get_driver_creator(frontend_driver)(machine, machine.config, backend_name)
+
+  if output_spec is not None:
+    backend_name, frontend_driver = output_spec.split(':')
+
+    output_device = get_driver_creator(frontend_driver)(machine, machine.config, backend_name)
 
   return (input_device, output_device)
 
+class Terminal(DeviceFrontend):
+  def __init__(self, machine, name, echo = False, *args, **kwargs):
+    super(Terminal, self).__init__(machine, 'terminal', name)
+
+    self._input = None
+    self._output = None
+
+    self._echo = echo
+    self._input_read_u8_orig = None
+
+  def _input_read_u8_echo(self, *args, **kwargs):
+    c = self._input_read_u8_orig(*args, **kwargs)
+
+    if c != 0xFF:
+      self._output.write_u8(self._output.port, c)
+
+    return c
+
+  def _patch_echo(self, restore = False):
+    D = self.machine.DEBUG
+
+    D('%s._patch_echo: echo=%s, restore=%s', self.__class__.__name__, self._echo, restore)
+
+    if restore is True and self._input_read_u8_orig is not None:
+      self._input.read_u8, self._input_read_u8_orig = self._input_read_u8_orig, None
+
+    elif self._echo is True:
+      assert self._input is not None
+      assert hasattr(self._input, 'read_u8')
+      assert hasattr(self._output, 'write_u8')
+
+      self._input_read_u8_orig, self._input.read_u8 = self._input.read_u8, self._input_read_u8_echo
+
+    D('%s.patch_echo: input.read_u8=%s, orig_input.read_u8=%s', self.__class__.__name__, self._input.read_u8, self._input_read_u8_orig)
+
+  def boot(self):
+    super(Terminal, self).boot()
+
+    # self._patch_echo()
+
+  def halt(self):
+    super(Terminal, self).halt()
+
+    # self._patch_echo(restore = True)
+
 class StreamIOTerminal(Terminal):
-  def __init__(self, machine, name, input = None, output = None, *args, **kwargs):
+  def __init__(self, machine, name, input_device = None, output_device = None, *args, **kwargs):
     super(StreamIOTerminal, self).__init__(machine, name, *args, **kwargs)
 
-    self.input = input
-    self.output = output
+    machine.DEBUG('%s: name=%s, input_device=%s, output_device=%s', self.__class__.__name__, name, input_device, output_device)
 
-    self.input.master = self
-    self.output.master = self
+    self._input = input_device
+    self._output = output_device
+
+    self._streams_in = None
+    self._stream_out = None
+
+    self._input.master = self
+    self._output.master = self
 
   def enqueue_input_stream(self, stream):
-    self.input.enqueue_input(stream)
+    self.machine.DEBUG('%s.enqueue_input_stream: stream=%r', self.__class__.__name__, stream)
+
+    self._input.enqueue_stream(stream)
 
   def enqueue_streams(self, streams_in = None, stream_out = None):
     self.machine.DEBUG('%s.enqueue_streams: streams_in=%s, stream_out=%s', self.__class__.__name__, streams_in, stream_out)
@@ -98,14 +121,17 @@ class StreamIOTerminal(Terminal):
       for stream in streams_in:
         self.enqueue_input_stream(stream)
 
+      self._streams_in = streams_in
+
     if stream_out is not None:
-      self.output.set_output(stream_out)
+      self._stream_out = stream_out
+      self._output.set_output(stream_out)
 
   @staticmethod
   def create_from_config(machine, config, section):
     input_device, output_device = get_slave_devices(machine, config, section)
 
-    term = StreamIOTerminal(machine, section, input = input_device, output = output_device, echo = config.getbool(section, 'echo', False))
+    term = StreamIOTerminal(machine, section, input_device = input_device, output_device = output_device, echo = config.getbool(section, 'echo', False))
 
     streams_in, stream_out = parse_io_streams(machine, config, section)
     term.enqueue_streams(streams_in = streams_in, stream_out = stream_out)
@@ -113,22 +139,24 @@ class StreamIOTerminal(Terminal):
     return term
 
   def boot(self):
-    self.machine.DEBUG('StreamIOTerminal.boot')
-
     super(StreamIOTerminal, self).boot()
 
-    self.input.boot()
-    self.output.boot()
+    self._input.boot()
+    self._output.boot()
 
-    self.machine.INFO('hid: basic terminal (%s, %s)', self.input.name, self.output.name)
+    self.machine.INFO('hid: basic terminal (%s, %s)', self._input.name, self._output.name)
 
   def halt(self):
-    self.machine.DEBUG('StreamIOTerminal.halt')
-
     super(StreamIOTerminal, self).halt()
 
-    self.input.halt()
-    self.output.halt()
+    self._input.halt()
+    self._output.halt()
+
+    for stream in self._streams_in:
+      stream.close()
+
+    if self._stream_out is not None:
+      self._stream_out.close()
 
     self.machine.DEBUG('Standard terminal halted.')
 
@@ -137,7 +165,7 @@ class StandardIOTerminal(StreamIOTerminal):
   def create_from_config(machine, config, section):
     input_device, output_device = get_slave_devices(machine, config, section)
 
-    term = StandardIOTerminal(machine, section, input = input_device, output = output_device)
+    term = StandardIOTerminal(machine, section, input_device = input_device, output_device = output_device)
     term.enqueue_streams(streams_in = [InputStream.create(machine, '<stdin>')], stream_out = OutputStream.create(machine, '<stdout>'))
 
     return term
@@ -152,7 +180,7 @@ class StandalonePTYTerminal(StreamIOTerminal):
   def create_from_config(machine, config, section):
     input_device, output_device = get_slave_devices(machine, config, section)
 
-    term = StandalonePTYTerminal(machine, section, input = input_device, output = output_device, echo = config.getbool(section, 'echo', False), dont_close = config.getbool(section, 'dont_close', False))
+    term = StandalonePTYTerminal(machine, section, input_device = input_device, output_device = output_device, echo = config.getbool(section, 'echo', False))
 
     streams_in, stream_out = parse_io_streams(machine, config, section)
     term.enqueue_streams(streams_in = streams_in, stream_out = stream_out)
@@ -177,12 +205,12 @@ class StandalonePTYTerminal(StreamIOTerminal):
 
     self.terminal_device = os.ttyname(pttys[1]) if pttys else '/dev/unknown'
 
-    self.input.boot()
-    self.output.boot()
+    self._input.boot()
+    self._output.boot()
 
     self.pttys = pttys
 
-    self.machine.INFO('hid: pty terminal (%s, %s), dev %s', self.input.name, self.output.name, self.terminal_device)
+    self.machine.INFO('hid: pty terminal (%s, %s), dev %s', self._input.name, self._output.name, self.terminal_device)
 
   def halt(self):
     self.machine.DEBUG('StandalonePTYTerminal.halt')
@@ -192,23 +220,17 @@ class StandalonePTYTerminal(StreamIOTerminal):
     if self.pttys is None:
       return
 
-    self.input.halt()
-    self.output.halt()
+    self._input.halt()
+    self._output.halt()
 
-    if self.dont_close is True:
-      import curses.ascii
+    try:
+      os.close(self.pttys[1])
+      os.close(self.pttys[0])
 
-      os.write(self.pttys[0], chr(curses.ascii.EOT))
+      self.pttys = None
+      self.terminal_device = None
 
-    else:
-      try:
-        os.close(self.pttys[1])
-        os.close(self.pttys[0])
-
-        self.pttys = None
-        self.terminal_device = None
-
-      except Exception:
-        self.machine.EXCEPTION('Exception raised while closing PTY')
+    except Exception:
+      self.machine.EXCEPTION('Exception raised while closing PTY')
 
     self.machine.DEBUG('StandalonePTYTerminal: halted')

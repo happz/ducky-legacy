@@ -15,13 +15,16 @@ from ..cpu.instructions import encoding_to_u32
 from ..mm import u8_t, PAGE_SIZE, UINT32_FMT
 from ..mm.binary import SectionTypes, SectionFlags, SymbolFlags, RelocFlags
 from ..util import align, str2bytes
-from ..errors import AssemblerError, IncompleteDirectiveError, UnknownFileError, DisassembleMismatchError
+from ..errors import AssemblerError, IncompleteDirectiveError, UnknownFileError, DisassembleMismatchError, UnknownPatternError, TooManyLabelsError
 
 align_to_next_page = functools.partial(align, PAGE_SIZE)
 align_to_next_mmap = functools.partial(align, mmap.PAGESIZE)
 
 def PATTERN(pattern):
-  return re.compile(r'^\s*' + pattern + r'(?:\s*[;#].*)?$', re.MULTILINE)
+  return re.compile(r'^\s*(?P<payload>' + pattern + r')(?:\s*[;#].*)?$', re.MULTILINE)
+
+RE_INTEGER = re.compile(r'^\s+(?:(?P<value_hex>-?0x[a-fA-F0-9]+)|(?P<value_dec>0|(?:-?[1-9][0-9]*))|(?P<value_var>[a-zA-Z][a-zA-Z0-9_]*(?:.*?)?)|(?P<value_label>&[a-zA-Z_\.][a-zA-Z0-9_\.]*))\s*$')
+RE_STR = re.compile(r'^\s*"(?P<string>.*?)"\s*$')
 
 RE_COMMENT = re.compile(r'^\s*[/;].*?$', re.MULTILINE)
 RE_INCLUDE = PATTERN(r'\.include\s+"(?P<file>[a-zA-Z0-9_\-/\.]+)\s*"')
@@ -32,20 +35,40 @@ RE_ENDIF = PATTERN(r'\.endif')
 RE_VAR_DEF = PATTERN(r'\.def\s+(?P<var_name>[a-zA-Z][a-zA-Z0-9_]*):\s*(?P<var_body>.*?)')
 RE_MACRO_DEF = re.compile(r'^\s*\.macro\s+(?P<macro_name>[a-zA-Z_][a-zA-Z0-9_]*)(?:\s+(?P<macro_params>.*?))?:$', re.MULTILINE | re.DOTALL)
 RE_MACRO_END = PATTERN(r'\.end')
-RE_ASCII = PATTERN(r'\.ascii\s+"(?P<value>.*?)"')
-RE_BYTE = PATTERN(r'\.byte\s+(?:(?P<value_hex>-?0x[a-fA-F0-9]+)|(?P<value_dec>(?:0)|(?:-?[1-9][0-9]*))|(?P<value_var>[a-zA-Z][a-zA-Z0-9_]*))')
+RE_ASCII = PATTERN(r'\.ascii\s+(?P<string>".*?")')
+RE_BYTE = PATTERN(r'\.byte(?P<integer>.*?)')
 RE_DATA = PATTERN(r'\.data(?:\s+(?P<name>\.[a-z][a-z0-9_]*))?')
-RE_SHORT = PATTERN(r'\.short\s+(?:(?P<value_hex>-?0x[a-fA-F0-9]+)|(?P<value_dec>0|(?:-?[1-9][0-9]*))|(?P<value_var>[a-zA-Z][a-zA-Z0-9_]*))')
-RE_INT = PATTERN(r'\.int\s+(?:(?P<value_hex>-?0x[a-fA-F0-9]+)|(?P<value_dec>0|(?:-?[1-9][0-9]*))|(?P<value_var>[a-zA-Z][a-zA-Z0-9_]*(?:.*?)?)|(?P<value_label>&[a-zA-Z_\.][a-zA-Z0-9_]*))')
+RE_INT = PATTERN(r'\.int(?P<integer>.*?)')
+RE_LABEL = PATTERN(r'(?P<label>[a-zA-Z_\.][a-zA-Z0-9_\.]*):')
 RE_SECTION = PATTERN(r'\.section\s+(?P<name>\.[a-zA-z0-9_]+)(?:,\s*(?P<flags>[rwxlbmg]*))?')
 RE_SET = PATTERN(r'\.set\s+(?P<name>[a-zA-Z_][a-zA-Z0-9_]*),\s*(?:(?P<current>\.)|(?P<value_hex>-?0x[a-fA-F0-9]+)|(?P<value_dec>0|(?:-?[1-9][0-9]*))|(?P<value_label>&[a-zA-Z][a-zA-Z0-9_]*))')
+RE_SHORT = PATTERN(r'\.short(?P<integer>.*?)')
 RE_SIZE = PATTERN(r'\.size\s+(?P<size>[1-9][0-9]*)')
 RE_SPACE = PATTERN(r'\.space\s+(?P<size>[1-9][0-9]*)')
-RE_STRING = PATTERN(r'\.string\s+"(?P<value>.*?)"')
+RE_STRING = PATTERN(r'\.string(?P<string>.*?)')
 RE_TEXT = PATTERN(r'\.text(?:\s+(?P<name>\.[a-z][a-z0-9_]*))?')
 RE_TYPE = PATTERN(r'\.type\s+(?P<name>[a-zA-Z_\.][a-zA-Z0-9_]*),\s*(?P<type>(?:char|byte|short|int|ascii|string|space))')
 RE_GLOBAL = PATTERN(r'\.global\s+(?P<name>[a-zA-Z_][a-zA-Z0-9_]*)')
 RE_ALIGN  = PATTERN(r'\.align\s+(?P<boundary>[0-9]+)')
+
+class SourceLocation(object):
+  def __init__(self, filename = None, lineno = None, column = None, length = None):
+    self.filename = filename
+    self.lineno = lineno
+    self.column = column
+    self.length = length
+
+  def copy(self):
+    return SourceLocation(filename = self.filename, lineno = self.lineno, column = self.column, length = self.length)
+
+  def __str__(self):
+    t = [self.filename, str(self.lineno)]
+    if self.column is not None:
+      t.append(str(self.column))
+    return ':'.join(t)
+
+  def __repr__(self):
+    return str(self)
 
 class Buffer(object):
   def __init__(self, logger, filename, buff):
@@ -60,27 +83,25 @@ class Buffer(object):
 
     self.buff = buff
 
-    self.filename = filename
-    self.lineno = 0
+    self.location = SourceLocation(filename = filename, lineno = 0)
     self.last_line = None
 
   def get_line(self):
     while self.buff:
-      self.lineno += 1
+      self.location.lineno += 1
 
       line = self.buff.pop(0)
 
-      if isinstance(line, tuple):
-        self.lineno = line[1]
-        self.filename = line[0]
+      if isinstance(line, SourceLocation):
+        self.location = line
 
-        self.DEBUG('buffer: file switch: filename=%s, lineno=%s', self.filename, self.lineno)
+        self.DEBUG('buffer: file switch: %s', str(self.location))
         continue
 
       if not line:
         continue
 
-      self.DEBUG('buffer: new line %s:%s: %s', self.filename, self.lineno, line)
+      self.DEBUG('buffer: new line %s: %s', str(self.location), line)
       self.last_line = line
       return line
 
@@ -89,12 +110,12 @@ class Buffer(object):
 
   def put_line(self, line):
     self.buff.insert(0, line)
-    self.lineno -= 1
+    self.location.lineno -= 1
 
   def put_buffer(self, buff, filename = None):
     filename = filename or '<unknown>'
 
-    self.buff.insert(0, (self.filename, self.lineno))
+    self.buff.insert(0, self.location.copy())
 
     if isinstance(buff, string_types):
       buff = buff.split('\n')
@@ -102,13 +123,23 @@ class Buffer(object):
     for line in reversed(buff):
       self.buff.insert(0, line)
 
-    self.buff.insert(0, (filename, 0))
+    self.buff.insert(0, SourceLocation(filename = filename, lineno = 0))
 
   def has_lines(self):
     return len(self.buff) > 0
 
-  def get_error(self, cls, msg):
-    return cls(self.filename, self.lineno, msg, self.last_line)
+  def get_error(self, cls, info, column = None, length = None, **kwargs):
+    location = self.location.copy()
+    location.column = column
+    location.length = length
+
+    kwargs['location'] = location
+    if 'line' not in kwargs:
+      kwargs['line'] = self.last_line
+
+    kwargs['info'] = info
+
+    return cls(**kwargs)
 
 class Section(object):
   def __init__(self, s_name, s_type, s_flags):
@@ -160,17 +191,15 @@ class RelocSection(Section):
     super(RelocSection, self).__init__(s_name, SectionTypes.RELOC, SectionFlags.create())
 
 class Label(object):
-  def __init__(self, name, section, filename, lineno):
+  def __init__(self, name, section, location):
     super(Label, self).__init__()
 
     self.name = name
     self.section = section
-
-    self.filename = filename
-    self.lineno = lineno
+    self.location = location
 
   def __repr__(self):
-    return '<label {} in section {} ({}:{})>'.format(self.name, self.section.name if self.section else None, self.filename, self.lineno)
+    return '<label {} in section {} ({})>'.format(self.name, self.section.name if self.section else None, str(self.location))
 
 class Reference(object):
   def __init__(self, add = None, label = None):
@@ -211,8 +240,7 @@ class DataSlot(object):
     self.section = None
     self.section_ptr = None
 
-    self.filename = None
-    self.lineno = None
+    self.location = None
 
   def close(self):
     pass
@@ -389,7 +417,6 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
   labeled = []
 
   line = None
-  lineno = None
 
   def __apply_defs(line):
     orig_line = line
@@ -434,75 +461,103 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
 
     return False
 
-  def __get_variable(name):
-    if name not in variables:
-      raise buff.get_error(IncompleteDirectiveError, 'unknown variable named "%s"' % name)
+  def __set_var_location(var, location = None):
+    if var.location is None:
+      if location is None:
+        location = buff.location.copy()
 
-    return variables[name]
+      var.location = location
 
-  def __eval_expression(expr):
-    return (__get_variable(expr), None)
+  def __set_var_label(var):
+    if len(labels) > 1:
+      raise buff.get_error(TooManyLabelsError, 'Too many labels', column = 0)
+
+    var.name = labels[0] if labels else None
 
   def __parse_integer(var, matches, max):
-    if not var.lineno:
-      var.filename = buff.filename
-      var.lineno = buff.lineno
+    __set_var_location(var)
 
-    matches = matches.groupdict()
+    groupdict = matches.groupdict()
+    integer = groupdict.get('integer')
 
-    DEBUG('__parse_integer: var=%s, matches=%s, max=%s', var, matches, max)
+    DEBUG('__parse_integer: var=%s, max=%s, matches=%s', var, max, groupdict)
 
-    v_value = matches.get('value_dec')
+    if integer is None or not integer:
+      raise buff.get_error(IncompleteDirectiveError, 'directive without a value specification', column = matches.end(1))
+
+    integer_start = matches.start(2)
+
+    matches = RE_INTEGER.match(integer)
+    if matches is None:
+      raise buff.get_error(IncompleteDirectiveError, 'directive without a meaningful value', column = integer_start)
+
+    groupdict = matches.groupdict()
+    DEBUG('__parse_integer: matches=%s', groupdict)
+
+    v_value = groupdict.get('value_dec')
     if v_value:
       var.value = int(v_value)
 
       DEBUG('__parse_integer: var=%s', var)
       return
 
-    v_value = matches.get('value_hex')
+    v_value = groupdict.get('value_hex')
     if v_value:
       var.value = int(v_value, base = 16)
 
       DEBUG('__parse_integer: var=%s', var)
       return
 
-    v_value = matches.get('value_var')
+    v_value = groupdict.get('value_var')
     if v_value:
-      variable, addition = __eval_expression(matches['value_var'])
+      if v_value not in variables:
+        raise buff.get_error(IncompleteDirectiveError, 'unknown variable named "%s"' % v_value, column = integer_start)
 
-      DEBUG('__parse_integer: variable: variable=%s, addition=%s', variable, addition)
+      variable = variables[v_value]
+
+      DEBUG('__parse_integer: variable: variable=%s', variable)
 
       if isinstance(variable, integer_types):
         var.value = variable
 
-        if addition is not None:
-          var.value += addition
-
       else:
-        var.refers_to = Reference(label = variable, add = addition)
+        var.refers_to = Reference(label = variable)
 
       DEBUG('__parse_integer: var=%s', var)
       return
 
-    v_value = matches.get('value_label')
+    v_value = groupdict.get('value_label')
     if v_value:
       var.refers_to = Reference(label = v_value)
 
       DEBUG('__parse_integer: var=%s', var)
       return
 
-    raise buff.get_error(IncompleteDirectiveError, '.int directive without a meaningful value')
+    raise buff.get_error(IncompleteDirectiveError, 'directive without a meaningful value', column = integer_start)
 
   def __parse_string(var, matches):
-    if not var.lineno:
-      var.filename = buff.filename
-      var.lineno = lineno
+    __set_var_location(var)
 
-    matches = matches.groupdict()
+    groupdict = matches.groupdict()
 
-    v_value = matches.get('value')
+    string = groupdict.get('string')
+
+    DEBUG('__parse_string: var=%s, max=%s, matches=%s', var, max, groupdict)
+
+    if string is None or not string:
+      raise buff.get_error(IncompleteDirectiveError, 'directive without a value specification', column = matches.end(1))
+
+    string_start = matches.start(2)
+
+    matches = RE_STR.match(string)
+    if matches is None:
+      raise buff.get_error(IncompleteDirectiveError, 'directive without a meaningful value', column = string_start)
+
+    groupdict = matches.groupdict()
+
+    v_value = groupdict.get('string')
     if not v_value:
-      raise buff.get_error(IncompleteDirectiveError, '.string directive without a string')
+      raise buff.get_error(IncompleteDirectiveError, 'directive without a meaningful value', column = string_start)
 
     v_value = __apply_defs(v_value)
 
@@ -511,9 +566,7 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
     DEBUG('Post-decode: (%s) %s', type(var.value), ', '.join([str(ord(c)) for c in var.value]))
 
   def __parse_space(var, matches):
-    if not var.lineno:
-      var.filename = buff.filename
-      var.lineno = lineno
+    __set_var_location(var)
 
     matches = matches.groupdict()
 
@@ -544,9 +597,8 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
     elif v_type == 'space':
       var = SpaceSlot()
 
-    var.name = Label(v_name, curr_section, buff.filename, buff.lineno)
-    var.filename = buff.filename
-    var.lineno = buff.lineno
+    var.name = Label(v_name, curr_section, buff.location.copy())
+    __set_var_location(var)
 
     while buff.has_lines() and var.value is None and var.refers_to is None:
       line = buff.get_line()
@@ -560,7 +612,7 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
       if matches:
         continue
 
-      msg_prefix = 'pass #1: {}:{}: '.format(os.path.split(buff.filename)[1], buff.lineno)
+      msg_prefix = 'pass #1: %s: ' % str(buff.location)
 
       line = __apply_defs(line)
 
@@ -693,7 +745,7 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
     if not line.strip():
       continue
 
-    msg_prefix = 'pass #1: {}:{}: '.format(os.path.split(buff.filename)[1], buff.lineno)
+    msg_prefix = 'pass #1: %s: ' % str(buff.location)
 
     line = __apply_defs(line)
 
@@ -705,7 +757,7 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
     if matches:
       continue
 
-    msg_prefix = 'pass #1: {}:{}: '.format(os.path.split(buff.filename)[1], buff.lineno)
+    msg_prefix = 'pass #1: %s: ' % str(buff.location)
 
     matches = RE_IFDEF.match(line)
     if matches:
@@ -761,17 +813,17 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
 
     matches = RE_INCLUDE.match(line)
     if matches:
-      matches = matches.groupdict()
+      groupdict = matches.groupdict()
 
-      if 'file' not in matches:
-        raise buff.get_error(IncompleteDirectiveError, '.include directive without path')
+      if 'file' not in groupdict:
+        raise buff.get_error(IncompleteDirectiveError, '.include directive without path', column = 0)
 
-      DEBUG(msg_prefix + 'include: file=%s', matches['file'])
+      DEBUG(msg_prefix + 'include: file=%s', groupdict['file'])
 
       replace = None
 
       for d in includes:
-        filename = os.path.join(d, matches['file'])
+        filename = os.path.join(d, groupdict['file'])
         DEBUG(msg_prefix + '  checking file %s', filename)
 
         try:
@@ -787,7 +839,7 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
           break
 
       if replace is None:
-        raise buff.get_error(UnknownFileError, matches['file'])
+        raise buff.get_error(UnknownFileError, groupdict['file'], column = matches.start(2))
 
       buff.put_buffer(replace, filename = filename)
 
@@ -917,11 +969,8 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
     if matches:
       var = ByteSlot()
       __parse_integer(var, matches, 0xFF)
+      __set_var_label(var)
 
-      if len(labels) > 1:
-        raise buff.get_error(AssemblerError, 'Too many data labels: {}'.format(labels))
-
-      var.name = labels[0] if labels else None
       var.close()
 
       DEBUG(msg_prefix + 'record byte value: name=%s, value=%s', var.name, var.value)
@@ -934,9 +983,7 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
     if matches:
       var = ShortSlot()
       __parse_integer(var, matches, 0xFFFF)
-
-      if len(labels) > 1:
-        raise buff.get_error(AssemblerError, 'Too many data labels: {}'.format(labels))
+      __set_var_label(var)
 
       var.name = labels[0] if labels else None
       var.close()
@@ -951,11 +998,8 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
     if matches:
       var = IntSlot()
       __parse_integer(var, matches, 0xFFFFFFFF)
+      __set_var_label(var)
 
-      if len(labels) > 1:
-        raise buff.get_error(AssemblerError, 'Too many data labels: {}'.format(labels))
-
-      var.name = labels[0] if labels else None
       var.close()
 
       DEBUG(msg_prefix + 'record int value: name=%s, value=%s, refers_to=%s', var.name, var.value, var.refers_to)
@@ -968,11 +1012,8 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
     if matches:
       var = AsciiSlot()
       __parse_string(var, matches)
+      __set_var_label(var)
 
-      if len(labels) > 1:
-        raise buff.get_error(AssemblerError, 'Too many data labels: {}'.format(labels))
-
-      var.name = labels[0] if labels else None
       var.close()
 
       DEBUG(msg_prefix + 'record ascii value: name=%s, value=%s', var.name, var.value)
@@ -985,11 +1026,8 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
     if matches:
       var = StringSlot()
       __parse_string(var, matches)
+      __set_var_label(var)
 
-      if len(labels) > 1:
-        raise buff.get_error(AssemblerError, 'Too many data labels: {}'.format(labels))
-
-      var.name = labels[0] if labels else None
       var.close()
 
       DEBUG(msg_prefix + 'record string value: name=%s, value=%s', var.name, var.value)
@@ -1002,11 +1040,8 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
     if matches:
       var = SpaceSlot()
       __parse_space(var, matches)
+      __set_var_label(var)
 
-      if len(labels) > 1:
-        raise buff.get_error(AssemblerError, 'Too many data labels: {}'.format(labels))
-
-      var.name = labels[0] if labels else None
       var.close()
 
       DEBUG(msg_prefix + 'record space: name=%s, value=%s', var.name, var.size)
@@ -1069,8 +1104,14 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
 
       continue
 
-    if line.endswith(':'):
-      label = Label(line.strip()[:-1], curr_section, buff.filename, buff.lineno)
+    matches = RE_LABEL.match(line)
+    if matches:
+      DEBUG('matches: %s', matches.groupdict())
+
+      loc = buff.location.copy()
+      loc.column = matches.start(2)
+
+      label = Label(matches.groupdict()['label'], curr_section, loc)
       labels.append(label)
 
       DEBUG(msg_prefix + 'record label: name=%s', label.name)
@@ -1082,18 +1123,15 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
     emited_inst = None
 
     # Find instruction descriptor
-    line = line.strip()
-
     DEBUG(msg_prefix + 'instr set: %s', instruction_set)
 
     for desc in instruction_set.instructions:
-      # print desc.pattern.pattern
       if not desc.pattern.match(line):
         continue
       break
 
     else:
-      raise buff.get_error(AssemblerError, 'Unknown pattern: line="{}"'.format(line))
+      raise buff.get_error(UnknownPatternError, line, column = 0)
 
     emited_inst = desc.emit_instruction(logger, buff, line)
     emited_inst.desc = desc
@@ -1208,17 +1246,30 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
             section.content.append(var)
             DEBUG(ptr_prefix + '  value missing - reserve space, fix in next pass')
 
-          section.ptr += 4
+          if var.size != 4:
+            raise Exception()
+          section.ptr += var.size
 
         elif isinstance(var, ShortSlot):
-          section.content += var.value
+          if var.value is not None:
+            section.content += var.value
+            DEBUG(ptr_prefix + '  value stored')
+
+          else:
+            section.content.append(var)
+            DEBUG(ptr_prefix + '  value missing - reserve space, fix in next pass')
+
           section.ptr += var.size
-          DEBUG(ptr_prefix + '  value stored')
 
         elif isinstance(var, ByteSlot):
-          section.content += var.value
+          if var.value is not None:
+            section.content += var.value
+            DEBUG(ptr_prefix + '  value stored')
+
+          else:
+            section.content.append(var)
+            DEBUG(ptr_prefix + '  value missing - reserve space, fix in next pass')
           section.ptr += var.size
-          DEBUG(ptr_prefix + '  value stored')
 
         elif type(var) == AsciiSlot or type(var) == StringSlot or isinstance(var, BytesSlot):
           section.content += var.value
@@ -1245,8 +1296,7 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
             var.section = section
             var.section_ptr = section.ptr
 
-            var.filename = label.filename
-            var.lineno = label.lineno
+            __set_var_location(var, location = label.location)
 
             var.close()
 

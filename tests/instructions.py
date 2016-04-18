@@ -5,6 +5,7 @@ from functools import partial
 from six import iteritems, integer_types
 
 import ducky.cpu.registers
+from ducky.cpu.assemble import SourceLocation
 from ducky.cpu.instructions import DuckyInstructionSet
 from ducky.cpu.registers import REGISTER_NAMES
 from ducky.errors import UnalignedJumpTargetError, AccessViolationError, InvalidResourceError
@@ -37,8 +38,11 @@ def setup():
   LOGGER.setLevel(logging.DEBUG)
 
   class SimpleBuffer(object):
-    def get_error(self, cls, msg):
-      raise cls(0, 0, msg, '')
+    def get_error(self, cls, info, column = None, length = None, **kwargs):
+      kwargs['location'] = SourceLocation(filename = '<unknown>', lineno = 0)
+      kwargs['info'] = info
+
+      raise cls(**kwargs)
 
   global BUFFER
   BUFFER = SimpleBuffer()

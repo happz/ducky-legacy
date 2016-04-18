@@ -10,7 +10,8 @@ install_requires = [
   'tabulate',
   'pycparser',
   'six',
-  'mako'
+  'mako',
+  'msgpack-python'
 ]
 
 tests_requires = [
