@@ -1,7 +1,6 @@
 .include "ducky.asm"
 .include "boot.asm"
 .include "control.asm"
-.include "hdt.asm"
 .include "bio.asm"
 
 
@@ -73,13 +72,28 @@ __primary_boot:
 
   ; clear IVT
   li r0, $BOOT_IVT_ADDRESS
+  li r2, 0x00
   li r1, $PAGE_SIZE
-  call &memzero
+__ivt_reset_loop:
+  bz &__ivt_reset_finished
+  stw r0, r2
+  add r0, $WORD_SIZE
+  sub r1, $WORD_SIZE
+  j &__ivt_reset_loop
+
+__ivt_reset_finished:
 
   ; clear CWT
   li r0, $BOOT_CWT_ADDRESS
   li r1, $PAGE_SIZE
-  call &memzero
+__cwt_reset_loop:
+  bz &__cwt_reset_finished
+  stw r0, r2
+  add r0, $WORD_SIZE
+  sub r1, $WORD_SIZE
+  j &__cwt_reset_loop
+
+__cwt_reset_finished:
 
   ;
   ; Load next phase
@@ -126,24 +140,33 @@ __primary_boot_halt:
 ; to jump, by sending IPI to wake us up.
 ;
 __secondary_boot:
-  mov r27, r0
-
-  ; get our CWT slot
-  mov r1, r0
-  li r0, $BOOT_HDT_ADDRESS
-  call &__core_get_cwt_slot
-
   ; sleep and wait pro primary core to wake us up
   idle
 
-  ; in our CWT slot is now address we are supposed to jump to
-  lw r1, r0
+  ; CWT points to a list of values:
+  ;
+  ; +--------------+ <- CWT
+  ; | IP           |
+  ; +--------------+
+  ; | SP           |
+  ; +--------------+
+  ; | flag addr    |
+  ; +--------------+
+  ;
+  ; Our job is to jump to IP, with SP set, passing CPUID and flag addr as arguments.
+  ; Code we jumped to will do its own work, and then store 0xFFFFFFFF to a flag address.
 
-  ; pass CPUID as a first argument
-  mov r0, r27
+  ; load necessary data
+  li r1, $BOOT_CWT_ADDRESS
+  lw r2, r1                            ; IP
+  add r1, $WORD_SIZE
+  lw sp, r1                            ; SP
+  mov fp, sp
+  add r1, $WORD_SIZE
+  lw r1, r1                            ; flag addr
 
-  ; and jump to our new thread
-  j r1
+  ; and jump
+  j r2
 
   ; it should never return, but just in case
   hlt 0xFF

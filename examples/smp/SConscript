@@ -5,12 +5,12 @@ Import('ENV')
 ENV.DuckyObject('smp.o', source = 'smp.asm')
 ENV.Depends('smp.o', ENV.GetDuckyDefine('boot', 'ducky', 'control', 'hdt', 'rtc'))
 
-ENV.DuckyBinary('smp', source = ['smp.o', '#boot/lib.o'], SECTION_BASES = ['.text=0x00000000'])
+ENV.DuckyBinary('smp', source = ['smp.o'], SECTION_BASES = ['.text=0x00000000'])
 ENV.Command('smp.img', 'smp', ENV.DuckyImage('smp.img', 'smp', bio = True))
 
 smp = ENV.Alias('smp', File('smp'))
 
-ENV.Command('.running-smp', [File('smp'), 'smp.img', '#boot/loader'], ENV.DuckyRun(config = 'smp.conf', set_options = ['bootloader:file=%s' % File('#boot/loader').abspath, 'device-6:filepath=%s' % File('smp.img').abspath], expected_exit = 1))
+ENV.Command('.running-smp', [File('smp'), 'smp.img'], ENV.DuckyRun(config = 'smp.conf', set_options = ['bootloader:file=%s' % File('#boot/loader').abspath, 'device-6:filepath=%s' % File('smp.img').abspath], expected_exit = 1))
 
 run_smp = ENV.Alias('run-smp', '.running-smp')
 
