@@ -28,7 +28,7 @@ def setup():
 
   machine = Machine(logger = logging.getLogger())
   machine.config = MachineConfig()
-  mm = MemoryController(machine)
+  mm = MemoryController(machine, size = 0x100000000)
   cpu = CPU(machine, 0, mm)
 
   global CORE

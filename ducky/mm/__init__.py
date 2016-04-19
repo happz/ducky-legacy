@@ -417,6 +417,8 @@ class MemoryController(object):
   """
 
   def __init__(self, machine, size = 0x1000000):
+    machine.DEBUG('%s: size=0x%X', self.__class__.__name__, size)
+
     if size % PAGE_SIZE != 0:
       raise InvalidResourceError('Memory size must be multiple of PAGE_SIZE')
 
@@ -465,6 +467,9 @@ class MemoryController(object):
     """
 
     assert pg.index not in self.pages
+
+    if pg.index >= self.pages_cnt:
+      raise InvalidResourceError('Attempt to create page with index out of bounds: pg.index=%d' % pg.index)
 
     self.pages[pg.index] = pg
     return pg
