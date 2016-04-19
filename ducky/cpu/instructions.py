@@ -2330,6 +2330,85 @@ class _STORE(Descriptor):
     else:
       core.MEM_OUT8(addr, core.registers.map[inst.reg2].value & 0xFF)
 
+  @staticmethod
+  def jit(core, inst):
+    reg1 = core.registers.map[inst.reg1]
+    reg2 = core.registers.map[inst.reg2]
+
+    if inst.opcode == DuckyOpcodes.STW:
+      writer = core.MEM_OUT32
+
+      if inst.immediate_flag == 1:
+        offset = inst.sign_extend_immediate(core.LOGGER, inst)
+
+        if offset == 0:
+          def __jit_stw():
+            writer(reg1.value, reg2.value)
+
+          return __jit_stw
+
+        else:
+          def __jit_stw():
+            writer((reg1.value + offset) % 4294967296, reg2.value)
+
+          return __jit_stw
+
+      else:
+        def __jit_stw():
+          writer(reg1.value, reg2.value)
+
+        return __jit_stw
+
+    elif inst.opcode == DuckyOpcodes.STS:
+      writer = core.MEM_OUT16
+
+      if inst.immediate_flag == 1:
+        offset = inst.sign_extend_immediate(core.LOGGER, inst)
+
+        if offset == 0:
+          def __jit_sts():
+            writer(reg1.value, reg2.value)
+
+          return __jit_sts
+
+        else:
+          def __jit_sts():
+            writer((reg1.value + offset) % 4294967296, reg2.value)
+
+          return __jit_sts
+
+      else:
+        def __jit_sts():
+          writer(reg1.value, reg2.value)
+
+        return __jit_sts
+
+    elif inst.opcode == DuckyOpcodes.STB:
+      writer = core.MEM_OUT8
+
+      if inst.immediate_flag == 1:
+        offset = inst.sign_extend_immediate(core.LOGGER, inst)
+
+        if offset == 0:
+          def __jit_stb():
+            writer(reg1.value, reg2.value & 0xFF)
+
+          return __jit_stb
+
+        else:
+          def __jit_stb():
+            writer((reg1.value + offset) % 4294967296, reg2.value & 0xFF)
+
+          return __jit_stb
+
+      else:
+        def __jit_stb():
+          writer(reg1.value, reg2.value & 0xFF)
+
+        return __jit_stb
+
+    return None
+
 class _LOAD_IMM(Descriptor_R_I):
   @classmethod
   def load(cls, core, inst):
