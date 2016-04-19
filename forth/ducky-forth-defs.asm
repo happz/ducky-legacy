@@ -287,12 +287,8 @@ code_#label:
   lb r1, r1     ; load string length
 .end
 
-.macro boot_progress:
-  ; li r20, 0x2E
-  ; outb $TTY_PORT_DATA, r20
-.end
-
 .def ERR_UNKNOWN:             -1
 .def ERR_UNDEFINED_WORD:      -2
 .def ERR_UNHANDLED_IRQ:       -3
 .def ERR_NO_INTERPRET_SEMANTICS: -4
+.def ERR_MALFORMED_HDT:          -5

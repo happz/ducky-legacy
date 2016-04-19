@@ -21,7 +21,7 @@ E.PassVarAsDefine('FORTH_FAIL_ON_UNDEF')
 
 E.DuckyObject('ducky-forth.o', source = 'ducky-forth.asm')
 E.Depends('ducky-forth.o', ['ducky-forth.asm', 'double-cell-ints.asm', 'ducky-forth-defs.asm', 'ducky-forth-words.asm'])
-E.Depends('ducky-forth.o', E.GetDuckyDefine('ducky', 'control', 'keyboard', 'rtc', 'boot', 'tty', 'math'))
+E.Depends('ducky-forth.o', E.GetDuckyDefine('ducky', 'control', 'keyboard', 'rtc', 'boot', 'tty', 'math', 'hdt'))
 
 E.DuckyBinary('ducky-forth', source = 'ducky-forth.o')
 E.Alias('forth', File('ducky-forth'))

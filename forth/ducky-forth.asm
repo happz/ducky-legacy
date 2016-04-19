@@ -12,13 +12,13 @@
 .include "rtc.asm"
 .include "boot.asm"
 .include "tty.asm"
+.include "hdt.asm"
 
 
   .text
 
   ; This is where bootloader jump to, main entry point
 _entry:
-  $boot_progress
   j &boot_phase1
 
 
@@ -431,17 +431,14 @@ __relocate_sections:
   li r0, $BOOT_LOADER_ADDRESS
   la r1, &text_boundary_last
   call &__relocate_section
-  $boot_progress
 
   la r0, &rodata_boundary_first
   la r1, &rodata_boundary_last
   call &__relocate_section
-  $boot_progress
 
   la r0, &data_boundary_first
   la r1, &data_boundary_last
   call &__relocate_section
-  $boot_progress
 
   li r0, $USERSPACE_BASE
   li r1, $BOOT_LOADER_ADDRESS
@@ -449,7 +446,6 @@ __relocate_sections:
   mov r1, r0
   add r1, $USERSPACE_SIZE
   call &__relocate_section
-  $boot_progress
 
   ret
 
@@ -457,19 +453,72 @@ __relocate_sections:
 ;
 ; void boot_phase1(void) __attribute__((noreturn))
 ;
-; This is the first phae of kernel booting process. Its main goal is to
-; relocate kernel sections to the beggining of the address space.
-;
-; Until the stack is initialized, and because of the nature of things,
-; it's not necessary to honor callee-saved registers in routines.
+; This is the first phase of kernel booting process. Its main goal is to
+; relocate kernel sections to the beggining of the address space. Before
+; moving anything the beginning of memory space we have to process HDT,
+; save interesting information for later, just in case we'd need some.
+; And we will...
 ;
 boot_phase1:
-  call &__vmdebug_off
+  ; First, turn of debugging. We have no stack, we can't call __vmdebug_off.
+  ;li r0, 0x00
+  ;li r1, 0x01
+  ;int 18
 
-  ; relocate image to more convenient place
+  ; Now, walk through HDT, and save interesting info
+  li r0, $BOOT_HDT_ADDRESS             ; r0 will be our HDT pointer
+  lw r1, r0
+  li r2, 0x6F70
+  liu r2, 0x4D5E
+  cmp r1, r2
+  bne &__ERR_malformed_HDT             ; HDT header magic is bad
+  add r0, $WORD_SIZE
+
+  lw r1, r0                            ; r1 counts number of remaining entries
+  add r0, $WORD_SIZE
+
+__boot_hdt_loop:
+  cmp r1, 0x00
+  bz &__boot_hdt_loop_end
+
+  ls r2, r0                            ; entry type
+  add r0, $SHORT_SIZE
+  ls r3, r0                            ; entry length
+  add r0, $SHORT_SIZE
+
+  cmp r2, $HDT_ENTRY_CPU
+  bne &__boot_hdt_loop_test_memory
+  j &__boot_hdt_loop_goon
+
+__boot_hdt_loop_test_memory:
+  cmp r2, $HDT_ENTRY_MEMORY
+  bne &__boot_hdt_loop_goon
+
+  lw r4, r0                            ; read memory size, and save it
+  la r5, &memory_size
+  stw r5, r4
+
+  ; fall through to 'go on' branch
+
+__boot_hdt_loop_goon:
+  sub r0, $SHORT_SIZE                  ; undo pointer moves, and point at the first byte of current entry
+  sub r0, $SHORT_SIZE
+  add r0, r3                           ; and point at the first byte of next entry by adding the current entry size to the pointer
+  dec r1
+  j &__boot_hdt_loop
+
+__boot_hdt_loop_end:
+
+  ; Setup stack, using the next-to-last memory page
+  ; If the stack is supposed to be on next-to-last page, the initial SP is the base address of the last page...
+  la sp, &memory_size
+  lw sp, sp
+  li r0, $PAGE_MASK
+  liu r0, 0xFFFF
+  and sp, r0
+
+  ; Now there's nothing blocking us from relocating our sections to more convenient place
   call &__relocate_sections
-
-  $boot_progress
 
   ; now do long jump to new, relocated version of boot_phase2
   la r0, &boot_phase2
@@ -489,61 +538,106 @@ boot_phase2:
   li r0, $RTC_FREQ
   outb $RTC_PORT_FREQ, r0
 
-  ; init stack - the next-to-last page is our new stack
-  li sp, 0xFF00
-  liu sp, 0xFFFF
+  ;
+  ; LPF - Last Page Frame, base address of the last page of memory
+  ;
+  ; +--------------------+ <- 0x00000000
+  ; | Initial IVT        |
+  ; +--------------------+ <- 0x00000100
+  ; | HDT                |
+  ; +--------------------+ <- 0x00000200
+  ; |                    |
+  ; +--------------------+
+  ; ...
+  ; +
+  ; |
+  ; +                    +
+  ; | Log stack          |
+  ; +--------------------+ <- LSP
+  ; | RTC stack          |
+  ; +--------------------+
+  ; | Dummy IVT stack    |
+  ; +--------------------+
+  ; | Return stack       |
+  ; +--------------------+ <- RSP
+  ; | Stack              |
+  ; +--------------------+ <- LPF; SP
+  ; | Our IVT            |
+  ; +--------------------+
+  ;
+
+  ; r11 will hold the LPF, as a reference point
+  la r11, &memory_size
+  lw r11, r11
+  li r0, $PAGE_MASK
+  liu r0, 0xFFFF
+  and r11, r0
+  sub r11, $PAGE_SIZE
+
+  ; r10 is our current page pointer
+  mov r10, r11
+
+  ; Reset stack, just in case there are some leftovers on it - we won't need them anymore
+  mov sp, r10
+  sub r10, $PAGE_SIZE
+  la r9, &var_SZ
+  stw r9, sp
 .ifdef FORTH_TIR
+  ; Init TOS
   li $TOS, 0xBEEF
   liu $TOS, 0xDEAD
 .endif
 
-  ; init return stack - the next-to-next-to-last page is our new return stack
-  li $RSP, 0xFE00
-  liu $RSP, 0xFFFF
+  ; Return stack
+  mov $RSP, r10
+  sub r10, $PAGE_SIZE
+  la r9, &rstack_top
+  stw r9, $RSP
 
-  ; IVT - use the last page
-  li r0, 0xFF00
-  liu r0, 0xFFFF
+  ; IVT
+  mov r9, r10                          ; RTC SP
+  sub r10, $PAGE_SIZE
+  mov r8, r10                          ; Keyboard SP
+  sub r8, $PAGE_SIZE
+  mov r7, r10                          ; dummy SP
+  sub r10, $PAGE_SIZE
+
+  mov r0, r11
   ctw $CONTROL_IVT, r0
 
   ; init all entries to fail-safe
-  la r1, &failsafe_isr
-  li r2, 0xFD00
-  liu r2, 0xFFFF
+  la r2, &failsafe_isr
 
-  mov r3, r0
-  mov r4, r0
-  add r4, $PAGE_SIZE
+  mov r1, r0
+  add r1, $PAGE_SIZE
 __boot_phase2_ivt_failsafe_loop:
-  stw r3, r1
-  add r3, 0x04
-  stw r3, r2
-  add r3, 0x04
-  cmp r3, r4
+  stw r0, r2
+  add r0, $INT_SIZE
+  stw r0, r7
+  add r0, $INT_SIZE
+  cmp r0, r1
   bne &__boot_phase2_ivt_failsafe_loop
 
+  mov r0, r11
+
   ; set the first entry to RTC ISR
-  la r1, &rtc_isr
-  li r2, 0xFC00
-  liu r2, 0xFFFF
-  stw r0, r1
-  add r0, 0x04
+  la r2, &rtc_isr
   stw r0, r2
-  add r0, 0x04
+  add r0, $INT_SIZE
+  stw r0, r9
+  add r0, $INT_SIZE
 
   ; set the second entry to NOP ISR for keyboard
-  la r1, &nop_isr
-  li r2, 0xFB00
-  liu r2, 0xFFFF
-  stw r0, r1
-  add r0, 0x04
+  la r2, &nop_isr
   stw r0, r2
-  add r0, 0x04
+  add r0, $INT_SIZE
+  stw r0, r8
+  add r0, $INT_SIZE
 
 .ifdef FORTH_DEBUG
-  ; init log stack
-  li $LSP, 0xFA00
-  liu $LSP, 0xFFFF
+  ; Log stack
+  mov $LSP, r10
+  sub r10, $PAGE_SIZE
 .endif
 
   ; init LATEST
@@ -639,7 +733,7 @@ __DODOES_push:
   .section .rodata
   .align 4
 cold_start:
-  .int &WELCOME
+  ;.int &WELCOME
   .int &QUIT
 
 
@@ -654,6 +748,9 @@ cold_start:
 
   .type jiffies, int
   .int 0x00000000
+
+  .type memory_size, int
+  .int 0xFFFFFFFF
 
   ; User data area
   ; Keep it in separate section to keep it aligned, clean, unpoluted
@@ -780,6 +877,8 @@ $DEFCODE "VMDEBUGOFF", 10, $F_IMMED, VMDEBUGOFF
 ; void __ERR_die(char *msg, i32_t exit_code) __attribute__((noreturn))
 ;
 ; Generic fatal error handler
+  .text
+
 __ERR_die:
   call &writes
   hlt r1
@@ -818,6 +917,8 @@ __ERR_print_input:
   .type __ERR_undefined_word_message, string
   .string "\r\nERROR: $ERR_UNDEFINED_WORD: Undefined word\r\n"
 
+  .text
+
 __ERR_undefined_word:
   push r0
   push r1
@@ -844,11 +945,25 @@ __ERR_undefined_word:
   .type __ERR_no_interpretation_semantics_message, string
   .string "\r\nERROR: $ERR_NO_INTERPRET_SEMANTICS: Word has undefined interpretation semantics\r\n"
 
+  .text
+
 __ERR_no_interpretation_semantics:
   la r0, &__ERR_no_interpretation_semantics_message
   call &writes
   call &__ERR_print_input
   li r0, $ERR_NO_INTERPRET_SEMANTICS
+  j &halt
+
+
+;
+; void __ERR_malformed_HDT(void) __attribute__((noreturn))
+;
+; Raised when HDT is malformed.
+;
+  .text
+
+__ERR_malformed_HDT:
+  li r0, $ERR_MALFORMED_HDT
   j &halt
 
 
@@ -860,6 +975,8 @@ __ERR_no_interpretation_semantics:
   .section .rodata
   .type __ERR_unknown_message, string
   .string "\r\nERROR: $ERR_UNKNOWN: Unknown error happened\r\n"
+
+  .text
 
 __ERR_unknown:
   la r0, &__ERR_unknown_message
@@ -3337,11 +3454,11 @@ $DEFCODE "VERSION", 7, 0, VERSION
 $DEFCODE "R0", 2, 0, RZ
 .ifdef FORTH_TIR
   push $TOS
-  li $TOS, 0xFE00
-  liu $TOS, 0xFFFF
+  la $TOS, &rstack_top
+  lw $TOS, $TOS
 .else
-  li $W, 0xFE00
-  liu $W, 0xFFFF
+  la $W, &rstack_top
+  lw $W, $W
   push $W
 .endif
   $NEXT
