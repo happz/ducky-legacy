@@ -157,7 +157,7 @@ class Backend(IRQProvider, IOProvider, DeviceBackend):
       buff = e
 
     else:
-      print e, type(e)
+      raise InvalidResourceError('Unknown message: e=%s, type=%s' % (e, type(e)))
 
     for key in buff:
       self._key_queue.append(key)
