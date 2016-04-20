@@ -28,6 +28,8 @@ from testconfig import config
 
 LOGGER = logging.getLogger()
 PYPY = hasattr(sys, 'pypy_version_info')
+from six import PY2
+from six import PY3
 
 
 #

@@ -3,7 +3,7 @@ import string
 from ducky.cpu.assemble import translate_buffer as orig_translate_buffer, RE_INTEGER
 from ducky.errors import IncompleteDirectiveError, UnalignedJumpTargetError
 
-from . import LOGGER
+from . import LOGGER, PY2, PY3
 
 from functools import partial
 from hypothesis import given, assume
@@ -70,6 +70,9 @@ def test_parse_immediate_integer(base, immediate):
 def test_parse_immediate_variable(immediate):
   immediate = immediate.encode('ascii', 'replace')
 
+  if PY3:
+    immediate = ''.join([chr(b) for b in immediate])
+
   assume(not immediate[0].isdigit())
   assume(immediate[0] != '_')
 
@@ -93,6 +96,9 @@ def test_parse_immediate_variable(immediate):
 @given(immediate = text(min_size = 1, alphabet = string.ascii_letters + string.digits + '_.'))
 def test_parse_immediate_label(immediate):
   immediate = immediate.encode('ascii', 'replace')
+
+  if PY3:
+    immediate = ''.join([chr(b) for b in immediate])
 
   assume(not immediate[0].isdigit())
 
