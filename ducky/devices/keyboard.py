@@ -147,20 +147,15 @@ class Backend(IRQProvider, IOProvider, DeviceBackend):
   def _process_input_event(self, e):
     self.machine.DEBUG('%s.__process_input_event: e=%r', self.__class__.__name__, e)
 
-    if isinstance(e, list):
-      buff = e
+    if isinstance(e, (list, bytearray, bytes)):
+      for key in e:
+        self._key_queue.append(key)
 
     elif isinstance(e, ControlMessages):
-      buff = [e]
-
-    elif isinstance(e, bytearray):
-      buff = e
+      self._key_queue.append(e)
 
     else:
       raise InvalidResourceError('Unknown message: e=%s, type=%s' % (e, type(e)))
-
-    for key in buff:
-      self._key_queue.append(key)
 
   def _process_input_events(self):
     self.machine.DEBUG('%s.__process_input_events', self.__class__.__name__)
