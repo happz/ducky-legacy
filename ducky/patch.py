@@ -102,12 +102,19 @@ class ModuleLoader(object):
   def get_code(self, fullname):
     pkg = self.fullpath.endswith('__init__.py')
 
+    debug('loading module: fullname=%s' % fullname)
+
     code_str = self.get_source(self.fullpath)
     code_tree = ast.parse(code_str)
 
     # Modify AST
-    visitor = RemoveLoggingVisitor()
-    new_code_tree = visitor.visit(code_tree)
+    if fullname.startswith('ducky'):
+      visitor = RemoveLoggingVisitor()
+      new_code_tree = visitor.visit(code_tree)
+
+    else:
+      new_code_tree = code_tree
+
     code = compile(new_code_tree, self.fullpath, 'exec')
 
     return (pkg, code)
