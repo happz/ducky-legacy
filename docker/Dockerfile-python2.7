@@ -4,7 +4,7 @@ MAINTAINER Milos Prchlik <happz@happz.cz>
 
 ENV VIRTUAL_ENV=/usr/local
 
-RUN apk update && apk add make bash wget curl jq scons git
+RUN apk update && apk add make bash wget curl jq scons git gcc musl-dev
 
 # Fetch the last built FORTH kernel
 # This is a necessary workaround, because it's not possible to build
