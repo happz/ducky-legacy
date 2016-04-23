@@ -121,6 +121,7 @@ __ivt_copy_finished:
   lw r3, r2                            ; r3 counts number of entries left
 
   add r2, $INT_SIZE                    ; point to first entry
+  add r2, $INT_SIZE
   li r4, $HDT_ENTRY_CPU
 
 __find_hdt_entry_loop:

@@ -227,7 +227,7 @@ class Display(Device):
     self.machine.reactor.add_task(self.refresh_task)
     self.machine.reactor.task_runnable(self.refresh_task)
 
-    self.machine.INFO(F('display: generic {name} connected to gpu {gpu}, output stream {stream}', name = self.name, gpu = self.gpu.name, stream = self.stream_out))
+    self.machine.tenh(F('display: generic {name} connected to gpu {gpu}, output stream {stream}', name = self.name, gpu = self.gpu.name, stream = self.stream_out))
 
   def halt(self):
     self.machine.DEBUG('Display.halt')
@@ -380,7 +380,7 @@ class SimpleVGA(IOProvider, Device):
     self.reset()
     self.set_mode(self.boot_mode)
 
-    self.machine.INFO(F('gpu: {gpu}', gpu = self))
+    self.machine.tenh(F('gpu: {gpu}', gpu = self))
 
   def halt(self):
     self.machine.DEBUG('SimpleVGA.halt')

@@ -449,6 +449,12 @@ __relocate_sections:
 
   ret
 
+  .section .rodata
+
+  .type __arg_test_mode, string
+  .string "test-mode"
+
+  .text
 
 ;
 ; void boot_phase1(void) __attribute__((noreturn))
@@ -476,6 +482,7 @@ boot_phase1:
 
   lw r1, r0                            ; r1 counts number of remaining entries
   add r0, $WORD_SIZE
+  add r0, $WORD_SIZE                   ; skip length field
 
 __boot_hdt_loop:
   cmp r1, 0x00
@@ -492,11 +499,45 @@ __boot_hdt_loop:
 
 __boot_hdt_loop_test_memory:
   cmp r2, $HDT_ENTRY_MEMORY
-  bne &__boot_hdt_loop_goon
+  bne &__boot_hdt_loop_test_argument
 
   lw r4, r0                            ; read memory size, and save it
   la r5, &memory_size
   stw r5, r4
+
+__boot_hdt_loop_test_argument:
+  cmp r2, $HDT_ENTRY_ARGUMENT
+  bne &__boot_hdt_loop_goon
+
+  lb r5, r0                            ; name length
+  inc r0
+  lb r6, r0                            ; value length
+  inc r0
+
+  cmp r5, 9
+  bne &__boot_hdt_loop_argument_leave
+
+  mov r10, r0
+  la r11, &__arg_test_mode
+
+__boot_hdt_loop_test_argument_test_mode_loop:
+  lb r12, r10
+  lb r13, r11
+  cmp r12, r13
+  bne &__boot_hdt_loop_argument_leave
+  inc r10
+  inc r11
+  dec r5
+  bnz &__boot_hdt_loop_test_argument_test_mode_loop
+
+  add r0, $HDT_ARGUMENT_NAME_LEN
+  lw r4, r0                            ; load value
+  la r5, &var_TEST_MODE                ; and save it to TEST-MODE
+  stw r5, r4
+  sub r0, $HDT_ARGUMENT_NAME_LEN       ; undo moves, and point to the name field
+
+__boot_hdt_loop_argument_leave:
+  sub r0, 2
 
   ; fall through to 'go on' branch
 
@@ -733,7 +774,7 @@ __DODOES_push:
   .section .rodata
   .align 4
 cold_start:
-  ;.int &WELCOME
+  .int &WELCOME
   .int &QUIT
 
 
@@ -758,11 +799,19 @@ cold_start:
   .space $USERSPACE_SIZE
 
 
+  ; Welcome ducky
+  .section .rodata
+
+  .type __ducky_welcome, string
+  .string "\r\n\n                     ____             _          _____ ___  ____ _____ _   _ \r\n          \033[93m__\033[0m        |  _ \ _   _  ___| | ___   _|  ___/ _ \|  _ \_   _| | | |\r\n        \033[31m<\033[0m\033[93m(o )___\033[0m    | | | | | | |/ __| |/ / | | | |_ | | | | |_) || | | |_| |\r\n         \033[93m( ._> /\033[0m    | |_| | |_| | (__|   <| |_| |  _|| |_| |  _ < | | |  _  |\r\n          \033[93m`---'\033[0m     |____/ \__,_|\___|_|\_\\\\__, |_|   \___/|_| \_\|_| |_| |_|\r\n                                           |___/                             \r\n\n\n"
+
+
   .set link, 0
 
 ;
 ; Variables
 ;
+$DEFVAR "TEST-MODE", 9, 0, TEST_MODE, 0x00000000
 $DEFVAR "ECHO", 4, 0, ECHO, 0
 $DEFVAR "UP", 2, 0, UP, $USERSPACE_BASE
 $DEFVAR "STATE", 5, 0, STATE, 0
@@ -773,18 +822,20 @@ $DEFVAR "BASE", 4, 0, BASE, 10
 $DEFVAR "SOURCE-ID", 9, 0, SOURCE_ID, 0
 $DEFVAR "SHOW-PROMPT", 11, 0, SHOW_PROMPT, 0
 
+$DEFCODE "DUCKY", 5, $F_HIDDEN, DUCKY
+  la r0, &__ducky_welcome
+  call &writes
+  $NEXT
+
+
 
 $DEFWORD "WELCOME", 7, 0, WELCOME
-  .int &CQUOTE_LITSTRING
-  .int 0x53455409
-  .int 0x4F4D2D54
-  .int 0x00004544
-  .int &FIND
-  .int &SWAP
-  .int &DROP
+  .int &TEST_MODE
+  .int &FETCH
   .int &NOT
   .int &ZBRANCH
-  .int 0x00000078
+  .int 0x000000A8
+  .int &DUCKY
   .int &SQUOTE_LITSTRING
   .int 0x63754413
   .int 0x4F46796B
@@ -809,6 +860,14 @@ $DEFWORD "WELCOME", 7, 0, WELCOME
   .int 0x5220534C
   .int 0x49414D45
   .int 0x474E494E
+  .int &TELL
+  .int &CR
+  .int &SQUOTE_LITSTRING
+  .int 0x70795413
+  .int 0x42222065
+  .int 0x20224559
+  .int 0x65206F74
+  .int 0x20746978
   .int &TELL
   .int &CR
   .int &TRUE
@@ -928,7 +987,7 @@ __ERR_undefined_word:
   pop r0
   call &__ERR_print_input
   li r0, $ERR_UNDEFINED_WORD
-.ifdef FORTH_FAIL_ON_UNDEF
+.ifdef FORTH_DIE_ON_UNDEF
   j &halt
 .else
   ret

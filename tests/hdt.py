@@ -60,6 +60,9 @@ def test_sanity(cpus, cores, memory):
   # HDT header - entries count
   __assert_u32(ptr, 2); ptr += sizeof(u32_t)
 
+  # HDT header - length
+  __assert_u32(ptr, 28); ptr += sizeof(u32_t)
+
   # Memory
   __assert_u16(ptr, ducky.hdt.HDTEntryTypes.MEMORY); ptr += sizeof(u16_t)
   __assert_u16(ptr, sizeof(ducky.hdt.HDTEntry_Memory)); ptr += sizeof(u16_t)

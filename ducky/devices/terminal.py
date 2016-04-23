@@ -101,7 +101,7 @@ class StreamIOTerminal(Terminal):
     self._input = input_device
     self._output = output_device
 
-    self._streams_in = None
+    self._streams_in = []
     self._stream_out = None
 
     self._input.master = self
@@ -144,7 +144,7 @@ class StreamIOTerminal(Terminal):
     self._input.boot()
     self._output.boot()
 
-    self.machine.INFO('hid: basic terminal (%s, %s)', self._input.name, self._output.name)
+    self.machine.tenh('hid: basic terminal (%s, %s)', self._input.name, self._output.name)
 
   def halt(self):
     super(StreamIOTerminal, self).halt()
@@ -156,6 +156,7 @@ class StreamIOTerminal(Terminal):
       stream.close()
 
     if self._stream_out is not None:
+      self._stream_out.flush()
       self._stream_out.close()
 
     self.machine.DEBUG('Standard terminal halted.')
@@ -210,7 +211,7 @@ class StandalonePTYTerminal(StreamIOTerminal):
 
     self.pttys = pttys
 
-    self.machine.INFO('hid: pty terminal (%s, %s), dev %s', self._input.name, self._output.name, self.terminal_device)
+    self.machine.tenh('hid: pty terminal (%s, %s), dev %s', self._input.name, self._output.name, self.terminal_device)
 
   def halt(self):
     self.machine.DEBUG('StandalonePTYTerminal.halt')

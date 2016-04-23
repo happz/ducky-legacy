@@ -40,20 +40,16 @@ def test_file():
     assert s.desc == '<file %s>' % f.name
     assert s.stream == g
     assert s.fd == g.fileno()
-    assert s.close == g.close
     assert s.has_fd()
     assert s._raw_read == s._raw_read_stream
-    assert s.get_selectee() == s.fd
 
     s = create_output(g)
 
     assert s.desc == '<file %s>' % f.name
     assert s.stream == g
     assert s.fd == g.fileno()
-    assert s.close == g.close
     assert s.has_fd()
     assert s._raw_write == s._raw_write_stream
-    assert s.get_selectee() == s.fd
 
 def test_method_proxy():
   M, create_input, create_output = setup_machine()
@@ -73,7 +69,6 @@ def test_method_proxy():
     assert s.fd is None
     assert not s.has_fd()
     assert s._raw_read == s._raw_read_stream
-    assert s.get_selectee() == s.fd
 
     s = create_output(proxy)
 
@@ -82,7 +77,6 @@ def test_method_proxy():
     assert s.fd is None
     assert not s.has_fd()
     assert s._raw_write == s._raw_write_stream
-    assert s.get_selectee() == s.fd
 
 def test_fileno_proxy():
   M, create_input, create_output = setup_machine()
@@ -101,7 +95,6 @@ def test_fileno_proxy():
     assert s.fd == f.fileno()
     assert s.has_fd()
     assert s._raw_read == s._raw_read_fd
-    assert s.get_selectee() == s.fd
 
     s = create_output(proxy)
 
@@ -110,7 +103,6 @@ def test_fileno_proxy():
     assert s.fd == f.fileno()
     assert s.has_fd()
     assert s._raw_write == s._raw_write_fd
-    assert s.get_selectee() == s.fd
 
 def test_fd():
   M, create_input, create_output = setup_machine()
@@ -123,7 +115,6 @@ def test_fd():
     assert s.fd == f.fileno()
     assert s.has_fd()
     assert s._raw_read == s._raw_read_fd
-    assert s.get_selectee() == s.fd
 
     s = create_output(f.fileno())
 
@@ -132,7 +123,6 @@ def test_fd():
     assert s.fd == f.fileno()
     assert s.has_fd()
     assert s._raw_write == s._raw_write_fd
-    assert s.get_selectee() == s.fd
 
 def test_path():
   M, create_input, create_output = setup_machine()
@@ -143,20 +133,16 @@ def test_path():
     assert s.desc == '<file %s>' % f.name
     assert s.stream.name == f.name
     assert s.fd == s.stream.fileno()
-    assert s.close == s.stream.close
     assert s.has_fd()
     assert s._raw_read == s._raw_read_stream
-    assert s.get_selectee() == s.fd
 
     s = create_output(f.name)
 
     assert s.desc == '<file %s>' % f.name
     assert s.stream.name == f.name
     assert s.fd == s.stream.fileno()
-    assert s.close == s.stream.close
     assert s.has_fd()
     assert s._raw_write == s._raw_write_stream
-    assert s.get_selectee() == s.fd
 
 def test_stdin():
   M, create_input, create_output = setup_machine()
@@ -168,7 +154,6 @@ def test_stdin():
     assert s.fd == sys.stdin.fileno()
     assert s.has_fd()
     assert s._raw_read == s._raw_read_stream
-    assert s.get_selectee() == s.stream
 
   finally:
     s.close()
@@ -182,7 +167,6 @@ def test_stdout():
   assert s.stream == sys.stdout
   assert s.fd is (sys.stdout.fileno() if hasattr(sys.stdout, 'fileno') else None)
   assert s._raw_write == s._raw_write_stream
-  assert s.get_selectee() == s.fd
 
 def test_stderr():
   M, create_input, create_output = setup_machine()
@@ -193,7 +177,6 @@ def test_stderr():
   assert s.stream == sys.stderr
   assert s.fd is (sys.stderr.fileno() if hasattr(sys.stderr, 'fileno') else None)
   assert s._raw_write == s._raw_write_stream
-  assert s.get_selectee() == s.fd
 
 def test_unknown():
   M, create_input, create_output = setup_machine()

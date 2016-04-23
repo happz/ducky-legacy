@@ -3,7 +3,7 @@ import string
 from ducky.cpu.assemble import translate_buffer as orig_translate_buffer, RE_INTEGER
 from ducky.errors import IncompleteDirectiveError, UnalignedJumpTargetError
 
-from . import LOGGER, PY2, PY3
+from . import LOGGER, PY3
 
 from functools import partial
 from hypothesis import given, assume

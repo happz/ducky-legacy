@@ -699,7 +699,7 @@ class MemoryController(object):
     Prepare memory controller for immediate usage by other components.
     """
 
-    self.INFO('mm: %s, %s available', sizeof_fmt(self.size, max_unit = 'Ki'), sizeof_fmt(self.size - len(self.pages) * PAGE_SIZE, max_unit = 'Ki'))
+    self.machine.tenh('mm: %s, %s available', sizeof_fmt(self.size, max_unit = 'Ki'), sizeof_fmt(self.size - len(self.pages) * PAGE_SIZE, max_unit = 'Ki'))
 
   def halt(self):
     pass

@@ -19,7 +19,7 @@ from .util import align, BinaryFile
 from .mm import u8_t, u16_t, u32_t, UINT32_FMT, PAGE_SIZE, area_to_pages, PAGE_MASK, ExternalMemoryPage
 from .mm.binary import SectionFlags, File, SectionTypes
 from .snapshot import SnapshotNode
-from .hdt import HDT
+from .hdt import HDT, HDTEntry_Argument
 from .debugging import Point  # noqa
 
 #: By default, Hardware Description Table starts at this address after boot.
@@ -295,11 +295,17 @@ class ROMLoader(IMachineWorker):
       hdt = HDT(self.machine.LOGGER, config = self.config)
       hdt.create()
 
-      __alloc_pages(hdt.size())
+      __alloc_pages(len(hdt))
 
       def __write_field(writer_fn, size, address, field_value):
         writer_fn(address, field_value)
         return address + size
+
+      def __write_array(max_length, address, field_value):
+        for i in range(0, max_length):
+          self.machine.memory.write_u8(address + i, field_value[i])
+
+        return address + max_length
 
       def __write_struct(address, struct):
         for n, t in struct._fields_:
@@ -310,7 +316,8 @@ class ROMLoader(IMachineWorker):
       writers = {
         1: partial(__write_field, self.machine.memory.write_u8,  1),
         2: partial(__write_field, self.machine.memory.write_u16, 2),
-        4: partial(__write_field, self.machine.memory.write_u32, 4)
+        4: partial(__write_field, self.machine.memory.write_u32, 4),
+        HDTEntry_Argument.MAX_NAME_LENGTH: partial(__write_array, HDTEntry_Argument.MAX_NAME_LENGTH)
       }
 
       address = __write_struct(hdt_address, hdt.header)

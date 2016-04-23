@@ -11,7 +11,8 @@ install_requires = [
   'pycparser',
   'six',
   'mako',
-  'msgpack-python'
+  'Twisted',
+  'autobahn'
 ]
 
 tests_requires = [

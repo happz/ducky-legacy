@@ -29,6 +29,8 @@ from .snapshot import SnapshotNode
 from .util import F
 from .boot import ROMLoader
 
+from functools import partial
+
 class MachineState(SnapshotNode):
   def __init__(self):
     super(MachineState, self).__init__('nr_cpus', 'nr_cores')
@@ -45,6 +47,12 @@ class CommQueue(object):
 
     self.queue_in = []
     self.queue_out = []
+
+  def is_empty_out(self):
+    return not bool(self.queue_out)
+
+  def is_empty_in(self):
+    return not bool(self.queue_in)
 
   def write_out(self, o):
     self.queue_out.append(o)
@@ -197,6 +205,10 @@ class Machine(ISnapshotable, IMachineWorker):
     self.ERROR = self.LOGGER.error
     self.EXCEPTION = self.LOGGER.exception
 
+    self._tenh = None
+    self._tenh_device = None
+    self._tenh_enabled = False
+
     self.console = ConsoleMaster(self)
     self.console.register_command('halt', cmd_halt)
     self.console.register_command('boot', cmd_boot)
@@ -214,6 +226,9 @@ class Machine(ISnapshotable, IMachineWorker):
     self.events = EventBus(self)
 
     self.living_cores = []
+
+    self.running = False
+    self.halted = False
 
     self.cpus = []
     self.memory = None
@@ -350,6 +365,8 @@ class Machine(ISnapshotable, IMachineWorker):
   def hw_setup(self, machine_config):
     self.config = machine_config
 
+    self._tenh_enabled = machine_config.getbool('machine', 'tenh-enabled', False)
+
     self.nr_cpus = self.config.getint('machine', 'cpus')
     self.nr_cores = self.config.getint('machine', 'cores')
 
@@ -393,12 +410,34 @@ class Machine(ISnapshotable, IMachineWorker):
     self.irq_router_task.queue[handler.irq] = True
     self.reactor.task_runnable(self.irq_router_task)
 
+  def _do_tenh(self, printer, s, *args):
+    printer('  ' + s + '\r\n', *args)
+    self.INFO(s, *args)
+
+  def tenh(self, s, *args):
+    if not self._tenh_enabled:
+      self.INFO(s, *args)
+      return
+
+    if self._tenh is None:
+      for name, device in iteritems(self.devices['output']):
+        if hasattr(device, 'tenh'):
+          self._tenh_device = device
+          self._tenh = partial(self._do_tenh, device.tenh)
+          device.tenh_enable()
+          break
+
+      else:
+        self._tenh = self.INFO
+
+    self._tenh(s, *args)
+
   def boot(self):
-    self.INFO('Ducky VM, version %s', __version__)
-    self.INFO('Running on %s', sys.version.replace('\n', ' '))
+    self.tenh('Ducky VM, version %s', __version__)
+    self.tenh('Running on %s', sys.version.replace('\n', ' '))
 
     if self.config.getbool('machine', 'jit', False) is True:
-      self.INFO('JIT enabled')
+      self.tenh('JIT enabled')
 
     self.DEBUG('Machine.boot')
 
@@ -417,6 +456,8 @@ class Machine(ISnapshotable, IMachineWorker):
     for __cpu in self.cpus:
       __cpu.boot()
 
+    self.running = True
+
   def run(self):
     self.DEBUG('Machine.run')
 
@@ -427,7 +468,7 @@ class Machine(ISnapshotable, IMachineWorker):
     for __cpu in self.cpus:
       __cpu.run()
 
-    self.start_time = time.time()
+    self.start_time = self.end_time = time.time()
     self.reactor.run()
     self.end_time = time.time()
 
@@ -474,7 +515,14 @@ class Machine(ISnapshotable, IMachineWorker):
     self.events.remove_listener('on-core-alive', self.on_core_alive)
     self.events.remove_listener('on-core-halted', self.on_core_halted)
 
-    self.INFO('Halted.')
+    self.tenh('Halted.')
+
+    if self._tenh_enabled is True:
+      self._tenh_device.tenh_flush_stream()
+      self._tenh_device.tenh_close_stream()
+
+    self.running = False
+    self.halted = True
 
   def capture_state(self, suspend = False):
     """

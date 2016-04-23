@@ -27,10 +27,10 @@ class FileSnapshotStorage(SnapshotStorage):
 
   def save_snapshot(self, snapshot):
     snapshot.save(self.filepath)
-    self.machine.INFO('snapshot: saved in file %s', self.filepath)
+    self.machine.tenh('snapshot: saved in file %s', self.filepath)
 
   def boot(self):
-    self.machine.INFO('snapshot: storage ready, backed by file %s', self.filepath)
+    self.machine.tenh('snapshot: storage ready, backed by file %s', self.filepath)
 
   def halt(self):
     super(FileSnapshotStorage, self).halt()

@@ -236,7 +236,7 @@ class ProfilerStore(object):
 
     return p
 
-  def save(self, directory):
+  def save(self, logger, directory):
     """
     Save all captured data to files. Each created profiler stores its data in
     separate file.
@@ -249,7 +249,11 @@ class ProfilerStore(object):
     for index, profiler in enumerate(self.profilers):
       profiler.disable()
       profiler.create_stats()
-      profiler.dump_stats(filename_pattern % (os.getpid(), profiler.__class__.__name__, index))
+
+      filename = filename_pattern % (os.getpid(), profiler.__class__.__name__, index)
+      profiler.dump_stats(filename)
+
+      logger.info('Profiling data: %s', filename)
 
 #: Main profiler store
 STORE = ProfilerStore()

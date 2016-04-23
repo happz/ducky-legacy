@@ -1,11 +1,11 @@
 """
 Streams represent basic IO objects, used by devices for reading or writing
-streams of data.
+(streams) of data.
 
-``Stream`` object encapsulates an actual IO object - either ``file``-like
-stream, or raw file descriptor. ``Stream`` then provides basic IO methods
-for accessing content of IO object, shielding user from Python2/Python3
-and ``file``/descriptor differencies.
+``Stream`` object encapsulates an actual IO object - ``file``-like stream,
+raw file descriptor, or even something completely different. ``Stream`` classes
+then provide basic IO methods for moving data to and from stream, shielding
+user from implementation details, like Python2/Python3 differencies.
 """
 
 import abc
@@ -22,6 +22,19 @@ from .errors import InvalidResourceError
 from .util import isfile
 
 def fd_blocking(fd, block = None):
+  """
+  Query or set blocking mode of file descriptor.
+
+  :type int fd: file descriptor to manipulate.
+  :type bool block: if set, method will set blocking mode of file descriptor
+    accordingly: ``True`` means blocking, ``False`` non-blocking mode. If not
+    set, the current setting will be returned. ``None`` by default.
+  :rtype: bool
+  :returns: if ``block`` is ``None``, current setting of blocking mode is
+    returned - ``True`` for blocking, ``False`` for non-blocking. Othwerwise,
+    function returns nothing.
+  """
+
   flags = fcntl.fcntl(fd, fcntl.F_GETFL)
 
   if block is None:
@@ -49,10 +62,12 @@ class Stream(object):
     file descriptor is used.
   :param bool close: if ``True``, and if ``stream`` has a ``close()`` method, stream
     will provide ``close()`` method that will close the underlaying ``file``-like
-    object.
+    object. ``True`` by default.
+  :param bool allow_close: if not ``True``, stream's ``close()`` method will *not*
+    close underlying IO resource. ``True`` by default.
   """
 
-  def __init__(self, machine, desc, stream = None, fd = None, close = True):
+  def __init__(self, machine, desc, stream = None, fd = None, close = True, allow_close = True):
     if stream is None and fd is None:
       raise InvalidResourceError('Stream "%s" must have stream object or raw file descriptor.' % desc)
 
@@ -66,8 +81,11 @@ class Stream(object):
     self._raw_read = self._raw_read_stream if stream is not None else self._raw_read_fd
     self._raw_write = self._raw_write_stream if stream is not None else self._raw_write_fd
 
+    self.allow_close = allow_close
+
+    self._close = None
     if close is True and stream is not None and hasattr(stream, 'close'):
-      self.close = stream.close
+      self._close = stream.close
 
   def __repr__(self):
     return '<%s %s>' % (self.__class__.__name__, self.desc)
@@ -83,11 +101,36 @@ class Stream(object):
 
     return self.fd is not None
 
-  def has_select_support(self):
+  def has_poll_support(self):
+    """
+    Streams that can polled for data should return ``True``.
+
+    :rtype: bool
+    """
+
+    # For most common case, if the stream has file descriptor set, it can be polled.
     return self.has_fd()
 
-  def get_selectee(self):
-    return self.fd
+  def register_with_reactor(self, reactor, **kwargs):
+    """
+    Called by owner to register the stream with reactor's polling service.
+
+    See :py:meth:`ducky.reactor.Reactor.add_fd` for keyword arguments.
+
+    :param ducky.reactor.Reactor reactor: reactor instance to register with.
+    """
+
+    reactor.add_fd(self.fd, **kwargs)
+
+  def unregister_with_reactor(self, reactor):
+    """
+    Called by owner to unregister the stream with reactor's polling service,
+    e.g. when stream is about to be closed.
+
+    :param ducky.reactor.Reactor reactor: reactor instance to unregister from.
+    """
+
+    reactor.remove_fd(self.fd)
 
   def _raw_read_stream(self, size = None):
     self.DEBUG('%s._raw_read_stream: size=%s', self.__class__.__name__, size)
@@ -134,7 +177,8 @@ class Stream(object):
 
     :param int size: if set, read at maximum ``size`` bytes.
     :rtype: ``bytearray`` (Python2), ``bytes`` (Python3)
-    :returns: read data, of maximum lenght of ``size``.
+    :returns: read data, of maximum lenght of ``size``, ``None`` when there are
+      no available data, or empty string in case of EOF.
     """
 
     raise NotImplementedError('%s does not implement read method' % self.__class__.__name__)
@@ -151,15 +195,20 @@ class Stream(object):
 
   def close(self):
     """
-    Dummy close method, used when stream is not expected to close underlying IO object.
+    This method will close the stream. If ``allow_close`` flag is not set
+    to ``True``, nothing will happen. If the stream wasn't created with ``close``
+    set to ``True``, nothing will happen. If the wrapped IO resource does not
+    have ``close()`` method, nothing will happen.
     """
 
-    self.DEBUG('%s.close: not supported', self.__class__.__name__)
+    self.DEBUG('%s.close: allow_close=%s, _close=%s', self.__class__.__name__, self.allow_close, self._close)
 
-    # There have to be at least one statement here, otherwise patching will fail horribly.
-    # But a single "pass" leads Codacy to emit warning about unnecessary pass statement,
-    # so lets fool it otherwise
-    return None
+    if not self.allow_close:
+      self.DEBUG('%s.close: not allowed', self.__class__.__name__)
+      return
+
+    if self._close is not None:
+      self._close()
 
 class InputStream(Stream):
   if PY2:
@@ -274,6 +323,10 @@ class OutputStream(Stream):
       self.DEBUG('%s.write: buff=%s', self.__class__.__name__, buff)
 
       self._raw_write(bytes(buff))
+
+  def flush(self):
+    if self.stream is not None and hasattr(self.stream, 'flush'):
+      self.stream.flush()
 
   @staticmethod
   def create(machine, desc):

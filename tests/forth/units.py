@@ -3,8 +3,7 @@ from . import run_forth_vm, logs_dir, tests_dir
 def __run_unit(name):
   options = [
     '--add-option=device-3:streams_in=%s' % tests_dir('forth', 'ans-testsuite', 'src', 'tester.fr'),
-    '--add-option=device-3:streams_in=%s' % tests_dir('forth', 'units', '%s.f' % name),
-    '--add-option=device-3:streams_in=%s' % tests_dir('forth', 'run-test-word.f'),
+    '--add-option=device-3:streams_in=%s' % tests_dir('forth', 'units', '%s.f' % name)
   ]
 
   return run_forth_vm(out = logs_dir('forth-unit-%s.out' % name), machine = logs_dir('forth-unit-%s.machine' % name), options = options, diff_expected = ('forth', 'units', '%s.expected' % name), coverage_name = 'forth-unit-%s' % name)

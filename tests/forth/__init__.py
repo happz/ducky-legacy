@@ -16,10 +16,8 @@ def run_forth_vm(out = None, machine = None, options = None, diff_expected = Non
 
   cmd = [
     config['vm-runner']['ducky-vm'],
-    '-g',
     '--machine-config=%s' % tests_dir('forth', 'machine.conf'),
-    '--set-option=bootloader:file=%s' % forth_dir('ducky-forth'),
-    '--set-option=device-3:streams_in=%s' % tests_dir('forth', 'enable-test-mode.f'),
+    '--set-option=bootloader:file=%s' % forth_dir('ducky-forth')
   ] + options + [
     '--set-option=device-3:stream_out=%s' % out
   ]

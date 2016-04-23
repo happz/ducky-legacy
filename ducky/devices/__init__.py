@@ -60,12 +60,12 @@ class Device(IMachineWorker):
 
 
 class DeviceFrontend(Device):
-  pass
-
+  def set_backend(self, device):
+    self.backend = device
 
 class DeviceBackend(Device):
-  pass
-
+  def set_frontend(self, device):
+    self.frontend = device
 
 class IRQProvider(object):
   pass

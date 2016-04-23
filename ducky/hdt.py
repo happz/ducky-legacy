@@ -5,7 +5,8 @@ Hardware Description Table structures.
 from ctypes import LittleEndianStructure, sizeof
 from enum import IntEnum
 
-from .mm import u16_t, u32_t
+from .mm import u8_t, u16_t, u32_t
+from .util import str2int
 
 #: Magic number present in HDT header
 HDT_MAGIC = 0x4D5E6F70
@@ -18,6 +19,7 @@ class HDTEntryTypes(IntEnum):
   UNDEFINED = 0
   CPU       = 1
   MEMORY    = 2
+  ARGUMENT  = 3
 
 class HDTStructure(LittleEndianStructure):
   """
@@ -34,7 +36,8 @@ class HDTHeader(HDTStructure):
 
   _fields_ = [
     ('magic',   u32_t),
-    ('entries', u32_t)
+    ('entries', u32_t),
+    ('length',  u32_t)
   ]
 
   def __init__(self):
@@ -107,6 +110,62 @@ class HDTEntry_Memory(HDTEntry):
 
     logger.debug('HDTEntry_Memory: size=%s', self.size)
 
+class HDTEntry_Argument(HDTEntry):
+  """
+  """
+
+  _fields_ = [
+    ('type',         u16_t),
+    ('length',       u16_t),
+    ('name_length',  u8_t),
+    ('value_length', u8_t),
+    ('name',         u8_t * 13),
+    ('value',        u8_t * 13)
+  ]
+
+  MAX_NAME_LENGTH = 13
+
+  def __init__(self, arg_name, arg_type, arg_value):
+    HDTEntry.__init__(self, HDTEntryTypes.ARGUMENT, sizeof(HDTEntry_Argument))
+
+    def __encode_string(field, s):
+      for i, c in enumerate(s):
+        getattr(self, field)[i] = ord(c)
+
+        if i == HDTEntry_Argument.MAX_NAME_LENGTH - 1:
+          break
+
+      setattr(self, field + '_length', i + 1)
+
+    __encode_string('name', arg_name)
+
+    if arg_type == 'int':
+      arg_value = str2int(arg_value)
+
+      self.value[0] = arg_value & 0xFF
+      self.value[1] = (arg_value >> 8) & 0xFF
+      self.value[2] = (arg_value >> 16) & 0xFF
+      self.value[3] = (arg_value >> 24) & 0xFF
+
+    else:
+      __encode_string('value', arg_value)
+
+  @classmethod
+  def create(cls, logger, config):
+    if not config.has_section('arguments'):
+      return []
+
+    arguments = []
+
+    for arg_name in config.options('arguments'):
+      arg_type, arg_value = config.get('arguments', arg_name).split(',')
+      arg_type = arg_type.strip()
+      arg_value = arg_value.strip()
+
+      arguments.append(HDTEntry_Argument(arg_name, arg_type, arg_value))
+
+    return arguments
+
 class HDT(object):
   """
   Root of HDT. Provides methods for creating HDT for a given machine configuration.
@@ -118,6 +177,7 @@ class HDT(object):
   klasses = [
     HDTEntry_Memory,
     HDTEntry_CPU,
+    HDTEntry_Argument
   ]
 
   def __init__(self, logger, config = None):
@@ -126,6 +186,16 @@ class HDT(object):
 
     self.header = None
     self.entries = []
+
+  def __len__(self):
+    """
+    Get size of HDT - sum of entries' lengths and length of a header.
+
+    :rtype: int
+    :returns: size of HDT, in bytes.
+    """
+
+    return sizeof(HDTHeader) + sum([sizeof(entry) for entry in self.entries])
 
   def create(self):
     """
@@ -138,13 +208,4 @@ class HDT(object):
       self.entries += klass.create(self.logger, self.config)
 
     self.header.entries = len(self.entries)
-
-  def size(self):
-    """
-    Get size of HDT - sum of entries' lengths and length of a header.
-
-    :rtype: int
-    :returns: size of HDT, in bytes.
-    """
-
-    return sizeof(HDTHeader) + sum([sizeof(entry) for entry in self.entries])
+    self.header.length = len(self)

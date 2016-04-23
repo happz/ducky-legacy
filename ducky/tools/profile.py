@@ -61,7 +61,6 @@ def main():
   all_hits = sum([record.count for record in itervalues(merged_data)])
 
   def print_points():
-    from ..boot import DEFAULT_BOOTLOADER_ADDRESS
     from ..mm import UINT32_FMT
     from ..cpu.instructions import DuckyInstructionSet
 

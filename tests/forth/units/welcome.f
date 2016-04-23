@@ -4,3 +4,5 @@
   UNUSED . ." CELLS REMAINING" CR
   ." OK " CR
 ;
+
+TEST

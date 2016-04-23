@@ -26,7 +26,7 @@ class Frontend(DeviceFrontend):
     self._streams = []
     self._stream = None
 
-    self._backend = machine.get_device_by_name(name)
+    self.backend = machine.get_device_by_name(name)
 
   @staticmethod
   def create_from_config(machine, config, section):
@@ -38,19 +38,19 @@ class Frontend(DeviceFrontend):
     super(Frontend, self).boot()
 
     self._open_input()
-    self._backend.boot()
+    self.backend.boot()
 
   def halt(self):
     self._close_input()
-    self._backend.halt()
+    self.backend.halt()
 
     super(Frontend, self).halt()
 
   def enqueue_stream(self, stream):
     self.machine.DEBUG('%s.enqueue_input: stream=%s', self.__class__.__name__, stream)
 
-    if not stream.has_select_support():
-      raise InvalidResourceError('Keyboard controller requires input stream with fd support')
+    if not stream.has_poll_support():
+      raise InvalidResourceError('Keyboard stream must support polling')
 
     self._streams.append(stream)
 
@@ -60,7 +60,7 @@ class Frontend(DeviceFrontend):
     if self._stream is None:
       return
 
-    self.machine.reactor.remove_fd(self._stream.get_selectee())
+    self._stream.unregister_with_reactor(self.machine.reactor)
     self._stream = None
 
   def _open_input(self):
@@ -80,7 +80,7 @@ class Frontend(DeviceFrontend):
     self._stream = self._streams.pop(0)
     self.machine.DEBUG('%s._open_input: stream=%r', self.__class__.__name__, self._stream)
 
-    self.machine.reactor.add_fd(self._stream.get_selectee(), on_read = self._handle_raw_input, on_error = self._handle_input_error)
+    self._stream.register_with_reactor(self.machine.reactor, on_read = self._handle_raw_input, on_error = self._handle_input_error)
 
   def _handle_input_error(self):
     self.machine.DEBUG('%s._handle_input_error')
@@ -108,7 +108,7 @@ class Frontend(DeviceFrontend):
 
     self._comm_queue.write_in(buff)
 
-    self.machine.trigger_irq(self._backend)
+    self.machine.trigger_irq(self.backend)
 
 class Backend(IRQProvider, IOProvider, DeviceBackend):
   def __init__(self, machine, name, port = None, irq = None):
@@ -136,7 +136,7 @@ class Backend(IRQProvider, IOProvider, DeviceBackend):
     for port in self.ports:
       self.machine.register_port(port, self)
 
-    self.machine.INFO('hid: %s', self)
+    self.machine.tenh('hid: %s', self)
 
   def halt(self):
     self.machine.DEBUG('%s.halt', self.__class__.__name__)

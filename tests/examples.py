@@ -6,6 +6,7 @@ import ducky.snapshot
 
 from testconfig import config
 from functools import partial
+from six import iteritems
 
 tests_dir = partial(os.path.join, config['dirs']['tests'])
 forth_dir = partial(os.path.join, config['dirs']['forth'])
@@ -19,7 +20,6 @@ def run_example(name, label, options = None, exit_code = 0, snapshot_device = No
 
   cmd = [
     config['vm-runner']['ducky-vm'],
-    '-g',
     '--machine-config=%s' % examples_dir(name, '%s.conf' % name),
     '--set-option=bootloader:file=%s' % examples_dir(name, name),
   ]
@@ -41,6 +41,12 @@ def run_example(name, label, options = None, exit_code = 0, snapshot_device = No
   cmd[0] = '%s %s' % (config['vm-runner']['runner'], cmd[0])
 
   machine_log = logs_dir('example-%s.machine' % label)
+
+  with open(config['log']['trace'], 'a') as f_trace:
+    f_trace.write('CMD: %s\n' % ' '.join(cmd))
+    f_trace.write('ENV:\n')
+    for k, v in iteritems(env):
+      f_trace.write('   %s=%s\n' % (k, v))
 
   logging.getLogger().info(' '.join(cmd))
 

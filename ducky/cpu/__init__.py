@@ -912,7 +912,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
 
     self.cpu.machine.reactor.remove_task(self)
 
-    self.INFO('CPU core halted')
+    self.cpu.machine.tenh('%r: CPU core halted', self)
 
   def run(self):
     try:
@@ -943,12 +943,12 @@ class CPUCore(ISnapshotable, IMachineWorker):
     if self.core_profiler is not None:
       self.core_profiler.enable()
 
-    self.INFO('CPU core is up')
+    self.cpu.machine.tenh('%r: CPU core is up', self)
     if self.mmu.instruction_cache is not None:
-      self.INFO('  {} IC slots'.format(self.mmu.instruction_cache.size))
-    self.INFO('  check-frames: %s', 'yes' if self.check_frames else 'no')
+      self.cpu.machine.tenh('%r:  %d IC slots', self, self.mmu.instruction_cache.size)
+    self.cpu.machine.tenh('%r:  check-frames: %s', self, 'yes' if self.check_frames else 'no')
     if self.coprocessors:
-      self.INFO('  coprocessor: %s', ' '.join(sorted(iterkeys(self.coprocessors))))
+      self.cpu.machine.tenh('%r:  coprocessor: %s', self, ' '.join(sorted(iterkeys(self.coprocessors))))
 
 class CPU(ISnapshotable, IMachineWorker):
   def __init__(self, machine, cpuid, memory_controller, cores = 1):
@@ -1084,7 +1084,7 @@ class CPU(ISnapshotable, IMachineWorker):
     self.machine.events.remove_listener('on-core-running', self.on_core_running)
     self.machine.events.remove_listener('on-core-suspended', self.on_core_suspended)
 
-    self.INFO('CPU halted')
+    self.machine.tenh('%r: CPU halted', self)
 
   def boot(self):
     self.DEBUG('CPU.boot')
@@ -1097,7 +1097,7 @@ class CPU(ISnapshotable, IMachineWorker):
     for core in self.cores:
       core.boot()
 
-    self.INFO('CPU is up')
+    self.machine.tenh('%r: CPU is up', self)
 
 def cmd_set_core(console, cmd):
   """

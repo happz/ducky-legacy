@@ -17,7 +17,7 @@ E.PassVarAsDefine('BUILD_STAMP', to_boolean = False)
 E.PassVarAsDefine('FORTH_DEBUG')
 E.PassVarAsDefine('FORTH_DEBUG_FIND')
 E.PassVarAsDefine('FORTH_TIR')
-E.PassVarAsDefine('FORTH_FAIL_ON_UNDEF')
+E.PassVarAsDefine('FORTH_DIE_ON_UNDEF')
 
 E.DuckyObject('ducky-forth.o', source = 'ducky-forth.asm')
 E.Depends('ducky-forth.o', ['ducky-forth.asm', 'double-cell-ints.asm', 'ducky-forth-defs.asm', 'ducky-forth-words.asm'])

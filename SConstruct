@@ -105,7 +105,7 @@ VARS.Add(BoolVariable('BOOT_IMAGE',         'Set to true to build boot loader wi
 VARS.Add(BoolVariable('FORTH_DEBUG',        'Build FORTH kernel with debugging enabled', False))
 VARS.Add(BoolVariable('FORTH_DEBUG_FIND',   'Build FORTH kernel with FIND debugging enabled', False))
 VARS.Add(BoolVariable('FORTH_TIR',          'Build FORTH kernel with TOS in register', True))
-VARS.Add(BoolVariable('FORTH_FAIL_ON_UNDEF', 'Die when undefined word is encountered', True))
+VARS.Add(BoolVariable('FORTH_DIE_ON_UNDEF', 'Die when undefined word is encountered', False))
 
 
 #
@@ -327,7 +327,7 @@ class DuckyCommand(object):
     self.runner = self.runner + ' ' + env.subst('$VIRTUAL_ENV/bin/coverage run --rcfile=$TOPDIR/coveragerc')
 
   def wrap_by_profiling(self, env):
-    self.command += ' ' + env.subst('-p -P $PROFILEDIR')
+    self.command += ' ' + env.subst('--profile --profile-dir $PROFILEDIR')
 
   def wrap_by_debugging(self, env):
     self.command += ' -d'
@@ -366,7 +366,7 @@ def __link_ducky_binary(source, target, env):
 
   return cmd.run(env, 'LINK', target[0])
 
-def __run_ducky_binary(self, config, set_options = None, add_options = None, goon = True, environ = None, expected_exit = 0):
+def __run_ducky_binary(self, config, set_options = None, add_options = None, environ = None, expected_exit = 0):
   set_options = set_options or []
   add_options = add_options or []
   environ = environ or {}
@@ -378,9 +378,8 @@ def __run_ducky_binary(self, config, set_options = None, add_options = None, goo
 
   config = File(config) if isinstance(config, string_types) else config
 
-  cmdline = self.subst('$VIRTUAL_ENV/bin/ducky-vm --machine-config={machine_config} {goon} {set_options} {add_options}'.format(
+  cmdline = self.subst('$VIRTUAL_ENV/bin/ducky-vm --machine-config={machine_config} {set_options} {add_options}'.format(
     machine_config = config.abspath,
-    goon = '-g' if goon is True else '',
     set_options = ' '.join(['--set-option=%s' % option for option in set_options]),
     add_options = ' '.join(['--add-option=%s' % option for option in add_options])))
 

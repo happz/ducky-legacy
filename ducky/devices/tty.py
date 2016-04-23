@@ -21,6 +21,9 @@ class FrontendFlushTask(IReactorTask):
     self._queue = queue
     self._stream = stream
 
+  def set_output(self, stream):
+    self._stream = stream
+
   def run(self):
     self._machine.DEBUG('%s.run', self.__class__.__name__)
 
@@ -40,7 +43,8 @@ class Frontend(DeviceFrontend):
     self._stream = None
 
     self._flush_task = None
-    self._backend = machine.get_device_by_name(name)
+    self.set_backend(machine.get_device_by_name(name))
+    self.backend.set_frontend(self)
 
   @staticmethod
   def create_from_config(machine, config, section):
@@ -55,10 +59,10 @@ class Frontend(DeviceFrontend):
     self.machine.reactor.add_task(self._flush_task)
     self.machine.reactor.task_runnable(self._flush_task)
 
-    self._backend.boot()
+    self.backend.boot()
 
   def halt(self):
-    self._backend.halt()
+    self.backend.halt()
 
     self.machine.reactor.remove_task(self._flush_task)
 
@@ -69,10 +73,22 @@ class Frontend(DeviceFrontend):
 
     self._stream = stream
 
-  def handle_event(self, event):
-    self.machine.DEBUG('%s.handle_event: event=%r', self.__class__.__name__, event)
+    if self._flush_task is not None:
+      self._flush_task.set_output(stream)
 
-    self._stream.write([event.b])
+  def flush(self):
+    while not self._comm_queue.is_empty_out():
+      self._flush_task.run()
+
+  def close(self, allow = False):
+    if allow is True:
+      self._stream.allow_close = True
+
+    self._stream.close()
+
+  def tenh_enable(self):
+    if self._stream is not None:
+      self._stream.allow_close = False
 
 class Backend(IOProvider, DeviceBackend):
   def __init__(self, machine, name, stream = None, port = None, *args, **kwargs):
@@ -99,13 +115,30 @@ class Backend(IOProvider, DeviceBackend):
 
     self.comm_queue.write_out(value)
 
+  def tenh(self, s, *args):
+    self.machine.DEBUG('%s.tenh: s="%s", args=%s', self.__class__.__name__, s, args)
+
+    s = s % args
+
+    for c in s:
+      self.comm_queue.write_out(ord(c))
+
+  def tenh_enable(self):
+    self.frontend.tenh_enable()
+
+  def tenh_flush_stream(self):
+    self.frontend.flush()
+
+  def tenh_close_stream(self):
+    self.frontend.close(allow = True)
+
   def boot(self):
     self.machine.DEBUG('%s.boot', self.__class__.__name__)
 
     for port in self.ports:
       self.machine.register_port(port, self)
 
-    self.machine.INFO('hid: %s', self)
+    self.machine.tenh('hid: %s', self)
 
   def halt(self):
     self.machine.DEBUG('%s.halt', self.__class__.__name__)

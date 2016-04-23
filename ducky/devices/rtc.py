@@ -75,7 +75,7 @@ class RTC(IRQProvider, IOProvider, Device):
 
     now = datetime.datetime.now()
 
-    self.machine.INFO('RTC: time %02i:%02i:%02i, date: %02i/%02i/%02i', now.hour, now.minute, now.second, now.day, now.month, now.year - 2000)
+    self.machine.tenh('RTC: time %02i:%02i:%02i, date: %02i/%02i/%02i', now.hour, now.minute, now.second, now.day, now.month, now.year - 2000)
 
   def halt(self):
     for port in self.ports:

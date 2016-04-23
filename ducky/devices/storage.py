@@ -149,7 +149,7 @@ class FileBackedStorage(Storage):
 
     self.file = open(self.filepath, 'r+b')
 
-    self.machine.INFO('storage: file %s as storage #%i (%s)', self.filepath, self.sid, self.name)
+    self.machine.tenh('storage: file %s as storage #%i (%s)', self.filepath, self.sid, self.name)
 
   def halt(self):
     self.machine.DEBUG('FileBackedStorage.halt')
@@ -213,7 +213,7 @@ class BlockIO(IRQProvider, IOProvider, Device):
     for port in self.ports:
       self.machine.register_port(port, self)
 
-    self.machine.INFO('BIO: controller on [%s] as %s', UINT16_FMT(self.port), self.name)
+    self.machine.tenh('BIO: controller on [%s] as %s', UINT16_FMT(self.port), self.name)
 
   def halt(self):
     for port in self.ports:
