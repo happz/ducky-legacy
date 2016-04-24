@@ -44,11 +44,11 @@ class Tox(TestCommand):
     sys.exit(errno)
 
 setup(name = 'ducky',
-      version = '2.0',
+      version = '3.0',
       description = 'Simple virtual CPU/machine simulator',
       long_description = 'Ducky is a simple virtual CPU/machine simulator, with modular design and interesting features.',
       url = 'https://github.com/happz/ducky',
-      download_url = 'https://github.com/happz/ducky/tarball/2.0',
+      download_url = 'https://github.com/happz/ducky/tarball/3.0',
       author = 'Milos Prchlik',
       author_email = 'happz@happz.cz',
       license = 'MIT',
