@@ -78,20 +78,13 @@ def show_pages(logger, state, empty_pages = False):
 
         c = chr(b)
         if c in string.printable[0:-5]:
-          c = r'%' if c == '%' else (' ' + c)
+          c = r'%' if c == '%' else c
           t.append(c)
 
-        elif b == 10:
-          t.append(r'\n')
-
-        elif b == 13:
-          t.append(r'\r')
-
         else:
-          t.append('  ')
+          t.append('.')
 
-      logger.info('    ' + UINT32_FMT(pg_addr + i * CPR) + ':    ' + ' '.join(s))
-      logger.info('                  ' + ' '.join(t))
+      logger.info('    ' + UINT32_FMT(pg_addr + i * CPR) + ':    ' + ' '.join(s) + '    ' + ''.join(t))
 
     logger.info('')
 
@@ -147,7 +140,7 @@ def __show_forth_word(logger, state, symbols, base_address, ending_addresses):
     code_token = __read_u32(code_address).value
     token_name = symbols.get(code_token, '<unknown>')
 
-    logger.info('              %s - %s', UINT32_FMT(code_token), token_name)
+    logger.info('  %s  %s - %s', UINT32_FMT(code_address), UINT32_FMT(code_token), token_name)
 
     if code_token in ending_addresses:
       break
