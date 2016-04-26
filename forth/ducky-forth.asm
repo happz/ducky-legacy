@@ -467,9 +467,9 @@ __relocate_sections:
 ;
 boot_phase1:
   ; First, turn of debugging. We have no stack, we can't call __vmdebug_off.
-  ;li r0, 0x00
-  ;li r1, 0x01
-  ;int 18
+  li r0, 0x00
+  li r1, 0x01
+  int 18
 
   ; Now, walk through HDT, and save interesting info
   li r0, $BOOT_HDT_ADDRESS             ; r0 will be our HDT pointer
@@ -589,12 +589,12 @@ boot_phase2:
   ; +--------------------+ <- 0x00000200
   ; |                    |
   ; +--------------------+
-  ; ...
-  ; +
-  ; |
+  ; |                    |
   ; +                    +
-  ; | Log stack          |
-  ; +--------------------+ <- LSP
+  ; ...                ...
+  ; +                    +
+  ; |                    |
+  ; +--------------------+ <- HEAP, HEAP-START
   ; | RTC stack          |
   ; +--------------------+
   ; | Dummy IVT stack    |
@@ -639,8 +639,15 @@ boot_phase2:
   mov r9, r10                          ; RTC SP
   sub r10, $PAGE_SIZE
   mov r8, r10                          ; Keyboard SP
-  sub r8, $PAGE_SIZE
+  sub r10, $PAGE_SIZE
   mov r7, r10                          ; dummy SP
+  sub r10, $PAGE_SIZE
+
+  ; Init heap pointer
+  la r0, &var_HEAP_START
+  la r1, &var_HEAP
+  stw r0, r10
+  stw r1, r10
   sub r10, $PAGE_SIZE
 
   mov r0, r11
@@ -674,12 +681,6 @@ __boot_phase2_ivt_failsafe_loop:
   add r0, $INT_SIZE
   stw r0, r8
   add r0, $INT_SIZE
-
-.ifdef FORTH_DEBUG
-  ; Log stack
-  mov $LSP, r10
-  sub r10, $PAGE_SIZE
-.endif
 
   ; init LATEST
   la r0, &var_LATEST
@@ -758,7 +759,7 @@ DODOES:
   bz &__DODOES_push
 
   $pushrsp $FIP
-  mov $FIP, $W
+  mov $FIP, $Z
 
 __DODOES_push:
   add $W, $CELL           ; W points to Param Field #1 - payload address
@@ -1829,8 +1830,9 @@ __NUMBER_negate:
 .endif
 
 $DEFCODE "FIND", 4, 0, FIND
-  ; ( c-addr -- 0 0 | xt 1 | xt -1 )
+  ; ( c-addr -- c-addr 0 | xt 1 | xt -1 )
 .ifdef FORTH_TIR
+  mov $X, $TOS                         ; save c-addr for later
   mov r0, $TOS
   inc r0
   mov r1, $TOS
@@ -1857,10 +1859,10 @@ $DEFCODE "FIND", 4, 0, FIND
   j &__FIND_next
 __FIND_notfound:
 .ifdef FORTH_TIR
-  push 0x00
+  push $X                              ; saved c-addr
   li $TOS, 0x00
 .else
-  push 0
+  push $X                              ; saved c-addr
   push 0
 .endif
 __FIND_next:
@@ -2038,7 +2040,9 @@ __TCFA:
 
 $DEFWORD ">DFA", 4, 0, TDFA
   .int &TCFA
-  .int &INCR2
+  .int &LIT
+  .int $CELL
+  .int &ADD
   .int &EXIT
 
 
@@ -2050,8 +2054,6 @@ $DEFCODE "EXECUTE", 7, 0, EXECUTE
   pop $W
 .endif
   lw $X, $W
-  $log_word $W
-  $log_word $X
   j $X
 
 
@@ -2339,8 +2341,6 @@ __interpret_execute:
   ; execute the word
   mov $W, r0
   lw $X, r0
-  $log_word $W
-  $log_word $X
   j $X
 
 __interpret_execute_lit:
@@ -3648,6 +3648,47 @@ $DEFWORD "VALUE", 5, 0, VALUE
   .int &EXIT
   .int &COMMA
   .int &EXIT
+
+
+$DEFCODE "TO", 2, $F_IMMED, TO
+  call &__read_dword_with_refill
+  $unpack_word_for_find
+  call &__FIND
+  call &__TCFA                         ; point to Code Field
+  add r0, $CELL                        ; point to Data Field
+  add r0, $CELL                        ; point to value field
+
+  la $W, &var_STATE
+  lw $W, $W
+  bz &__TO_store
+
+  la $W, &var_DP
+  lw $X, $W
+
+  la $Z, &LIT
+  stw $X, $Z
+  add $X, $CELL
+
+  stw $X, r0
+  add $X, $CELL
+
+  la $Z, &STORE
+  stw $X, $Z
+  add $X, $CELL
+
+  stw $W, $X
+  j &__TO_quit
+
+__TO_store:
+.ifdef FORTH_TIR
+  stw r0, $TOS
+  pop $TOS
+.else
+  pop $X
+  stw r0, $X
+.endif
+__TO_quit:
+  $NEXT
 
 
 ; Include non-kernel words

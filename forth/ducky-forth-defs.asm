@@ -11,7 +11,7 @@
 .def DUCKY_VERSION: 0x0002
 
 .def TEXT_BASE:      0x0000
-.def USERSPACE_BASE: 0x5000
+.def USERSPACE_BASE: 0x6000
 
 ; RTC frequency - 1 tick per second is good enough for us.
 .ifndef RTC_FREQ
@@ -63,10 +63,6 @@
 .def TOS: r22
 .endif
 
-.ifdef FORTH_DEBUG
-.def LSP: r19
-.endif
-
 
 ; Offsets of word header fields
 ;
@@ -115,13 +111,6 @@
   add $RSP, $CELL
 .end
 
-.macro log_word reg:
-.ifdef FORTH_DEBUG
-  sub $LSP, $CELL
-  stw $LSP, #reg
-.endif
-.end
-
 .macro NEXT:
   ; FIP points to a cell with address of a Code Field,
   ; and Code Field contains address of routine
@@ -129,8 +118,6 @@
   lw $W, $FIP      ; W = address of a Code Field
   add $FIP, $CELL  ; move FIP to next cell in thread
   lw $X, $W        ; X = address of routine
-  $log_word $W
-  $log_word $X
   j $X
 .end
 
@@ -210,18 +197,6 @@
 
   .text
 code_#label:
-.ifdef FORTH_TIR
-  $log_word $TOS
-  lw $W, sp
-  $log_word $W
-  $log_word sp
-.else
-  lw $W, sp
-  $log_word $W
-  lw $W, sp[4]
-  $log_word $W
-  $log_word sp
-.endif
 .end
 
 .macro DEFVAR name, len, flags, label, initial:

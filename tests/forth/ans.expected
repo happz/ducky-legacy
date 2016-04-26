@@ -1,0 +1,124 @@
+
+
+CR CR SOURCE TYPE ( Preliminary test ) CR
+SOURCE ( These lines test SOURCE, TYPE, CR and parenthetic comments ) TYPE CR
+( The next line of output should be blank to test CR ) SOURCE TYPE CR CR
+
+( Pass #1: testing 0 >IN +! ) 0 >IN +! SOURCE TYPE CR
+( Pass #2: testing 1 >IN +! ) 1 >IN +! xSOURCE TYPE CR
+( Pass #3: testing 1+ ) 1 1+ >IN +! xxSOURCE TYPE CR
+( Pass #4: testing @ ! BASE ) 0 1+ 1+ BASE ! BASE @ >IN +! xxSOURCE TYPE CR
+( Pass #5: testing decimal BASE ) BASE @ >IN +! xxxxxxxxxxSOURCE TYPE CR
+( Pass #6: testing : ; ) : .SRC SOURCE TYPE CR ; 6 >IN +! xxxxxx.SRC
+( Pass #7: testing number input ) 19 >IN +! xxxxxxxxxxxxxxxxxxx.SRC
+( Pass #8: testing VARIABLE ) VARIABLE Y 2 Y ! Y @ >IN +! xx.SRC
+( Pass #9: testing WORD COUNT ) 5 MSG abcdef) Y ! Y ! >IN +! xxxxx.SRC
+( Pass #10: testing WORD COUNT ) MSG ab) >IN +! xxY ! .SRC
+Pass #11: testing WORD COUNT .MSG
+Pass #12: testing = returns all 1's for true
+Pass #13: testing = returns 0 for false
+Pass #14: testing -1 interpreted correctly
+Pass #15: testing 2*
+Pass #16: testing 2*
+Pass #17: testing AND
+Pass #18: testing AND
+Pass #19: testing AND
+Pass #20: testing ?F~ ?~~ Pass Error
+Pass #21: testing ?~
+Pass #22: testing EMIT
+Pass #23: testing S"
+
+Results: 
+
+Pass messages #1 to #23 should be displayed above
+and no error messages
+
+0 tests failed out of 56 additional tests
+
+
+--- End of Preliminary Tests --- 
+
+TESTING CORE WORDS
+TESTING BASIC ASSUMPTIONS
+TESTING BOOLEANS: INVERT AND OR XOR
+TESTING 2* 2/ LSHIFT RSHIFT
+TESTING COMPARISONS: 0= = 0< < > U< MIN MAX
+TESTING STACK OPS: 2DROP 2DUP 2OVER 2SWAP ?DUP DEPTH DROP DUP OVER ROT SWAP
+TESTING >R R> R@
+TESTING ADD/SUBTRACT: + - 1+ 1- ABS NEGATE
+TESTING MULTIPLY: S>D * M* UM*
+TESTING DIVIDE: FM/MOD SM/REM UM/MOD */ */MOD / /MOD MOD
+TESTING HERE , @ ! CELL+ CELLS C, C@ C! CHARS 2@ 2! ALIGN ALIGNED +! ALLOT
+TESTING CHAR [CHAR] [ ] BL S"
+TESTING ' ['] FIND EXECUTE IMMEDIATE COUNT LITERAL POSTPONE STATE (*** DUCKY PATCH **)
+TESTING IF ELSE THEN BEGIN WHILE REPEAT UNTIL RECURSE (*** DUCKY PATCH **)
+TESTING DO LOOP +LOOP I J UNLOOP LEAVE EXIT
+TESTING DEFINING WORDS: : ; CONSTANT VARIABLE CREATE DOES> >BODY
+TESTING EVALUATE
+TESTING SOURCE >IN WORD (*** DUCKY PATCH **)
+TESTING <# # #S #> HOLD SIGN BASE >NUMBER HEX DECIMAL
+TESTING FILL MOVE
+TESTING OUTPUT: . ." CR EMIT SPACE SPACES TYPE U.
+YOU SHOULD SEE THE STANDARD GRAPHIC CHARACTERS:
+ !"#$%&'()*+,-./0123456789:;<=>?@
+ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_`
+abcdefghijklmnopqrstuvwxyz{|}~
+YOU SHOULD SEE 0-9 SEPARATED BY A SPACE:
+0 1 2 3 4 5 6 7 8 9 
+YOU SHOULD SEE 0-9 (WITH NO SPACES):
+0123456789
+YOU SHOULD SEE A-G SEPARATED BY A SPACE:
+A B C D E F G 
+YOU SHOULD SEE 0-5 SEPARATED BY TWO SPACES:
+0   1   2   3   4   5   
+YOU SHOULD SEE TWO SEPARATE LINES:
+LINE 1
+LINE 2
+YOU SHOULD SEE THE NUMBER RANGES OF SIGNED AND UNSIGNED NUMBERS:
+  SIGNED: -80000000 7FFFFFFF 
+UNSIGNED: 0 FFFFFFFF 
+TESTING INPUT: ACCEPT
+
+PLEASE TYPE UP TO 80 CHARACTERS:
+
+RECEIVED: ""
+TESTING DICTIONARY SEARCH RULES
+
+End of Core word set tests
+TESTING DO +LOOP with run-time increment, negative increment, infinite loop
+TESTING DO +LOOP with large and small increments (*** DUCKY PATCH ***)
+TESTING DO +LOOP with maximum and minimum increments (*** DUCKY PATCH ***)
+TESTING multiple RECURSEs in one colon definition
+TESTING multiple ELSE's in an IF statement
+TESTING manipulation of >IN in interpreter mode
+TESTING IMMEDIATE with CONSTANT  VARIABLE and CREATE [ ... DOES> ] (*** DUCKY PATCH ***)
+TESTING that IMMEDIATE doesn't toggle a flag
+TESTING parsing behaviour of S" ." and (
+
+You should see 2345: 2345
+TESTING number prefixes # $ % and 'c' character input
+TESTING definition names
+TESTING FIND with a zero length string and a non-existent word
+
+End of additional Core tests
+
+---------------------------
+         Error Report
+Word Set              Errors
+---------------------------
+Core                     0
+Core extension           -
+Block                    -
+Double number            -
+Exception                -
+Facility                 -
+File-access              -
+Locals                   -
+Memory-allocation        -
+Programming-tools        -
+Search-order             -
+String                   -
+---------------------------
+Total                    0
+---------------------------
+

@@ -389,32 +389,15 @@ $DEFWORD "LITERAL", 7, $F_IMMED, LITERAL
   .int &EXIT
 
 
-$DEFCODE "WITHIN", 6, 0, WITHIN
-  ; ( c a b -- flag )
-  pop $W ; b
-  pop $X ; a
-  pop $Y ; c
-
-  cmp $X, $W
-  bl &__WITHIN_L_LOWER_R
-  bg &__WITHIN_R_LOWER_L
-  j &__CMP_false
-
-__WITHIN_L_LOWER_R:
-  cmp $Y, $X
-  bl &__CMP_false
-  cmp $Y, $W
-  bge &__CMP_false
-  j &__CMP_true
-
-__WITHIN_R_LOWER_L:
-  cmp $Y, $W
-  bl &__CMP_false
-  cmp $Y, $X
-  bge &__CMP_false
-  j &__CMP_true
-
-  j &__CMP_true
+$DEFWORD "WITHIN", 6, 0, WITHIN
+  ; ( test low high -- flag )
+  .int &OVER
+  .int &SUB
+  .int &TOR
+  .int &SUB
+  .int &FROMR
+  .int &ULT
+  .int &EXIT
 
 
 $DEFCODE "ALIGNED", 7, 0, ALIGNED
@@ -511,7 +494,8 @@ $DEFCODE "?IMMEDIATE", 10, 0, ISIMMEDIATE
 
 $DEFCODE "ROLL", 4, 0, ROLL
   ; ( xu xu-1 ... x0 u -- xu-1 ... x0 xu )
-  hlt 0x3333
+.ifdef FORTH_TIR
+.else
   pop $W ; u
   mul $W, $CELL
 
@@ -524,9 +508,10 @@ $DEFCODE "ROLL", 4, 0, ROLL
   add r1, $CELL
   mov r2, $W
 
-  call &memmove
+  call &__memmove
 
   stw sp, $X
+.endif
   $NEXT
 
 
@@ -997,11 +982,101 @@ __DOT_PAREN_quit:
 
 ; - Memory ------------------------------------------------------------------------------
 
+$DEFVAR "HEAP-START", 10, 0, HEAP_START, 0xFFFFFFFF
+$DEFVAR "HEAP", 4, 0, HEAP, 0xFFFFFFFF
+
+
+;
+; void *__malloc(u32_t length)
+;
+; Allocate a memory area of at least LENGTH bytes, starting at word-aligned
+; address. Length of the area is extended by 1 word, and the length is then
+; stored in the first allocated word. Caller then gets an area starting at
+; the address of the second word.
+;
+__malloc:
+  push r1
+  push r2
+  push r3
+  push r4
+
+  add r0, $CELL                        ; add space for stored length
+  mov r4, r0                           ; save length for later
+
+  la r1, &var_HEAP                     ; get current heap pointer
+  lw r3, r1
+
+  sub r3, r0                           ; move it down, and align it
+  li r0, 0xFFFC
+  liu r0, 0xFFFF
+  and r3, r0
+
+  stw r1, r3                           ; store heap pointer
+
+  mov r0, r3
+  mov r1, r4
+  li r2, 0x79
+  call &memset
+
+  stw r3, r4                           ; store length
+  add r3, $CELL
+
+  mov r0, r3
+  pop r4
+  pop r3
+  pop r2
+  pop r1
+  ret
+
+__free:
+  push r1
+  push r2
+  sub r0, $CELL
+  lw r1, r0
+  li r2, 0x97
+  call &memset
+  pop r2
+  pop r1
+  ret
+
+
+;
+; void __memmove(void *src, void *dst, u32_t length)
+;
+; Copy content of memory at SRC, of length of LENGTH bytes, to address DST.
+; Source and destination areas can overlap, transfer uses a temporary storage.
+;
+__memmove:
+  push r3
+  la r3, &var_DP
+  lw r3, r3
+
+  push r0
+  push r1
+  push r2
+  mov r1, r3
+  call &memcpy
+  pop r2
+  pop r1
+  pop r0
+
+  push r0
+  push r1
+  push r2
+  mov r0, r3
+  call &memcpy
+  pop r2
+  pop r1
+  pop r0
+  pop r3
+  ret
+
 
 $DEFCODE ">BODY", 5, 0, TOBODY
   ; ( xt -- a-addr )
 .ifdef FORTH_TIR
-  add $TOS, 8
+  add $TOS, $CELL
+  add $TOS, $CELL
 .else
   pop $W
   add $W, $CELL
@@ -1174,6 +1249,47 @@ $DEFCODE "ERASE", 5, 0, ERASE
   $NEXT
 
 
+$DEFCODE "BUFFER:", 7, 0, BUFFER_COLON
+  ; ( u "<spaces>name" -- )
+  ; name Execution: ( -- a-addr )
+
+  call &__read_dword_with_refill       ; first, create header for new word
+  mov r1, r0
+  inc r0
+  lb r1, r1
+  call &__HEADER_COMMA
+
+.ifdef FORTH_TIR
+  mov r0, $TOS
+  pop $TOS
+.else
+  pop r0
+.endif
+  call &__malloc
+
+  la $W, &var_DP                       ; now, compile simple word to push address on stack
+  lw $Z, $W
+
+  la $Y, &DOCOL
+  stw $Z, $Y
+  add $Z, $CELL
+
+  la $Y, &LIT
+  stw $Z, $Y
+  add $Z, $CELL
+
+  stw $Z, r0
+  add $Z, $CELL
+
+  la $Y, &EXIT
+  stw $Z, $Y
+  add $Z, $CELL
+
+  stw $W, $Z
+
+  $NEXT
+
+
 ;
 ; void memcpy(void *src, void *dst, u32_t length)
 ;
@@ -1197,39 +1313,6 @@ __memcpy_quit:
   ret
 
 
-;
-; void memmove(void *src, void *dst, u32_t length)
-;
-; Copy content of memory at SRC, of length of LENGTH bytes, to address DST.
-; Source and destination areas can overlap, transfer uses a temporary storage.
-;
-memmove:
-  ; r3 - tmp ptr
-
-  push r3
-  la r3, &var_DP
-  lw r3, r3
-
-  push r0
-  push r1
-  push r2
-  mov r1, r3
-  call &memcpy
-  pop r2
-  pop r1
-  pop r0
-
-  push r0
-  push r1
-  push r2
-  mov r0, r3
-  call &memcpy
-  pop r2
-  pop r1
-  pop r0
-  pop r3
-  ret
-
 
 $DEFCODE "MOVE", 4, 0, MOVE
   ; ( addr1 addr2 u -- )
@@ -1243,118 +1326,147 @@ $DEFCODE "MOVE", 4, 0, MOVE
   pop r1 ; addr2
   pop r0 ; addr1
 .endif
-  call &memmove
+  call &__memmove
   $NEXT
-
-
-mm_alloc:
-  push r1
-  ; convert number of bytes to number of pages, add 2 bytes for pages count
-  add r0, $CELL
-  $align_page r0
-  div r0, $PAGE_SIZE
-  mov r1, r0 ; save pages count
-  ; call &mm_area_alloc
-  stw r0, r1 ; save pages count at the beggining of the area
-  add r0, $CELL ; and return the rest of the area to the caller
-  pop r1
-  ret
-
-
-mm_free:
-  push r1
-  sub r0, $CELL
-  lw r1, r0
-  ; call &mm_area_free
-  pop r1
-  ret
 
 
 $DEFCODE "ALLOCATE", 8, 0, ALLOCATE
   ; ( u -- a-addr ior )
-  pop $W
-
-  ;li r0, $MM_OP_UNUSED
-  ;int $INT_MM
-  ;mul r0, $PAGE_SIZE
-  ;cmpu $W, r0
-  ;bg &__ALLOCATE_oom
-
-  mov r0, $W
-  call &mm_alloc
+.ifdef FORTH_TIR
+  mov r0, $TOS
+  mov $X, $TOS
+.else
+  pop r0
+  mov $X, r0
+.endif
+  call &__malloc
   push r0
-  push 0
-  $NEXT
-
-__ALLOCATE_oom:
-  $push_true $W ; address
-  $push_true $W ; 'failed' IOR
+.ifdef FORTH_TIR
+  li $TOS, 0x00
+.else
+  push 0x00
+.endif
   $NEXT
 
 
 $DEFCODE "FREE", 4, 0, FREE
   ; ( a-addr - ior )
-  pop r0 ; address
-  call &mm_free
-  push 0
+.ifdef FORTH_TIR
+  mov r0, $TOS
+  call &__free
+  li $TOS, 0x00
+.else
+  pop r0
+  call &__free
+  push 0x00
+.endif
   $NEXT
 
 
 $DEFCODE "RESIZE", 6, 0, RESIZE
   ; ( a-addr1 u -- a-addr2 ior )
-  pop $W ; u
-  pop $X ; a-addr
+.ifdef FORTH_TIR
+  mov $W, $TOS                         ; u
+  pop $X                               ; a-addr
+.else
+  pop $W
+  pop $X
+.endif
 
-  ;li r0, $MM_OP_UNUSED
-  ;int $INT_MM
-  ;mul r0, $PAGE_SIZE
-  ;cmpu $W, r0
-  ;bg &__RESIZE_oom
+  mov r0, $W                           ; allocate new area
+  call &__malloc
+  mov $Y, r0                           ; save new area address
 
-  ; allocate new area
-  mov r0, $W
-  call &mm_alloc
-  mov r5, r0 ; save new memory area
+  mov r2, $X                           ; load length of the original area
+  sub r2, $CELL
+  lw r2, r2
+  sub r2, $CELL                        ; length includes the info cell at the beginning - subtract it
 
-  ; get size of the new area
-  sub r0, $CELL
-  lw r4, r0 ; save new memory area size
+  cmp $W, r2
+  ble &__RESIZE_shrink
 
-  ; find size of the original area
-  mov r0, $X
-  sub r0, $CELL
-  lw r3, r0 ; save old memory area size
-
-  cmp r4, r3
-  ble &__RESIZE_new_smaller
-
-  mov r2, r3
+                                       ; r0 is set already
+  mov r1, $X
+                                       ; r2 is set already
   j &__RESIZE_copy
 
-__RESIZE_new_smaller:
-  mov r2, r4
+__RESIZE_shrink:
+                                       ; r0 is set already
+  mov r1, $X
+  mov r2, $W
 
 __RESIZE_copy:
-  mul r2, $PAGE_SIZE
-  sub r2, $CELL
-
-  mov r0, $X
-  mov r1, r5
   call &memcpy
 
-  mov r0, $X
-  call &mm_free
+  mov r0, $W
+  call &__free
 
-  push r5
-  push 0
-  j &__RESIZE_next
-
-__RESIZE_oom:
-  push $X
-  $push_true $W
-
-__RESIZE_next:
+.ifdef FORTH_TIR
+  push $Y
+  li $TOS, 0x00
+.else
+  push $Y
+  push 0x00
+.endif
   $NEXT
+
+
+$DEFCODE "MARKER", 6, 0, MARKER
+  la $W, &var_LATEST                   ;
+  lw $W, $W                            ; keep LATEST for later use
+  la $X, &var_DP                       ; and keep DP and its value, too
+  lw $Y, $X
+
+  call &__read_dword_with_refill
+  mov r1, r0
+  inc r0
+  lb r1, r1
+  call &__HEADER_COMMA
+
+  lw $Z, $X                            ; load new DP - it has been modified by HEADER,
+
+  la r0, &DOCOL
+  stw $Z, r0
+  add $Z, $CELL
+
+  la r0, &LIT
+  stw $Z, r0
+  add $Z, $CELL
+
+  stw $Z, $W
+  add $Z, $CELL
+
+  la r0, &LATEST
+  stw $Z, r0
+  add $Z, $CELL
+
+  la r0, &STORE
+  stw $Z, r0
+  add $Z, $CELL
+
+  la r0, &LIT
+  stw $Z, r0
+  add $Z, $CELL
+
+  stw $Z, $Y
+  add $Z, $CELL
+
+  la r0, &DP
+  stw $Z, r0
+  add $Z, $CELL
+
+  la r0, &STORE
+  stw $Z, r0
+  add $Z, $CELL
+
+  la r0, &EXIT
+  stw $Z, r0
+  add $Z, $CELL
+
+  stw $X, $Z
+
+  $NEXT
+
 
 ; - Arithmetics -------------------------------------------------------------------------
 
