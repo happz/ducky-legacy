@@ -101,24 +101,3 @@ TESTING definition names
 TESTING FIND with a zero length string and a non-existent word
 
 End of additional Core tests
-
----------------------------
-         Error Report
-Word Set              Errors
----------------------------
-Core                     0
-Core extension           -
-Block                    -
-Double number            -
-Exception                -
-Facility                 -
-File-access              -
-Locals                   -
-Memory-allocation        -
-Programming-tools        -
-Search-order             -
-String                   -
----------------------------
-Total                    0
----------------------------
-
