@@ -1838,7 +1838,8 @@ $DEFCODE "FIND", 4, 0, FIND
   mov r1, $TOS
   lb r1, r1
 .else
-  pop r1
+  pop $X
+  mov r1, $X
   mov r0, r1
   inc r0
   lb r1, r1
