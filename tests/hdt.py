@@ -35,8 +35,6 @@ def test_sanity(cpus, cores, memory):
   hdt_page = ducky.boot.DEFAULT_HDT_ADDRESS // ducky.mm.PAGE_SIZE
   hdt_page = [pg_node for pg_node in memory_node.get_page_states() if pg_node.index == hdt_page][0]
 
-  hdt_page.print_node()
-
   def __base_assert(size, page, offset, value):
     for i, byte_offset, byte_shift in [(1, 0, 0), (2, 1, 8), (3, 2, 16), (4, 3, 24)]:
       expected = (value >> byte_shift) & 0xFF
