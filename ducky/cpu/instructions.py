@@ -44,6 +44,18 @@ else:
 
     return e
 
+def encoding_to_u32(encoding):
+  class _Cast(ctypes.Union):
+    _pack_ = 0
+    _fields_ = [
+      ('overall',  u32_t),
+      ('encoding', encoding.__class__)
+    ]
+
+  caster = _Cast()
+  caster.encoding = encoding
+  return caster.overall
+
 def IE_OPCODE():
   return ('opcode', u32_t, 6)
 
