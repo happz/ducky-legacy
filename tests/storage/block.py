@@ -17,17 +17,17 @@ class Tests(TestCase):
 
     common_case(binary = os.path.join('storage', 'test_unknown_device_1'),
                 storages = [('ducky.devices.storage.FileBackedStorage', 1, f_tmp.name)],
-                r0 = 0x01, r1 = 0x02, r10 = 0x08)
+                r0 = 0x01, r1 = 0x02, r10 = 0x08, z = True)
 
   def test_out_of_bounds_access(self):
     f_tmp = prepare_file(ducky.devices.storage.BLOCK_SIZE * 10)
 
     common_case(binary = os.path.join('storage', 'test_out_of_bounds_access_read'),
                 storages = [('ducky.devices.storage.FileBackedStorage', 1, f_tmp.name)],
-                r0 = 0x01, r1 = 0x01, r2 = 0x02, r10 = 0x24)
+                r0 = 0x01, r1 = 0x01, r2 = 0x02, r10 = 0x24, z = True)
     common_case(binary = os.path.join('storage', 'test_out_of_bounds_access_write'),
                 storages = [('ducky.devices.storage.FileBackedStorage', 1, f_tmp.name)],
-                r0 = 0x01, r1 = 0x01, r2 = 0x02, r10 = 0x28)
+                r0 = 0x01, r1 = 0x01, r2 = 0x02, r10 = 0x28, z = True)
 
   def test_block_read(self):
     # size of storage file
@@ -67,7 +67,7 @@ class Tests(TestCase):
     common_case(binary = os.path.join('storage', 'test_block_read'),
                 storages = [storage_desc], pokes = [(data_base, msg_block, 4)],
                 mm_asserts = mm_assert, file_asserts = file_assert,
-                r0 = 0x01, r1 = 0x01, r2 = 0x01, r10 = 0x24)
+                r0 = 0x01, r1 = 0x01, r2 = 0x01, r10 = 0x24, z = True)
 
   def test_block_write(self):
     # size of file
@@ -104,4 +104,4 @@ class Tests(TestCase):
     common_case(binary = os.path.join('storage', 'test_block_write'),
                 storages = [storage_desc], pokes = [(data_base, msg_block, 4)] + [(data_base + 4 + i, ord(msg[i]), 1) for i in range(0, ducky.devices.storage.BLOCK_SIZE)],
                 mm_asserts = mm_assert, file_assertss = file_assert,
-                r0 = 0x01, r1 = 0x01, r2 = 0x01, r10 = 0x28)
+                r0 = 0x01, r1 = 0x01, r2 = 0x01, r10 = 0x28, z = True)

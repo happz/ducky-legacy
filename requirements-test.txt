@@ -16,3 +16,4 @@ hypothesis
 rednose
 Twisted
 autobahn
+myhdl

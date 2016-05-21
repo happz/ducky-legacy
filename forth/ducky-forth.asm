@@ -15,12 +15,30 @@
 .include "hdt.asm"
 
 
-  .text
+.macro TTY_LOAD reg:
+  la #reg, &tty_mmio_address
+  lw #reg, #reg
+.end
+
+  ; These symbols mark starting addreses of their sections - necessary for
+  ; relocation of sections
+  .data
+  .type __data_boundary_start, int
+  .int 0xDEADBEEF
+
+  .section .rodata
+  .type __rodata_boundary_start, int
+  .int 0xDEADBEEF
+
+
+  .section .text
 
   ; This is where bootloader jump to, main entry point
 _entry:
   j &boot_phase1
 
+
+  .text
 
 __vmdebug_on:
   push r0
@@ -41,12 +59,6 @@ __vmdebug_off:
   pop r1
   pop r0
   ret
-
-  .section .rodata
-
-  .type rodata_boundary_first, int
-  .int 0xDEADBEEF
-
 
   ; Welcome and bye messages
   .section .rodata
@@ -200,12 +212,15 @@ write:
   cmp r1, r1
   bz &__write_quit
   push r2
+  push r3
+  $TTY_LOAD r3
 __write_loop:
   lb r2, r0
   inc r0
-  outb $TTY_PORT_DATA, r2
+  stb r3, r2
   dec r1
   bnz &__write_loop
+  pop r3
   pop r2
 __write_quit:
   ret
@@ -217,7 +232,10 @@ __write_quit:
 ; Write character C to standard terminal output.
 ;
 writec:
-  outb $TTY_PORT_DATA, r0
+  push r1
+  $TTY_LOAD r1
+  stb r1, r0
+  pop r1
   ret
 
 
@@ -228,13 +246,16 @@ writec:
 ;
 writes:
   push r1
+  push r2
+  $TTY_LOAD r2
 __writes_loop:
   lb r1, r0
   bz &__writes_quit
-  outb $TTY_PORT_DATA, r1
+  stb r2, r1
   inc r0
   j &__writes_loop
 __writes_quit:
+  pop r2
   pop r1
   ret
 
@@ -266,10 +287,13 @@ writesln:
 ;
 write_new_line:
   push r0
+  push r1
+  $TTY_LOAD r1
   li r0, 0xD
-  outb $TTY_PORT_DATA, r0
+  stb r1, r0
   li r0, 0xA
-  outb $TTY_PORT_DATA, r0
+  stb r1, r0
+  pop r1
   pop r0
   ret
 
@@ -282,6 +306,8 @@ write_new_line:
 write_word_name:
   push r1
   push r2
+  push r3
+  $TTY_LOAD r3
   mov r1, r0
   mov r2, r0
   add r1, $wr_namelen
@@ -289,11 +315,12 @@ write_word_name:
   add r2, $wr_name
 __write_word_name_loop:
   lb r0, r2
-  outb $TTY_PORT_DATA, r0
+  stb r3, r0
   inc r2
   dec r1
   bnz &__write_word_name_loop
   call &write_new_line
+  pop r3
   pop r2
   pop r1
   ret
@@ -429,15 +456,15 @@ __relocate_section:
 ; use more than one CPU core... Which we don't want to \o/
 __relocate_sections:
   li r0, $BOOT_LOADER_ADDRESS
-  la r1, &text_boundary_last
+  la r1, &__text_boundary_end
   call &__relocate_section
 
-  la r0, &rodata_boundary_first
-  la r1, &rodata_boundary_last
+  la r0, &__rodata_boundary_start
+  la r1, &__rodata_boundary_end
   call &__relocate_section
 
-  la r0, &data_boundary_first
-  la r1, &data_boundary_last
+  la r0, &__data_boundary_start
+  la r1, &__data_boundary_end
   call &__relocate_section
 
   li r0, $USERSPACE_BASE
@@ -451,10 +478,212 @@ __relocate_sections:
 
   .section .rodata
 
-  .type __arg_test_mode, string
-  .string "test-mode"
+  ;
+  ; HDT entry processing
+  ;
+
+  ; The following array of callbacks is indexed by entry type
+  .align 4
+__hdt_entry_table:
+  .int &__hdt_entry_undefined
+  .int &__hdt_entry_cpu
+  .int &__hdt_entry_memory
+  .int &__hdt_entry_argument
+  .int &__hdt_entry_device
+
+  ;
+  ; HDT argument processing
+  ;
+  ; Declare name for each of supported arguments
+  .type __hdt_arg_name_test_mode, ascii
+  .ascii "test-mode"
+
+  .type __hdt_arg_name_rtc_device, ascii
+  .ascii "rtc-device"
+
+  .type __hdt_arg_name_kbd_device, ascii
+  .ascii "kbd-device"
+
+  .type __hdt_arg_name_tty_device, ascii
+  .ascii "tty-device"
+
+  ; Now, construct a table - pointer to name, name length, and a callback
+.macro ARG_TABLE_ENTRY label, len:
+  .int &__hdt_arg_name_#label
+  .int #len
+  .int &__hdt_arg_callback_#label
+.end
+
+  .align 4
+__hdt_argument_table:
+  $ARG_TABLE_ENTRY test_mode, 9
+  $ARG_TABLE_ENTRY rtc_device, 10
+  $ARG_TABLE_ENTRY kbd_device, 10
+  $ARG_TABLE_ENTRY tty_device, 10
+
+  ; Sentinel entry
+  .int 0x00000000
+  .int 0x00000000
+  .int 0x00000000
+
+  .data
+
+  .align 4
+
+  .type __hdt_device_name_rtc_device, space
+  .space $HDT_DEVICE_NAME_LEN
+
+  .type __hdt_device_name_len_rtc_device, byte
+  .byte 0x00
+
+  .type __hdt_device_name_kbd_device, space
+  .space $HDT_DEVICE_NAME_LEN
+
+  .type __hdt_device_name_len_kbd_device, byte
+  .byte 0x00
+
+  .type __hdt_device_name_tty_device, space
+  .space $HDT_DEVICE_NAME_LEN
+
+  .type __hdt_device_name_len_tty_device, byte
+  .byte 0x00
 
   .text
+
+  ; HDT entry callbacks have the same signature: <callback>(hdt_entry_t *ptr, u16_t type, u16_t len)
+
+  ; Undefined entry type
+  ;
+  ; Signal error, such HDT is weird...
+__hdt_entry_undefined:
+  j &__ERR_malformed_HDT
+
+  ;
+  ; CPU
+  ;
+  ; We don't care about CPU info, no use for it
+__hdt_entry_cpu:
+  ret
+
+  ;
+  ; Memory
+  ;
+  ; Size of memory is important for us, since we put stacks at the end of memory space
+  ;
+__hdt_entry_memory:
+  add r0, $HDT_ENTRY_PAYLOAD_OFFSET
+  lw r0, r0                            ; read memory size...
+  la r1, &memory_size
+  stw r1, r0                           ; ... and save it
+  ret
+
+  ;
+  ; Argument
+  ;
+  ; Using a table of supported arguments, find out which of them is carried
+  ; by this entry, and call its callback.
+__hdt_entry_argument:
+  push r3
+  push r4
+  push r5
+  push r6
+  push r7
+  push r8
+  push r9
+  push r10
+
+  li r9, $BOOT_LOADER_ADDRESS          ; not relocated yet, pointers in memory have to be adjusted
+
+  add r0, $HDT_ENTRY_PAYLOAD_OFFSET    ; move pointer to entry payload
+  lb r1, r0                            ; &entry->name_length
+  bz &__hdt_entry_argument_leave       ; we won't process zero-length arguments
+  lb r2, r0[$BYTE_SIZE]                ; &entry->value_length
+  add r0, $SHORT_SIZE                  ; and point the pointer to entry->name
+
+  la r3, &__hdt_argument_table
+
+__hdt_entry_argument_loop:
+  ; load values from the current entry of argument table
+  lw r4, r3                            ; table->name
+  bz &__hdt_entry_argument_leave       ; if table->name is NULL (0x00000000), it is the sentinel entry
+  add r4, r9
+  lw r5, r3[$WORD_SIZE]                ; table->length
+  cmp r5, r1                           ; if lengths don't match, loop
+  bne &__hdt_entry_argument_loop_iterate
+
+  mov r6, r0                           ; copy entry->name pointer, because we're gonna increment it
+
+__hdt_entry_argument_loop_strcmp:
+  lb r7, r4
+  lb r8, r6
+  cmp r7, r8
+  bne &__hdt_entry_argument_loop_iterate ; character mismatch, the entry->name does not match table->name
+  dec r5
+  bnz &__hdt_entry_argument_loop_strcmp
+
+  add r0, $HDT_ARGUMENT_NAME_LEN       ; point to entry->value, it lies just behind the entry->name
+  mov r1, r2                           ; the second callback argument is entry->value_length, which we saved before
+  lw r3, r3[8]                         ; and fetch callback address, table->callback
+  add r3, r9
+  call r3
+  j &__hdt_entry_argument_leave
+
+__hdt_entry_argument_loop_iterate:
+  add r3, 12                           ; 3 * $WORD_SIZE, sizeof(table entry)
+  j &__hdt_entry_argument_loop
+
+__hdt_entry_argument_leave:
+  pop r10
+  pop r9
+  pop r8
+  pop r7
+  pop r6
+  pop r5
+  pop r4
+  pop r3
+  ret
+
+  ; HDT argument callbacks share the same signature: <callback>(u8_t *ptr, u8_t len)
+  ; where PTR points to the first byte of value field of HDT Argument entry, and
+  ; LEN is the value of value_length field.
+
+  ; "test-mode"
+__hdt_arg_callback_test_mode:
+  lw r0, r0                            ; entry payload is the memory size in bytes
+  la r1, &var_TEST_MODE                ; store it...
+  stw r1, r0
+  ret
+
+
+.macro ARG_COPY_DEVICE_NAME label:
+__hdt_arg_callback_#label:
+  push r2
+  la r2, &__hdt_device_name_len_#label ; save name length
+  stb r2, r1
+
+  mov r2, r1
+  la r1, &__hdt_device_name_#label
+  call &memcpy
+  pop r2
+  ret
+.end
+
+  ; "rtc-device"
+$ARG_COPY_DEVICE_NAME rtc_device
+
+  ; "kbd-device"
+$ARG_COPY_DEVICE_NAME kbd_device
+
+  ; "tty-device"
+$ARG_COPY_DEVICE_NAME tty_device
+
+
+  ;
+  ; Device
+  ;
+  ; Not implemented yet.
+__hdt_entry_device:
+  ret
 
 ;
 ; void boot_phase1(void) __attribute__((noreturn))
@@ -466,86 +695,46 @@ __relocate_sections:
 ; And we will...
 ;
 boot_phase1:
-  ; First, turn of debugging. We have no stack, we can't call __vmdebug_off.
-  li r0, 0x00
-  li r1, 0x01
-  int 18
+  ; First, setup our boot stack.
+  la sp, &.bootstack
+  add sp, $PAGE_SIZE
+
+  ; Next, turn of debugging.
+  ;call &__vmdebug_off
 
   ; Now, walk through HDT, and save interesting info
-  li r0, $BOOT_HDT_ADDRESS             ; r0 will be our HDT pointer
-  lw r1, r0
-  li r2, 0x6F70
-  liu r2, 0x4D5E
-  cmp r1, r2
+  li r10, $BOOT_HDT_ADDRESS            ; r10 will be our HDT pointer
+  lw r0, r10
+  li r1, 0x6F70
+  liu r1, 0x4D5E
+  cmp r0, r1
   bne &__ERR_malformed_HDT             ; HDT header magic is bad
-  add r0, $WORD_SIZE
+  add r10, $WORD_SIZE
 
-  lw r1, r0                            ; r1 counts number of remaining entries
-  add r0, $WORD_SIZE
-  add r0, $WORD_SIZE                   ; skip length field
+  lw r11, r10                          ; r11 counts number of remaining entries
+  add r10, $WORD_SIZE
+  add r10, $WORD_SIZE                  ; skip header' length field
 
 __boot_hdt_loop:
-  cmp r1, 0x00
+  cmp r11, 0x00
   bz &__boot_hdt_loop_end
 
-  ls r2, r0                            ; entry type
-  add r0, $SHORT_SIZE
-  ls r3, r0                            ; entry length
-  add r0, $SHORT_SIZE
+  mov r0, r10                          ; prepare pointer to section
+  ls r1, r10                           ; entry type
+  ls r12, r10[$SHORT_SIZE]             ; entry length
+  mov r2, r12
 
-  cmp r2, $HDT_ENTRY_CPU
-  bne &__boot_hdt_loop_test_memory
-  j &__boot_hdt_loop_goon
+  la r3, &__hdt_entry_table            ; find corresponding entry in HDT entry callback table
+  mov r4, r1
+  mul r4, $WORD_SIZE
+  add r3, r4
+  lw r3, r3
+  li r4, $BOOT_LOADER_ADDRESS          ; not relocated yet!
+  add r3, r4
+  call r3
 
-__boot_hdt_loop_test_memory:
-  cmp r2, $HDT_ENTRY_MEMORY
-  bne &__boot_hdt_loop_test_argument
-
-  lw r4, r0                            ; read memory size, and save it
-  la r5, &memory_size
-  stw r5, r4
-
-__boot_hdt_loop_test_argument:
-  cmp r2, $HDT_ENTRY_ARGUMENT
-  bne &__boot_hdt_loop_goon
-
-  lb r5, r0                            ; name length
-  inc r0
-  lb r6, r0                            ; value length
-  inc r0
-
-  cmp r5, 9
-  bne &__boot_hdt_loop_argument_leave
-
-  mov r10, r0
-  la r11, &__arg_test_mode
-
-__boot_hdt_loop_test_argument_test_mode_loop:
-  lb r12, r10
-  lb r13, r11
-  cmp r12, r13
-  bne &__boot_hdt_loop_argument_leave
-  inc r10
-  inc r11
-  dec r5
-  bnz &__boot_hdt_loop_test_argument_test_mode_loop
-
-  add r0, $HDT_ARGUMENT_NAME_LEN
-  lw r4, r0                            ; load value
-  la r5, &var_TEST_MODE                ; and save it to TEST-MODE
-  stw r5, r4
-  sub r0, $HDT_ARGUMENT_NAME_LEN       ; undo moves, and point to the name field
-
-__boot_hdt_loop_argument_leave:
-  sub r0, 2
-
-  ; fall through to 'go on' branch
-
-__boot_hdt_loop_goon:
-  sub r0, $SHORT_SIZE                  ; undo pointer moves, and point at the first byte of current entry
-  sub r0, $SHORT_SIZE
-  add r0, r3                           ; and point at the first byte of next entry by adding the current entry size to the pointer
-  dec r1
+  add r10, r12                         ; move pointer to the following entry
+  dec r11
   j &__boot_hdt_loop
 
 __boot_hdt_loop_end:
@@ -576,8 +765,10 @@ __boot_hdt_loop_end:
 ;
 boot_phase2:
   ; set RTC frequency
-  li r0, $RTC_FREQ
-  outb $RTC_PORT_FREQ, r0
+  la r0, &rtc_mmio_address
+  add r0, $RTC_MMIO_FREQ
+  li r1, $RTC_FREQ
+  stb r0, r1
 
   ;
   ; LPF - Last Page Frame, base address of the last page of memory
@@ -712,6 +903,8 @@ __boot_phase2_ivt_failsafe_loop:
   .type __ERR_unhandled_irq_message, string
   .string "\r\nERROR: $ERR_UNHANDLED_IRQ: Unhandled irq\r\n"
 
+  .text
+
 failsafe_isr:
   la r0, &__ERR_unhandled_irq_message
   li r1, $ERR_UNHANDLED_IRQ
@@ -779,12 +972,9 @@ cold_start:
   .int &QUIT
 
 
-  .section .data
+  .data
 
   .align 4
-  .type data_boundary_first, int
-  .int 0xDEADBEEF
-
   .type rstack_top, int
   .int 0xFFFFFE00
 
@@ -794,9 +984,14 @@ cold_start:
   .type memory_size, int
   .int 0xFFFFFFFF
 
+  ; Temporary stack
+  ; Keep it in a separate section, so it can be BSS, and reused when not needed anymore
+  .section .bootstack, rwbl
+  .space $PAGE_SIZE
+
   ; User data area
   ; Keep it in separate section to keep it aligned, clean, unpoluted
-  .section .userspace, rwblg
+  .section .userspace, rwbl
   .space $USERSPACE_SIZE
 
 
@@ -877,6 +1072,7 @@ $DEFWORD "WELCOME", 7, 0, WELCOME
   .int &TRUE
   .int &ECHO
   .int &STORE
+  .int &VMDEBUGON
   .int &EXIT
 
 
@@ -1103,6 +1299,15 @@ __write_prompt_quit:
   .type input_buffer_address, int
   .int &input_buffer
 
+  .type kbd_mmio_address, int
+  .int 0x00008001
+
+  .type tty_mmio_address, int
+  .int 0x00008200
+
+  .type rtc_mmio_address, int
+  .int 0x00000000
+
   ; when EVALUATE is called, current input source specification
   ; is saved on top of this stack
   .type input_stack, space
@@ -1121,17 +1326,22 @@ __write_prompt_quit:
 ; block until new one arrives.
 ;
 __read_stdin:
-  inb r0, $KBD_PORT_DATA
+  push r1
+  la r1, &kbd_mmio_address
+  lw r1, r1
+__read_stdin_read:
+  lb r0, r1
   cmp r0, 0xFF
   be &__read_stdin_wait
+  pop r1
   ret
 __read_stdin_wait:
   ; This is a small race condition... What if new key
-  ; arrives after inb and before idle? We would be stuck until
+  ; arrives after lb and before idle? We would be stuck until
   ; the next key arrives (and it'd be Enter, nervously pressed
   ; by programmer while watching machine "doing nothing")
   idle
-  j &__read_stdin
+  j &__read_stdin_read
 
 
 
@@ -1141,7 +1351,10 @@ __read_stdin_wait:
 ; Write 1 character to stdout (terminal).
 ;
 __write_stdout:
-  outb $TTY_PORT_DATA, r0
+  push r1
+  $TTY_LOAD r1
+  stb r1, r0
+  pop r0
   ret
 
 
@@ -1157,18 +1370,23 @@ __read_line:
   push r2                              ; counter
   push r3                              ; character
   push r4                              ; echo?
+  push r5                              ; data MMIO
+  push r6                              ; TTY MMIO
+  la r5, &kbd_mmio_address
+  lw r5, r5
+  $TTY_LOAD r6
   la r4, &var_ECHO
   lw r4, r4
   li r2, 0x00                          ; reset counter
   cmp r1, 0x00                         ; set flags properly to allow check in the loop
 __read_line_loop:
   bz &__read_line_quit                 ; if 0 chars remains in buffer, quit
-  inb r3, $KBD_PORT_DATA
+  lb r3, r5
   cmp r3, 0xFF
   be &__read_line_wait
   cmp r4, 0x00
   bz &__read_line_tests
-  outb $TTY_PORT_DATA, r3
+  stb r6, r3
 __read_line_tests:
   cmp r3, 0x0A                         ; nl
   be &__read_line_quit
@@ -1181,6 +1399,8 @@ __read_line_tests:
   j &__read_line_loop
 __read_line_quit:
   mov r0, r2
+  pop r6
+  pop r5
   pop r4
   pop r3
   pop r2
@@ -3737,23 +3957,23 @@ $DEFCODE "BYE", 3, 0, BYE
   call &halt
 
 
-;
-; Section boundary pivots
-;
-  .section .data
+  ;
+  ; Section boundary pivots
+  ;
+  .data
 
   .align 4
 
-  .type data_boundary_last, int
+  .type __data_boundary_end, int
   .int 0xDEADBEEF
 
   .section .rodata
 
   .align 4
 
-  .type rodata_boundary_last, int
+  .type __rodata_boundary_end, int
   .int 0xDEADBEEF
 
-  .section .text
-text_boundary_last:
+  .text
+__text_boundary_end:
   ret

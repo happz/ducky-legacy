@@ -15,6 +15,9 @@
 .def HDT_ENTRY_CPU:    ${X8(ducky.hdt.HDTEntryTypes.CPU)}
 .def HDT_ENTRY_MEMORY: ${X8(ducky.hdt.HDTEntryTypes.MEMORY)}
 .def HDT_ENTRY_ARGUMENT: ${X8(ducky.hdt.HDTEntryTypes.ARGUMENT)}
+.def HDT_ENTRY_DEVICE:   ${X8(ducky.hdt.HDTEntryTypes.DEVICE)}
 
 .def HDT_ARGUMENT_NAME_LEN: ${X8(ducky.hdt.HDTEntry_Argument.MAX_NAME_LENGTH)}
 .def HDT_ARGUMENT_VALUE_LEN: ${X8(ducky.hdt.HDTEntry_Argument.MAX_NAME_LENGTH)}
+
+.def HDT_DEVICE_NAME_LEN:   ${X8(ducky.hdt.HDTEntry_Device.MAX_NAME_LENGTH)}

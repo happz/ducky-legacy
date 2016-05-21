@@ -2,8 +2,7 @@ import enum
 import importlib
 
 from ..interfaces import IMachineWorker
-from ..mm import UINT16_FMT
-from ..errors import InvalidResourceError
+from ..mm import VirtualMemoryPage
 
 VIRTUAL_INTERRUPTS = {}
 
@@ -44,6 +43,10 @@ class Device(IMachineWorker):
   def create_from_config(machine, config, section):
     raise NotImplementedError()
 
+  @staticmethod
+  def create_hdt_entries(logger, config, section):
+    return []
+
   def boot(self):
     self.logger.debug('%s.boot', self.__class__.__name__)
     pass
@@ -71,33 +74,16 @@ class IRQProvider(object):
   pass
 
 
-class IOProvider(object):
-  def is_port_protected(self, port, read = True):
-    return False
+class MMIOMemoryPage(VirtualMemoryPage):
+  def __init__(self, device, *args, **kwargs):
+    super(MMIOMemoryPage, self).__init__(*args, **kwargs)
 
-  def read_u8(self, port):
-    raise InvalidResourceError('Unhandled port: port={}'.format(UINT16_FMT(port)))
+    self._device = device
 
-  def read_u16(self, port):
-    raise InvalidResourceError('Unhandled port: port={}'.format(UINT16_FMT(port)))
-
-  def read_u32(self, port):
-    raise InvalidResourceError('Unhandled port: port={}'.format(UINT16_FMT(port)))
-
-  def write_u8(self, port, value):
-    raise InvalidResourceError('Unhandled port: port={}'.format(UINT16_FMT(port)))
-
-  def write_u16(self, port, value):
-    raise InvalidResourceError('Unhandled port: port={}'.format(UINT16_FMT(port)))
-
-  def write_u32(self, port, value):
-    raise InvalidResourceError('Unhandled port: port={}'.format(UINT16_FMT(port)))
-
-
-def get_driver_creator(driver_class):
+def get_driver(driver_class):
   driver = driver_class.split('.')
 
   driver_module = importlib.import_module('.'.join(driver[0:-1]))
   driver_class = getattr(driver_module, driver[-1])
 
-  return driver_class.create_from_config
+  return driver_class

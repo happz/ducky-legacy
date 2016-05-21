@@ -10,7 +10,7 @@ import os
 import sys
 import time
 
-from six import itervalues, iteritems
+from six import iteritems, itervalues
 from collections import defaultdict, OrderedDict
 
 from . import mm
@@ -23,7 +23,6 @@ from .interfaces import IMachineWorker, ISnapshotable, IReactorTask
 from .console import ConsoleMaster
 from .errors import InvalidResourceError
 from .log import create_logger
-from .mm import UINT16_FMT
 from .reactor import Reactor
 from .snapshot import SnapshotNode
 from .util import F
@@ -234,7 +233,6 @@ class Machine(ISnapshotable, IMachineWorker):
     self.memory = None
 
     self.devices = collections.defaultdict(dict)
-    self.ports = {}
 
     self.virtual_interrupts = {}
 
@@ -340,7 +338,7 @@ class Machine(ISnapshotable, IMachineWorker):
     self.memory.load_state(state.get_children()['memory'])
 
   def setup_devices(self):
-    from .devices import get_driver_creator
+    from .devices import get_driver
 
     for section in self.config.iter_devices():
       _get, _getbool, _getint = self.config.create_getters(section)
@@ -356,7 +354,7 @@ class Machine(ISnapshotable, IMachineWorker):
         self.DEBUG('Device %s disabled', section)
         continue
 
-      dev = get_driver_creator(driver)(self, self.config, section)
+      dev = get_driver(driver).create_from_config(self, self.config, section)
       self.devices[klass][section] = dev
 
       if _get('master', None) is not None:
@@ -390,19 +388,6 @@ class Machine(ISnapshotable, IMachineWorker):
   @property
   def exit_code(self):
     return max([c.exit_code for c in itertools.chain(*[__cpu.cores for __cpu in self.cpus])])
-
-  def register_port(self, port, handler):
-    self.DEBUG('Machine.register_port: port=%s, handler=%s', UINT16_FMT(port), handler)
-
-    if port in self.ports:
-      raise IndexError('Port already assigned: {}'.format(UINT16_FMT(port)))
-
-    self.ports[port] = handler
-
-  def unregister_port(self, port):
-    self.DEBUG('Machine.unregister_port: port=%s', UINT16_FMT(port))
-
-    del self.ports[port]
 
   def trigger_irq(self, handler):
     self.DEBUG('Machine.trigger_irq: handler=%s', handler)

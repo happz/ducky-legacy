@@ -4,11 +4,10 @@
 
 <%
   import ducky.devices.storage
+  from ducky.devices.storage import BlockIOPorts
 %>
 
 .def BIO_BLOCK_SIZE: ${ducky.devices.storage.BLOCK_SIZE}
-
-.def BIO_PORT_RANGE: ${X(ducky.devices.storage.DEFAULT_PORT_RANGE)}
 
 .def BIO_RDY:   ${X2(ducky.devices.storage.BIO_RDY)}
 .def BIO_ERR:   ${X2(ducky.devices.storage.BIO_ERR)}
@@ -20,9 +19,11 @@
 
 .def BIO_USER:  ${X2(ducky.devices.storage.BIO_USER)}
 
-.def BIO_PORT_STATUS:  ${X(ducky.devices.storage.DEFAULT_PORT_RANGE + 0x00)}
-.def BIO_PORT_SID:     ${X(ducky.devices.storage.DEFAULT_PORT_RANGE + 0x01)}
-.def BIO_PORT_BLOCK:   ${X(ducky.devices.storage.DEFAULT_PORT_RANGE + 0x02)}
-.def BIO_PORT_COUNT:   ${X(ducky.devices.storage.DEFAULT_PORT_RANGE + 0x03)}
-.def BIO_PORT_ADDRESS: ${X(ducky.devices.storage.DEFAULT_PORT_RANGE + 0x04)}
-.def BIO_PORT_DATA:    ${X(ducky.devices.storage.DEFAULT_PORT_RANGE + 0x05)}
+.def BIO_MMIO_ADDRESS: ${X(ducky.devices.storage.DEFAULT_MMIO_ADDRESS)}
+
+.def BIO_MMIO_STATUS:  ${X(BlockIOPorts.STATUS)}
+.def BIO_MMIO_SID:     ${X(BlockIOPorts.SID)}
+.def BIO_MMIO_BLOCK:   ${X(BlockIOPorts.BLOCK)}
+.def BIO_MMIO_COUNT:   ${X(BlockIOPorts.COUNT)}
+.def BIO_MMIO_ADDR:    ${X(BlockIOPorts.ADDR)}
+.def BIO_MMIO_DATA:    ${X(BlockIOPorts.DATA)}

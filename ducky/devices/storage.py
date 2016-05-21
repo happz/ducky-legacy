@@ -2,41 +2,25 @@
 Persistent storage support.
 
 Several different persistent storages can be attached to a virtual machine, each
-with its own id. This module provides methods for manipulating their content. By
-default, storages operate with blocks of constant, standard size, though this is
-not a mandatory requirement - storage with different block size, or even with
-variable block size can be implemented.
+with its own id. This module provides methods for manipulating their content.
+Storages operate with blocks of constant, standard size, though this is not
+a mandatory requirement - storage with different block size, or even with variable
+block size can be implemented.
 
-Each block has its own id. Block IO operations read or write one or more blocks to
-or from a device. IO is requested by invoking the virtual interrupt, with properly
-set values in registers.
+Block IO subsystem transfers blocks between storages and VM,
 """
 
+import enum
 import os
 import six
 
 from ..errors import InvalidResourceError
-from . import Device, IRQList, IRQProvider, IOProvider
-from ..mm import u32_t
-from ..util import UINT16_FMT, UINT32_FMT, F
+from . import Device, IRQList, IRQProvider, MMIOMemoryPage
+from ..util import UINT8_FMT, UINT32_FMT
+from ..mm import addr_to_page
 
 #: Size of block, in bytes.
 BLOCK_SIZE = 1024
-
-DEFAULT_PORT_RANGE = 0x400
-DEFAULT_IRQ = IRQList.BIO
-
-PORT_RANGE = 0x0005
-
-BIO_RDY   = 0x00000001
-BIO_ERR   = 0x00000002
-BIO_READ  = 0x00000004
-BIO_WRITE = 0x00000008
-BIO_BUSY  = 0x00000010
-BIO_DMA   = 0x00000020
-BIO_SRST  = 0x00000040
-
-BIO_USER  = BIO_READ | BIO_WRITE | BIO_DMA | BIO_SRST
 
 class StorageAccessError(Exception):
   """
@@ -185,18 +169,91 @@ class FileBackedStorage(Storage):
     self._write(buff)
     self.file.flush()
 
-class BlockIO(IRQProvider, IOProvider, Device):
-  def __init__(self, machine, name, port = None, irq = None, *args, **kwargs):
+#
+# Block IO subsystem
+#
+
+DEFAULT_IRQ = IRQList.BIO
+
+BIO_RDY   = 0x00000001  #: Operation is completed, user can access data and/or request another operation
+BIO_ERR   = 0x00000002  #: Error happened while performing the operation.
+BIO_READ  = 0x00000004  #: Request data read - transfer data from storage to memory.
+BIO_WRITE = 0x00000008  #: Request data write - transfer data from memory to storage.
+BIO_BUSY  = 0x00000010  #: Data transfer in progress.
+BIO_DMA   = 0x00000020  #: Request direct memory access - data will be transfered directly between storage and RAM..
+BIO_SRST  = 0x00000040  #: Reset BIO.
+
+BIO_USER  = BIO_READ | BIO_WRITE | BIO_DMA | BIO_SRST  #: Flags that user can set - others are read-only.
+
+DEFAULT_MMIO_ADDRESS = 0x8400
+
+class BlockIOPorts(enum.IntEnum):
+  """
+  MMIO ports, in form of offsets from a base MMIO address.
+  """
+
+  STATUS = 0x00  #: Status port - query BIO status, and submit commands by setting flags
+  SID    = 0x04  #: ID of selected storage device
+  BLOCK  = 0x08  #: Block ID
+  COUNT  = 0x0C  #: Number of blocks
+  ADDR   = 0x10  #: Address of a memory buffer
+  DATA   = 0x14  #: Data port, for non-DMA access
+
+class BlockIOMMIOMemoryPage(MMIOMemoryPage):
+  def read_u32(self, offset):
+    self.DEBUG('%s.read_u32: offset=%s', self.__class__.__name__, UINT8_FMT(offset))
+
+    dev = self._device
+
+    if offset == BlockIOPorts.STATUS:
+      return dev._flags
+
+    if offset == BlockIOPorts.DATA:
+      return dev.read_data()
+
+    self.WARN('%s.read_u32: attempt to read unhandled MMIO offset: offset=%s', self.__class__.__name__, UINT8_FMT(offset))
+    return 0x00000000
+
+  def write_u32(self, offset, value):
+    self.DEBUG('%s.write_u32: offset=%s, value=%s', self.__class__.__name__, UINT8_FMT(offset), UINT32_FMT(value))
+
+    value &= 0xFFFFFFFF
+    dev = self._device
+
+    if offset == BlockIOPorts.STATUS:
+      dev.status_write(value)
+      return
+
+    if offset == BlockIOPorts.SID:
+      dev.select_storage(value)
+      return
+
+    if offset == BlockIOPorts.BLOCK:
+      dev._block = value
+      return
+
+    if offset == BlockIOPorts.COUNT:
+      dev._count = value
+      return
+
+    if offset == BlockIOPorts.ADDR:
+      dev._address = value
+      return
+
+    if offset == BlockIOPorts.DATA:
+      dev.write_data(value)
+      return
+
+    self.WARN('%s.read_u32: attempt to write unhandled MMIO offset: offset=%s, value=%s', self.__class__.__name__, UINT8_FMT(offset), UINT32_FMT(value))
+
+class BlockIO(IRQProvider, Device):
+  def __init__(self, machine, name, mmio_address = None, irq = None, *args, **kwargs):
     super(BlockIO, self).__init__(machine, 'bio', name, *args, **kwargs)
 
-    self._device    = u32_t(0xFFFFFFFF)
-    self._flags     = u32_t(BIO_RDY)
-    self._block     = u32_t(0x00000000)
-    self._count     = u32_t(0x00000000)
-    self._address   = u32_t(0x00000000)
+    self.DEBUG = self.machine.DEBUG
 
-    self.port = port
-    self.ports = list(range(port, port + PORT_RANGE))
+    self._mmio_address = mmio_address or DEFAULT_MMIO_ADDRESS
+    self._mmio_page = None
 
     self.reset()
 
@@ -204,169 +261,174 @@ class BlockIO(IRQProvider, IOProvider, Device):
   def create_from_config(machine, config, section):
     return BlockIO(machine,
                    section,
-                   port = config.getint(section, 'port', DEFAULT_PORT_RANGE),
+                   mmio_address = config.getint(section, 'mmio-address', DEFAULT_MMIO_ADDRESS),
                    irq = config.getint(section, 'irq', IRQList.TIMER))
 
   def boot(self):
-    self.machine.DEBUG('BIO.boot')
+    self.DEBUG('%s.boot', self.__class__.__name__)
 
-    for port in self.ports:
-      self.machine.register_port(port, self)
+    self._mmio_page = BlockIOMMIOMemoryPage(self, self.machine.memory, addr_to_page(self._mmio_address))
+    self.machine.memory.register_page(self._mmio_page)
 
-    self.machine.tenh('BIO: controller on [%s] as %s', UINT16_FMT(self.port), self.name)
+    self.machine.tenh('BIO: controller on [%s] as %s', UINT32_FMT(self._mmio_address), self.name)
 
   def halt(self):
-    for port in self.ports:
-      self.machine.unregister_port(port)
+    self.DEBUG('%s.halt', self.__class__.__name__)
+
+    self.machine.memory.unregister_page(self._mmio_page)
 
   def reset(self):
-    self.storage = None
-    self.start = None
-    self.count = None
-    self.address = None
+    self.DEBUG('%s.reset', self.__class__.__name__)
 
-    self.buffer = None
-    self.buffer_length = None
-    self.buffer_index = None
+    self._buffer = None
+    self._buffer_length = None
+    self._buffer_index = None
 
-    self.dma = False
-    self.busy = False
+    self._storage   = None
+    self._device    = 0xFFFFFFFF
+    self._flags     = BIO_RDY
+    self._block     = 0x00000000
+    self._count     = 0x00000000
+    self._address   = 0x00000000
 
-    self._flags = u32_t(BIO_RDY)
+    self._dma = False
+    self._busy = False
 
   def buff_to_memory(self, addr, buff):
-    self.machine.DEBUG('%s.buff_to_memory: addr=%s', self.__class__.__name__, UINT32_FMT(addr))
+    self.DEBUG('%s.buff_to_memory: addr=%s', self.__class__.__name__, UINT32_FMT(addr))
 
     for i in range(0, len(buff)):
       self.machine.memory.write_u8(addr + i, buff[i])
 
   def memory_to_buff(self, addr, length):
-    self.machine.DEBUG('%s.memory_to_buff: addr=%s, length=%s', self.__class__.__name__, UINT32_FMT(addr), length)
+    self.DEBUG('%s.memory_to_buff: addr=%s, length=%s', self.__class__.__name__, UINT32_FMT(addr), length)
 
     return bytearray([self.machine.memory.read_u8(addr + i) for i in range(0, length)])
 
-  def __flag_busy(self):
-    self._flags.value |=  BIO_BUSY
-    self._flags.value &= ~BIO_RDY
+  def _flag_busy(self):
+    """
+    Signals BIO is running an operation: `BIO_BUSY` is set, and `BIO_RDY`
+    is cleared.
+    """
 
-  def __flag_finished(self):
-    self._flags.value &= ~BIO_BUSY
-    self._flags.value |= BIO_RDY
+    self.DEBUG('%s._flag_busy', self.__class__.__name__)
 
-  def __flag_error(self):
-    self._flags.value &= ~BIO_RDY
-    self._flags.value &= ~BIO_BUSY
-    self._flags.value |= BIO_ERR
+    self._flags |=  BIO_BUSY
+    self._flags &= ~BIO_RDY
 
-  def read_u32(self, port):
-    self.machine.DEBUG('%s.read_u32: port=%s', self.__class__.__name__, UINT16_FMT(port))
+  def _flag_finished(self):
+    """
+    Signals BIO is ready to accept new request: `BIO_RDY` is set, and `BIO_BUSY`
+    is cleared.
 
-    if port not in self.ports:
-      raise InvalidResourceError(F('Unhandled port: {port:S}', port = port))
+    If there was an request running, it is finished now. User can queue another
+    request, or access data in case read by the last request.
+    """
 
-    port -= self.port
+    self.DEBUG('%s._flag_finished', self.__class__.__name__)
 
-    if port == 0x0000:
-      return self._flags.value
+    self._flags &= ~BIO_BUSY
+    self._flags |= BIO_RDY
 
-    if port == 0x0005:
-      if self.buffer_index == self.buffer_length:
-        self._flags |= BIO_RDY
-        return 0xFFFFFFFF
+  def _flag_error(self):
+    """
+    Signals BIO request failed: `BIO_ERR` is set, and both `BIO_RDY` and `BIO_BUSY`
+    are cleared.
+    """
 
-      v =  (self.buffer[self.buffer_index + 3] << 24) | (self.buffer[self.buffer_index + 2] << 16) | (self.buffer[self.buffer_index + 1] <<  8) |  self.buffer[self.buffer_index]
+    self.DEBUG('%s._flag_error', self.__class__.__name__)
 
-      self.buffer_index += 4
-      return v
+    self._flags &= ~BIO_RDY
+    self._flags &= ~BIO_BUSY
+    self._flags |= BIO_ERR
 
-    raise InvalidResourceError(F('Write-only port: {port:S}', port = port + self.port))
+  def status_write(self, value):
+    """
+    Handles writes to `STATUS` register. Starts the IO requested when
+    `BIO_READ` or `BIO_WRITE` were set.
+    """
 
-  def write_u32(self, port, value):
-    self.machine.DEBUG('%s.write_u32: port=%s, value=%s', self.__class__.__name__, UINT16_FMT(port), UINT32_FMT(value))
+    self.DEBUG('%s.status_write: value=%s', self.__class__.__name__, UINT32_FMT(value))
 
-    if port not in self.ports:
-      raise InvalidResourceError(F('Unhandled port: {port:S}', port = port))
+    value &= BIO_USER
 
-    port -= self.port
-    value &= 0xFFFFFFFF
+    if value & BIO_SRST:
+      self.DEBUG('%s.status_write: SRST', self.__class__.__name__)
+      self.reset()
 
-    if port == 0x0000:
-      value &= BIO_USER
+    if value & BIO_DMA:
+      self.DEBUG('%s.status_write: DMA', self.__class__.__name__)
+      self._dma = True
 
-      if value & BIO_SRST:
-        self.machine.DEBUG('%s.write_u32: SRST', self.__class__.__name__)
-        self.reset()
+    if value & BIO_READ or value & BIO_WRITE:
+      self.DEBUG('%s.status_write: IO', self.__class__.__name__)
 
-      if value & BIO_DMA:
-        self.machine.DEBUG('%s.write_u32: DMA', self.__class__.__name__)
-        self.dma = True
+      self._flag_busy()
+      self._buffer_index = 0
 
-      if value & BIO_READ or value & BIO_WRITE:
-        self.machine.DEBUG('%s.write_u32: IO', self.__class__.__name__)
-
-        self.__flag_busy()
-
-        self.buffer_index = 0
-
-        if value & BIO_READ:
-          try:
-            self.buffer = self.storage.read_blocks(self._block.value, self._count.value)
-
-          except StorageAccessError:
-            self.__flag_error()
-
-          else:
-            if self.dma:
-              self.buff_to_memory(self._address.value, self.buffer)
-              self.__flag_finished()
-
-        else:
-          if self.dma is True:
-            self.buffer = self.memory_to_buff(self._address.value, self._count.value * BLOCK_SIZE)
-
-            try:
-              self.storage.write_blocks(self._block.value, self._count.value, self.buffer)
-
-            except StorageAccessError:
-              self.__flag_error()
-
-            else:
-              self.__flag_finished()
-
-      return
-
-    if port == 0x0001:
-      try:
-        self.storage = self.machine.get_storage_by_id(value)
-        self._device_id = value
-
-      except InvalidResourceError:
-        self.__flag_error()
-
-      return
-
-    if port == 0x0002:
-      self._block.value = value
-      return
-
-    if port == 0x0003:
-      self._count.value = value
-      return
-
-    if port == 0x0004:
-      self._address.value = value
-      return
-
-    if port == 0x0005:
-      if self.buffer_index == self.buffer_length:
-        self._flags.value |= BIO_ERR
+      if self._storage is None:
+        self._flag_error()
         return
 
-      self.buffer[self.buffer_index]     =  value        & 0xFF
-      self.buffer[self.buffer_index + 1] = (value >>  8) & 0xFF
-      self.buffer[self.buffer_index + 1] = (value >> 16) & 0xFF
-      self.buffer[self.buffer_index + 1] = (value >> 24) & 0xFF
-      self.buffer_index += 4
+      if value & BIO_READ:
+        try:
+          self._buffer = self._storage.read_blocks(self._block, self._count)
+
+        except StorageAccessError:
+          self._flag_error()
+
+        else:
+          if self._dma is True:
+            self.buff_to_memory(self._address, self._buffer)
+
+          self._flag_finished()
+
+      else:
+        if self._dma is True:
+          self._buffer = self.memory_to_buff(self._address, self._count * BLOCK_SIZE)
+
+        try:
+          self._storage.write_blocks(self._block, self._count, self._buffer)
+
+        except StorageAccessError:
+          self._flag_error()
+
+        else:
+          self._flag_finished()
+
+  def select_storage(self, sid):
+    self.DEBUG('%s.select_storage: sid=%s', self.__class__.__name__, UINT32_FMT(sid))
+
+    self._device_id = 0xFFFFFFFF
+    self._storage = None
+
+    try:
+      self._storage = self.machine.get_storage_by_id(sid)
+      self._device_id = sid
+
+    except InvalidResourceError:
+      self._flag_error()
+
+  def read_data(self):
+    if self._buffer_index == self._buffer_length:
+      self._flag_error()
+      return 0xFFFFFFFF
+
+    i = self._buffer_index
+    v = (self._buffer[i + 3] << 24) | (self._buffer[i + 2] << 16) | (self._buffer[i + 1] << 8) | self._buffer[i]
+
+    self._buffer_index += 4
+    return v
+
+  def write_data(self, value):
+    if self._buffer_index == self._buffer_length:
+      self._flag_error()
       return
 
-    raise InvalidResourceError(F('Read-only port: {port:S}', port = port + self.port))
+    i = self._buffer_index
+    self._buffer[i]     =  value        & 0xFF
+    self._buffer[i + 1] = (value >>  8) & 0xFF
+    self._buffer[i + 1] = (value >> 16) & 0xFF
+    self._buffer[i + 1] = (value >> 24) & 0xFF
+
+    self._buffer_index += 4

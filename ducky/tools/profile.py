@@ -70,7 +70,7 @@ def main():
 
     for ip in sorted(merged_data.keys(), key = lambda x: merged_data[x].count, reverse = True):
       record = merged_data[ip]
-      #binary_ip = record.ip - DEFAULT_BOOTLOADER_ADDRESS
+      # binary_ip = record.ip - DEFAULT_BOOTLOADER_ADDRESS
       binary_ip  = record.ip
 
       symbol, offset = symbol_table[binary_ip]

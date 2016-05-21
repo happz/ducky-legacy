@@ -798,16 +798,6 @@ class CPUCore(ISnapshotable, IMachineWorker):
     if not self.privileged:
       raise AccessViolationError('Instruction not allowed in unprivileged mode: inst={}'.format(self.current_instruction))
 
-  def check_protected_port(self, port):
-    if port not in self.cpu.machine.ports:
-      raise InvalidResourceError('Unhandled port: port={}'.format(UINT16_FMT(port)))
-
-    if self.privileged:
-      return
-
-    if self.cpu.machine.ports[port].is_port_protected(port):
-      raise AccessViolationError('Access to port not allowed in unprivileged mode: inst={}, port={}'.format(self.current_instruction, port))
-
   def step(self):
     """
     Perform one "step" - fetch next instruction, increment IP, and execute instruction's code (see inst_* methods)

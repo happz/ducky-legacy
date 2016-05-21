@@ -13,6 +13,7 @@ smp = ENV.Alias('smp', File('smp'))
 ENV.Command('.running-smp', [File('smp'), 'smp.img'], ENV.DuckyRun(config = 'smp.conf', set_options = ['bootloader:file=%s' % File('#boot/loader').abspath, 'device-6:filepath=%s' % File('smp.img').abspath], expected_exit = 1))
 
 run_smp = ENV.Alias('run-smp', '.running-smp')
+ENV.Depends('.running-smp', File('#boot/loader'))
 
 ENV.Depends('examples', 'smp')
 

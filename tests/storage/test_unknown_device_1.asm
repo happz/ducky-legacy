@@ -2,16 +2,33 @@
 
   .text
 
+  li r12, $BIO_MMIO_ADDRESS
+
+.macro bio_send port:
+  mov r11, r12
+  add r11, #port
+  stw r11, r10
+.end
+
+.macro bio_receive port, reg:
+  mov r11, r12
+  add r11, #port
+  lw #reg, r11
+.end
+
   ; reset storage
   li r10, $BIO_SRST
-  outw $BIO_PORT_STATUS, r10
-
-  inw r0, $BIO_PORT_STATUS
+  $bio_send $BIO_MMIO_STATUS
+  lw r0, r11
 
   ; set storage ID
   li r10, 0x08
-  outw $BIO_PORT_SID, r10
+  $bio_send $BIO_MMIO_SID
 
-  inw r1, $BIO_PORT_STATUS
+  ; get status
+  $bio_receive $BIO_MMIO_STATUS, r1
+
+  li r11, 0x00
+  li r12, 0x00
 
   hlt 0x00

@@ -1,18 +1,77 @@
+import enum
 import time
 import datetime
 
-from six.moves import range
-
-from . import Device, IRQProvider, IOProvider, IRQList
+from . import Device, IRQProvider, IRQList, MMIOMemoryPage
 from ..errors import InvalidResourceError
-from ..mm import u8_t, UINT16_FMT
+from ..mm import u8_t, UINT8_FMT, addr_to_page, u32_t, UINT32_FMT
 from ..reactor import RunInIntervalTask
-from ..util import F
+from ..hdt import HDTEntry_Device
 
 DEFAULT_IRQ  = 0x00
 DEFAULT_FREQ = 100
-DEFAULT_PORT_RANGE = 0x300
-PORT_RANGE = 0x0007
+DEFAULT_MMIO_ADDRESS = 0x8300
+
+class RTCPorts(enum.IntEnum):
+  FREQUENCY = 0x00
+  SECOND    = 0x01
+  MINUTE    = 0x02
+  HOUR      = 0x04
+  DAY       = 0x05
+  MONTH     = 0x06
+  YEAR      = 0x06
+
+class HDTEntry_RTC(HDTEntry_Device):
+  _fields_ = HDTEntry_Device.ENTRY_HEADER + [
+    ('mmio_address', u32_t)
+  ]
+
+  def __init__(self, logger, config, section):
+    super(HDTEntry_RTC, self).__init__(logger, section, 'Virtual RTC chip')
+
+    self.mmio_address = config.getint(section, 'mmio-address', DEFAULT_MMIO_ADDRESS)
+
+    logger.debug('%s: mmio-address=%s', self.__class__.__name__, UINT32_FMT(self.mmio_address))
+
+class RTCMMIOMemoryPage(MMIOMemoryPage):
+  def read_u8(self, offset):
+    self.DEBUG('%s.read_u8: offset=%s', self.__class__.__name__, UINT8_FMT(offset))
+
+    if offset == RTCPorts.FREQUENCY:
+      return self._device.frequency
+
+    now = datetime.datetime.now()
+
+    if offset == RTCPorts.SECOND:
+      return u8_t(now.second).value
+
+    if offset == RTCPorts.MINUTE:
+      return u8_t(now.minute).value
+
+    if offset == RTCPorts.HOUR:
+      return u8_t(now.hour).value
+
+    if offset == RTCPorts.DAY:
+      return u8_t(now.day).value
+
+    if offset == RTCPorts.MONTH:
+      return u8_t(now.month).value
+
+    if offset == RTCPorts.YEAR:
+      return u8_t(now.year - 2000).value
+
+    self.WARN('%s.read_u8: attempt to read unhandled MMIO offset: offset=%s', self.__class__.__name__, UINT8_FMT(offset))
+    return 0x00
+
+  def write_u8(self, offset, value):
+    self.DEBUG('%s.write_u8: offset=%s, value=%s', self.__class__.__name__, UINT8_FMT(offset), UINT8_FMT(value))
+
+    if offset == RTCPorts.FREQUENCY:
+      self._device.frequency = value
+      self._device.timer_task.update_tick()
+      return
+
+    self.WARN('%s.write_u8: attempt to write unhandled MMIO offset: offset=%s, value=%s', self.__class__.__name__, UINT8_FMT(offset), UINT8_FMT(value))
 
 class RTCTask(RunInIntervalTask):
   def __init__(self, machine, rtc):
@@ -43,32 +102,50 @@ class RTCTask(RunInIntervalTask):
 
     self.machine.trigger_irq(self.rtc)
 
-class RTC(IRQProvider, IOProvider, Device):
-  def __init__(self, machine, name, frequency = None, port = None, irq = None, *args, **kwargs):
+class RTC(IRQProvider, Device):
+  def __init__(self, machine, name, frequency = None, mmio_address = None, irq = None, *args, **kwargs):
     super(RTC, self).__init__(machine, 'rtc', name, *args, **kwargs)
 
+    self._frequency = None
     self.frequency = frequency or DEFAULT_FREQ
-    self.port = port or DEFAULT_PORT_RANGE
-    self.ports = list(range(port, port + PORT_RANGE))
+
     self.irq = irq or DEFAULT_IRQ
     self.timer_task = RTCTask(machine, self)
 
-    if self.frequency >= 256:
+    self._mmio_address = mmio_address
+    self._mmio_page = None
+
+  @property
+  def frequency(self):
+    return self._frequency
+
+  @frequency.setter
+  def frequency(self, value):
+    if value > 0xFF:
       raise InvalidResourceError('Maximum RTC ticks per second is 255')
+
+    if value <= 0:
+      value = DEFAULT_FREQ
+
+    self._frequency = value
 
   @staticmethod
   def create_from_config(machine, config, section):
     return RTC(machine,
                section,
                frequency = config.getint(section, 'frequency', DEFAULT_FREQ),
-               port = config.getint(section, 'port', DEFAULT_PORT_RANGE),
+               mmio_address = config.getint(section, 'mmio-address', DEFAULT_MMIO_ADDRESS),
                irq = config.getint(section, 'irq', IRQList.TIMER))
+
+  @staticmethod
+  def create_hdt_entries(logger, config, section):
+    return [HDTEntry_RTC(logger, config, section)]
 
   def boot(self):
     self.machine.DEBUG('RTC.boot')
 
-    for port in self.ports:
-      self.machine.register_port(port, self)
+    self._mmio_page = RTCMMIOMemoryPage(self, self.machine.memory, addr_to_page(self._mmio_address))
+    self.machine.memory.register_page(self._mmio_page)
 
     self.machine.reactor.add_task(self.timer_task)
     self.machine.reactor.task_runnable(self.timer_task)
@@ -78,46 +155,5 @@ class RTC(IRQProvider, IOProvider, Device):
     self.machine.tenh('RTC: time %02i:%02i:%02i, date: %02i/%02i/%02i', now.hour, now.minute, now.second, now.day, now.month, now.year - 2000)
 
   def halt(self):
-    for port in self.ports:
-      self.machine.unregister_port(port)
-
+    self.machine.memory.unregister_page(self._mmio_page)
     self.machine.reactor.remove_task(self.timer_task)
-
-  def read_u8(self, port):
-    if port not in self.ports:
-      raise InvalidResourceError('Unhandled port: %s' % UINT16_FMT(port))
-
-    port -= self.port
-
-    if port == 0x0000:
-      return u8_t(self.frequency).value
-
-    now = datetime.datetime.now()
-
-    if port == 0x0001:
-      return u8_t(now.second).value
-
-    if port == 0x0002:
-      return u8_t(now.minute).value
-
-    if port == 0x0003:
-      return u8_t(now.hour).value
-
-    if port == 0x0004:
-      return u8_t(now.day).value
-
-    if port == 0x0005:
-      return u8_t(now.month).value
-
-    if port == 0x0006:
-      return u8_t(now.year - 2000).value
-
-  def write_u8(self, port, value):
-    if port not in self.ports:
-      raise InvalidResourceError(F('Unhandled port: {port:S}', port = port))
-
-    if port != self.ports[0]:
-      raise InvalidResourceError(F('Unable to write to read-only port: port={port:S}, value={value:B}', port = port, value = value))
-
-    self.frequency = value
-    self.timer_task.update_tick()

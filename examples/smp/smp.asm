@@ -61,8 +61,10 @@ isr_dummy:
 ;
 _start:
   ; set RTC frequency
-  li r0, 2
-  outb $RTC_PORT_FREQ, r0
+  li r0, $RTC_MMIO_ADDRESS
+  add r0, $RTC_MMIO_FREQ
+  li r1, 2
+  stb r0, r1
 
   ; IVT was cleared by bootloader, lets get one routine for timer, and one
   ; dummy routine for all other interrupts.

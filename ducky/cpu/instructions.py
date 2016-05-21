@@ -10,7 +10,7 @@ from functools import partial
 from .registers import Registers, REGISTER_NAMES
 from ..mm import u32_t, i32_t, UINT16_FMT, UINT32_FMT
 from ..util import str2int
-from ..errors import EncodingLargeValueError, UnalignedJumpTargetError, AccessViolationError, AssemblerError
+from ..errors import EncodingLargeValueError, UnalignedJumpTargetError, AssemblerError
 
 PO_REGISTER  = r'(?P<register_n{operand_index}>(?:r\d\d?)|(?:sp)|(?:fp))'
 PO_AREGISTER = r'(?P<address_register>r\d\d?|sp|fp)(?:\[(?:(?P<offset_sign>-|\+)?(?P<offset_immediate>0x[0-9a-fA-F]+|\d+))\])?'
@@ -43,18 +43,6 @@ else:
     ctypes.cast(ctypes.byref(e), ctypes.POINTER(encoding))[0] = ctypes.cast(ctypes.byref(u), ctypes.POINTER(encoding)).contents
 
     return e
-
-def encoding_to_u32(encoding):
-  class _Cast(ctypes.Union):
-    _pack_ = 0
-    _fields_ = [
-      ('overall',  u32_t),
-      ('encoding', encoding.__class__)
-    ]
-
-  caster = _Cast()
-  caster.encoding = encoding
-  return caster.overall
 
 def IE_OPCODE():
   return ('opcode', u32_t, 6)
@@ -660,13 +648,6 @@ class DuckyOpcodes(enum.IntEnum):
   NOT    = 37
   SHIFTL = 38
   SHIFTR = 39
-
-  OUTW   = 40
-  OUTS   = 41
-  OUTB   = 42
-  INW    = 43
-  INS    = 44
-  INB    = 45
 
   # Branch instructions
   J      = 46
@@ -1722,125 +1703,6 @@ class SETLE(_SET):
 
 
 #
-# IO
-#
-
-class _IN(Descriptor_R_RI):
-  encoding = EncodingR
-
-  @staticmethod
-  def execute(core, inst):
-    port = RI_VAL(core, inst, 'reg2')
-
-    core.check_protected_port(port)
-
-    r = core.registers.map[inst.reg1]
-    dev = core.cpu.machine.ports[port]
-
-    if inst.opcode == DuckyOpcodes.INB:
-      r.value = dev.read_u8(port)
-
-    elif inst.opcode == DuckyOpcodes.INS:
-      r.value = dev.read_u16(port)
-
-    else:
-      r.value = dev.read_u32(port)
-
-    update_arith_flags(core, r)
-
-  @staticmethod
-  def jit(core, inst):
-    reg = core.registers.map[inst.reg1]
-
-    if inst.immediate_flag == 1:
-      port = inst.sign_extend_immediate(core.LOGGER, inst)
-      dev = core.cpu.machine.ports[port]
-      is_protected = partial(dev.is_port_protected, port)
-
-      if inst.opcode == DuckyOpcodes.INB:
-        reader = dev.read_u8
-
-        def __jit_inb():
-          if not core.privileged and is_protected():
-            raise AccessViolationError('Access to port not allowed in unprivileged mode: inst={}, port={}'.format(inst, port))
-
-          reg.value = v = reader(port)
-          core.arith_zero = v == 0
-          core.arith_overflow = core.arith_sign = False
-
-        return __jit_inb
-
-    return None
-
-class INB(_IN):
-  mnemonic = 'inb'
-  opcode   = DuckyOpcodes.INB
-
-class INS(_IN):
-  mnemonic = 'ins'
-  opcode   = DuckyOpcodes.INS
-
-class INW(_IN):
-  mnemonic = 'inw'
-  opcode   = DuckyOpcodes.INW
-
-class _OUT(Descriptor_RI_R):
-  encoding = EncodingR
-
-  @staticmethod
-  def execute(core, inst):
-    port = RI_VAL(core, inst, 'reg1')
-
-    core.check_protected_port(port)
-
-    r = core.registers.map[inst.reg2]
-    dev = core.cpu.machine.ports[port]
-
-    if inst.opcode == DuckyOpcodes.OUTB:
-      dev.write_u8(port, r.value & 0xFF)
-
-    elif inst.opcode == DuckyOpcodes.OUTS:
-      dev.write_u16(port, r.value & 0xFFFF)
-
-    else:
-      dev.write_u32(port, r.value)
-
-  @staticmethod
-  def jit(core, inst):
-    reg = core.registers.map[inst.reg2]
-
-    if inst.immediate_flag == 1:
-      port = inst.sign_extend_immediate(core.LOGGER, inst)
-      dev = core.cpu.machine.ports[port]
-      is_protected = partial(dev.is_port_protected, port)
-
-      if inst.opcode == DuckyOpcodes.OUTB:
-        writer = dev.write_u8
-
-        def __jit_outb():
-          if not core.privileged and is_protected():
-            raise AccessViolationError('Access to port not allowed in unprivileged mode: inst={}, port={}'.format(inst, port))
-
-          writer(port, reg.value & 0xFF)
-
-        return __jit_outb
-
-    return None
-
-class OUTB(_OUT):
-  mnemonic      = 'outb'
-  opcode = DuckyOpcodes.OUTB
-
-class OUTW(_OUT):
-  mnemonic = 'outw'
-  opcode   = DuckyOpcodes.OUTW
-
-class OUTS(_OUT):
-  mnemonic = 'outs'
-  opcode   = DuckyOpcodes.OUTS
-
-
-#
 # Bit operations
 #
 class _BITOP(Descriptor_R_RI):
@@ -2627,12 +2489,6 @@ ADD(DuckyInstructionSet)
 SUB(DuckyInstructionSet)
 CMP(DuckyInstructionSet)
 J(DuckyInstructionSet)
-INW(DuckyInstructionSet)
-INB(DuckyInstructionSet)
-INS(DuckyInstructionSet)
-OUTS(DuckyInstructionSet)
-OUTW(DuckyInstructionSet)
-OUTB(DuckyInstructionSet)
 AND(DuckyInstructionSet)
 OR(DuckyInstructionSet)
 XOR(DuckyInstructionSet)

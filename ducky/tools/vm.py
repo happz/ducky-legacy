@@ -68,7 +68,7 @@ class WSInputStream(InputStream):
 
   def has_poll_support(self):
     """
-    See :py:meth:`ducky.streams.Stream.has_poll_support'.
+    See :py:meth:`ducky.streams.Stream.has_poll_support`.
 
     """
 
@@ -76,7 +76,7 @@ class WSInputStream(InputStream):
 
   def register_with_reactor(self, reactor, on_read = None, on_error = None):
     """
-    See :py:meth:`ducky.streams.Stream.register_with_reactor'.
+    See :py:meth:`ducky.streams.Stream.register_with_reactor`.
 
     """
 
@@ -95,7 +95,7 @@ class WSInputStream(InputStream):
 
   def unregister_with_reactor(self, reactor):
     """
-    See :py:meth:`ducky.streams.Stream.unregister_with_reactor'.
+    See :py:meth:`ducky.streams.Stream.unregister_with_reactor`.
 
     """
 
@@ -114,7 +114,7 @@ class WSInputStream(InputStream):
 
   def read(self, size = None):
     """
-    See :py:meth:`ducky.streams.Stream.read'.
+    See :py:meth:`ducky.streams.Stream.read`.
 
     """
 

@@ -6,4 +6,6 @@
   import ducky.devices.tty
 %>
 
-.def TTY_PORT_DATA: ${X(ducky.devices.tty.DEFAULT_PORT_RANGE + 0x00)}
+.def TTY_MMIO_ADDRESS: ${X(ducky.devices.tty.DEFAULT_MMIO_ADDRESS)}
+
+.def TTY_MMIO_DATA:    ${X(ducky.devices.tty.TTYPorts.DATA)}

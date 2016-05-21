@@ -49,8 +49,10 @@
   .text
 
 main:
-  li r0, 5
-  outb $RTC_PORT_FREQ, r0
+  li r0, $RTC_MMIO_ADDRESS
+  add r0, $RTC_MMIO_FREQ
+  li r1, 5
+  stb r0, r1
 
   ; interrupts are disabled, there are no interrupt routines
   li r0, 0x00
@@ -93,12 +95,29 @@ print_digits:
   ret
 
 irq_routine:
-  inb r9, $RTC_PORT_SECOND
-  inb r8, $RTC_PORT_MINUTE
-  inb r7, $RTC_PORT_HOUR
-  inb r6, $RTC_PORT_DAY
-  inb r5, $RTC_PORT_MONTH
-  inb r4, $RTC_PORT_YEAR
+  li r10, $RTC_MMIO_ADDRESS
+  add r10, $RTC_MMIO_SECOND
+  lb r9, r10
+
+  li r10, $RTC_MMIO_ADDRESS
+  add r10, $RTC_MMIO_MINUTE
+  lb r8, r10
+
+  li r10, $RTC_MMIO_ADDRESS
+  add r10, $RTC_MMIO_HOUR
+  lb r7, r10
+
+  li r10, $RTC_MMIO_ADDRESS
+  add r10, $RTC_MMIO_DAY
+  lb r6, r10
+
+  li r10, $RTC_MMIO_ADDRESS
+  add r10, $RTC_MMIO_MONTH
+  lb r5, r10
+
+  li r10, $RTC_MMIO_ADDRESS
+  add r10, $RTC_MMIO_YEAR
+  lb r4, r10
 
   li r0, &second
   lb r0, r0
@@ -145,8 +164,10 @@ __memreset_loop:
   $INSERT_DIGITS r9 ; seconds
 
   ; refresh screen
-  li r0, 0x0002
-  outs $VGA_COMMAND_PORT, r0
+  li r0, $VGA_MMIO_ADDRESS
+  add r0, $VGA_MMIO_COMMAND
+  li r1, $VGA_CMD_REFRESH
+  sts r0, r1
 
 __quit:
   la r0, &iteration

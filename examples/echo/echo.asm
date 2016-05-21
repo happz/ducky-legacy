@@ -31,16 +31,22 @@ __ivt_done:
 
   li r1, 0x2A                          ; '*'
 
+  li r2, $KBD_MMIO_ADDRESS
+  add r2, $KBD_MMIO_DATA
+
+  li r3, $TTY_MMIO_ADDRESS
+  add r3, $TTY_MMIO_DATA
+
 __echo_loop:
-  inb r0, $KBD_PORT_DATA
+  lb r0, r2
   cmp r0, 0xFF
   be &__idle
   cmp r0, 0x71                         ; 'q'
   be &__exit
 
-  outb $TTY_PORT_DATA, r1
-  outb $TTY_PORT_DATA, r0
-  outb $TTY_PORT_DATA, r1
+  stb r3, r1
+  stb r3, r0
+  stb r3, r1
 
   j &__echo_loop
 

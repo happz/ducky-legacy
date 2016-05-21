@@ -5,13 +5,50 @@ Keyboard controller - provides events for pressed and released keys.
 import enum
 import io
 
-from . import IRQProvider, IOProvider, DeviceFrontend, DeviceBackend, IRQList
+from . import IRQProvider, DeviceFrontend, DeviceBackend, IRQList, MMIOMemoryPage
 from ..errors import InvalidResourceError
-from ..mm import UINT16_FMT
+from ..mm import UINT8_FMT, addr_to_page, UINT32_FMT, u32_t
+from ..hdt import HDTEntry_Device
 
 DEFAULT_IRQ = 0x01
-DEFAULT_PORT_RANGE = 0x100
+DEFAULT_MMIO_ADDRESS = 0x8000
 
+class KeyboardPorts(enum.IntEnum):
+  STATUS = 0x00
+  DATA   = 0x01
+
+  LAST   = 0x01
+
+class HDTEntry_Keyboard(HDTEntry_Device):
+  _fields_ = HDTEntry_Device.ENTRY_HEADER + [
+    ('mmio_address', u32_t)
+  ]
+
+  def __init__(self, logger, config, section):
+    super(HDTEntry_Keyboard, self).__init__(logger, section, 'Virtual keyboard controller')
+
+    self.mmio_address = config.getint(section, 'mmio-address', DEFAULT_MMIO_ADDRESS)
+
+    logger.debug('%s: mmio-address=%s', self.__class__.__name__, UINT32_FMT(self.mmio_address))
+
+class KeyboardMMIOMemoryPage(MMIOMemoryPage):
+  def read_u8(self, offset):
+    self.DEBUG('%s.read_u8: offset=%s', self.__class__.__name__, UINT8_FMT(offset))
+
+    if offset == KeyboardPorts.STATUS:
+      return 0x00
+
+    if offset == KeyboardPorts.DATA:
+      b = self._device._read_char()
+      if not b:
+        self.DEBUG('%s.get: empty input, signal it downstream', self.__class__.__name__)
+        return 0xFF
+
+      self.DEBUG('%s.get: input byte is %i', self.__class__.__name__, b)
+      return b
+
+    self.WARN('%s.read_u8: attempt to read raw offset: offset=%s', self.__class__.__name__, UINT8_FMT(offset))
+    return 0x00
 
 class ControlMessages(enum.IntEnum):
   HALT = 1025
@@ -110,12 +147,12 @@ class Frontend(DeviceFrontend):
 
     self.machine.trigger_irq(self.backend)
 
-class Backend(IRQProvider, IOProvider, DeviceBackend):
-  def __init__(self, machine, name, port = None, irq = None):
+class Backend(IRQProvider, DeviceBackend):
+  def __init__(self, machine, name, mmio_address = None, irq = None):
     super(Backend, self).__init__(machine, 'input', name)
 
-    self.port = port or DEFAULT_PORT_RANGE
-    self.ports = [port]
+    self._mmio_address = mmio_address or DEFAULT_MMIO_ADDRESS
+    self._mmio_page = None
     self.irq = irq or DEFAULT_IRQ
 
     self._comm_queue = machine.comm_channel.create_queue(name)
@@ -124,25 +161,28 @@ class Backend(IRQProvider, IOProvider, DeviceBackend):
   @staticmethod
   def create_from_config(machine, config, section):
     return Backend(machine, section,
-                   port = config.getint(section, 'port', DEFAULT_PORT_RANGE),
+                   mmio_address = config.getint(section, 'mmio-address', DEFAULT_MMIO_ADDRESS),
                    irq = config.getint(section, 'irq', IRQList.KEYBOARD))
 
+  @staticmethod
+  def create_hdt_entries(logger, config, section):
+    return [HDTEntry_Keyboard(logger, config, section)]
+
   def __repr__(self):
-    return 'basic keyboard controller on [%s] as %s' % (', '.join([UINT16_FMT(port) for port in self.ports]), self.name)
+    return 'basic keyboard controller on [%s] as %s' % (UINT32_FMT(self._mmio_address), self.name)
 
   def boot(self):
     self.machine.DEBUG('%s.boot', self.__class__.__name__)
 
-    for port in self.ports:
-      self.machine.register_port(port, self)
+    self._mmio_page = KeyboardMMIOMemoryPage(self, self.machine.memory, addr_to_page(self._mmio_address))
+    self.machine.memory.register_page(self._mmio_page)
 
     self.machine.tenh('hid: %s', self)
 
   def halt(self):
     self.machine.DEBUG('%s.halt', self.__class__.__name__)
 
-    for port in self.ports:
-      self.machine.unregister_port(port)
+    self.machine.memory.unregister_page(self._mmio_page)
 
   def _process_input_event(self, e):
     self.machine.DEBUG('%s.__process_input_event: e=%r', self.__class__.__name__, e)
@@ -204,18 +244,3 @@ class Backend(IRQProvider, IOProvider, DeviceBackend):
       return None
 
     return __process_char(b)
-
-  def read_u8(self, port):
-    self.machine.DEBUG('%s.read_u8: port=%s', self.__class__.__name__, UINT16_FMT(port))
-
-    if port not in self.ports:
-      raise InvalidResourceError('Unhandled port: %s' % UINT16_FMT(port))
-
-    b = self._read_char()
-    if not b:
-      self.machine.DEBUG('%s.read_u8: empty input, signal it downstream', self.__class__.__name__)
-      return 0xFF
-
-    self.machine.DEBUG('%s.read_u8: input byte is %i', self.__class__.__name__, b)
-
-    return b

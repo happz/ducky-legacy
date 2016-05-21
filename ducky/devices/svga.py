@@ -11,23 +11,30 @@ from six.moves import range
 
 from ctypes import c_ushort, LittleEndianStructure
 
-from . import Device, IOProvider
+from . import Device, MMIOMemoryPage
 from ..errors import InvalidResourceError
 from ..mm import PAGE_SIZE, ExternalMemoryPage, addr_to_page, u8_t
-from ..util import sizeof_fmt, F, UINT16_FMT, UINT32_FMT
+from ..util import sizeof_fmt, F, UINT16_FMT, UINT32_FMT, UINT8_FMT
 from ..reactor import RunInIntervalTask
 from ..streams import OutputStream
 
-#: Default address of command port
-DEFAULT_PORT_RANGE = 0x3F0
 #: Default memory size, in bytes
 DEFAULT_MEMORY_SIZE = 64 * 1024
+
 #: Default number of memory banks
 DEFAULT_MEMORY_BANKS = 8
 
+#: Default MMIO address
+DEFAULT_MMIO_ADDRESS = 0x8100
+
+
+class SimpleVGAPorts(enum.IntEnum):
+  CONTROL = 0x00
+  DATA    = 0x02
+
 
 class SimpleVGACommands(enum.IntEnum):
-  RESET          = 0x8001
+  RESET          = 0x0001
   REFRESH        = 0x0002
 
   GRAPHIC        = 0x0020
@@ -258,7 +265,69 @@ class SimpleVGAMemoryPage(ExternalMemoryPage):
   def put(self, offset, b):
     self.data[self.dev.bank_offsets[self.dev.active_bank] + self.offset + offset] = b
 
-class SimpleVGA(IOProvider, Device):
+
+class SimpleVGAMMIOMemoryPage(MMIOMemoryPage):
+  def read_u16(self, offset):
+    self.DEBUG('%s.read_u16: offset=%s', self.__class__.__name__, offset)
+
+    if offset == SimpleVGAPorts.CONTROL:
+      return 0x0000
+
+    if offset == SimpleVGAPorts.DATA:
+      state, self._device.state = self._device.state, None
+
+      if state == SimpleVGACommands.GRAPHIC:
+        return 1 if self._device.active_mode.type == 'g' else 0
+
+      if state == SimpleVGACommands.COLS:
+        return self._device.active_mode.width
+
+      if state == SimpleVGACommands.ROWS:
+        return self._device.active_mode.height
+
+      if state == SimpleVGACommands.DEPTH:
+        return self._device.active_mode.depth
+
+      if state == SimpleVGACommands.MEMORY_BANK_ID:
+        return self._device.active_bank
+
+      self.WARN('%s.get: unknown state: state=%s', self.__class__.__name__, state)
+      return 0xFFFF
+
+    self.WARN('%s.get: attempt to read raw offset: offset=%s', self.__class__.__name__, offset)
+    return 0x0000
+
+  def write_u16(self, offset, value):
+    self.DEBUG('%s.put: offset=%s, value=%s', self.__class__.__name__, UINT8_FMT(offset), UINT16_FMT(value))
+
+    if offset == SimpleVGAPorts.CONTROL:
+      if value == SimpleVGACommands.RESET:
+        self._device.reset()
+        return
+
+      if value == SimpleVGACommands.REFRESH:
+        self._device.master.refresh_task.on_tick(None)
+        return
+
+      self._device.state = value
+      return
+
+    if offset == SimpleVGAPorts.DATA:
+      state, self._device.state = self._device.state, None
+
+      if state == SimpleVGACommands.MEMORY_BANK_ID:
+        if not 0 <= value < self._device.memory_banks:
+          raise InvalidResourceError(F('Memory bank out of range: bank={bank:d}', bank = value))
+
+        self._device.active_bank = value
+        return
+
+      self.WARN('%s.put: unknown state: state=%s', self.__class__.__name__, state)
+      return
+
+    self.WARN('%s.put: attempt to write raw offset: offset=%s', self.__class__.__name__, offset)
+
+class SimpleVGA(Device):
   """
   SimpleVGA is very basic implementation of VGA-like device, with text
   and graphic modes.
@@ -269,8 +338,8 @@ class SimpleVGA(IOProvider, Device):
 
   :param ducky.machine.Machine machine: machine this device belongs to.
   :param string name: name of this device.
-  :param u16 port: address of the command port.
   :param int memory_size: size of graphic memory.
+  :param u32_t mmio_address: base oddress of MMIO ports.
   :param u24 memory_address: address of graphic memory - to this address is
     graphic buffer mapped. Must be specified, there is no default value.
   :param int memory_banks: number of memory banks.
@@ -279,7 +348,7 @@ class SimpleVGA(IOProvider, Device):
   :param tuple boot_mode: this mode will be set when device boots up.
   """
 
-  def __init__(self, machine, name, port = None, memory_size = None, memory_address = None, memory_banks = None, modes = None, boot_mode = None, *args, **kwargs):
+  def __init__(self, machine, name, memory_size = None, mmio_address = None, memory_address = None, memory_banks = None, modes = None, boot_mode = None, *args, **kwargs):
     if memory_address is None:
       raise InvalidResourceError('sVGA device memory address must be specified explicitly')
 
@@ -288,13 +357,13 @@ class SimpleVGA(IOProvider, Device):
 
     super(SimpleVGA, self).__init__(machine, 'gpu', name, *args, **kwargs)
 
-    self.port = port or DEFAULT_PORT_RANGE
-    self.ports = [port, port + 0x0001]
-
     self.memory_size = memory_size or DEFAULT_MEMORY_SIZE
     self.memory_address = memory_address
     self.memory_banks = memory_banks or DEFAULT_MEMORY_BANKS
     self.modes = modes or DEFAULT_MODES
+
+    self._mmio_address = mmio_address or DEFAULT_MMIO_ADDRESS
+    self._mmio_page = None
 
     if self.memory_size % PAGE_SIZE:
       raise InvalidResourceError('sVGA device memory size must be page-aligned')
@@ -335,20 +404,20 @@ class SimpleVGA(IOProvider, Device):
       boot_mode = Mode.from_string(boot_mode)
 
     return SimpleVGA(machine, section,
-                     port = _getint('port', DEFAULT_PORT_RANGE),
                      memory_size = _getint('memory-size', DEFAULT_MEMORY_SIZE),
                      memory_address = _getint('memory-address', None),
                      memory_banks = _getint('memory-banks', DEFAULT_MEMORY_BANKS),
+                     mmio_address = _getint('mmio-address', DEFAULT_MMIO_ADDRESS),
                      modes = modes,
                      boot_mode = boot_mode)
 
   def __repr__(self):
-    return F('sVGA adapter {name} ({memory_size} VRAM in {memory_banks:d} banks at {memory_address}, control [{ports}]; {mode} mode)',
+    return F('sVGA adapter {name} ({memory_size} VRAM in {memory_banks:d} banks at {memory_address}, control [{mmio}]; {mode} mode)',
              name = self.name,
              memory_size = sizeof_fmt(self.memory_size),
              memory_banks = self.memory_banks,
              memory_address = UINT32_FMT(self.memory_address),
-             ports = ', '.join([UINT16_FMT(port) for port in self.ports]),
+             mmio = UINT32_FMT(self._mmio_address),
              mode = self.active_mode.to_pretty_string() if self.active_mode is not None else (self.boot_mode.to_pretty_string() + ' boot')
              )
 
@@ -366,9 +435,6 @@ class SimpleVGA(IOProvider, Device):
   def boot(self):
     self.machine.DEBUG('SimpleVGA.boot')
 
-    for port in self.ports:
-      self.machine.register_port(port, self)
-
     self.pages = []
     pages_start = addr_to_page(self.memory_address)
 
@@ -376,6 +442,9 @@ class SimpleVGA(IOProvider, Device):
       pg = SimpleVGAMemoryPage(self, self.machine.memory, i, self.memory, offset = (i - pages_start) * PAGE_SIZE)
       self.machine.memory.register_page(pg)
       self.pages.append(pg)
+
+    self._mmio_page = SimpleVGAMMIOMemoryPage(self, self.machine.memory, addr_to_page(self._mmio_address))
+    self.machine.memory.register_page(self._mmio_page)
 
     self.reset()
     self.set_mode(self.boot_mode)
@@ -390,67 +459,6 @@ class SimpleVGA(IOProvider, Device):
 
     self.pages = []
 
-    for port in self.ports:
-      self.machine.unregister_port(port)
+    self.machine.memory.unregister_page(self._mmio_page)
 
     self.machine.DEBUG('SimpleVGA: halted')
-
-  def read_u16(self, port):
-    self.machine.DEBUG(F('{method}.read_u16: port={port:S}', method = self.__class__.__name__, port = port))
-
-    if port != self.ports[1]:
-      raise InvalidResourceError('Unable to read from command register')
-
-    if self.state == SimpleVGACommands.GRAPHIC:
-      self.state = None
-      return 1 if self.active_mode.type == 'g' else 0
-
-    if self.state == SimpleVGACommands.COLS:
-      self.state = None
-      return self.active_mode.width
-
-    if self.state == SimpleVGACommands.ROWS:
-      self.state = None
-      return self.active_mode.height
-
-    if self.state == SimpleVGACommands.DEPTH:
-      self.state = None
-      return self.active_mode.depth
-
-    if self.state == SimpleVGACommands.MEMORY_BANK_ID:
-      self.state = None
-      return self.active_bank
-
-    raise InvalidResourceError(F('Invalid internal state: state={state}', state = self.state))
-
-  def write_u16(self, port, value):
-    self.machine.DEBUG(F('{method}.write_u16: port={port:S}, value={value:S}', method = self.__class__.__name__, port = port, value = value))
-
-    if port not in self.ports:
-      raise InvalidResourceError(F('Unhandled port: port={port:S}', port = port))
-
-    if self.ports.index(port) == 0:
-      # command port
-
-      if value == SimpleVGACommands.RESET:
-        self.reset()
-        return
-
-      if value == SimpleVGACommands.REFRESH:
-        self.master.refresh_task.on_tick(None)
-        return
-
-      self.state = value
-
-    else:
-      # data port
-
-      if self.state == SimpleVGACommands.MEMORY_BANK_ID:
-        if not 0 <= value < self.memory_banks:
-          raise InvalidResourceError(F('Memory bank out of range: bank={bank:d}', bank = value))
-
-        self.active_bank = value
-        self.state = None
-
-      else:
-        raise InvalidResourceError(F('Invalid internal state: state={state}', state = self.state))

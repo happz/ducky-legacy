@@ -6,12 +6,38 @@ chars by writing to this device, and you'll get this written into a stream
 attached to the frontend (``stdout``, file, ...).
 """
 
-from . import IOProvider, DeviceFrontend, DeviceBackend
-from ..errors import InvalidResourceError
-from ..mm import UINT16_FMT, UINT8_FMT
+import enum
+from . import DeviceFrontend, DeviceBackend, MMIOMemoryPage
+from ..mm import UINT8_FMT, addr_to_page, UINT32_FMT, u32_t
 from ..interfaces import IReactorTask
+from ..hdt import HDTEntry_Device
 
-DEFAULT_PORT_RANGE = 0x200
+DEFAULT_MMIO_ADDRESS = 0x8200
+
+class TTYPorts(enum.IntEnum):
+  DATA = 0x00
+
+class TTYMMIOMemoryPage(MMIOMemoryPage):
+  def write_u8(self, offset, value):
+    self.DEBUG('%s.write_u8: offset=%s, value=%s', self.__class__.__name__, UINT8_FMT(offset), UINT8_FMT(value))
+
+    if offset == TTYPorts.DATA:
+      self._device.comm_queue.write_out(value)
+      return
+
+    self.WARN('%s.write_u8: attempt to write to a virtual page: offset=%s', self.__class__.__name__, UINT8_FMT(offset))
+
+class HDTEntry_TTY(HDTEntry_Device):
+  _fields_ = HDTEntry_Device.ENTRY_HEADER + [
+    ('mmio_address', u32_t)
+  ]
+
+  def __init__(self, logger, config, section):
+    super(HDTEntry_TTY, self).__init__(logger, section, 'Virtual TTY')
+
+    self.mmio_address = config.getint(section, 'mmio-address', DEFAULT_MMIO_ADDRESS)
+
+    logger.debug('%s: mmio-address=%s', self.__class__.__name__, UINT32_FMT(self.mmio_address))
 
 class FrontendFlushTask(IReactorTask):
   def __init__(self, frontend, queue, stream):
@@ -90,30 +116,26 @@ class Frontend(DeviceFrontend):
     if self._stream is not None:
       self._stream.allow_close = False
 
-class Backend(IOProvider, DeviceBackend):
-  def __init__(self, machine, name, stream = None, port = None, *args, **kwargs):
+class Backend(DeviceBackend):
+  def __init__(self, machine, name, stream = None, mmio_address = None, *args, **kwargs):
     super(Backend, self).__init__(machine, 'output', name, *args, **kwargs)
 
-    self.port = port or DEFAULT_PORT_RANGE
-    self.ports = [port]
+    self._mmio_address = mmio_address or DEFAULT_MMIO_ADDRESS
+    self._mmio_page = None
 
     self.comm_queue = machine.comm_channel.create_queue(name)
 
   @staticmethod
   def create_from_config(machine, config, section):
     return Backend(machine, section,
-                   port = config.getint(section, 'port', DEFAULT_PORT_RANGE))
+                   mmio_address = config.getint(section, 'mmio-address', DEFAULT_MMIO_ADDRESS))
+
+  @staticmethod
+  def create_hdt_entries(logger, config, section):
+    return [HDTEntry_TTY(logger, config, section)]
 
   def __repr__(self):
-    return 'basic tty on [%s] as %s' % (', '.join([UINT16_FMT(port) for port in self.ports]), self.name)
-
-  def write_u8(self, port, value):
-    self.machine.DEBUG('%s.write_u8: port=%s, value=%s', self.__class__.__name__, UINT16_FMT(port), UINT8_FMT(value))
-
-    if port not in self.ports:
-      raise InvalidResourceError('Unhandled port: %s' % UINT16_FMT(port))
-
-    self.comm_queue.write_out(value)
+    return 'basic tty on [%s] as %s' % (UINT32_FMT(self._mmio_address), self.name)
 
   def tenh(self, s, *args):
     self.machine.DEBUG('%s.tenh: s="%s", args=%s', self.__class__.__name__, s, args)
@@ -135,13 +157,12 @@ class Backend(IOProvider, DeviceBackend):
   def boot(self):
     self.machine.DEBUG('%s.boot', self.__class__.__name__)
 
-    for port in self.ports:
-      self.machine.register_port(port, self)
+    self._mmio_page = TTYMMIOMemoryPage(self, self.machine.memory, addr_to_page(self._mmio_address))
+    self.machine.memory.register_page(self._mmio_page)
 
     self.machine.tenh('hid: %s', self)
 
   def halt(self):
     self.machine.DEBUG('%s.halt', self.__class__.__name__)
 
-    for port in self.ports:
-      self.machine.unregister_port(port)
+    self.machine.memory.unregister_page(self._mmio_page)

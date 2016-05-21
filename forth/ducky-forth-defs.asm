@@ -11,7 +11,7 @@
 .def DUCKY_VERSION: 0x0002
 
 .def TEXT_BASE:      0x0000
-.def USERSPACE_BASE: 0x6000
+.def USERSPACE_BASE: 0x9000
 
 ; RTC frequency - 1 tick per second is good enough for us.
 .ifndef RTC_FREQ

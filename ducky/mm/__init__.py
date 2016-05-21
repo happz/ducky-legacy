@@ -276,6 +276,17 @@ class AnonymousMemoryPage(MemoryPage):
     self.data[offset + 2] = (value &   0xFF0000) >> 16
     self.data[offset + 3] = (value & 0xFF000000) >> 24
 
+class VirtualMemoryPage(MemoryPage):
+  """
+  Memory page without any real storage backend.
+  """
+
+  def __repr__(self):
+    return '<%s index=%i, base=%s>' % (self.__class__.__name__, self.index, UINT32_FMT(self.base_address))
+
+  def save_state(self, parent):
+    return
+
 class ExternalMemoryPage(MemoryPage):
   """
   Memory page backed by an external source. Source is an array of bytes,
@@ -294,7 +305,11 @@ class ExternalMemoryPage(MemoryPage):
   def save_state(self, parent):
     state = super(ExternalMemoryPage, self).save_state(parent)
 
-    state.content = [ord(i) if isinstance(i, str) else i for i in self.data[self.offset:self.offset + PAGE_SIZE]]
+    if self.data:
+      state.content = [ord(i) if isinstance(i, str) else i for i in self.data[self.offset:self.offset + PAGE_SIZE]]
+
+    else:
+      state.content = []
 
   def clear(self):
     self.DEBUG('%s.clear', self.__class__.__name__)

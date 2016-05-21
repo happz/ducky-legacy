@@ -3,11 +3,13 @@
 ;
 
 <%
-  from ducky.devices.svga import DEFAULT_PORT_RANGE, SimpleVGACommands
+  from ducky.devices.svga import DEFAULT_MMIO_ADDRESS, SimpleVGACommands, SimpleVGAPorts
 %>
 
-.def VGA_COMMAND_PORT: ${X(DEFAULT_PORT_RANGE + 0x00)}
-.def VGA_DATA_PORT:    ${X(DEFAULT_PORT_RANGE + 0x01)}
+.def VGA_MMIO_ADDRESS: ${X(DEFAULT_MMIO_ADDRESS)}
+
+.def VGA_MMIO_COMMAND: ${X(SimpleVGAPorts.CONTROL)}
+.def VGA_MMIO_DATA:    ${X(SimpleVGAPorts.DATA)}
 
 .def VGA_CMD_REFRESH:  ${X4(SimpleVGACommands.REFRESH)}
 

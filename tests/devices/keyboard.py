@@ -6,7 +6,11 @@ import ducky.errors
 import ducky.machine
 import ducky.streams
 
-from .. import TestCase, get_tempfile, common_run_machine, mock
+from ducky.util import UINT8_FMT
+
+from .. import get_tempfile, common_run_machine, mock, LOGGER
+from hypothesis import given
+from hypothesis.strategies import integers
 
 def common_case(**kwargs):
   machine_config = ducky.config.MachineConfig()
@@ -23,27 +27,44 @@ def common_case(**kwargs):
 
   return M.get_device_by_name(section_frontend, 'input'), M.get_device_by_name(section_backend, klass = 'input')
 
-class Tests(TestCase):
-  def test_default(self):
-    f = get_tempfile()
-    f.close()
+def test_default():
+  f = get_tempfile()
+  f.close()
 
-    frontend, backend = common_case()
-    M = frontend.machine
+  frontend, backend = common_case()
+  M = frontend.machine
 
-    M.reactor.add_fd = mock.MagicMock()
-    M.reactor.remove_fd = mock.MagicMock()
-    frontend.enqueue_stream(ducky.streams.InputStream.create(M, f.name))
-    M.boot()
+  M.reactor.add_fd = mock.MagicMock()
+  M.reactor.remove_fd = mock.MagicMock()
+  frontend.enqueue_stream(ducky.streams.InputStream.create(M, f.name))
+  M.boot()
 
-    try:
-      assert M.reactor.add_fd.called_with(frontend._stream.fd, on_read = frontend._handle_raw_input, on_error = frontend._handle_input_error)
+  try:
+    M.reactor.add_fd.assert_called_with(frontend._stream.fd, on_read = frontend._handle_raw_input, on_error = frontend._handle_input_error)
 
-    finally:
-      M.halt()
+  finally:
+    M.halt()
 
-  def test_read_unknown_port(self):
-    with self.assertRaises(ducky.errors.InvalidResourceError):
-      frontend, backend = common_case()
+@given(port = integers(min_value = 0x00, max_value = 0xFF))
+def test_read_unknown_port(port):
+  LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
+  LOGGER.debug('TEST: port=%s', UINT8_FMT(port))
 
-      backend.read_u8(ducky.devices.keyboard.DEFAULT_PORT_RANGE - 1)
+  frontend, backend = common_case()
+  backend.boot()
+
+  backend._mmio_page.WARN = mock.MagicMock()
+
+  v = backend._mmio_page.read_u8(port)
+
+  if port == ducky.devices.keyboard.KeyboardPorts.STATUS:
+    assert v == 0x00
+    backend._mmio_page.WARN.assert_not_called()
+
+  elif port == ducky.devices.keyboard.KeyboardPorts.DATA:
+    assert v == 0xFF
+    backend._mmio_page.WARN.assert_not_called()
+
+  else:
+    assert v == 0x00
+    backend._mmio_page.WARN.assert_called_with('%s.read_u8: attempt to read raw offset: offset=%s', backend._mmio_page.__class__.__name__, UINT8_FMT(port))

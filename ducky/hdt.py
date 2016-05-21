@@ -7,9 +7,29 @@ from enum import IntEnum
 
 from .mm import u8_t, u16_t, u32_t
 from .util import str2int
+from .devices import get_driver
 
 #: Magic number present in HDT header
 HDT_MAGIC = 0x4D5E6F70
+
+def encode_string(struct, field, s, max_length):
+  """
+  Store string in a structure's field, and set the corresponding length
+  field properly.
+
+  :param HDTStructure struct: structure to modify.
+  :param str field: name of field the string should be stored in.
+  :param str s: string to encode.
+  :param int max_length: maximal number of bytes that can fit into the field.
+  """
+
+  for i, c in enumerate(s):
+    getattr(struct, field)[i] = ord(c)
+
+    if i == max_length - 1:
+      break
+
+  setattr(struct, field + '_length', i + 1)
 
 class HDTEntryTypes(IntEnum):
   """
@@ -20,6 +40,7 @@ class HDTEntryTypes(IntEnum):
   CPU       = 1
   MEMORY    = 2
   ARGUMENT  = 3
+  DEVICE    = 4
 
 class HDTStructure(LittleEndianStructure):
   """
@@ -57,6 +78,11 @@ class HDTEntry(HDTStructure):
   :param u16_t length: length of entry, in bytes.
   """
 
+  ENTRY_HEADER = [
+    ('type',   u16_t),
+    ('length', u16_t)
+  ]
+
   def __init__(self, entry_type, length):
     HDTStructure.__init__(self)
 
@@ -75,9 +101,7 @@ class HDTEntry_CPU(HDTEntry):
   :param u16_t nr_cores: number of cores per CPU.
   """
 
-  _fields_ = [
-    ('type',     u16_t),
-    ('length',   u16_t),
+  _fields_ = HDTEntry.ENTRY_HEADER + [
     ('nr_cpus',  u16_t),
     ('nr_cores', u16_t)
   ]
@@ -97,9 +121,7 @@ class HDTEntry_Memory(HDTEntry):
   :param u32_t size: size of memory, in bytes.
   """
 
-  _fields_ = [
-    ('type',   u16_t),
-    ('length', u16_t),
+  _fields_ = HDTEntry.ENTRY_HEADER + [
     ('size',   u32_t)
   ]
 
@@ -114,9 +136,7 @@ class HDTEntry_Argument(HDTEntry):
   """
   """
 
-  _fields_ = [
-    ('type',         u16_t),
-    ('length',       u16_t),
+  _fields_ = HDTEntry.ENTRY_HEADER + [
     ('name_length',  u8_t),
     ('value_length', u8_t),
     ('name',         u8_t * 13),
@@ -128,16 +148,7 @@ class HDTEntry_Argument(HDTEntry):
   def __init__(self, arg_name, arg_type, arg_value):
     HDTEntry.__init__(self, HDTEntryTypes.ARGUMENT, sizeof(HDTEntry_Argument))
 
-    def __encode_string(field, s):
-      for i, c in enumerate(s):
-        getattr(self, field)[i] = ord(c)
-
-        if i == HDTEntry_Argument.MAX_NAME_LENGTH - 1:
-          break
-
-      setattr(self, field + '_length', i + 1)
-
-    __encode_string('name', arg_name)
+    encode_string(self, 'name', arg_name, HDTEntry_Argument.MAX_NAME_LENGTH)
 
     if arg_type == 'int':
       arg_value = str2int(arg_value)
@@ -148,7 +159,7 @@ class HDTEntry_Argument(HDTEntry):
       self.value[3] = (arg_value >> 24) & 0xFF
 
     else:
-      __encode_string('value', arg_value)
+      encode_string(self, 'value', arg_value, HDTEntry_Argument.MAX_NAME_LENGTH)
 
   @classmethod
   def create(cls, logger, config):
@@ -166,6 +177,26 @@ class HDTEntry_Argument(HDTEntry):
 
     return arguments
 
+class HDTEntry_Device(HDTEntry):
+  """
+  """
+
+  MAX_NAME_LENGTH = 10
+  MAX_IDENT_LENGTH = 32
+
+  ENTRY_HEADER = HDTEntry.ENTRY_HEADER + [
+    ('name_length',  u8_t),
+    ('flags',        u8_t),
+    ('name',         u8_t * MAX_NAME_LENGTH),
+    ('ident',        u8_t * MAX_IDENT_LENGTH)
+  ]
+
+  def __init__(self, logger, name, ident):
+    HDTEntry.__init__(self, HDTEntryTypes.DEVICE, sizeof(self.__class__))
+
+    encode_string(self, 'name', name, HDTEntry_Device.MAX_NAME_LENGTH)
+    encode_string(self, 'ident', ident, HDTEntry_Device.MAX_IDENT_LENGTH)
+
 class HDT(object):
   """
   Root of HDT. Provides methods for creating HDT for a given machine configuration.
@@ -174,6 +205,7 @@ class HDT(object):
   :param ducky.config.MachineConfig config: configuration file HDT should reflect.
   """
 
+  #: These HDT entries are added automatically.
   klasses = [
     HDTEntry_Memory,
     HDTEntry_CPU,
@@ -206,6 +238,9 @@ class HDT(object):
 
     for klass in HDT.klasses:
       self.entries += klass.create(self.logger, self.config)
+
+    for device in self.config.iter_devices():
+      self.entries += get_driver(self.config.get(device, 'driver', None)).create_hdt_entries(self.logger, self.config, device)
 
     self.header.entries = len(self.entries)
     self.header.length = len(self)

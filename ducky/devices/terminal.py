@@ -13,7 +13,7 @@ devices, which then transports events between streams and VM's comm channel.
 
 import os
 
-from . import DeviceFrontend, get_driver_creator
+from . import DeviceFrontend, get_driver
 from ..streams import InputStream, OutputStream
 
 def parse_io_streams(machine, config, section):
@@ -38,12 +38,12 @@ def get_slave_devices(machine, config, section):
   if input_spec is not None:
     backend_name, frontend_driver = input_spec.split(':')
 
-    input_device = get_driver_creator(frontend_driver)(machine, machine.config, backend_name)
+    input_device = get_driver(frontend_driver).create_from_config(machine, machine.config, backend_name)
 
   if output_spec is not None:
     backend_name, frontend_driver = output_spec.split(':')
 
-    output_device = get_driver_creator(frontend_driver)(machine, machine.config, backend_name)
+    output_device = get_driver(frontend_driver).create_from_config(machine, machine.config, backend_name)
 
   return (input_device, output_device)
 

@@ -26,33 +26,53 @@
 ;
 __load_blocks:
   push r10
+  push r11
+  push r12
+
+  li r11, $BIO_MMIO_ADDRESS
 
   ; reset storage
   li r10, $BIO_SRST
-  outw $BIO_PORT_STATUS, r10
+  mov r12, r11
+  add r12, $BIO_MMIO_STATUS
+  stw r12, r10
 
   ; set storage ID
-  outw $BIO_PORT_SID, r0
+  mov r12, r11
+  add r12, $BIO_MMIO_SID
+  stw r12, r0
 
   ; set block ID
-  outw $BIO_PORT_BLOCK, r1
+  mov r12, r11
+  add r12, $BIO_MMIO_BLOCK
+  stw r12, r1
 
   ; set number of blocks
-  outw $BIO_PORT_COUNT, r2
+  mov r12, r11
+  add r12, $BIO_MMIO_COUNT
+  stw r12, r2
 
   ; set buffer address
-  outw $BIO_PORT_ADDRESS, r3
+  mov r12, r11
+  add r12, $BIO_MMIO_ADDR
+  stw r12, r3
 
   ; execute
   li r10, $BIO_DMA
   or r10, $BIO_READ
-  outw $BIO_PORT_STATUS, r10
+  mov r12, r11
+  add r12, $BIO_MMIO_STATUS
+  stw r12, r10
 
+  mov r12, r11
+  add r12, $BIO_MMIO_STATUS
 __load_blocks_wait:
-  inw r10, $BIO_PORT_STATUS
+  lw r10, r12
   and r10, $BIO_RDY
   bz &__load_blocks_wait
 
+  pop r12
+  pop r11
   pop r10
   ret
 

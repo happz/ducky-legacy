@@ -5,7 +5,7 @@ import sys
 from six import iteritems
 
 from ..mm import u32_t, UINT32_FMT, u16_t, u8_t, UINT8_FMT, MalformedBinaryError
-from ..mm.binary import File, SectionTypes, SymbolEntry, SECTION_ITEM_SIZE, SectionFlags
+from ..mm.binary import File, SectionTypes, SymbolEntry, SECTION_ITEM_SIZE, SectionFlags, SymbolFlags
 from ..cpu.assemble import align_to_next_page, align_to_next_mmap, sizeof
 from ..util import str2int
 from ..errors import UnalignedJumpTargetError, EncodingLargeValueError, IncompatibleLinkerFlagsError, UnknownSymbolError
@@ -234,8 +234,17 @@ def resolve_relocations(logger, info, f_out, f_ins):
 
   D('Resolve relocations')
 
+  section_symbols = {}
+
   for s_header, s_content in f_out.sections():
     D('name=%s base=%s header=%s', f_out.string_table.get_string(s_header.name), UINT32_FMT(s_header.base), s_header)
+
+    se = SymbolEntry()
+    se.flags = SymbolFlags.from_int(0).to_encoding()
+    se.name = s_header.name
+    se.address = s_header.base
+
+    section_symbols[f_out.string_table.get_string(s_header.name)] = se
 
   for f_in, reloc_sections in iteritems(info.relocations):
     D('Processing file %s', f_in.name)
@@ -273,7 +282,11 @@ def resolve_relocations(logger, info, f_out, f_ins):
           break
 
         else:
-          raise UnknownSymbolError('No such symbol: name=%s' % s_name)
+          # Try searching sections
+          if s_name not in section_symbols:
+            raise UnknownSymbolError('No such symbol: name=%s' % s_name)
+
+          se = section_symbols[s_name]
 
         patch_address = se.address
         if re.flags.relative == 1:

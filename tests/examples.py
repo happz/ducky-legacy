@@ -70,7 +70,12 @@ def test_clock():
   run_example('clock', 'clock')
 
 def test_fib():
-  run_example('fib', 'fib')
+  run_example('fib', 'fib', snapshot_device = 'device-3')
+
+  with ducky.snapshot.CoreDumpFile.open(logging.getLogger(), snapshots_dir('fib'), 'r') as f_in:
+    state = f_in.load()
+
+    assert state.get_child('machine').get_cpu_states()[0].get_core_states()[0].registers[0] == 0x000CB228
 
 def test_svga():
   run_example('vga', 'vga')
