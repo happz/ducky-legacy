@@ -519,7 +519,6 @@ def run_flake(target, source, env):
     for root, dirnames, filenames in os.walk(d.abspath):
       if 'vhdl' in root:
         continue
-
       files += [os.path.join(root, f) for f in os.listdir(root) if fnmatch.fnmatch(f, pattern)]
 
     return files
@@ -540,6 +539,30 @@ def run_pylint(target, source, env):
   cmd.command = 'pylint --rcfile=pylintrc ducky'
 
   return cmd.run(env, 'INFO', 'pylint')
+
+def run_cloc(target, source, env):
+  cmd = DuckyCommand(env, runner = '')
+  cmd.command = 'cloc --skip-uniqueness --lang-no-ext=Python boot/ defs/ ducky/ forth/ examples/ tests/'
+
+  return cmd.run(env, 'INFO', 'cloc')
+
+def run_install(target, source, env):
+  cmd = DuckyCommand(env)
+  cmd.command = 'setup.py install'
+
+  return cmd.run(env, 'INFO', 'install')
+
+def run_local_install(target, source, env):
+  cmd = DuckyCommand(env, runner = '')
+  cmd.command = 'pip install -e .'
+
+  return cmd.run(env, 'INFO', 'local-install')
+
+def run_publish(target, source, env):
+  cmd = DuckyCommand(env)
+  cmd.command = 'setup.py sdist upload'
+
+  return cmd.run(env, 'INFO', 'publish')
 
 DuckyObject = Builder(action = __compile_ducky_object)
 DuckyBinary = Builder(action = __link_ducky_binary)
@@ -678,6 +701,12 @@ SConscript(os.path.join('tests', 'SConscript'))
 # Utilities
 ENV.Alias('flake', ENV.Command('.flake', None, run_flake))
 ENV.Alias('pylint', ENV.Command('.pylint', None, run_pylint))
+ENV.Alias('cloc', ENV.Command('.cloc', None, run_cloc))
+
+# Install
+ENV.Alias('install', ENV.Command('.install', None, run_install))
+ENV.Alias('local-install', ENV.Command('.local-install', None, run_local_install))
+ENV.Alias('publish', ENV.Command('.publish', None, run_publish))
 
 # Documentation
 ENV.Command('docs/introduction.rst', 'README.rst', 'cp README.rst docs/introduction.rst')
@@ -694,6 +723,7 @@ ENV.Help("""
          style conventions,
      ${BLUE}'scons pylint'${CLR} to run pylint utility, and chack for even more violations
          of Python conventions, and possible errors,
+     ${BLUE}'scons cloc'${CLR} to run cloc utility, and count lines of code,
      ${BLUE}'scons docs'${CLR} to generate documentation,
 
   or ${BLUE}'scons -h'${CLR} to see this help.
