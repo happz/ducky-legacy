@@ -265,7 +265,7 @@ texinfo_documents = [
 # If true, do not generate a @detailmenu in the "Top" node's menu.
 #texinfo_no_detailmenu = False
 
-autodoc_default_flags = ['members', 'undoc-members', 'show-inheritance']
+autodoc_default_flags = ['members', 'undoc-members', 'show-inheritance', 'private-members']
 
 import sphinx.environment
 from docutils.utils import get_source_line
