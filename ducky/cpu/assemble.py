@@ -14,7 +14,7 @@ from ..cpu.instructions import encoding_to_u32
 
 from ..mm import u8_t, PAGE_SIZE, UINT32_FMT
 from ..mm.binary import SectionTypes, SectionFlags, SymbolFlags, RelocFlags
-from ..util import align, str2bytes
+from ..util import align, str2bytes, str2int
 from ..errors import AssemblerError, IncompleteDirectiveError, UnknownFileError, DisassembleMismatchError, UnknownPatternError, TooManyLabelsError
 
 align_to_next_page = functools.partial(align, PAGE_SIZE)
@@ -44,7 +44,7 @@ RE_SECTION = PATTERN(r'\.section\s+(?P<name>\.[a-zA-z0-9_]+)(?:,\s*(?P<flags>[rw
 RE_SET = PATTERN(r'\.set\s+(?P<name>[a-zA-Z_][a-zA-Z0-9_]*),\s*(?:(?P<current>\.)|(?P<value_hex>-?0x[a-fA-F0-9]+)|(?P<value_dec>0|(?:-?[1-9][0-9]*))|(?P<value_label>&[a-zA-Z][a-zA-Z0-9_]*))')
 RE_SHORT = PATTERN(r'\.short(?P<integer>.*?)')
 RE_SIZE = PATTERN(r'\.size\s+(?P<size>[1-9][0-9]*)')
-RE_SPACE = PATTERN(r'\.space\s+(?P<size>[1-9][0-9]*)')
+RE_SPACE = PATTERN(r'\.space\s+(?P<size>(?:0x[a-fA-F0-9]+)|(?:0|(?:[1-9][0-9]*)))')
 RE_STRING = PATTERN(r'\.string(?P<string>.*?)')
 RE_TEXT = PATTERN(r'\.text(?:\s+(?P<name>\.[a-z][a-z0-9_]*))?')
 RE_TYPE = PATTERN(r'\.type\s+(?P<name>[a-zA-Z_\.][a-zA-Z0-9_]*),\s*(?P<type>(?:char|byte|short|int|ascii|string|space))')
@@ -573,7 +573,7 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
     if 'size' not in matches:
       raise buff.get_error(IncompleteDirectiveError, '.size directive without a size')
 
-    var.size = int(matches['size'])
+    var.size = str2int(matches['size'])
 
   def __handle_symbol_variable(v_name, v_type):
     if v_type == 'char':
