@@ -181,13 +181,13 @@ def compile_code(code):
 
   return f_bin_name
 
-def run_machine(code = None, binary = None, machine_config = None, coredump_file = None, pokes = None, post_setup = None, post_boot = None, post_run = None, **kwargs):
+def run_machine(code = None, binary = None, machine_config = None, coredump_file = None, pokes = None, post_setup = None, post_boot = None, post_run = None, logger = None, **kwargs):
   pokes = pokes or []
   post_setup = post_setup or []
   post_boot = post_boot or []
   post_run = post_run or []
 
-  M = ducky.machine.Machine()
+  M = ducky.machine.Machine(logger = logger)
 
   if os.getenv('VMDEBUG') == 'yes':
     M.LOGGER.setLevel(logging.DEBUG)
@@ -231,6 +231,7 @@ def common_run_machine(code = None, binary = None, machine_config = None,
                        storages = None,
                        mmaps = None,
                        post_setup = None, post_boot = None, post_run = None,
+                       logger = None,
                        **kwargs):
   storages = storages or []
   mmaps = mmaps or []
@@ -260,4 +261,4 @@ def common_run_machine(code = None, binary = None, machine_config = None,
   for path, addr, size, offset, access, shared in mmaps:
     machine_config.add_mmap(path, addr, size, offset = offset, access = access, shared = shared)
 
-  return run_machine(code = code, binary = binary, machine_config = machine_config, post_setup = post_setup, post_boot = post_boot, post_run = post_run, pokes = pokes)
+  return run_machine(code = code, binary = binary, machine_config = machine_config, post_setup = post_setup, post_boot = post_boot, post_run = post_run, pokes = pokes, logger = logger)

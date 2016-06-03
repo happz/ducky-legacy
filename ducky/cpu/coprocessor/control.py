@@ -1,4 +1,5 @@
 import enum
+import logging
 
 from ...interfaces import ISnapshotable
 from ..import CPUException
@@ -21,9 +22,13 @@ class ControlRegisters(enum.IntEnum):
   CR2 = 2  # Page Table address
   CR3 = 3  # Flags
 
+CONTROL_FLAG_PT_ENABLED = 0x00000001
+CONTROL_FLAG_JIT        = 0x00000002
+CONTROL_FLAG_VMDEBUG    = 0x00000004
+
 class CoreFlags(Flags):
-  _flags = ['pt_enabled', 'jit']
-  _labels = 'PJ'
+  _flags = ['pt_enabled', 'jit', 'vmdebug']
+  _labels = 'PJV'
 
 class ControlCoprocessor(ISnapshotable, Coprocessor):
   def read_cr0(self):
@@ -42,12 +47,20 @@ class ControlCoprocessor(ISnapshotable, Coprocessor):
     self.core.mmu.pt_address = address
 
   def read_cr3(self):
-    return CoreFlags.create(pt_enabled = self.core.mmu.pt_enabled, jit = self.core.cpu.machine.config.getbool('machine', 'jit', False)).to_int()
+    return CoreFlags.create(pt_enabled = self.core.mmu.pt_enabled,
+                            jit = self.core.cpu.machine.config.getbool('machine', 'jit', False),
+                            vmdebug = self.core.LOGGER.getEffectiveLevel() == logging.DEBUG).to_int()
 
   def write_cr3(self, value):
     flags = CoreFlags.from_int(value)
 
     self.core.mmu.pt_enabled = flags.pt_enabled
+
+    if flags.vmdebug is True:
+      self.core.LOGGER.setLevel(logging.DEBUG)
+
+    else:
+      self.core.LOGGER.setLevel(logging.INFO)
 
   def read(self, r):
     if not self.core.privileged:

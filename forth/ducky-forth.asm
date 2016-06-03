@@ -42,20 +42,20 @@ _entry:
 
 __vmdebug_on:
   push r0
-  push r1
-  li r0, 0x00
-  li r1, 0x00
-  int 18
-  pop r1
+  ctr r0, $CONTROL_FLAGS
+  or r0, $CONTROL_FLAG_VMDEBUG
+  ctw $CONTROL_FLAGS, r0
   pop r0
   ret
 
 __vmdebug_off:
   push r0
   push r1
-  li r0, 0x00
-  li r1, 0x01
-  int 18
+  ctr r0, $CONTROL_FLAGS
+  li r1, $CONTROL_FLAG_VMDEBUG
+  not r1
+  and r0, r1
+  ctw $CONTROL_FLAGS, r0
   pop r1
   pop r0
   ret
