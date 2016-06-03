@@ -63,7 +63,7 @@ class StreamHandler(logging.StreamHandler):
 
     self.setFormatter(LogFormatter())
 
-def create_logger(name = None, handler = None):
+def create_logger(name = None, handler = None, level = logging.INFO):
   name = name or 'ducky'
 
   logger = logging.getLogger(name)
@@ -77,5 +77,7 @@ def create_logger(name = None, handler = None):
       fn(line)
 
   logger.table = __table
+
+  logger.setLevel(level)
 
   return logger
