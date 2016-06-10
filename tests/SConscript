@@ -106,6 +106,9 @@ def run_testsuite_examples(env, target, source):
 def run_testsuite_compiler(env, target, source):
   return run_testsuite(env, target, source, tests = ['tests.compiler'])
 
+def run_testsuite_all(env, target, source):
+  return run_testsuite(env, target, source, tests = ['tests.%s' % p for p in ['cpu', 'devices', 'hdt', 'instructions', 'mm', 'storage', 'forth.units', 'forth.ans', 'examples', 'compiler']])
+
 def generate_coverage_summary(target, source, env):
   """
   Merge all coverage data files into one.
@@ -241,7 +244,7 @@ if 'TESTSETDIR' in E:
   E.Depends('.tests-compiler', common_requirements + compiler_requirements)
 
   # Full testsuite
-  E.Command('.tests-all', None, run_testsuite)
+  E.Command('.tests-all', None, run_testsuite_all)
   E.Depends('.tests-all', common_requirements + engine_requirements + forth_requirements + forth_unit_requirements + forth_ans_requirements + examples_requirements + compiler_requirements)
 
   E.Alias('tests-engine-routines', routines)
