@@ -204,7 +204,7 @@ class DuckyProtocol(WebSocketServerProtocol):
 
     self.DEBUG = logger.debug
 
-    self._machine = Machine()
+    self._machine = Machine(logger = logger)
     self._machine_thread = None
     self._input_stream = None
 
@@ -448,7 +448,7 @@ def main():
     exit_code = 0
 
   else:
-    M = Machine()
+    M = Machine(logger = logger)
     M.hw_setup(config)
 
     def signal_handler(sig, frame):
