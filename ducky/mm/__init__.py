@@ -8,6 +8,8 @@ from ..snapshot import SnapshotNode
 
 import enum
 
+DEFAULT_MEMORY_SIZE = 0x1000000
+
 # Types
 from ctypes import c_byte as i8_t     # NOQA
 from ctypes import c_short as i16_t   # NOQA
@@ -431,7 +433,7 @@ class MemoryController(object):
     :py:data:`ducky.mm.PAGE_SIZE`.
   """
 
-  def __init__(self, machine, size = 0x1000000):
+  def __init__(self, machine, size = DEFAULT_MEMORY_SIZE):
     machine.DEBUG('%s: size=0x%X', self.__class__.__name__, size)
 
     if size % PAGE_SIZE != 0:
