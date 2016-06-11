@@ -58,7 +58,6 @@
 .def EXCEPTION_UNALIGNED_ACCESS:  ${X2(ExceptionList.UnalignedAccess)}
 .def EXCEPTION_PRIVILEGED_INST:   ${X2(ExceptionList.PrivilegedInstr)}
 .def EXCEPTION_DOUBLE_FAULT:      ${X2(ExceptionList.DoubleFault)}
-.def EXCEPTION_INVALID_FRAME:     ${X2(ExceptionList.InvalidFrame)}
 .def EXCEPTION_MEMORY_ACCESS:     ${X2(ExceptionList.MemoryAccess)}
 .def EXCEPTION_REGISTER_ACCESS:   ${X2(ExceptionList.RegisterAccess)}
 .def EXCEPTION_INVALID_EXCEPTION: ${X2(ExceptionList.InvalidException)}
