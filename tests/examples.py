@@ -63,6 +63,9 @@ def run_example(name, label, options = None, exit_code = 0, snapshot_device = No
         if exit_code != 0:
           assert False, 'Example VM failed with exit code %s' % e.returncode
 
+def test_exceptions():
+  run_example('exceptions', 'exceptions')
+
 def test_hello_world():
   run_example('hello-world', 'hello-world')
 
