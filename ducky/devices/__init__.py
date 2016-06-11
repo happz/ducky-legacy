@@ -1,32 +1,9 @@
-import enum
 import importlib
 
 from ..interfaces import IMachineWorker
 from ..mm import VirtualMemoryPage
 
 VIRTUAL_INTERRUPTS = {}
-
-class IRQList(enum.IntEnum):
-  """
-  List of known IRQ sources.
-  """
-
-  # HW devices
-  TIMER    = 0
-  KEYBOARD = 1
-  BIO      = 2
-
-  # SW interrupts and exceptions
-  HALT    = 16
-  BLOCKIO = 17
-  VMDEBUG = 18
-
-  IRQ_COUNT = 32
-
-
-class IOPorts(enum.IntEnum):
-  PORT_COUNT = 65536
-
 
 class Device(IMachineWorker):
   def __init__(self, machine, klass, name):

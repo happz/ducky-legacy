@@ -21,7 +21,7 @@ from . import __version__
 from .interfaces import IMachineWorker, ISnapshotable, IReactorTask
 
 from .console import ConsoleMaster
-from .errors import InvalidResourceError
+from .errors import InvalidResourceError, ExceptionList
 from .log import create_logger
 from .reactor import Reactor
 from .snapshot import SnapshotNode
@@ -105,8 +105,7 @@ class IRQRouterTask(IReactorTask):
   def __init__(self, machine):
     self.machine = machine
 
-    from .devices import IRQList
-    self.queue = [False for _ in range(0, IRQList.IRQ_COUNT)]
+    self.queue = [False for _ in range(0, ExceptionList.COUNT)]
 
   def run(self):
     self.machine.DEBUG('irq: router has %i waiting irqs', self.queue.count(True))

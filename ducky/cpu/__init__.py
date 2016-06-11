@@ -10,13 +10,12 @@ from . import registers
 from .. import profiler
 
 from ..interfaces import IMachineWorker, ISnapshotable
-from ..mm import UINT8_FMT, UINT16_FMT, UINT32_FMT, PAGE_SIZE, PAGE_MASK, PAGE_SHIFT, PageTableEntry, UINT64_FMT
-from .registers import Registers, REGISTER_NAMES, FLAGS
+from ..mm import UINT8_FMT, UINT16_FMT, UINT32_FMT, PAGE_SIZE, PAGE_MASK, PAGE_SHIFT, PageTableEntry, UINT64_FMT, WORD_SIZE
+from .registers import Registers, REGISTER_NAMES
 from .instructions import DuckyInstructionSet
-from ..errors import AccessViolationError, InvalidResourceError
+from ..errors import ExceptionList, AccessViolationError, InvalidResourceError, ExecutionException, InvalidOpcodeError, MemoryAccessError, InvalidExceptionError, PrivilegedInstructionError, InvalidFrameError, UnalignedAccessError
 from ..util import LRUCache, Flags
 from ..snapshot import SnapshotNode
-from ..devices import IRQList
 
 #: Default IVT address
 DEFAULT_IVT_ADDRESS = 0x00000000
@@ -52,44 +51,15 @@ class InterruptVector(object):
   def __repr__(self):
     return '<InterruptVector: ip=%s, sp=%s>' % (UINT32_FMT(self.ip), UINT32_FMT(self.sp))
 
-class CPUException(Exception):
-  """
-  Base class for CPU-related exceptions.
+  @staticmethod
+  def load(core, addr):
+    core.DEBUG('InterruptVector.load: addr=%s', UINT32_FMT(addr))
 
-  :param string msg: message describing exceptional state.
-  :param ducky.cpu.CPUCore core: CPU core that raised exception, if any.
-  :param u32_t ip: address of an instruction that caused exception, if any.
-  """
+    desc = InterruptVector()
+    desc.ip = core.MEM_IN32(addr)
+    desc.sp = core.MEM_IN32(addr + WORD_SIZE)
 
-  def __init__(self, msg, core = None, ip = None):
-    super(CPUException, self).__init__(msg)
-
-    self.core = core
-    self.ip = ip
-
-class InvalidOpcodeError(CPUException):
-  """
-  Raised when unknown or invalid opcode is found in instruction.
-
-  :param int opcode: wrong opcode.
-  """
-
-  def __init__(self, opcode, *args, **kwargs):
-    super(InvalidOpcodeError, self).__init__('Invalid opcode: opcode={}'.format(opcode), *args, **kwargs)
-
-    self.opcode = opcode
-
-class InvalidInstructionSetError(CPUException):
-  """
-  Raised when switch to unknown or invalid instruction set is requested.
-
-  :param int inst_set: instruction set id.
-  """
-
-  def __init__(self, inst_set, *args, **kwargs):
-    super(InvalidInstructionSetError, self).__init__('Invalid instruction set requested: inst_set={}'.format(inst_set), *args, **kwargs)
-
-    self.inst_set = inst_set
+    return desc
 
 def do_log_cpu_core_state(core, logger = None, disassemble = True, inst_set = None):
   """
@@ -130,8 +100,8 @@ def do_log_cpu_core_state(core, logger = None, disassemble = True, inst_set = No
   else:
     logger('inst-set=%02d current=<unknown>', inst_set.instruction_set_id)
 
-  for index, frame in enumerate(core.backtrace()):
-    logger('Frame #%i: %s', index, frame)
+  for index, frame in enumerate(core.frames):
+    logger('Frame #%i: %s %s', index, UINT32_FMT(frame.sp), UINT32_FMT(frame.ip))
 
 def log_cpu_core_state(*args, **kwargs):
   """
@@ -144,20 +114,20 @@ def log_cpu_core_state(*args, **kwargs):
   do_log_cpu_core_state(*args, **kwargs)
 
 class StackFrame(object):
-  def __init__(self, fp):
+  def __init__(self, sp, ip = None):
     super(StackFrame, self).__init__()
 
-    self.FP = fp
-    self.IP = None
+    self.sp = sp
+    self.ip = ip
 
   def __getattribute__(self, name):
     if name == 'address':
-      return self.FP
+      return self.sp
 
     return super(StackFrame, self).__getattribute__(name)
 
   def __repr__(self):
-    return '<StackFrame: FP={}, IP={}>'.format(UINT32_FMT(self.FP), UINT32_FMT(self.IP if self.IP is not None else 0))
+    return '<StackFrame: SP={}, IP={}>'.format(UINT32_FMT(self.sp), UINT32_FMT(self.ip if self.ip is not None else 0))
 
 
 class CoreFlags(Flags):
@@ -337,13 +307,15 @@ class MMU(ISnapshotable):
     :param access: ``read``, ``write`` or ``execute``.
     :param u24 addr: memory address.
     :param int align: if set, operation is expected to be aligned to this boundary.
-    :raises ducky.errors.AccessViolationError: when access is denied.
+    :raises ducky.errors.UnalignedAccessError: when unaligned access is not
+      allowed, but requested.
+    :raises ducky.errors.MemoryAccessError: when access is denied.
     """
 
-    self.DEBUG('MMU.check_access: access=%s, addr=%s', access, UINT32_FMT(addr))
+    self.DEBUG('%s.check_access: access=%s, addr=%s', self.__class__.__name__, access, UINT32_FMT(addr))
 
     if self.force_aligned_access and align is not None and addr % align:
-      raise AccessViolationError('Not allowed to access unaligned memory: access=%s, address=%s, align=%s' % (access, UINT32_FMT(addr), align))
+      raise UnalignedAccessError(core = self.core)
 
     pg_index = (addr & PAGE_MASK) >> PAGE_SHIFT
 
@@ -355,7 +327,7 @@ class MMU(ISnapshotable):
     if getattr(pte, access) == 1:
       return self.memory.get_page(pg_index)
 
-    raise AccessViolationError('Not allowed to access memory: access=%s, address=%s, pte=%s' % (access, UINT32_FMT(addr), pte.to_string()))
+    raise MemoryAccessError(access, addr, pte)
 
   def full_read_u8(self, addr):
     self.DEBUG('MMU.raw_read_u8: addr=%s', UINT32_FMT(addr))
@@ -585,19 +557,39 @@ class CPUCore(ISnapshotable, IMachineWorker):
 
     return bt
 
-  def raw_push(self, val):
+  def _run_safely(self, callable, *args, **kwargs):
+    try:
+      callable(*args, **kwargs)
+      return True
+
+    except ExecutionException as e:
+      if e.core is None:
+        e.core = self
+
+      if e.ip is None:
+        e.ip = self.current_ip
+
+      if e.runtime_handle() is not True:
+        self.die(e)
+        return False
+
+    except (AccessViolationError, InvalidResourceError) as e:
+      self.die(e)
+      return False
+
+  def _raw_push(self, val):
     """
     Push value on stack. ``SP`` is decremented by four, and value is written at this new address.
 
     :param u32 val: value to be pushed
     """
 
-    self.DEBUG("raw_push: sp=%s, value=%s", UINT32_FMT(self.registers.sp.value), UINT32_FMT(val))
+    self.DEBUG('_raw_push: sp=%s, addr=%s, value=%s', UINT32_FMT(self.registers.sp.value), UINT32_FMT(self.registers.sp.value - WORD_SIZE), UINT32_FMT(val))
 
     self.registers.sp.value -= 4
     self.MEM_OUT32(self.registers.sp.value, val)
 
-  def raw_pop(self):
+  def _raw_pop(self):
     """
     Pop value from stack. 4 byte number is read from address in ``SP``, then ``SP`` is incremented by four.
 
@@ -605,101 +597,163 @@ class CPUCore(ISnapshotable, IMachineWorker):
     :rtype: ``u32``
     """
 
-    ret = self.MEM_IN32(self.registers.sp.value)
-    self.registers.sp.value += 4
+    sp = self.registers.sp
+
+    self.DEBUG('_raw_pop: sp=%s', UINT32_FMT(sp.value))
+
+    ret = self.MEM_IN32(sp.value)
+    sp.value += WORD_SIZE
+    self.DEBUG('_raw_pop: value=%s', UINT32_FMT(ret))
+
     return ret
 
   def push(self, *regs):
-    for reg_id in regs:
-      value = self.flags.to_int() if reg_id == FLAGS else self.registers.map[reg_id].value
+    self.DEBUG('push: regs=%s', regs)
 
-      self.DEBUG('push: %s (%s) at %s', reg_id, UINT32_FMT(value), UINT32_FMT(self.registers.sp.value - 4))
-      self.raw_push(value)
+    for reg_id in regs:
+      self._raw_push(self.registers.map[reg_id].value)
+
+  def push_flags(self):
+    self.DEBUG('push_flags')
+
+    self._raw_push(self.flags.to_int())
 
   def pop(self, *regs):
+    self.DEBUG('pop: regs=%s', regs)
+
     for reg_id in regs:
-      value = self.raw_pop()
+      self.registers.map[reg_id].value = self._raw_pop()
 
-      if reg_id == FLAGS:
-        self.flags = CoreFlags.from_int(value)
+  def pop_flags(self):
+    self.DEBUG('pop_flags')
 
-      else:
-        self.registers.map[reg_id].value = value
-
-      self.DEBUG('pop: %s (%s) from %s', reg_id, UINT32_FMT(value), UINT32_FMT(self.registers.sp.value - 4))
+    self.flags = CoreFlags.from_int(self._raw_pop())
 
   def create_frame(self):
     """
-    Create new call stack frame. Push ``IP`` and ``FP`` registers and set ``FP`` value to ``SP``.
+    Creates new call stack frame, by performing the following operations:
+
+      - push ``IP``
+      - push ``FP``
+      - set ``FP`` to ``SP`` (i.e. ``SP`` before this method + 2 pushes)
+
+    Stack layout then looks like this::
+
+        +---------+
+        |   IPx   |
+        +---------+
+        |   FPx   |
+        +---------+ <= FPy
+        |   ...   |
+        +---------+ <= original SP
+        |   IPy   |
+        +---------+
+        |   FPy   |
+        +---------+ <= SP, FP
+        |   ...   |
+        +---------+
+
+    ``FP`` then points to the newly created frame, to the saved ``FP``
+    in particular, and this saved ``FP`` points to its predecesor, thus
+    forming a chain.
     """
 
     self.DEBUG('create_frame')
 
     self.push(Registers.IP, Registers.FP)
-
     self.registers.fp.value = self.registers.sp.value
 
     if self.check_frames:
-      self.frames.append(StackFrame(self.registers.fp.value))
+      self.frames.append(StackFrame(self.registers.sp.value, ip = self.current_ip))
 
   def destroy_frame(self):
     """
-    Destroy current call frame. Pop ``FP`` and ``IP`` from stack, by popping ``FP`` restores previous frame.
+    Destroys current call stack frame by popping values from the stack,
+    reversing the list of operations performed by
+    :py:meth:`ducky.cpu.CPUCore.create_frame`:
 
-    :raises CPUException: if current frame does not match last created frame.
+      - pop ``FP``
+      - pop ``IP``
+
+    After this, ``FP`` points to the frame from which the instruction that
+    created the currently destroyed frame was executed, and restored ``IP``
+    points to the next instruction.
+
+    :raises InvalidFrameError: if frame checking is enabled, current ``SP``
+      is compared with saved ``FP`` to see, if the stack was clean before
+      leaving the frame. This error indicated there is some value left
+      on stack when ``ret`` or ``retint`` were executed. Usually, this
+      signals missing ``pop`` to complement one of previous ``push``es.
     """
 
     self.DEBUG('destroy_frame')
 
     if self.check_frames:
-      if self.frames[-1].FP != self.registers.sp.value:
-        raise CPUException('Leaving frame with wrong SP: IP={}, saved SP={}, current SP={}'.format(UINT32_FMT(self.registers.ip.value), UINT32_FMT(self.frames[-1].FP), UINT32_FMT(self.registers.sp.value)))
+      if self.frames[-1].sp != self.registers.sp.value:
+        raise InvalidFrameError(self.frames[-1].sp, self.registers.sp.value)
 
       self.frames.pop()
 
     self.pop(Registers.FP, Registers.IP)
 
-  def __load_interrupt_vector(self, index):
-    self.DEBUG('load_interrupt_vector: ivt=%s, index=%i', UINT32_FMT(self.ivt_address), index)
-
-    desc = InterruptVector()
-
-    vector_address = self.ivt_address + index * InterruptVector.SIZE
-
-    desc.ip = self.MEM_IN32(vector_address)
-    desc.sp = self.MEM_IN32(vector_address + 4)
-
-    return desc
-
-  def __enter_interrupt(self, index):
+  def _enter_exception(self, index, *args):
     """
-    Prepare CPU for handling interrupt routine. New stack is allocated, content fo registers
-    is saved onto this new stack, and new call frame is created on this stack. CPU is switched
-    into privileged mode. ``CS`` and ``IP`` are set to values, stored in interrupt descriptor
-    table at specified offset.
+    Prepare CPU for handling exception routine. CPU core loads new ``IP``
+    and ``SP`` from proper entry of IVT. Old ``SP`` and ``FLAGS`` are saved
+    on the exception stack, and new call frame is created. Privileged mode
+    flag is set, hardware interrupt flag is cleared.
 
-    :param u24 table_address: address of interrupt descriptor table
-    :param int index: interrupt number, its index into IDS
+    Then, if exception provides its routine with some arguments, these
+    arguments are pushed on the stack.
+
+    Exception stack layout then looks like this (original stack is left
+    untouched)::
+
+        +---------+ <= IVT SP
+        |   SP    |
+        +---------+
+        |  FLAGS  |
+        +---------+
+        |   IP    |
+        +---------+
+        |   FP    |
+        +---------+ <= FP
+        |   arg1  |
+        +---------+
+        |   ...   |
+        +---------+
+        |   argN  |
+        +---------+ <= SP
+        |   ...   |
+        +---------+
+
+    :param int index: exception ID - IVT index.
+    :param u32_t args: if present, these values will be pushed onto the stack.
     """
 
-    self.DEBUG('__enter_interrupt: index=%i', index)
+    self.DEBUG('_enter_exception: index=%i', index)
 
-    if index >= IRQList.IRQ_COUNT:
-      raise InvalidResourceError('Interrupt index out of range: index=%d' % index)
+    if index >= ExceptionList.COUNT:
+      raise InvalidExceptionError(index)
 
-    iv = self.__load_interrupt_vector(index)
+    iv = InterruptVector.load(self, self.ivt_address + index * InterruptVector.SIZE)
 
-    self.DEBUG('__enter_interrupt: desc=%s', iv)
+    self.DEBUG('_enter_exception: desc=%s', iv)
 
     old_SP = self.registers.sp.value
 
     self.registers.sp.value = iv.sp
 
-    self.raw_push(old_SP)
-    self.push(FLAGS)
+    self._raw_push(old_SP)
+    self.push_flags()
     self.create_frame()
 
+    self.DEBUG('_enter_exception: pushing args')
+    for arg in args:
+      self._raw_push(arg)
+
     self.privileged = True
+    self.hwint_allowed = False
 
     self.registers.ip.value = iv.ip
 
@@ -709,69 +763,62 @@ class CPUCore(ISnapshotable, IMachineWorker):
     self.instruction_set_stack.append(self.instruction_set)
     self.instruction_set = DuckyInstructionSet
 
-  def exit_interrupt(self):
+    log_cpu_core_state(self, inst_set = self.instruction_set_stack[-1])
+
+  def _exit_exception(self):
     """
-    Restore CPU state after running a interrupt routine. Call frame is destroyed, registers
-    are restored, stack is returned back to memory pool.
+    Restore CPU state after running an exception routine. Call frame is
+    destroyed, registers are restored. Clearing routine arguments is
+    responsibility of the routine.
     """
 
-    self.DEBUG('exit_interrupt')
+    self.DEBUG('_exit_exception')
 
     self.destroy_frame()
-    self.pop(FLAGS)
+    self.pop_flags()
 
-    old_SP = self.raw_pop()
+    old_SP = self._raw_pop()
 
     self.registers.sp.value = old_SP
 
     self.instruction_set = self.instruction_set_stack.pop(0)
 
-  def do_int(self, index):
+  def _handle_exception(self, exc, index, *args):
     """
-    Handle software interrupt. Real software interrupts cause CPU state to be saved
-    and new stack and register values are prepared by ``__enter_interrupt`` method,
-    virtual interrupts are simply triggered without any prior changes of CPU state.
+    This method provides CPU exception classes with a simple recipe on how
+    to deal with the exception:
 
-    :param int index: interrupt number
-    """
-
-    self.DEBUG('do_int: %s', index)
-
-    if index in self.cpu.machine.virtual_interrupts:
-      self.DEBUG('do_int: calling virtual interrupt')
-
-      self.cpu.machine.virtual_interrupts[index].run(self)
-
-      self.DEBUG('do_int: virtual interrupt finished')
-
-    else:
-      self.__enter_interrupt(index)
-
-      self.DEBUG('do_int: CPU state prepared to handle interrupt')
-
-  def __do_irq(self, index):
-    """
-    Handle hardware interrupt. CPU state is saved and prepared for interrupt routine
-    by calling ``__enter_interrupt`` method. Receiving of next another interrupts
-    is prevented by clearing ``HWINT`` flag, and ``idle`` flag is set to ``False``.
+      - tell processor to start exception dance,
+      - if the exception is raised again, tell processor to plan double fault
+        routine,
+      - and if yet another exception is raised, halt the core.
     """
 
-    self.DEBUG('__do_irq: %s', index)
+    self.DEBUG('_handle_exception: exc=%r, index=%d, args=%s', exc, index, args)
 
-    self.__enter_interrupt(index)
-    self.hwint_allowed = False
-    self.change_runnable_state(idle = False)
+    try:
+      self._enter_exception(index, *args)
 
-    self.DEBUG('__do_irq: CPU state prepared to handle IRQ')
-    log_cpu_core_state(self, inst_set = self.instruction_set_stack[-1])
+    except ExecutionException as e1:
+      self.DEBUG('Exception raised when preparing to handle an exception => double fault')
+      self.WARN(str(e1))
+
+      try:
+        self._enter_exception(ExceptionList.DoubleFault, index, *args)
+
+      except ExecutionException as e2:
+        self.die(e2)
 
   def irq(self, index):
-    try:
-      self.__do_irq(index)
+    """
+    This is a wrapper for _enter_exception, for device drivers to call
+    when hardware interrupt arrives.
 
-    except (CPUException, ZeroDivisionError, AccessViolationError) as e:
-      e.exc_stack = sys.exc_info()
-      self.die(e)
+    :param int index: exception ID - IVT index
+    """
+
+    self._run_safely(self._enter_exception, index)
+    self.change_runnable_state(idle = False)
 
   def __get_flags(self):
     return CoreFlags.create(privileged = self.privileged, hwint_allowed = self.hwint_allowed, equal = self.arith_equal, zero = self.arith_zero, overflow = self.arith_overflow, sign = self.arith_sign)
@@ -792,11 +839,11 @@ class CPUCore(ISnapshotable, IMachineWorker):
 
     This method should be used by instruction handlers that require privileged mode, e.g. protected instructions.
 
-    :raises AccessViolationError: if the core is not in privileged mode
+    :raises ducky.errors.PrivilegedInstructionError: if the core is not in privileged mode
     """
 
     if not self.privileged:
-      raise AccessViolationError('Instruction not allowed in unprivileged mode: inst={}'.format(self.current_instruction))
+      raise PrivilegedInstructionError(core = self)
 
   def step(self):
     """
@@ -821,7 +868,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
 
     self.DEBUG('fetch instruction: ip=%s', UINT32_FMT(ip.value))
 
-    try:
+    def __do_step():
       self.current_instruction, opcode, execute = self.mmu.instruction_cache[ip.value]
       ip.value += 4
 
@@ -830,8 +877,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
 
       execute()
 
-    except (InvalidOpcodeError, AccessViolationError, InvalidResourceError) as e:
-      self.die(e)
+    if self._run_safely(__do_step) is not True:
       return
 
     cnt = self.registers.cnt
@@ -907,10 +953,6 @@ class CPUCore(ISnapshotable, IMachineWorker):
   def run(self):
     try:
       self.step()
-
-    except (CPUException, ZeroDivisionError, AccessViolationError) as e:
-      e.exc_stack = sys.exc_info()
-      self.die(e)
 
     except Exception as e:
       e.exc_stack = sys.exc_info()
@@ -1170,7 +1212,7 @@ def cmd_next(console, cmd):
 
       log_cpu_core_state(core, logger = core.INFO)
 
-  except CPUException as e:
+  except ExecutionException as e:
     core.die(e)
 
 def cmd_core_state(console, cmd):

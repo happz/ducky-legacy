@@ -2,19 +2,10 @@ import enum
 import logging
 
 from ...interfaces import ISnapshotable
-from ..import CPUException
+from ...errors import RegisterAccessError
 from . import Coprocessor
-from ...errors import AccessViolationError
 from ...mm import u32_t
 from ...util import Flags
-
-class ReadOnlyRegisterError(CPUException):
-  def __init__(self, r, *args, **kwargs):
-    super(ReadOnlyRegisterError, self).__init__('Register cr{:d} is read-only.'.format(r), *args, **kwargs)
-
-class WriteOnlyRegisterError(CPUException):
-  def __init__(self, r, *args, **kwargs):
-    super(WriteOnlyRegisterError, self).__init__('Register cr{:d} is write-only.'.format(r), *args, **kwargs)
 
 class ControlRegisters(enum.IntEnum):
   CR0 = 0  # CPUID
@@ -64,22 +55,22 @@ class ControlCoprocessor(ISnapshotable, Coprocessor):
 
   def read(self, r):
     if not self.core.privileged:
-      raise AccessViolationError('It is not allowed to read control registers in non-privileged mode')
+      raise RegisterAccessError('read', r)
 
     handler = 'read_cr%i' % (r.value if isinstance(r, ControlRegisters) else r)
 
     if not hasattr(self, handler):
-      raise WriteOnlyRegisterError(r)
+      raise RegisterAccessError('read', r)
 
     return getattr(self, handler)()
 
   def write(self, r, value):
     if not self.core.privileged:
-      raise AccessViolationError('It is not allowed to modify control registers in non-privileged mode')
+      raise RegisterAccessError('write', r)
 
     handler = 'write_cr%i' % (r.value if isinstance(r, ControlRegisters) else r)
 
     if not hasattr(self, handler):
-      raise ReadOnlyRegisterError(r)
+      raise RegisterAccessError('write', r)
 
     return getattr(self, handler)(value)

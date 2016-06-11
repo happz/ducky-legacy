@@ -39,7 +39,7 @@ def test_unprivileged():
 
   core.privileged = False
 
-  assert_raises(lambda: core.control_coprocessor.read(ControlRegisters.CR0), ducky.errors.AccessViolationError)
+  assert_raises(lambda: core.control_coprocessor.read(ControlRegisters.CR0), ducky.errors.RegisterAccessError)
 
 def test_cpuid():
   M = create_machine(cpus = 4, cores = 4)
@@ -54,7 +54,7 @@ def test_cpuid():
       cpuid_read = core.control_coprocessor.read(ControlRegisters.CR0)
       assert cpuid_expected == cpuid_read, 'CPUID mismatch: cpu=%i, core=%i, rcpu=%i, rcore=%i, expected=%i, read=%i' % (i, j, core.cpu.id, core.id, cpuid_expected, cpuid_read)
 
-  assert_raises(lambda: M.cpus[0].cores[0].control_coprocessor.write(ControlRegisters.CR0, 0xFF), ducky.cpu.coprocessor.control.ReadOnlyRegisterError)
+  assert_raises(lambda: M.cpus[0].cores[0].control_coprocessor.write(ControlRegisters.CR0, 0xFF), ducky.errors.RegisterAccessError)
 
 def test_ivt():
   M = create_machine(ivt_address = 0xC7C7DEAD)

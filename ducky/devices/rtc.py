@@ -2,7 +2,7 @@ import enum
 import time
 import datetime
 
-from . import Device, IRQProvider, IRQList, MMIOMemoryPage
+from . import Device, IRQProvider, MMIOMemoryPage
 from ..errors import InvalidResourceError
 from ..mm import u8_t, UINT8_FMT, addr_to_page, u32_t, UINT32_FMT
 from ..reactor import RunInIntervalTask
@@ -135,7 +135,7 @@ class RTC(IRQProvider, Device):
                section,
                frequency = config.getint(section, 'frequency', DEFAULT_FREQ),
                mmio_address = config.getint(section, 'mmio-address', DEFAULT_MMIO_ADDRESS),
-               irq = config.getint(section, 'irq', IRQList.TIMER))
+               irq = config.getint(section, 'irq', DEFAULT_IRQ))
 
   @staticmethod
   def create_hdt_entries(logger, config, section):

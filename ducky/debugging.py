@@ -8,13 +8,8 @@ suspend core), and bind both pieces together - when point gets
 triggered, execute list of actions.
 """
 
-import enum
-import logging
-
 from six import itervalues
 
-from .interfaces import IVirtualInterrupt
-from .devices import IRQList, VIRTUAL_INTERRUPTS
 from .util import str2int, UINT8_FMT, UINT16_FMT, UINT32_FMT
 from .errors import InvalidResourceError
 

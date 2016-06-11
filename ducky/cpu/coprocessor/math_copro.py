@@ -19,7 +19,7 @@ import enum
 
 from ...interfaces import ISnapshotable
 from . import Coprocessor
-from .. import CPUException
+from ...errors import CoprocessorError
 from ..instructions import InstructionSet, SIS, INSTRUCTION_SETS, Descriptor_R_R, ENCODE, REGISTER_NAMES
 from ...mm import u32_t, i64_t, u64_t, UINT64_FMT
 from ...snapshot import SnapshotNode
@@ -35,7 +35,7 @@ class MathCoprocessorState(SnapshotNode):
   def __init__(self):
     super(MathCoprocessorState, self).__init__('stack')
 
-class EmptyMathStackError(CPUException):
+class EmptyMathStackError(CoprocessorError):
   """
   Raised when operation expects at least one value on math stack but stack
   is empty.
@@ -44,7 +44,7 @@ class EmptyMathStackError(CPUException):
   def __init__(self, *args, **kwargs):
     super(EmptyMathStackError, self).__init__('Math stack is empty', *args, **kwargs)
 
-class FullMathStackError(CPUException):
+class FullMathStackError(CoprocessorError):
   """
   Raised when operation tries to put value on math stack but there is no empty
   spot available.
@@ -252,7 +252,7 @@ class PUSHW(Descriptor_MATH):
 
   @staticmethod
   def execute(core, inst):
-    core.raw_push(u32_t(core.math_coprocessor.registers.pop().value & 0xFFFFFFFF).value)
+    core._raw_push(u32_t(core.math_coprocessor.registers.pop().value & 0xFFFFFFFF).value)
 
 class SAVEW(Descriptor_MATH):
   """
@@ -287,7 +287,7 @@ class POPW(Descriptor_MATH):
 
   @staticmethod
   def execute(core, inst):
-    core.math_coprocessor.sign_extend_with_push(core.raw_pop())
+    core.math_coprocessor.sign_extend_with_push(core._raw_pop())
 
 class LOADW(Descriptor_MATH):
   """
@@ -322,7 +322,7 @@ class POPUW(Descriptor_MATH):
 
   @staticmethod
   def execute(core, inst):
-    core.math_coprocessor.extend_with_push(core.raw_pop())
+    core.math_coprocessor.extend_with_push(core._raw_pop())
 
 class LOADUW(Descriptor_MATH):
   """
@@ -359,8 +359,8 @@ class PUSH(Descriptor_MATH):
   def execute(core, inst):
     v = core.math_coprocessor.registers.pop()
 
-    core.raw_push(v.value & 0xFFFFFFFF)
-    core.raw_push(v.value >> 32)
+    core._raw_push(v.value & 0xFFFFFFFF)
+    core._raw_push(v.value >> 32)
 
 class SAVE(Descriptor_MATH):
   """
@@ -399,8 +399,8 @@ class POP(Descriptor_MATH):
 
   @staticmethod
   def execute(core, inst):
-    hi = core.raw_pop()
-    lo = core.raw_pop()
+    hi = core._raw_pop()
+    lo = core._raw_pop()
 
     core.math_coprocessor.registers.push(u64_t((hi << 32) | lo))
 

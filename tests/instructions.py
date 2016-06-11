@@ -8,7 +8,7 @@ import ducky.cpu.registers
 from ducky.cpu.assemble import SourceLocation
 from ducky.cpu.instructions import DuckyInstructionSet
 from ducky.cpu.registers import REGISTER_NAMES
-from ducky.errors import UnalignedJumpTargetError, AccessViolationError, InvalidResourceError
+from ducky.errors import UnalignedJumpTargetError, DivideByZeroError, PrivilegedInstructionError, InvalidExceptionError
 from ducky.mm import u32_t, i32_t
 
 from . import LOGGER, PYPY
@@ -28,7 +28,7 @@ def setup():
 
   machine = Machine(logger = logging.getLogger())
   machine.config = MachineConfig()
-  mm = MemoryController(machine, size = 0x100000000)
+  machine.memory = mm = MemoryController(machine, size = 0x100000000)
   cpu = CPU(machine, 0, mm)
 
   global CORE
@@ -167,7 +167,11 @@ class CoreState(object):
     actual   = [CORE.registers.map[i].value for i, reg in enumerate(CoreState.register_names)]
 
     for reg, expected_value, actual_value in zip(CoreState.register_names, expected, actual):
-      assert expected_value == actual_value, 'Register %s has unexpected value: 0x%08X expected, 0x%08X found' % (reg, expected_value, actual_value)
+      if actual_value == expected_value:
+        continue
+
+      LOGGER.error('Register %s mismatch: 0x%08X expected, 0x%08X found', reg, expected_value, actual_value)
+      assert False
 
     # Assert flags
     names    = list('PHEZOSARI')
@@ -175,7 +179,11 @@ class CoreState(object):
     actual   = [CORE.privileged, CORE.hwint_allowed, CORE.arith_equal, CORE.arith_zero, CORE.arith_overflow, CORE.arith_sign, CORE.alive, CORE.running, CORE.idle]
 
     for flag, expected_value, actual_value in zip(names, expected, actual):
-      assert expected_value == actual_value, 'Flag %s has unexpected value: %s expected, %s found' % (flag, expected_value, actual_value)
+      if actual_value == expected_value:
+        continue
+
+      LOGGER.error('Flag %s has unexpected value: %s expected, %s found', flag, expected_value, actual_value)
+      assert False
 
   def flags_to_int(self):
     u = 0
@@ -299,7 +307,7 @@ def __base_arith_by_zero_immediate(state, reg, a, inst_class = None):
   try:
     execute_inst(CORE, inst_class, inst)
 
-  except ZeroDivisionError:
+  except DivideByZeroError:
     pass
 
   else:
@@ -321,7 +329,7 @@ def __base_arith_by_zero_register(state, reg1, reg2, a, inst_class = None):
   try:
     execute_inst(CORE, inst_class, inst)
 
-  except ZeroDivisionError:
+  except DivideByZeroError:
     pass
 
   else:
@@ -805,7 +813,7 @@ def test_cli_unprivileged(state):
   try:
     execute_inst(CORE, CLI, inst)
 
-  except AccessViolationError:
+  except PrivilegedInstructionError:
     pass
 
   else:
@@ -1062,7 +1070,7 @@ def test_hlt_unprivileged(state):
   try:
     execute_inst(CORE, HLT, inst)
 
-  except AccessViolationError:
+  except PrivilegedInstructionError:
     pass
 
   else:
@@ -1142,7 +1150,7 @@ def test_int_immediate(state, index, ip, sp):
 
   execute_inst(CORE, INT, inst)
 
-  state.check(ip = ip, fp = u32_t(sp - 16).value, sp = u32_t(sp - 16).value, privileged = True)
+  state.check(ip = ip, fp = u32_t(sp - 16).value, sp = u32_t(sp - 16).value, privileged = True, hwint_allowed = False)
 
 @given(state = STATE, index = IMMEDIATE20)
 def test_int_immediate_out_of_range(state, index):
@@ -1160,8 +1168,8 @@ def test_int_immediate_out_of_range(state, index):
   try:
     execute_inst(CORE, INT, inst)
 
-  except InvalidResourceError:
-    pass
+  except InvalidExceptionError as e:
+    assert e.exc_index == sign_extend20(index)
 
   else:
     assert False, 'Instruction expected to raise error'
@@ -1189,7 +1197,7 @@ def test_int_register(state, reg, index, ip, sp):
 
   execute_inst(CORE, INT, inst)
 
-  state.check((reg, index), ip = ip, fp = u32_t(sp - 16).value, sp = u32_t(sp - 16).value, privileged = True)
+  state.check((reg, index), ip = ip, fp = u32_t(sp - 16).value, sp = u32_t(sp - 16).value, privileged = True, hwint_allowed = False)
 
 @given(state = STATE, reg = REGISTER, index = IMMEDIATE20)
 def test_int_register_out_of_range(state, reg, index):
@@ -1208,8 +1216,8 @@ def test_int_register_out_of_range(state, reg, index):
   try:
     execute_inst(CORE, INT, inst)
 
-  except InvalidResourceError:
-    pass
+  except InvalidExceptionError as e:
+    assert e.exc_index == index
 
   else:
     assert False, 'Instruction expected to raise error'
@@ -1397,7 +1405,7 @@ def test_lpm_unprivileged(state):
   try:
     execute_inst(CORE, LPM, inst)
 
-  except AccessViolationError:
+  except PrivilegedInstructionError:
     pass
 
   else:
@@ -1696,7 +1704,7 @@ def test_retint_unprivileged(state):
   try:
     execute_inst(CORE, RETINT, inst)
 
-  except AccessViolationError:
+  except PrivilegedInstructionError:
     pass
 
   else:
@@ -2018,7 +2026,7 @@ def test_sti_unprivileged(state):
   try:
     execute_inst(CORE, STI, inst)
 
-  except AccessViolationError:
+  except PrivilegedInstructionError:
     pass
 
   else:

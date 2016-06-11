@@ -15,7 +15,7 @@ import os
 import six
 
 from ..errors import InvalidResourceError
-from . import Device, IRQList, IRQProvider, MMIOMemoryPage
+from . import Device, IRQProvider, MMIOMemoryPage
 from ..util import UINT8_FMT, UINT32_FMT
 from ..mm import addr_to_page
 
@@ -173,7 +173,7 @@ class FileBackedStorage(Storage):
 # Block IO subsystem
 #
 
-DEFAULT_IRQ = IRQList.BIO
+DEFAULT_IRQ = 0x02
 
 BIO_RDY   = 0x00000001  #: Operation is completed, user can access data and/or request another operation
 BIO_ERR   = 0x00000002  #: Error happened while performing the operation.
@@ -262,7 +262,7 @@ class BlockIO(IRQProvider, Device):
     return BlockIO(machine,
                    section,
                    mmio_address = config.getint(section, 'mmio-address', DEFAULT_MMIO_ADDRESS),
-                   irq = config.getint(section, 'irq', IRQList.TIMER))
+                   irq = config.getint(section, 'irq', DEFAULT_IRQ))
 
   def boot(self):
     self.DEBUG('%s.boot', self.__class__.__name__)

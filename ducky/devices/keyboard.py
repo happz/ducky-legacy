@@ -5,7 +5,7 @@ Keyboard controller - provides events for pressed and released keys.
 import enum
 import io
 
-from . import IRQProvider, DeviceFrontend, DeviceBackend, IRQList, MMIOMemoryPage
+from . import IRQProvider, DeviceFrontend, DeviceBackend, MMIOMemoryPage
 from ..errors import InvalidResourceError
 from ..mm import UINT8_FMT, addr_to_page, UINT32_FMT, u32_t
 from ..hdt import HDTEntry_Device
@@ -162,7 +162,7 @@ class Backend(IRQProvider, DeviceBackend):
   def create_from_config(machine, config, section):
     return Backend(machine, section,
                    mmio_address = config.getint(section, 'mmio-address', DEFAULT_MMIO_ADDRESS),
-                   irq = config.getint(section, 'irq', IRQList.KEYBOARD))
+                   irq = config.getint(section, 'irq', DEFAULT_IRQ))
 
   @staticmethod
   def create_hdt_entries(logger, config, section):

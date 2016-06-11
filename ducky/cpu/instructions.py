@@ -10,7 +10,7 @@ from functools import partial
 from .registers import Registers, REGISTER_NAMES
 from ..mm import u32_t, i32_t, UINT16_FMT, UINT32_FMT
 from ..util import str2int
-from ..errors import EncodingLargeValueError, UnalignedJumpTargetError, AssemblerError
+from ..errors import EncodingLargeValueError, UnalignedJumpTargetError, AssemblerError, InvalidOpcodeError, DivideByZeroError, InvalidInstructionSetError
 
 PO_REGISTER  = r'(?P<register_n{operand_index}>(?:r\d\d?)|(?:sp)|(?:fp))'
 PO_AREGISTER = r'(?P<address_register>r\d\d?|sp|fp)(?:\[(?:(?P<offset_sign>-|\+)?(?P<offset_immediate>0x[0-9a-fA-F]+|\d+))\])?'
@@ -520,8 +520,7 @@ class InstructionSet(object):
     opcode = inst & 0x3F
 
     if opcode not in cls.opcode_desc_map:
-      from ..cpu import InvalidOpcodeError
-      raise InvalidOpcodeError(opcode, ip = core.current_ip if core is not None else None, core = core)
+      raise InvalidOpcodeError(opcode, core = core)
 
     return u32_to_encoding(inst, cls.opcode_encoding_map[opcode]), cls.opcode_desc_map[opcode], opcode
 
@@ -684,7 +683,16 @@ class INT(Descriptor_RI):
 
   @staticmethod
   def execute(core, inst):
-    core.do_int(RI_VAL(core, inst, 'reg'))
+    index = RI_VAL(core, inst, 'reg')
+    machine = core.cpu.machine
+
+    if index in machine.virtual_interrupts:
+      core.DEBUG('virtual interrupt: entering %d', index)
+      machine.virtual_interrupts[index].run(core)
+      core.DEBUG('virtual interrupt: finished')
+
+    else:
+      core._enter_exception(index)
 
 class IPI(Descriptor_R_RI):
   mnemonic = 'ipi'
@@ -707,7 +715,7 @@ class RETINT(Descriptor):
   @staticmethod
   def execute(core, inst):
     core.check_protected_ins()
-    core.exit_interrupt()
+    core._exit_exception()
 
 #
 # Jumps
@@ -766,7 +774,7 @@ class CALL(_JUMP):
     ip = core.registers.ip
     sp = core.registers.sp
     fp = core.registers.fp
-    push = core.raw_push
+    push = core._raw_push
 
     if inst.immediate_flag == 0:
       reg = core.registers.map[inst.reg]
@@ -831,7 +839,7 @@ class RET(Descriptor):
   def jit(core, inst):
     ip = core.registers.ip
     fp = core.registers.fp
-    pop = core.raw_pop
+    pop = core._raw_pop
 
     def __jit_ret():
       fp.value = pop()
@@ -919,11 +927,11 @@ class PUSH(Descriptor_RI):
 
   @staticmethod
   def execute(core, inst):
-    core.raw_push(RI_VAL(core, inst, 'reg'))
+    core._raw_push(RI_VAL(core, inst, 'reg'))
 
   @staticmethod
   def jit(core, inst):
-    push = core.raw_push
+    push = core._raw_push
 
     if inst.immediate_flag == 0:
       reg = core.registers.map[inst.reg]
@@ -952,7 +960,7 @@ class POP(Descriptor_R):
 
   @staticmethod
   def jit(core, inst):
-    pop = core.raw_pop
+    pop = core._raw_pop
     reg = core.registers.map[inst.reg1]
 
     def __jit_pop():
@@ -1049,8 +1057,11 @@ class _BINOP(Descriptor_R_RI):
       v = x * y
 
     elif inst.opcode == DuckyOpcodes.DIV:
-      x = i32_t(r.value).value
       y = i32_t(v).value
+      if y == 0:
+        raise DivideByZeroError(core = core)
+
+      x = i32_t(r.value).value
 
       if abs(y) > abs(x):
         v = 0
@@ -1059,15 +1070,19 @@ class _BINOP(Descriptor_R_RI):
         v = x // y
 
     elif inst.opcode == DuckyOpcodes.UDIV:
-      x = u32_t(r.value).value
       y = u32_t(v).value
+      if y == 0:
+        raise DivideByZeroError(core = core)
 
+      x = u32_t(r.value).value
       v = x // y
 
     elif inst.opcode == DuckyOpcodes.MOD:
-      x = i32_t(r.value).value
       y = i32_t(v).value
+      if y == 0:
+        raise DivideByZeroError(core = core)
 
+      x = i32_t(r.value).value
       v = x % y
 
     r.value = v
@@ -2559,7 +2574,6 @@ INSTRUCTION_SETS = {
 }
 
 def get_instruction_set(i, exc = None):
-  from ..cpu import InvalidInstructionSetError
   exc = exc or InvalidInstructionSetError
 
   if i not in INSTRUCTION_SETS:

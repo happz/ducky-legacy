@@ -9,6 +9,7 @@ import ducky.config
 import ducky.cpu.assemble
 import ducky.cpu.registers
 import ducky.console
+import ducky.log
 import ducky.machine
 import ducky.mm
 import ducky.snapshot
@@ -186,6 +187,8 @@ def run_machine(code = None, binary = None, machine_config = None, coredump_file
   post_setup = post_setup or []
   post_boot = post_boot or []
   post_run = post_run or []
+
+  logger = logger or ducky.log.create_logger(name = 'ducky-test', level = logging.DEBUG)
 
   M = ducky.machine.Machine(logger = logger)
 
