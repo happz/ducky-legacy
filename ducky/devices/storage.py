@@ -15,7 +15,7 @@ import os
 import six
 
 from ..errors import InvalidResourceError
-from . import Device, IRQProvider, MMIOMemoryPage
+from . import Device, MMIOMemoryPage
 from ..util import UINT8_FMT, UINT32_FMT
 from ..mm import addr_to_page
 
@@ -246,7 +246,7 @@ class BlockIOMMIOMemoryPage(MMIOMemoryPage):
 
     self.WARN('%s.read_u32: attempt to write unhandled MMIO offset: offset=%s, value=%s', self.__class__.__name__, UINT8_FMT(offset), UINT32_FMT(value))
 
-class BlockIO(IRQProvider, Device):
+class BlockIO(Device):
   def __init__(self, machine, name, mmio_address = None, irq = None, *args, **kwargs):
     super(BlockIO, self).__init__(machine, 'bio', name, *args, **kwargs)
 

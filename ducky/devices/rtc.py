@@ -2,7 +2,7 @@ import enum
 import time
 import datetime
 
-from . import Device, IRQProvider, MMIOMemoryPage
+from . import Device, MMIOMemoryPage
 from ..errors import InvalidResourceError
 from ..mm import u8_t, UINT8_FMT, addr_to_page, u32_t, UINT32_FMT
 from ..reactor import RunInIntervalTask
@@ -102,7 +102,7 @@ class RTCTask(RunInIntervalTask):
 
     self.machine.trigger_irq(self.rtc)
 
-class RTC(IRQProvider, Device):
+class RTC(Device):
   def __init__(self, machine, name, frequency = None, mmio_address = None, irq = None, *args, **kwargs):
     super(RTC, self).__init__(machine, 'rtc', name, *args, **kwargs)
 

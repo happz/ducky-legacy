@@ -233,8 +233,6 @@ class Machine(ISnapshotable, IMachineWorker):
 
     self.devices = collections.defaultdict(dict)
 
-    self.virtual_interrupts = {}
-
     self.last_state = None
 
   @property
@@ -379,10 +377,6 @@ class Machine(ISnapshotable, IMachineWorker):
     from .cpu import CPU
     for cpuid in range(0, self.nr_cpus):
       self.cpus.append(CPU(self, cpuid, self.memory, cores = self.nr_cores))
-
-    from .devices import VIRTUAL_INTERRUPTS
-    for index, cls in iteritems(VIRTUAL_INTERRUPTS):
-      self.virtual_interrupts[index] = cls(self)
 
   @property
   def exit_code(self):

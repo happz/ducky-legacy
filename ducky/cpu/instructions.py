@@ -683,16 +683,7 @@ class INT(Descriptor_RI):
 
   @staticmethod
   def execute(core, inst):
-    index = RI_VAL(core, inst, 'reg')
-    machine = core.cpu.machine
-
-    if index in machine.virtual_interrupts:
-      core.DEBUG('virtual interrupt: entering %d', index)
-      machine.virtual_interrupts[index].run(core)
-      core.DEBUG('virtual interrupt: finished')
-
-    else:
-      core._enter_exception(index)
+    core._enter_exception(RI_VAL(core, inst, 'reg'))
 
 class IPI(Descriptor_R_RI):
   mnemonic = 'ipi'
