@@ -459,39 +459,6 @@ class Descriptor_R_R(Descriptor):
   def disassemble_operands(logger, inst):
     return [REGISTER_NAMES[inst.reg1], REGISTER_NAMES[inst.reg2]]
 
-class Descriptor_RI_R(Descriptor):
-  operands = 'ri,r'
-  encoding = EncodingR
-
-  @staticmethod
-  def assemble_operands(logger, buffer, inst, operands):
-    from .assemble import Reference
-
-    logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
-
-    ENCODE(logger, buffer, inst, 'reg2', 5, operands['register_n1'])
-
-    if 'register_n0' in operands:
-      ENCODE(logger, buffer, inst, 'reg1', 5, operands['register_n0'])
-
-    else:
-      ENCODE(logger, buffer, inst, 'immediate_flag', 1, 1)
-
-      v = operands['immediate']
-
-      if isinstance(v, integer_types):
-        ENCODE(logger, buffer, inst, 'immediate', 15, v)
-
-      elif isinstance(v, string_types):
-        inst.refers_to = Reference(label = v)
-
-  @staticmethod
-  def disassemble_operands(logger, inst):
-    if inst.immediate_flag == 0:
-      return [REGISTER_NAMES[inst.reg1], REGISTER_NAMES[inst.reg2]]
-
-    return [str(inst.refers_to) if hasattr(inst, 'refers_to') and inst.refers_to is not None else UINT16_FMT(inst.immediate), REGISTER_NAMES[inst.reg2]]
-
 class InstructionSetMetaclass(type):
   def __init__(cls, name, bases, dict):
     cls.instructions = []
