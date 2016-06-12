@@ -5,24 +5,27 @@ Ducky instruction set
 Design principles
 ^^^^^^^^^^^^^^^^^
 
- - basic data unit is `a word`, 4 bytes, 32 bits. Other units are `short` and `byte`. Instructions often have variants for different data units, distinguished by a suffix (`w` for words, `s` for shorts, and `b` for single bytes)
+ - basic data unit is `a word` - 4 bytes, 32 bits. Other units are `short` - 2 bytes, 16 bits - and `byte` - 1 byte, 8 bits. Instructions often have variants for different data units, distinguished by a suffix (`w` for words, `s` for shorts, and `b` for single bytes)
  - load and store operations are performed by dedicated instructions
  - memory-register transfers work with addresses that are aligned to the size of their operands (1 byte alignment - so no alignment at all - for byte operands)
- - in most cases, destination operand is the first one. Exceptions are instructions that work with IO ports.
+ - unless said otherwise, destination operand is the first one
  - when content of a register is changed by instruction, several flags can be modified subsequently. E.g. when new value of register is zero, ``z`` flag is set.
+
 
 Notes on documentation
 ^^^^^^^^^^^^^^^^^^^^^^
 
- - ``rN`` refers to generaly any register, from ``r0`` up to ``r28`` - special registers are refered to by their common names (e.g. ``SP``).
+ - ``rN`` refers to generaly any register, from ``r0`` up to ``r29`` - special registers are refered to by their common names (e.g. ``SP``).
  - ``rA``, ``rB`` refer to the first and the second instruction operand respectively and stand for any register.
- - ``<value>`` means immediate, absolute value. This covers both integers (specified as base 10 or base 16 integers, both positive and negative), and labels and addresses, specified as ``&label``
+ - ``<value>`` means immediate, absolute value. This covers both integers, specified as base 10 or base 16 integers, both positive and negative, and labels and addresses, specified as ``&label``
  - when instruction accepts more than one operand type, it is documented using ``|`` character, e.g. ``(rA|<value>)`` means either register or immediate value
+ - immediate values are encoded in the instructions, therefore such value cannot have full 32-bit width. Each instruction should indicate the maximal width of immediate value that can be safely encoded, should you require grater values, please see ``li`` and ``liu`` instructions
+
 
 Stack frames
 ^^^^^^^^^^^^
 
-Several instructions transfer control to other routines, with possibility of returning back to previous spot. It is done by creating a `stack frame`. When stack frame is created, CPU performs these steps:
+Several instructions transfer control to other parts of program, with possibility of returning back to the previous spot. It is done by creating a `stack frame`. When stack frame is created, CPU performs these steps:
 
  - ``IP`` is pushed onto the stack
  - ``FP`` is pushed onto the stack
@@ -79,6 +82,7 @@ Unconditional branching
 
 Conditional branching
 """""""""""""""""""""
+
 +-------------+-------------------------+
 | Instruction | Jump when ...           |
 +-------------+-------------------------+
@@ -131,24 +135,6 @@ Two instructions are available for comparing of values. Compare their operands a
 ``cmpu rA, (rB|<value>)`` - treat operands as unsigned values, immediate value is zero-extended to 32 bits.
 
 
-Port IO
-^^^^^^^
-
-All IO instructions take two operands: port number, specified by register or immediate value, and register.
-
-``inw (rA|<port>), rB`` - read word from port and store it in ``rB``
-
-``ins (rA|<port>), rB`` - read short from port and store it in ``rB``
-
-``inb (rA|<port>), rB`` - read byte from port and store it in ``rB``
-
-``outw (rA|<port>), rB`` - write value from ``rB`` to port
-
-``outs (rA|<port>), rB`` - write lower short of ``rB`` to port
-
-``outb (rA|<port>), rB`` - write lowest byte of ``rB`` to port
-
-
 Interrupts
 ^^^^^^^^^^
 
@@ -171,10 +157,11 @@ Invocation
 Any interrupt service routine can be invoked by means of special instruction. When invoked several events take place:
 
  - ``SP`` is saved in temporary space
- - ``IP`` and ``SP`` are set to values that are stored in ``IVT`` in the corresponding entry
+ - ``IP`` and ``SP`` are set to values that are stored in ``EVT`` in the corresponding entry
  - important registers are pushed onto new stack (in this order): old ``SP``, ``flags``
  - new stack frame is created
  - privileged mode is enabled
+ - delivery of hardware interrupts is disabled
 
 When routine ends (via ``retint``), these steps are undone, and content of saved registers is restored.
 
@@ -243,6 +230,8 @@ Write
 """""
 
 ``stw {address}, rA``
+
+``sts {address}, rA`` - store lower 2 bytes of ``rA``
 
 ``stb {addres}, rA`` - store lower byte of ``rA``
 

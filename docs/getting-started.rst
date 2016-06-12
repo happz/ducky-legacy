@@ -27,7 +27,7 @@ After this, you should have the ``ducky`` module on your path::
 Prerequisites
 -------------
 
-Ducky runs with both Python 2 **and** 3 - supported versions are 2.7, 3.3, 3.4 and 3.5. There are few other dependencies, installation process (or ``setup.py``) should take care of them autmatically.
+Ducky runs with both Python 2 **and** 3 - supported versions are 2.7, 3.3, 3.4 and 3.5. There are few other dependencies, installation process (or ``setup.py``) should take care of them autmatically. PyPy is also supported, though only its implementation of Python2.
 
 
 "Hello, world!" tutorial
@@ -53,49 +53,49 @@ Source is located in ``examples`` directory. If you check it out, it's a plain a
   .type message, string
   .string "Hello, world!"
 
+
   .text
 
   main:
-    la sp, &stack
-    add sp, 64
+  la sp, &stack
+  add sp, 64
 
-    la r0, &message
-    call &writesn
-    hlt 0x00
+  la r0, &message
+  call &writesn
+  hlt 0x00
 
-  outb:
-    ; > r0: port
-    ; > r1: byte
-    outb r0, r1
-    ret
 
   writesn:
-    ; > r0: string address
-    ; ...
-    ;   r0: port
-    ;   r1: current byte
-    ;   r2: string ptr
-    push r1
-    push r2
-    mov r2, r0
-    li r0, $TTY_PORT_DATA
+  ; > r0: string address
+  ; ...
+  ;   r0: port
+  ;   r1: current byte
+  ;   r2: string ptr
+  push r1
+  push r2
+  mov r2, r0
+  li r0, $TTY_MMIO_ADDRESS
+  add r0, $TTY_MMIO_DATA
+
   .__writesn_loop:
-    lb r1, r2
-    bz &.__writesn_write_nl
-    call &outb
-    inc r2
-    j &.__writesn_loop
+  lb r1, r2
+  bz &.__writesn_write_nl
+  stb r0, r1
+  inc r2
+  j &.__writesn_loop
+
   .__writesn_write_nl:
-    ; \n
-    li r1, 0x0000000A
-    call &outb
-    ; \r
-    li r1, 0x0000000D
-    call &outb
-    li r0, 0x00000000
-    pop r2
-    pop r1
-    ret
+  ; \n
+  li r1, 0x0000000A
+  stb r0, r1
+  ; \r
+  li r1, 0x0000000D
+  stb r0, r1
+  li r0, 0x00000000
+  pop r2
+  pop r1
+  ret
+
 
 It's a little bit more structured that necessary, just for educational purposes.
 
@@ -103,7 +103,7 @@ It's a little bit more structured that necessary, just for educational purposes.
 Binary
 ^^^^^^
 
-Virtual machine needs binary (or bytecode, as you wish...) code, and there's a tool for it:
+Virtual machine needs binary (or bytecode, if you wish...) code, and there's a tool for it:
 
 .. code-block:: none
 

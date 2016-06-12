@@ -25,7 +25,7 @@ Increase verbosity level by one. By default, it is set to `info`, more verbose l
 ``-d, --debug``
 ^^^^^^^^^^^^^^^
 
-Set logging level to `debug` immediately. ``ducky-vm`` also requires this option to even provide any debugging output - it is not possible to emit `debug` output by setting ``-v`` enough times if ``-d`` is not specified on command-line.
+Set logging level to `debug` immediately. ``ducky-vm`` also requires this option to even provide any debugging output - it is not possible to emit `debug` output by setting ``-v`` enough times if ``-d`` was not specified on command-line.
 
 
 When option takes an address as an argument, address can be specified either using decimal or hexadecimal base. Usually, the absolute address is necessary when option is not binary-aware, yet some options are tied closely to particular binary, such options can also accept name of a symbol. Option handling code will try to find corresponding address in binary's symbol table. This is valid for both command-line options and configuration files.
@@ -34,7 +34,7 @@ When option takes an address as an argument, address can be specified either usi
 as
 --
 
-Assembler. Translates *assembler files* (``.asm``) to *object files* (``.o``) - files containing bytecode, symbols information, etc.
+Assembler. Translates *assembler files* (``.asm``) to *object files* (``.o``) - files containing bytecode, symbol information, etc.
 
 
 Options
@@ -81,6 +81,18 @@ Create object file with sections that can be loaded using ``mmap()`` syscall. Th
 ``-w, --writable-sections``
 
 By default, ``.text`` and ``.rodata`` sections are read-only. This option lowers this restriction, allowing binary to e.g. modify its own code.
+
+
+``-b, --blob``
+""""""""""""""
+
+Create object file wrapping a binary blob. Such file then contains the data from input file, encoded as ASCII data, with several symbols allowing other code to access this data.
+
+
+``-B BLOB_FLAGS, --blob-flags=BLOB_FLAGS``
+""""""""""""""""""""""""""""""""""""""""""
+
+Flags of blob section. Syntax of assembly ``.section`` directive is accepted.
 
 
 ld
@@ -256,16 +268,10 @@ By default, 10 iterations are hard-coded into binary. If you want to termporaril
 will load binary, then modify its ``.data`` section by changing value at address ``0x020000`` to ``100``, which is new number of iterations. Meta variable ``LENGTH`` specifies number of bytes to overwrite by ``poke`` value, and ``poke`` will change exactly ``LENGTH`` bytes - if ``VALUE`` cannot fit into available bits, exceeding bits of ``VALUE`` are masked out, and ``VALUE`` that can fit is zero-extended to use all ``LENGTH`` bytes.
 
 
-``--stdio-console``
-"""""""""""""""""""
+``--jit``
+"""""""""
 
-Enable console terminal with stdin and stdout as its IO streams. User can then enter commands in via the keyboard, while VM and its binaries use e.g. stand-alone pty terminals.
-
-
-``-g, --go-on``
-"""""""""""""""
-
-By default, ``ducky-vm`` creates a VM and boots it, but before handing the constrol to it, ``ducky-vm`` will ask user to press any key. ``-g`` option tells ``ducky-vm`` to skip this part, and immediately start execution of binaries.
+Enable `JIT` - more dense implementation of Ducky instructions is used. Result is higher execution speed of each instruction, however it removes many debugging code. It may be difficult to debug instruction execution even with ``-d`` option enabled.
 
 
 img
