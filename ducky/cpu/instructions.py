@@ -14,7 +14,7 @@ from ..errors import EncodingLargeValueError, UnalignedJumpTargetError, Assemble
 
 PO_REGISTER  = r'(?P<register_n{operand_index}>(?:r\d\d?)|(?:sp)|(?:fp))'
 PO_AREGISTER = r'(?P<address_register>r\d\d?|sp|fp)(?:\[(?:(?P<offset_sign>-|\+)?(?P<offset_immediate>0x[0-9a-fA-F]+|\d+))\])?'
-PO_IMMEDIATE = r'(?:(?P<immediate>(?:-|\+)?(?:0x[0-9a-fA-F]+|\d+))|(?P<immediate_address>&[a-zA-Z_\.][a-zA-Z0-9_]*))'
+PO_IMMEDIATE = r'(?:(?P<immediate>(?:-|\+)?(?:0x[0-9a-fA-F]+|\d+))|(?P<immediate_address>&[a-zA-Z_\.][a-zA-Z0-9_\.]*))'
 
 def UINT20_FMT(i):
   return '0x%05X' % (i & 0xFFFFF)

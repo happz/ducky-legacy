@@ -40,15 +40,15 @@ RE_BYTE = PATTERN(r'\.byte(?P<integer>.*?)')
 RE_DATA = PATTERN(r'\.data(?:\s+(?P<name>\.[a-z][a-z0-9_]*))?')
 RE_INT = PATTERN(r'\.int(?P<integer>.*?)')
 RE_LABEL = PATTERN(r'(?P<label>[a-zA-Z_\.][a-zA-Z0-9_\.]*):')
-RE_SECTION = PATTERN(r'\.section\s+(?P<name>\.[a-zA-z0-9_]+)(?:,\s*(?P<flags>[rwxlbmg]*))?')
+RE_SECTION = PATTERN(r'\.section\s+(?P<name>\.[a-zA-z0-9_\.]+)(?:,\s*(?P<flags>[rwxlbmg]*))?')
 RE_SET = PATTERN(r'\.set\s+(?P<name>[a-zA-Z_][a-zA-Z0-9_]*),\s*(?:(?P<current>\.)|(?P<value_hex>-?0x[a-fA-F0-9]+)|(?P<value_dec>0|(?:-?[1-9][0-9]*))|(?P<value_label>&[a-zA-Z][a-zA-Z0-9_]*))')
 RE_SHORT = PATTERN(r'\.short(?P<integer>.*?)')
 RE_SIZE = PATTERN(r'\.size\s+(?P<size>[1-9][0-9]*)')
 RE_SPACE = PATTERN(r'\.space\s+(?P<size>(?:0x[a-fA-F0-9]+)|(?:0|(?:[1-9][0-9]*)))')
 RE_STRING = PATTERN(r'\.string(?P<string>.*?)')
 RE_TEXT = PATTERN(r'\.text(?:\s+(?P<name>\.[a-z][a-z0-9_]*))?')
-RE_TYPE = PATTERN(r'\.type\s+(?P<name>[a-zA-Z_\.][a-zA-Z0-9_]*),\s*(?P<type>(?:char|byte|short|int|ascii|string|space))')
-RE_GLOBAL = PATTERN(r'\.global\s+(?P<name>[a-zA-Z_][a-zA-Z0-9_]*)')
+RE_TYPE = PATTERN(r'\.type\s+(?P<name>[a-zA-Z_\.][a-zA-Z0-9_\.]*),\s*(?P<type>(?:char|byte|short|int|ascii|string|space))')
+RE_GLOBAL = PATTERN(r'\.global\s+(?P<name>[a-zA-Z_\.][a-zA-Z0-9_\.]*)')
 RE_ALIGN  = PATTERN(r'\.align\s+(?P<boundary>[0-9]+)')
 
 class SourceLocation(object):
@@ -916,15 +916,16 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
         raise buff.get_error(IncompleteDirectiveError, '.section directive without section name')
 
       s_name = matches['name']
+      section_flags = SectionFlags.from_string(matches.get('flags') or '')
+      section_type = SectionTypes.TEXT if section_flags.executable is True else SectionTypes.DATA
 
       if s_name not in sections_pass1:
-        section_flags = SectionFlags.from_string(matches.get('flags') or '')
-        section_type = SectionTypes.TEXT if section_flags.executable is True else SectionTypes.DATA
-
         section = sections_pass1[s_name] = Section(s_name, section_type, section_flags)
         DEBUG(msg_prefix + 'section %s created', s_name)
 
       curr_section = sections_pass1[s_name]
+      curr_section.type = section_type
+      curr_section.flags = section_flags
 
       if curr_section.type == SectionTypes.TEXT:
         text_section = curr_section
