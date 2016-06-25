@@ -916,16 +916,17 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
         raise buff.get_error(IncompleteDirectiveError, '.section directive without section name')
 
       s_name = matches['name']
-      section_flags = SectionFlags.from_string(matches.get('flags') or '')
-      section_type = SectionTypes.TEXT if section_flags.executable is True else SectionTypes.DATA
-
       if s_name not in sections_pass1:
+        section_flags = SectionFlags.from_string(matches.get('flags') or '')
+        section_type = SectionTypes.TEXT if section_flags.executable is True else SectionTypes.DATA
         section = sections_pass1[s_name] = Section(s_name, section_type, section_flags)
         DEBUG(msg_prefix + 'section %s created', s_name)
 
       curr_section = sections_pass1[s_name]
-      curr_section.type = section_type
-      curr_section.flags = section_flags
+
+      if matches.get('flags') is not None:
+        curr_section.flags = SectionFlags.from_string(matches.get('flags'))
+        DEBUG(msg_prefix + 'section %s flags updated', s_name)
 
       if curr_section.type == SectionTypes.TEXT:
         text_section = curr_section
@@ -1186,6 +1187,7 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
     section.ptr  = base_ptr
 
     DEBUG('pass #2: section %s - base=%s', section.name, UINT32_FMT(section.base))
+    DEBUG('pass #2: ' + str(section))
 
     if section.type == SectionTypes.SYMBOLS or section.type == SectionTypes.RELOC:
       continue
