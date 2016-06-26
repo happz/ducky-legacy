@@ -1290,30 +1290,6 @@ $DEFCODE "BUFFER:", 7, 0, BUFFER_COLON
   $NEXT
 
 
-;
-; void memcpy(void *src, void *dst, u32_t length)
-;
-; Copy content of memory at SRC, of length of LENGTH bytes, to address DST.
-; Source and destination areas should not overlap, otherwise memcpy could
-; lead to unpredicted results.
-;
-memcpy:
-  cmp r2, 0
-  bz &__memcpy_quit
-  push r3
-__memcpy_loop:
-  lb r3, r0
-  stb r1, r3
-  inc r0
-  inc r1
-  dec r2
-  bnz &__memcpy_loop
-  pop r3
-__memcpy_quit:
-  ret
-
-
-
 $DEFCODE "MOVE", 4, 0, MOVE
   ; ( addr1 addr2 u -- )
 .ifdef FORTH_TIR
@@ -1569,19 +1545,19 @@ $DEFCODE "MAX", 3, 0, MAX
 .ifdef FORTH_TIR
   pop $W
   cmp $W, $TOS
-  ble &__MIN_next
+  ble &__MAX_next
   mov $TOS, $W
 .else
   pop $W
   pop $X
   cmp $W, $X
-  bg &__MIN_greater
+  bg &__MAX_greater
   push $X
-  j &__MIN_next
-__MIN_greater:
+  j &__MAX_next
+__MAX_greater:
   push $W
 .endif
-__MIN_next:
+__MAX_next:
   $NEXT
 
 
