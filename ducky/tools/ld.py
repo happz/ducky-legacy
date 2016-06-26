@@ -5,7 +5,7 @@ import sys
 import tarfile
 import tempfile
 
-from six import iteritems
+from six import iteritems, integer_types
 
 from ..mm import u32_t, UINT32_FMT, u16_t, u8_t, UINT8_FMT, MalformedBinaryError
 from ..mm.binary import File, SectionTypes, SymbolEntry, SECTION_ITEM_SIZE, SectionFlags, SymbolFlags
@@ -313,7 +313,7 @@ class RelocationPatcher(object):
   def _patch_text(self):
     value = self._patch_section_content[self._content_index]
 
-    if isinstance(value, long):
+    if isinstance(value, integer_types):
       value = self._apply_patch(value)
 
     else:

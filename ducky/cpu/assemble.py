@@ -4,9 +4,9 @@ import functools
 import mmap
 import os.path
 import re
-import UserDict
 
 from six import iteritems, itervalues, integer_types, string_types, PY2
+from six.moves import UserDict
 
 from .. import cpu
 from .. import mm
@@ -361,9 +361,9 @@ class FunctionSlot(DataSlot):
   def __repr__(self):
     return '<FunctionSlot: name={}, section={}>'.format(self.name, self.section.name if self.section else '')
 
-class SymbolList(UserDict.UserDict):
+class SymbolList(UserDict):
   def __init__(self, buffer):
-    UserDict.UserDict.__init__(self)
+    UserDict.__init__(self)
 
     self.buffer = buffer
 
