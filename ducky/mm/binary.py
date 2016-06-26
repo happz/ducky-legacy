@@ -23,7 +23,7 @@ class SectionFlagsEncoding(LittleEndianStructure):
 class SectionFlags(Flags):
   _encoding = SectionFlagsEncoding
   _flags = [field[0] for field in SectionFlagsEncoding._fields_]
-  _labels = 'RWELBMG'
+  _labels = 'RWXLBMG'
 
 class SectionTypes(enum.IntEnum):
   UNKNOWN = 0
