@@ -316,6 +316,9 @@ class RelocationPatcher(object):
     if isinstance(value, integer_types):
       value = self._apply_patch(value)
 
+    elif isinstance(value, u32_t):
+      value = u32_t(self._apply_patch(value.value))
+
     else:
       encoded = value
       encoding = type(encoded)
@@ -395,7 +398,7 @@ def resolve_relocations(logger, info, f_out, f_ins):
 
           se = section_symbols[symbol_name]
 
-        RelocationPatcher(re, se, symbol_name, dst_header, dst_content, original_section_header = src_header, section_offset = info.section_offsets[f_in][dst_header.index]).patch()
+        RelocationPatcher(re, se, symbol_name, dst_header, dst_content, original_section_header = src_header, section_offset = info.section_offsets[f_in][src_header.index]).patch()
 
   f_out.save()
 
