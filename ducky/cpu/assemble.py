@@ -165,7 +165,7 @@ class Section(object):
       return len(self.content)
 
   def __repr__(self):
-    return '<Section: name=%s, type=%s, flags=%s, base=%s, ptr=%s, items=%s, data_size=%s, file_size=%s>' % (self.name, self.type, self.flags.to_string(), UINT32_FMT(self.base), UINT32_FMT(self.ptr), self.items, self.data_size, self.file_size)
+    return '<Section: name=%s, type=%s, flags=%s, base=%s, ptr=%s, items=%s, data_size=%s, file_size=%s>' % (self.name, self.type, self.flags.to_string(), UINT32_FMT(self.base) if self.base is not None else '', UINT32_FMT(self.ptr), self.items, self.data_size, self.file_size)
 
 class TextSection(Section):
   def __init__(self, s_name, flags = None, **kwargs):
@@ -936,7 +936,7 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
         section_flags = SectionFlags.from_string(matches.get('flags') or '')
         section_type = SectionTypes.TEXT if section_flags.executable is True else SectionTypes.DATA
         section = sections_pass1[s_name] = Section(s_name, section_type, section_flags)
-        DEBUG(msg_prefix + 'section %s created', s_name)
+        DEBUG(msg_prefix + 'section created: %s', section)
 
       curr_section = sections_pass1[s_name]
 
