@@ -3,6 +3,8 @@ import sys
 
 from six import iteritems, PY2
 
+from ..util import UINT32_FMT
+
 def translate_buffer(logger, buffer, file_in, options):
   from ..cpu.assemble import AssemblerError, translate_buffer
 
@@ -71,17 +73,17 @@ def save_object_file(logger, sections, file_out, options):
     logger.error('Output file %s already exists, use -f to force overwrite', file_out)
     sys.exit(1)
 
+  D = logger.debug
+
   from ..cpu.assemble import sizeof
   from ..mm.binary import File, SectionTypes, SymbolEntry, RelocEntry
-
-  section_name_to_index = {}
 
   i = 0
   for s_name, section in list(iteritems(sections)):
     if section.type in (SectionTypes.SYMBOLS, SectionTypes.RELOC):
       continue
 
-    if section.flags.bss and section.data_size > 0:
+    if section.flags.bss is True and section.data_size > 0:
       continue
 
     if section.data_size > 0:
@@ -89,20 +91,60 @@ def save_object_file(logger, sections, file_out, options):
 
     del sections[s_name]
 
-    section_name_to_index[s_name] = i
-    i += 1
-
   with File.open(logger, file_out, 'w') as f_out:
     h_file = f_out.create_header()
     h_file.flags.mmapable = 1 if options.mmapable_sections else 0
 
     filenames = {}
-
+    symbols = {}
+    symbol_entries = []
     section_name_to_index = {}
-    for i, s_name in enumerate(sections.keys()):
+    section_headers = {}
+
+    reloc_sections = []
+    i = 0
+
+    for s_name in sections.keys():
+      if sections[s_name].type == SectionTypes.RELOC:
+        reloc_sections.append(s_name)
+        continue
+
       section_name_to_index[s_name] = i
+      i += 1
+
+    for s_name in reloc_sections:
+      section_name_to_index[s_name] = i
+      i += 1
 
     for s_name, section in iteritems(sections):
+      if section.type != SectionTypes.SYMBOLS:
+        continue
+
+      for se in section.content:
+        entry = SymbolEntry()
+
+        symbols[se.name.name] = (se, entry)
+        symbol_entries.append(entry)
+
+        entry.flags = se.flags.to_encoding()
+        entry.name = f_out.string_table.put_string(se.name.name)
+        entry.address = se.section_ptr
+        entry.size = se.size
+        entry.section = section_name_to_index[se.section.name]
+
+        if se.location is not None:
+          loc = se.location
+
+          if loc.filename not in filenames:
+            filenames[loc.filename] = f_out.string_table.put_string(loc.filename)
+          entry.filename = filenames[loc.filename]
+
+          if loc.lineno:
+            entry.lineno = loc.lineno
+
+        entry.type = se.symbol_type
+
+    def __init_section_entry(section):
       h_section = f_out.create_section()
       h_section.type = section.type
       h_section.items = section.items
@@ -111,55 +153,62 @@ def save_object_file(logger, sections, file_out, options):
       h_section.name = f_out.string_table.put_string(section.name)
       h_section.base = section.base
 
+      section_headers[section.name] = h_section
+
+      return h_section
+
+    for s_name, section in iteritems(sections):
+      if section.type  == SectionTypes.RELOC:
+        continue
+
+      h_section = __init_section_entry(section)
+
       if section.type == SectionTypes.SYMBOLS:
-        symbol_entries = []
-
-        for se in section.content:
-          entry = SymbolEntry()
-          symbol_entries.append(entry)
-
-          entry.flags = se.flags.to_encoding()
-          entry.name = f_out.string_table.put_string(se.name.name)
-          entry.address = se.section_ptr
-          entry.size = se.size
-          entry.section = section_name_to_index[se.section.name]
-
-          if se.location is not None:
-            loc = se.location
-
-            if loc.filename not in filenames:
-              filenames[loc.filename] = f_out.string_table.put_string(loc.filename)
-            entry.filename = filenames[loc.filename]
-
-            if loc.lineno:
-              entry.lineno = loc.lineno
-
-          entry.type = se.symbol_type
-
         f_out.set_content(h_section, symbol_entries)
         h_section.data_size = h_section.file_size = sizeof(SymbolEntry()) * len(symbol_entries)
-
-      elif section.type == SectionTypes.RELOC:
-        reloc_entries = []
-
-        for rs in section.content:
-          entry = RelocEntry()
-          reloc_entries.append(entry)
-
-          entry.name = f_out.string_table.put_string(rs.name)
-          entry.flags = rs.flags.to_encoding()
-          entry.patch_section = section_name_to_index[rs.patch_section.name]
-          entry.patch_address = rs.patch_address
-          entry.patch_offset = rs.patch_offset or 0
-          entry.patch_size = rs.patch_size
-          entry.patch_add = rs.patch_add or 0
-
-        f_out.set_content(h_section, reloc_entries)
-        h_section.data_size = h_section.file_size = sizeof(RelocEntry()) * len(reloc_entries)
 
       else:
         h_section.flags = section.flags.to_encoding()
         f_out.set_content(h_section, section.content)
+
+    for s_name, section in iteritems(sections):
+      if section.type != SectionTypes.RELOC:
+        continue
+
+      h_section = __init_section_entry(section)
+
+      reloc_entries = []
+
+      for rs in section.content:
+        re = RelocEntry()
+        re.name = f_out.string_table.put_string(rs.name)
+        re.flags = rs.flags.to_encoding()
+        re.patch_section = section_name_to_index[rs.patch_section.name]
+        re.patch_address = rs.patch_address
+        re.patch_offset = rs.patch_offset or 0
+        re.patch_size = rs.patch_size
+        re.patch_add = rs.patch_add or 0
+
+        if rs.name not in symbols:
+          reloc_entries.append(re)
+          continue
+
+        symbol, se = symbols[rs.name]
+
+        if symbol.section.name != rs.patch_section.name:
+          reloc_entries.append(re)
+          continue
+
+        if symbol.section.type != SectionTypes.TEXT:
+          reloc_entries.append(re)
+          continue
+
+        from .ld import RelocationPatcher
+
+        RelocationPatcher(re, se, rs.name, section_headers[rs.patch_section.name], sections[rs.patch_section.name].content).patch()
+
+      f_out.set_content(h_section, reloc_entries)
+      h_section.data_size = h_section.file_size = sizeof(RelocEntry()) * len(reloc_entries)
 
     h_section = f_out.create_section()
     h_section.type = SectionTypes.STRINGS

@@ -1,12 +1,16 @@
 import collections
+import logging
 import os
 import sys
+import tarfile
+import tempfile
 
 from six import iteritems
 
 from ..mm import u32_t, UINT32_FMT, u16_t, u8_t, UINT8_FMT, MalformedBinaryError
 from ..mm.binary import File, SectionTypes, SymbolEntry, SECTION_ITEM_SIZE, SectionFlags, SymbolFlags
 from ..cpu.assemble import align_to_next_page, align_to_next_mmap, sizeof
+from ..cpu.instructions import encoding_to_u32, u32_to_encoding, Encoding
 from ..util import str2int
 from ..errors import UnalignedJumpTargetError, EncodingLargeValueError, IncompatibleLinkerFlagsError, UnknownSymbolError
 
@@ -229,6 +233,120 @@ def resolve_symbols(logger, info, f_out, f_ins):
 
   info.symbols = symbol_map
 
+
+class RelocationPatcher(object):
+  def __init__(self, re, se, symbol_name, section_header, section_content, original_section_header = None, section_offset = 0):
+    self._logger = logging.getLogger('ducky')
+    self.DEBUG = self._logger.debug
+
+    self.DEBUG('%s:', self.__class__.__name__)
+    self.DEBUG('  symbol=%s', symbol_name)
+    self.DEBUG('  re=%s', re)
+    self.DEBUG('  se=%s', se)
+    self.DEBUG('  section=%s', section_header)
+    self.DEBUG('  osection=%s', original_section_header)
+
+    self._re = re
+    self._se = se
+
+    self._patch_section_header = section_header
+    self._patch_section_content = section_content
+    original_section_header = original_section_header or section_header
+
+    self.DEBUG('  patch address=%s, section base=%s, original base=%s, section offset=%s', UINT32_FMT(re.patch_address), UINT32_FMT(section_header.base), UINT32_FMT(original_section_header.base), UINT32_FMT(section_offset))
+    self._patch_address = re.patch_address - original_section_header.base + section_offset + section_header.base
+    self._patch_address = re.patch_address - section_header.base + (section_header.base - original_section_header.base) + section_offset
+    self.DEBUG('  patch address=%s', UINT32_FMT(self._patch_address))
+
+    self._content_index = self._patch_address // SECTION_ITEM_SIZE[section_header.type]
+    self.DEBUG('  content index=%d', self._content_index)
+
+    self._patch = self._create_patch()
+    self.DEBUG('  patch=%s', UINT32_FMT(self._patch))
+
+  def _create_patch(self):
+    patch = self._se.address
+
+    if self._re.flags.relative == 1:
+      patch -= (self._patch_address + 4)
+
+    return patch + self._re.patch_add
+
+  def _apply_patch(self, value):
+    re = self._re
+
+    self.DEBUG('  value=%s', UINT32_FMT(value))
+
+    lower_mask = 0xFFFFFFFF >> (32 - re.patch_offset)
+    upper_mask = 0xFFFFFFFF << (re.patch_offset + re.patch_size)
+    mask = upper_mask | lower_mask
+
+    self.DEBUG('  lmask=%s, umask=%s, mask=%s', UINT32_FMT(lower_mask), UINT32_FMT(upper_mask), UINT32_FMT(mask))
+
+    masked = value & mask
+    self.DEBUG('  masked=%s', UINT32_FMT(masked))
+
+    patch = self._patch
+
+    if re.flags.inst_aligned == 1:
+      if patch & 0x3:
+        raise UnalignedJumpTargetError(info = 'address=%s' % UINT32_FMT(patch))
+
+      patch >>= 2
+
+    if patch >= 2 ** re.patch_size:
+      raise EncodingLargeValueError(info = 'size=%s, value=%s' % (re.patch_size, UINT32_FMT(patch)))
+
+    self.DEBUG('  patch:         %s', UINT32_FMT(patch))
+
+    patch = patch << re.patch_offset
+    self.DEBUG('  shifted patch: %s', UINT32_FMT(patch))
+
+    patch = patch & (~mask) & 0xFFFFFFFF
+    self.DEBUG('  masked patch:  %s', UINT32_FMT(patch))
+
+    value = masked | patch
+    self.DEBUG('  patched:       %s', UINT32_FMT(value))
+
+    return value
+
+  def _patch_text(self):
+    value = self._patch_section_content[self._content_index]
+
+    if isinstance(value, long):
+      value = self._apply_patch(value)
+
+    else:
+      encoded = value
+      encoding = type(encoded)
+      value = encoding_to_u32(encoded)
+
+      value = self._apply_patch(value)
+      value = u32_to_encoding(value, encoding)
+
+    self._patch_section_content[self._content_index] = value
+
+  def _patch_data(self):
+    content = self._patch_section_content
+    content_index = self._content_index
+
+    value = content[content_index].value | (content[content_index + 1].value << 8) | (content[content_index + 2].value << 16) | (content[content_index + 3].value << 24)
+    value = self._apply_patch(value)
+
+    content[content_index].value =      value        & 0xFF
+    content[content_index + 1].value = (value >> 8)  & 0xFF
+    content[content_index + 2].value = (value >> 16) & 0xFF
+    content[content_index + 3].value = (value >> 24) & 0xFF
+
+  def patch(self):
+    patch = self._create_patch()
+
+    if self._patch_section_header.type == SectionTypes.TEXT:
+      self._patch_text()
+
+    elif self._patch_section_header.type == SectionTypes.DATA:
+      self._patch_data()
+
 def resolve_relocations(logger, info, f_out, f_ins):
   D = logger.debug
 
@@ -252,126 +370,65 @@ def resolve_relocations(logger, info, f_out, f_ins):
     for r_header, r_content in reloc_sections:
       for re in r_content:
         D('-----*-----*-----')
-        D('Relocation: reloc=%s', re)
 
-        s_name = f_in.string_table.get_string(re.name)
+        symbol_name = f_in.string_table.get_string(re.name)
 
-        o_header, o_content = f_in.get_section(re.patch_section)
-        D('Reloc points to source section: %s', o_header)
+        # Get all involved sections
+        src_header, _ = f_in.get_section(re.patch_section)
+        section_name = f_in.string_table.get_string(src_header.name)
+        dst_header, dst_content = f_out.get_section_by_name(section_name)
 
-        o_name = f_in.string_table.get_string(o_header.name)
-
-        d_header, d_content = f_out.get_section_by_name(o_name)
-        D('Reloc points to destination section: %s', d_header)
-
-        D('patch address: %s, patch offset: %s, patch size: %s, old base: %s, new base: %s', UINT32_FMT(re.patch_address), re.patch_offset, re.patch_size, o_header.base, d_header.base)
-        fixed_patch_address = re.patch_address - o_header.base + info.section_offsets[f_in][o_header.index] + d_header.base
-
-        D('fixed patch address: %s', UINT32_FMT(fixed_patch_address))
-
-        D('Search for symbol named "%s"', s_name)
-
+        # Find referenced symbol
         for name, f_src, se in info.symbols:
-          if name != s_name:
+          if name != symbol_name:
             continue
 
           if f_src != f_in and se.flags.globally_visible == 0:
             continue
 
-          D('  Found: %s', se)
           break
 
         else:
           # Try searching sections
-          if s_name not in section_symbols:
+          if symbol_name not in section_symbols:
             raise UnknownSymbolError('No such symbol: name=%s' % s_name)
 
-          se = section_symbols[s_name]
+          se = section_symbols[symbol_name]
 
-        patch_address = se.address
-        if re.flags.relative == 1:
-          patch_address -= (fixed_patch_address + 4)
-
-        D('Patching %s:%s:%s with %s', UINT32_FMT(fixed_patch_address), re.patch_offset, re.patch_size, UINT32_FMT(patch_address))
-
-        content_index = (fixed_patch_address - d_header.base) // SECTION_ITEM_SIZE[d_header.type]
-        D('  Content index: %i (%s - %s) / %s', content_index, fixed_patch_address, d_header.base, SECTION_ITEM_SIZE[d_header.type])
-
-        orig_val = d_content[content_index]
-
-        if isinstance(orig_val, u8_t):
-          if re.patch_offset != 0 or re.patch_size != 16:
-            logger.warn('Unhandled reloc entry: %s', re)
-            sys.exit(1)
-
-          bl = orig_val
-          bh = d_content[content_index + 1]
-
-          patch = u16_t(patch_address)
-          new_bl = u8_t(patch.value & 0x00FF)
-          new_bh = u8_t(patch.value >> 8)
-
-          D('  patched! %s %s => %s %s', UINT8_FMT(bl), UINT8_FMT(bh), UINT8_FMT(new_bl), UINT8_FMT(new_bh))
-
-          bl.value = new_bl.value
-          bh.value = new_bh.value
-
-        elif isinstance(orig_val, u32_t):
-          new_val = None
-
-          lower_mask = u32_t(0xFFFFFFFF >> (32 - re.patch_offset))
-          upper_mask = u32_t(0xFFFFFFFF << (re.patch_offset + re.patch_size))
-          mask = u32_t(upper_mask.value | lower_mask.value)
-          D('lower mask: %s', UINT32_FMT(lower_mask))
-          D('upper mask: %s', UINT32_FMT(upper_mask))
-          D('mask: %s', UINT32_FMT(mask))
-
-          D('orig val: %s', UINT32_FMT(orig_val))
-
-          masked = u32_t(orig_val.value & mask.value)
-
-          D('masked: %s', UINT32_FMT(masked.value))
-
-          patch = patch_address + re.patch_add
-
-          if re.flags.inst_aligned == 1:
-            if patch & 0x3:
-              raise UnalignedJumpTargetError(info = 'address=%s' % UINT32_FMT(patch))
-
-            patch >>= 2
-
-          if patch >= 2 ** re.patch_size:
-            raise EncodingLargeValueError(info = 'size=%s, value=%s' % (re.patch_size, UINT32_FMT(patch)))
-
-          patch = u32_t(patch << re.patch_offset)
-          D('patch: %s', UINT32_FMT(patch))
-
-          patch.value &= (~mask.value)
-          D('patch: %s', UINT32_FMT(patch))
-
-          new_val = u32_t(masked.value | patch.value)
-          D('new val: %s', UINT32_FMT(new_val))
-
-          if orig_val.value != new_val.value:
-            D('  patched! %s => %s', UINT32_FMT(orig_val), UINT32_FMT(new_val))
-
-          orig_val.value = new_val.value
-
-        else:
-          logger.warn('Unhandled content type: %s', orig_val)
-          sys.exit(1)
+        RelocationPatcher(re, se, symbol_name, dst_header, dst_content, original_section_header = src_header, section_offset = info.section_offsets[f_in][dst_header.index]).patch()
 
   f_out.save()
 
-def process_files(logger, info, files_in, file_out, bases = None):
+def link_files(logger, info, files_in, file_out, bases = None):
   bases = bases or {}
 
   fs_in = []
 
-  for file_in in files_in:
-    with File.open(logger, file_in, 'r') as f_in:
+  def __read_object_file(f):
+    with File.open(logger, f, 'r') as f_in:
       f_in.load()
       fs_in.append(f_in)
+
+  for file_in in files_in:
+    if file_in.endswith('.tgz'):
+      with tarfile.open(file_in, 'r:gz') as f_in:
+        for member in f_in.getmembers():
+          f_member = tempfile.NamedTermporaryFile(delete = False)
+
+          try:
+            f_member.close()
+            temporaries.append(f_member)
+            f_in.extract(member, path = f_member.path)
+            __read_object_file(f_member)
+
+          finally:
+            try:
+              os.unlink(f_member)
+            except:
+              pass
+
+    else:
+      __read_object_file(file_in)
 
   if not all([f.get_header().flags.mmapable == fs_in[0].get_header().flags.mmapable for f in fs_in]):
     raise IncompatibleLinkerFlagsError()
@@ -393,6 +450,20 @@ def process_files(logger, info, files_in, file_out, bases = None):
 
     f_out.save()
 
+def archive_files(logger, files_in, file_out):
+  D = logger.debug
+
+  D('Merging files into an archive')
+
+  if os.path.exists(file_out):
+    D('Unlink existing archive')
+    os.unlink(file_out)
+
+  with tarfile.open(file_out, 'w:gz') as f_out:
+    for f_in in files_in:
+      D('  Adding %s', f_out)
+      f_out.add(f_in, recursive = False)
+
 def main():
   import optparse
   from . import add_common_options, parse_options
@@ -408,6 +479,7 @@ def main():
 
   group = optparse.OptionGroup(parser, 'Linker options')
   parser.add_option_group(group)
+  group.add_option('--archive',      dest = 'archive',      action = 'store_true', default = False, help = 'Instead of linking, create an archive containing all input files')
   group.add_option('--section-base', dest = 'section_base', action = 'append', default = [], help = 'Set base of section to specific address', metavar = 'SECTION=ADDRESS')
 
   options, logger = parse_options(parser)
@@ -428,17 +500,21 @@ def main():
     logger.error('Output file %s already exists, use -f to force overwrite', options.file_out)
     sys.exit(1)
 
-  info = LinkerInfo()
+  if options.archive is True:
+    archive_files(logger, options.file_in, options.file_out)
 
-  try:
-    process_files(logger, info, options.file_in, options.file_out, bases = {name: str2int(value) for name, value in (e.split('=') for e in options.section_base)})
+  else:
+    info = LinkerInfo()
 
-  except IncompatibleLinkerFlagsError:
-    logger.error('All input files must have the same mmapable setting')
-    os.unlink(options.file_out)
-    sys.exit(1)
+    try:
+      link_files(logger, info, options.file_in, options.file_out, bases = {name: str2int(value) for name, value in (e.split('=') for e in options.section_base)})
 
-  except UnknownSymbolError as e:
-    logger.exception(e)
-    os.unlink(options.file_out)
-    sys.exit(1)
+    except IncompatibleLinkerFlagsError:
+      logger.error('All input files must have the same mmapable setting')
+      os.unlink(options.file_out)
+      sys.exit(1)
+
+    except UnknownSymbolError as e:
+      logger.exception(e)
+      os.unlink(options.file_out)
+      sys.exit(1)

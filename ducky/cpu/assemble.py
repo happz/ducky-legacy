@@ -4,6 +4,7 @@ import functools
 import mmap
 import os.path
 import re
+import UserDict
 
 from six import iteritems, itervalues, integer_types, string_types, PY2
 
@@ -15,7 +16,7 @@ from ..cpu.instructions import encoding_to_u32
 from ..mm import u8_t, PAGE_SIZE, UINT32_FMT
 from ..mm.binary import SectionTypes, SectionFlags, SymbolFlags, RelocFlags
 from ..util import align, str2bytes, str2int
-from ..errors import AssemblerError, IncompleteDirectiveError, UnknownFileError, DisassembleMismatchError, UnknownPatternError, TooManyLabelsError
+from ..errors import AssemblerError, IncompleteDirectiveError, UnknownFileError, DisassembleMismatchError, UnknownPatternError, TooManyLabelsError, ConflictingNamesError
 
 align_to_next_page = functools.partial(align, PAGE_SIZE)
 align_to_next_mmap = functools.partial(align, mmap.PAGESIZE)
@@ -360,6 +361,18 @@ class FunctionSlot(DataSlot):
   def __repr__(self):
     return '<FunctionSlot: name={}, section={}>'.format(self.name, self.section.name if self.section else '')
 
+class SymbolList(UserDict.UserDict):
+  def __init__(self, buffer):
+    UserDict.UserDict.__init__(self)
+
+    self.buffer = buffer
+
+  def touch(self, name, loc):
+    if name in self.data:
+      raise self.buffer.get_error(ConflictingNamesError, 'label="%s", location %s' % (name, self.data[name]))
+
+    self.data[name] = loc
+
 def sizeof(o):
   if isinstance(o, RelocSlot):
     return 0
@@ -416,6 +429,7 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
 
   labeled = []
 
+  symbols = SymbolList(buff)
   line = None
 
   def __apply_defs(line):
@@ -599,6 +613,8 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
 
     var.name = Label(v_name, curr_section, buff.location.copy())
     __set_var_location(var)
+
+    symbols.touch(v_name, var.location)
 
     while buff.has_lines() and var.value is None and var.refers_to is None:
       line = buff.get_line()
@@ -1114,6 +1130,9 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
       loc.column = matches.start(2)
 
       label = Label(matches.groupdict()['label'], curr_section, loc)
+
+      symbols.touch(label.name, loc)
+
       labels.append(label)
 
       DEBUG(msg_prefix + 'record label: name=%s', label.name)
@@ -1231,7 +1250,7 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
           DEBUG(ptr_prefix + '  refers to: %s', reference)
 
           if reference.label is not None:
-            reloc = RelocSlot(reference.label[1:], patch_section = section, patch_address = section.ptr, patch_offset = 0, patch_size = 16, patch_add = reference.add)
+            reloc = RelocSlot(reference.label[1:], patch_section = section, patch_address = section.ptr, patch_offset = 0, patch_size = 32, patch_add = reference.add)
             DEBUG(ptr_prefix + '  reloc slot created: %s', reloc)
 
           else:
@@ -1364,7 +1383,7 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
 
           DEBUG(ptr_prefix + 'refers to: %s', reference)
 
-          reloc = RelocSlot(reference.label[1:], patch_section = references[item.refers_to].section, patch_address = section.ptr, patch_offset = 0, patch_size = 16, patch_add = reference.add)
+          reloc = RelocSlot(reference.label[1:], patch_section = references[item.refers_to].section, patch_address = section.ptr, patch_offset = 0, patch_size = 32, patch_add = reference.add)
           DEBUG(ptr_prefix + 'reloc slot created: %s', reloc)
 
           reloctab.content.append(reloc)

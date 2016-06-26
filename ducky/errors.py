@@ -103,12 +103,15 @@ class EncodingLargeValueError(AssemblerError):
   def __init__(self, **kwargs):
     super(EncodingLargeValueError, self).__init__(message = 'Value cannot fit into field: {info}'.format(**kwargs), **kwargs)
 
+class ConflictingNamesError(AssemblerError):
+  def __init__(self, **kwargs):
+    super(ConflictingNamesError, self).__init__(message = 'Label already defined: {info}'.format(**kwargs), **kwargs)
+
 class IncompatibleLinkerFlagsError(Error):
   pass
 
 class UnknownSymbolError(Error):
   pass
-
 
 class ExceptionList(enum.IntEnum):
   """
