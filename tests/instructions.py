@@ -52,8 +52,8 @@ def sign_extend(sign_mask, ext_mask, value):
 
   return u32_t(ext_mask | value).value if value & sign_mask else u32_t(value).value
 
+sign_extend11 = partial(sign_extend, 0x400,   0xFFFF8000)
 sign_extend15 = partial(sign_extend, 0x4000,  0xFFFF8000)
-sign_extend16 = partial(sign_extend, 0x8000,  0xFFFF0000)
 sign_extend20 = partial(sign_extend, 0x80000, 0xFFF00000)
 
 def encode_inst(desc, operands):
@@ -203,8 +203,8 @@ REGISTER    = integers(min_value = 0, max_value = 31)
 VALUE       = integers(min_value = 0, max_value = 0xFFFFFFFF)
 VALUE16     = integers(min_value = 0, max_value = 0xFFFF)
 VALUE8      = integers(min_value = 0, max_value = 0xFF)
+IMMEDIATE11 = integers(min_value = 0, max_value = 0x7FF)
 IMMEDIATE15 = integers(min_value = 0, max_value = 0x7FFF)
-IMMEDIATE16 = integers(min_value = 0, max_value = 0xFFFF)
 IMMEDIATE20 = integers(min_value = 0, max_value = 0xFFFFF)
 
 @composite
@@ -228,6 +228,37 @@ def __base_setting_test(state, reg, inst_class = None, cond = None):
 
   state.check((reg, expected_value), zero = expected_value == 0, overflow = False, sign = False)
 
+def __base_select_test_immediate(state, reg, tv, fv, inst_class = None, cond = None):
+  LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
+  LOGGER.debug('TEST: state=%r, reg=%d, tv=0x%08X, fv=0x%08X', state, reg, tv, fv)
+
+  inst = encode_inst(inst_class, {'register_n0': reg, 'immediate': fv})
+
+  expected_value = tv if cond(state) else fv
+
+  state.reset()
+  CORE.registers.map[reg].value = tv
+
+  execute_inst(CORE, inst_class, inst)
+
+  state.check((reg, expected_value), zero = expected_value == 0, overflow = False, sign = (expected_value & 0x80000000) != 0)
+
+def __base_select_test_register(state, reg1, reg2, tv, fv, inst_class = None, cond = None):
+  LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
+  LOGGER.debug('TEST: state=%r, reg=1%d, reg2=%d, tv=0x%08X, fv=0x%08X', state, reg1, reg2, tv, fv)
+
+  inst = encode_inst(inst_class, {'register_n0': reg1, 'register_n1': reg2})
+
+  expected_value = fv if reg1 == reg2 else (tv if cond(state) else fv)
+
+  state.reset()
+  CORE.registers.map[reg1].value = tv
+  CORE.registers.map[reg2].value = fv
+
+  execute_inst(CORE, inst_class, inst)
+
+  state.check((reg1, expected_value), (reg2, fv), zero = expected_value == 0, overflow = False, sign = (expected_value & 0x80000000) != 0)
+
 def __base_branch_test_immediate(state, offset, inst_class = None, cond = None):
   state.ip &= 0xFFFFFFFC
   offset &= 0xFFFFFFFC
@@ -237,7 +268,7 @@ def __base_branch_test_immediate(state, offset, inst_class = None, cond = None):
 
   inst = encode_inst(inst_class, {'immediate': offset})
 
-  expected_value = ((state.ip + sign_extend16(offset // 4) * 4) % (2 ** 32)) if cond(state) else state.ip
+  expected_value = ((state.ip + sign_extend11(offset // 4) * 4) % (2 ** 32)) if cond(state) else state.ip
 
   state.reset()
 
@@ -470,7 +501,7 @@ def test_and_register(state, reg1, reg2, a, b):
 #
 # Branching - B*
 #
-@given(offset = IMMEDIATE16)
+@given(offset = IMMEDIATE11)
 def test_branch_unaligned(offset):
   from ducky.cpu.instructions import BE
 
@@ -492,7 +523,7 @@ def test_branch_unaligned(offset):
 #
 # BE
 #
-@given(state = STATE, offset = IMMEDIATE16)
+@given(state = STATE, offset = IMMEDIATE11)
 def test_be_immediate(state, offset):
   from ducky.cpu.instructions import BE
 
@@ -508,7 +539,7 @@ def test_be_register(state, reg, addr):
 #
 # BG
 #
-@given(state = STATE, offset = IMMEDIATE16)
+@given(state = STATE, offset = IMMEDIATE11)
 def test_bg_immediate(state, offset):
   from ducky.cpu.instructions import BG
 
@@ -524,7 +555,7 @@ def test_bg_register(state, reg, addr):
 #
 # BGE
 #
-@given(state = STATE, offset = IMMEDIATE16)
+@given(state = STATE, offset = IMMEDIATE11)
 def test_bge_immediate(state, offset):
   from ducky.cpu.instructions import BGE
 
@@ -540,7 +571,7 @@ def test_bge_register(state, reg, addr):
 #
 # BL
 #
-@given(state = STATE, offset = IMMEDIATE16)
+@given(state = STATE, offset = IMMEDIATE11)
 def test_bl_immediate(state, offset):
   from ducky.cpu.instructions import BL
 
@@ -556,7 +587,7 @@ def test_bl_register(state, reg, addr):
 #
 # BLE
 #
-@given(state = STATE, offset = IMMEDIATE16)
+@given(state = STATE, offset = IMMEDIATE11)
 def test_ble_immediate(state, offset):
   from ducky.cpu.instructions import BLE
 
@@ -572,7 +603,7 @@ def test_ble_register(state, reg, addr):
 #
 # BNE
 #
-@given(state = STATE, offset = IMMEDIATE16)
+@given(state = STATE, offset = IMMEDIATE11)
 def test_bne_immediate(state, offset):
   from ducky.cpu.instructions import BNE
 
@@ -588,7 +619,7 @@ def test_bne_register(state, reg, addr):
 #
 # BNO
 #
-@given(state = STATE, offset = IMMEDIATE16)
+@given(state = STATE, offset = IMMEDIATE11)
 def test_bno_immediate(state, offset):
   from ducky.cpu.instructions import BNO
 
@@ -604,7 +635,7 @@ def test_bno_register(state, reg, addr):
 #
 # BNS
 #
-@given(state = STATE, offset = IMMEDIATE16)
+@given(state = STATE, offset = IMMEDIATE11)
 def test_bns_immediate(state, offset):
   from ducky.cpu.instructions import BNS
 
@@ -620,7 +651,7 @@ def test_bns_register(state, reg, addr):
 #
 # BNZ
 #
-@given(state = STATE, offset = IMMEDIATE16)
+@given(state = STATE, offset = IMMEDIATE11)
 def test_bnz_immediate(state, offset):
   from ducky.cpu.instructions import BNZ
 
@@ -636,7 +667,7 @@ def test_bnz_register(state, reg, addr):
 #
 # BO
 #
-@given(state = STATE, offset = IMMEDIATE16)
+@given(state = STATE, offset = IMMEDIATE11)
 def test_bo_immediate(state, offset):
   from ducky.cpu.instructions import BO
 
@@ -652,7 +683,7 @@ def test_bo_register(state, reg, addr):
 #
 # BS
 #
-@given(state = STATE, offset = IMMEDIATE16)
+@given(state = STATE, offset = IMMEDIATE11)
 def test_bs_immediate(state, offset):
   from ducky.cpu.instructions import BS
 
@@ -668,7 +699,7 @@ def test_bs_register(state, reg, addr):
 #
 # BZ
 #
-@given(state = STATE, offset = IMMEDIATE16)
+@given(state = STATE, offset = IMMEDIATE11)
 def test_bz_immediate(state, offset):
   from ducky.cpu.instructions import BZ
 
@@ -1732,6 +1763,182 @@ def test_rst(state):
   execute_inst(CORE, RST, inst)
 
   state.check(*[(i, 0x00000000) for i, _ in enumerate(REGISTER_NAMES) if i != ducky.cpu.registers.Registers.CNT], hwint_allowed = False, equal = False, zero = False, overflow = False, sign = False)
+
+
+#
+# SELE
+#
+@given(state = STATE, reg = REGISTER, tv = VALUE, fv = IMMEDIATE11)
+def test_sele_immediate(state, reg, tv, fv):
+  from ducky.cpu.instructions import SELE
+
+  __base_select_test_immediate(state, reg, tv, fv, inst_class = SELE, cond = lambda f: f.equal is True)
+
+@given(state = STATE, reg1 = REGISTER, reg2 = REGISTER, tv = VALUE, fv = IMMEDIATE11)
+def test_sele_register(state, reg1, reg2, tv, fv):
+  from ducky.cpu.instructions import SELE
+
+  __base_select_test_register(state, reg1, reg2, tv, fv, inst_class = SELE, cond = lambda f: f.equal is True)
+
+
+#
+# SELG
+#
+@given(state = STATE, reg = REGISTER, tv = VALUE, fv = IMMEDIATE11)
+def test_selg_immediate(state, reg, tv, fv):
+  from ducky.cpu.instructions import SELG
+
+  __base_select_test_immediate(state, reg, tv, fv, inst_class = SELG, cond = lambda f: f.sign is False and f.equal is False)
+
+@given(state = STATE, reg1 = REGISTER, reg2 = REGISTER, tv = VALUE, fv = IMMEDIATE11)
+def test_selg_register(state, reg1, reg2, tv, fv):
+  from ducky.cpu.instructions import SELG
+
+  __base_select_test_register(state, reg1, reg2, tv, fv, inst_class = SELG, cond = lambda f: f.sign is False and f.equal is False)
+
+
+#
+# SELGE
+#
+@given(state = STATE, reg = REGISTER, tv = VALUE, fv = IMMEDIATE11)
+def test_selge_immediate(state, reg, tv, fv):
+  from ducky.cpu.instructions import SELGE
+
+  __base_select_test_immediate(state, reg, tv, fv, inst_class = SELGE, cond = lambda f: f.sign is False or f.equal is True)
+
+@given(state = STATE, reg1 = REGISTER, reg2 = REGISTER, tv = VALUE, fv = IMMEDIATE11)
+def test_selge_register(state, reg1, reg2, tv, fv):
+  from ducky.cpu.instructions import SELGE
+
+  __base_select_test_register(state, reg1, reg2, tv, fv, inst_class = SELGE, cond = lambda f: f.sign is False or f.equal is True)
+
+
+#
+# SELLE
+#
+@given(state = STATE, reg = REGISTER, tv = VALUE, fv = IMMEDIATE11)
+def test_selle_immediate(state, reg, tv, fv):
+  from ducky.cpu.instructions import SELLE
+
+  __base_select_test_immediate(state, reg, tv, fv, inst_class = SELLE, cond = lambda f: f.sign is True or f.equal is True)
+
+@given(state = STATE, reg1 = REGISTER, reg2 = REGISTER, tv = VALUE, fv = IMMEDIATE11)
+def test_selle_register(state, reg1, reg2, tv, fv):
+  from ducky.cpu.instructions import SELLE
+
+  __base_select_test_register(state, reg1, reg2, tv, fv, inst_class = SELLE, cond = lambda f: f.sign is True or f.equal is True)
+
+
+#
+# SELNE
+#
+@given(state = STATE, reg = REGISTER, tv = VALUE, fv = IMMEDIATE11)
+def test_selne_immediate(state, reg, tv, fv):
+  from ducky.cpu.instructions import SELNE
+
+  __base_select_test_immediate(state, reg, tv, fv, inst_class = SELNE, cond = lambda f: f.equal is False)
+
+@given(state = STATE, reg1 = REGISTER, reg2 = REGISTER, tv = VALUE, fv = IMMEDIATE11)
+def test_selne_register(state, reg1, reg2, tv, fv):
+  from ducky.cpu.instructions import SELNE
+
+  __base_select_test_register(state, reg1, reg2, tv, fv, inst_class = SELNE, cond = lambda f: f.equal is False)
+
+
+#
+# SELNO
+#
+@given(state = STATE, reg = REGISTER, tv = VALUE, fv = IMMEDIATE11)
+def test_selno_immediate(state, reg, tv, fv):
+  from ducky.cpu.instructions import SELNO
+
+  __base_select_test_immediate(state, reg, tv, fv, inst_class = SELNO, cond = lambda f: f.overflow is False)
+
+@given(state = STATE, reg1 = REGISTER, reg2 = REGISTER, tv = VALUE, fv = IMMEDIATE11)
+def test_selno_register(state, reg1, reg2, tv, fv):
+  from ducky.cpu.instructions import SELNO
+
+  __base_select_test_register(state, reg1, reg2, tv, fv, inst_class = SELNO, cond = lambda f: f.overflow is False)
+
+
+#
+# SELNS
+#
+@given(state = STATE, reg = REGISTER, tv = VALUE, fv = IMMEDIATE11)
+def test_selns_immediate(state, reg, tv, fv):
+  from ducky.cpu.instructions import SELNS
+
+  __base_select_test_immediate(state, reg, tv, fv, inst_class = SELNS, cond = lambda f: f.sign is False)
+
+@given(state = STATE, reg1 = REGISTER, reg2 = REGISTER, tv = VALUE, fv = IMMEDIATE11)
+def test_selns_register(state, reg1, reg2, tv, fv):
+  from ducky.cpu.instructions import SELNS
+
+  __base_select_test_register(state, reg1, reg2, tv, fv, inst_class = SELNS, cond = lambda f: f.sign is False)
+
+
+#
+# SELNZ
+#
+@given(state = STATE, reg = REGISTER, tv = VALUE, fv = IMMEDIATE11)
+def test_selnz_immediate(state, reg, tv, fv):
+  from ducky.cpu.instructions import SELNZ
+
+  __base_select_test_immediate(state, reg, tv, fv, inst_class = SELNZ, cond = lambda f: f.zero is False)
+
+@given(state = STATE, reg1 = REGISTER, reg2 = REGISTER, tv = VALUE, fv = IMMEDIATE11)
+def test_selnz_register(state, reg1, reg2, tv, fv):
+  from ducky.cpu.instructions import SELNZ
+
+  __base_select_test_register(state, reg1, reg2, tv, fv, inst_class = SELNZ, cond = lambda f: f.zero is False)
+
+
+#
+# SELO
+#
+@given(state = STATE, reg = REGISTER, tv = VALUE, fv = IMMEDIATE11)
+def test_selo_immediate(state, reg, tv, fv):
+  from ducky.cpu.instructions import SELO
+
+  __base_select_test_immediate(state, reg, tv, fv, inst_class = SELO, cond = lambda f: f.overflow is True)
+
+@given(state = STATE, reg1 = REGISTER, reg2 = REGISTER, tv = VALUE, fv = IMMEDIATE11)
+def test_selo_register(state, reg1, reg2, tv, fv):
+  from ducky.cpu.instructions import SELO
+
+  __base_select_test_register(state, reg1, reg2, tv, fv, inst_class = SELO, cond = lambda f: f.overflow is True)
+
+
+#
+# SELS
+#
+@given(state = STATE, reg = REGISTER, tv = VALUE, fv = IMMEDIATE11)
+def test_sels_immediate(state, reg, tv, fv):
+  from ducky.cpu.instructions import SELS
+
+  __base_select_test_immediate(state, reg, tv, fv, inst_class = SELS, cond = lambda f: f.sign is True)
+
+@given(state = STATE, reg1 = REGISTER, reg2 = REGISTER, tv = VALUE, fv = IMMEDIATE11)
+def test_sels_register(state, reg1, reg2, tv, fv):
+  from ducky.cpu.instructions import SELS
+
+  __base_select_test_register(state, reg1, reg2, tv, fv, inst_class = SELS, cond = lambda f: f.sign is True)
+
+
+#
+# SELZ
+#
+@given(state = STATE, reg = REGISTER, tv = VALUE, fv = IMMEDIATE11)
+def test_selz_immediate(state, reg, tv, fv):
+  from ducky.cpu.instructions import SELZ
+
+  __base_select_test_immediate(state, reg, tv, fv, inst_class = SELZ, cond = lambda f: f.zero is True)
+
+@given(state = STATE, reg1 = REGISTER, reg2 = REGISTER, tv = VALUE, fv = IMMEDIATE11)
+def test_selz_register(state, reg1, reg2, tv, fv):
+  from ducky.cpu.instructions import SELZ
+
+  __base_select_test_register(state, reg1, reg2, tv, fv, inst_class = SELZ, cond = lambda f: f.zero is True)
 
 
 #

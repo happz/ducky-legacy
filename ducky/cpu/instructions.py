@@ -100,26 +100,27 @@ class EncodingC(ctypes.LittleEndianStructure):
   _pack_ = 0
   _fields_ = [
     IE_OPCODE(),                # 0
-    IE_REG('reg'),              # 6
-    IE_IMM('flag', 3),          # 11
-    IE_FLAG('value'),           # 14
-    IE_FLAG('immediate_flag'),  # 15
-    IE_IMM('immediate', 16)     # 16
+    IE_REG('reg1'),             # 6
+    IE_REG('reg2'),             # 11
+    IE_IMM('flag', 3),          # 16
+    IE_FLAG('value'),           # 19
+    IE_FLAG('immediate_flag'),  # 20
+    IE_IMM('immediate', 11)     # 21
   ]
 
   @staticmethod
   def fill_reloc_slot(logger, inst, slot):
     logger.debug('fill_reloc_slot: inst=%s, slot=%s', inst, slot)
 
-    slot.patch_offset = 16
-    slot.patch_size = 16
+    slot.patch_offset = 21
+    slot.patch_size = 11
 
   @staticmethod
   def sign_extend_immediate(logger, inst):
-    return Encoding.sign_extend_immediate(logger, inst, 0x8000, 0xFFFF0000)
+    return Encoding.sign_extend_immediate(logger, inst, 0x400, 0xFFFFF800)
 
   def __repr__(self):
-    return '<EncodingC: opcode=%s, reg=%s, flag=%s, value=%s, immediate_flag=%s, immediate=%s>' % (self.opcode, self.reg, self.flag, self.value, self.immediate_flag, UINT16_FMT(self.immediate))
+    return '<EncodingC: opcode=%s, reg1=%s, reg2=%s, flag=%s, value=%s, immediate_flag=%s, immediate=%s>' % (self.opcode, self.reg1, self.reg2, self.flag, self.value, self.immediate_flag, UINT16_FMT(self.immediate))
 
 class EncodingI(ctypes.LittleEndianStructure):
   _pack_ = 0
@@ -527,13 +528,14 @@ def RI_ADDR(core, inst, reg):
 
   return u32_t(base + offset).value
 
-def JUMP(core, inst):
+def JUMP(core, inst, reg):
   core.DEBUG('JUMP: inst=%s', inst)
   core.DEBUG('  IP=%s', UINT32_FMT(core.registers.ip.value))
 
   if inst.immediate_flag == 0:
-    core.DEBUG('  register=%d, value=%s', inst.reg, UINT32_FMT(core.registers.map[inst.reg].value))
-    core.registers.ip.value = core.registers.map[inst.reg].value
+    reg = getattr(inst, reg)
+    core.DEBUG('  register=%d, value=%s', reg, UINT32_FMT(core.registers.map[reg].value))
+    core.registers.ip.value = core.registers.map[reg].value
 
   else:
     v = inst.sign_extend_immediate(core.LOGGER, inst)
@@ -623,6 +625,7 @@ class DuckyOpcodes(enum.IntEnum):
   CMPU   = 48
   SET    = 49
   BRANCH = 50
+  SELECT = 51
 
   # Control instructions
   CTR    = 60
@@ -722,7 +725,7 @@ class CALL(_JUMP):
   def execute(core, inst):
     core.create_frame()
 
-    JUMP(core, inst)
+    JUMP(core, inst, 'reg')
 
     if core.check_frames:
       core.frames[-1].IP = core.registers.ip.value
@@ -762,7 +765,7 @@ class J(_JUMP):
 
   @staticmethod
   def execute(core, inst):
-    JUMP(core, inst)
+    JUMP(core, inst, 'reg')
 
   @staticmethod
   def jit(core, inst):
@@ -1212,7 +1215,7 @@ class _BRANCH(_COND):
     logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
     if 'register_n0' in operands:
-      ENCODE(logger, buffer, inst, 'reg', 5, operands['register_n0'])
+      ENCODE(logger, buffer, inst, 'reg1', 5, operands['register_n0'])
 
     else:
       v = operands['immediate']
@@ -1223,7 +1226,7 @@ class _BRANCH(_COND):
         if v & 0x3 != 0:
           raise buffer.get_error(UnalignedJumpTargetError, 'address=%s' % UINT32_FMT(v))
 
-        ENCODE(logger, buffer, inst, 'immediate', 16, v >> 2)
+        ENCODE(logger, buffer, inst, 'immediate', 11, v >> 2)
 
       elif isinstance(v, string_types):
         inst.refers_to = Reference(label = v)
@@ -1275,9 +1278,9 @@ class _BRANCH(_COND):
   @staticmethod
   def disassemble_operands(logger, inst):
     if inst.immediate_flag == 0:
-      return [REGISTER_NAMES[inst.reg]]
+      return [REGISTER_NAMES[inst.reg1]]
 
-    return [str(inst.refers_to) if hasattr(inst, 'refers_to') and inst.refers_to is not None else UINT16_FMT(inst.immediate << 2)]
+    return [str(inst.refers_to) if hasattr(inst, 'refers_to') and inst.refers_to is not None else UINT32_FMT(inst.immediate << 2)]
 
   @staticmethod
   def disassemble_mnemonic(inst):
@@ -1294,7 +1297,7 @@ class _BRANCH(_COND):
   @staticmethod
   def execute(core, inst):
     if _COND.evaluate(core, inst):
-      JUMP(core, inst)
+      JUMP(core, inst, 'reg1')
 
   @staticmethod
   def jit(core, inst):
@@ -1304,7 +1307,7 @@ class _BRANCH(_COND):
       i = inst.sign_extend_immediate(core.LOGGER, inst) << 2
 
     else:
-      reg = core.registers.map[inst.reg]
+      reg = core.registers.map[inst.reg1]
 
     ip = core.registers.ip
 
@@ -1443,7 +1446,7 @@ class _SET(_COND):
   def assemble_operands(cls, logger, buffer, inst, operands):
     logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
-    ENCODE(logger, buffer, inst, 'reg', 5, operands['register_n0'])
+    ENCODE(logger, buffer, inst, 'reg1', 5, operands['register_n0'])
 
     set_condition = partial(_COND.set_condition, logger, buffer, inst)
 
@@ -1485,7 +1488,7 @@ class _SET(_COND):
 
   @staticmethod
   def disassemble_operands(logger, inst):
-    return [REGISTER_NAMES[inst.reg]]
+    return [REGISTER_NAMES[inst.reg1]]
 
   @staticmethod
   def disassemble_mnemonic(inst):
@@ -1497,8 +1500,94 @@ class _SET(_COND):
 
   @staticmethod
   def execute(core, inst):
-    core.registers.map[inst.reg].value = 1 if _COND.evaluate(core, inst) is True else 0
-    update_arith_flags(core, core.registers.map[inst.reg])
+    core.registers.map[inst.reg1].value = 1 if _COND.evaluate(core, inst) is True else 0
+    update_arith_flags(core, core.registers.map[inst.reg1])
+
+class _SELECT(Descriptor):
+  encoding = EncodingC
+  operands = 'r,ri'
+  opcode = DuckyOpcodes.SELECT
+
+  @classmethod
+  def assemble_operands(cls, logger, buffer, inst, operands):
+    logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
+
+    ENCODE(logger, buffer, inst, 'reg1', 5, operands['register_n0'])
+
+    if 'register_n1' in operands:
+      ENCODE(logger, buffer, inst, 'reg2', 5, operands['register_n1'])
+
+    else:
+      v = operands['immediate']
+
+      ENCODE(logger, buffer, inst, 'immediate_flag', 1, 1)
+
+      if isinstance(v, integer_types):
+        ENCODE(logger, buffer, inst, 'immediate', 11, v)
+
+      elif isinstance(v, string_types):
+        from .assemble import Reference
+        inst.refers_to = Reference(label = v)
+
+    set_condition = partial(_COND.set_condition, logger, buffer, inst)
+
+    if cls is SELE:
+      set_condition('arith_equal', True)
+
+    elif cls is SELNE:
+      set_condition('arith_equal', False)
+
+    elif cls is SELZ:
+      set_condition('arith_zero', True)
+
+    elif cls is SELNZ:
+      set_condition('arith_zero', False)
+
+    elif cls is SELO:
+      set_condition('arith_overflow', True)
+
+    elif cls is SELNO:
+      set_condition('arith_overflow', False)
+
+    elif cls is SELS:
+      set_condition('arith_sign', True)
+
+    elif cls is SELNS:
+      set_condition('arith_sign', False)
+
+    elif cls is SELL:
+      set_condition('l', True)
+
+    elif cls is SELLE:
+      set_condition('g', False)
+
+    elif cls is SELG:
+      set_condition('g', True)
+
+    elif cls is SELGE:
+      set_condition('l', False)
+
+  @staticmethod
+  def disassemble_operands(logger, inst):
+    if inst.immediate_flag == 0:
+      return [REGISTER_NAMES[inst.reg1], REGISTER_NAMES[inst.reg2]]
+
+    return [str(inst.refers_to) if hasattr(inst, 'refers_to') and inst.refers_to is not None else UINT32_FMT(inst.immediate)]
+
+  @staticmethod
+  def disassemble_mnemonic(inst):
+    if inst.flag in _COND.GFLAGS:
+      return 'sel%s%s' % ('n' if inst.value == 0 else '', _COND.MNEMONICS[inst.flag])
+
+    else:
+      return 'sel%s%s' % (_COND.MNEMONICS[inst.flag], 'e' if inst.value == 1 else '')
+
+  @staticmethod
+  def execute(core, inst):
+    if _COND.evaluate(core, inst) is False:
+      core.registers.map[inst.reg1].value = RI_VAL(core, inst, 'reg2')
+
+    update_arith_flags(core, core.registers.map[inst.reg1])
 
 class _CMP(Descriptor_R_RI):
   encoding = EncodingR
@@ -1674,6 +1763,41 @@ class SETL(_SET):
 class SETLE(_SET):
   mnemonic = 'setle'
 
+class SELE(_SELECT):
+  mnemonic = 'sele'
+
+class SELNE(_SELECT):
+  mnemonic = 'selne'
+
+class SELZ(_SELECT):
+  mnemonic = 'selz'
+
+class SELNZ(_SELECT):
+  mnemonic = 'selnz'
+
+class SELO(_SELECT):
+  mnemonic = 'selo'
+
+class SELNO(_SELECT):
+  mnemonic = 'selno'
+
+class SELS(_SELECT):
+  mnemonic = 'sels'
+
+class SELNS(_SELECT):
+  mnemonic = 'selns'
+
+class SELG(_SELECT):
+  mnemonic = 'selg'
+
+class SELGE(_SELECT):
+  mnemonic = 'selge'
+
+class SELL(_SELECT):
+  mnemonic = 'sell'
+
+class SELLE(_SELECT):
+  mnemonic = 'selle'
 
 #
 # Bit operations
@@ -2517,6 +2641,20 @@ SETG(DuckyInstructionSet)
 SETGE(DuckyInstructionSet)
 SETL(DuckyInstructionSet)
 SETLE(DuckyInstructionSet)
+
+# SEL* instructions
+SELE(DuckyInstructionSet)
+SELNE(DuckyInstructionSet)
+SELZ(DuckyInstructionSet)
+SELNZ(DuckyInstructionSet)
+SELO(DuckyInstructionSet)
+SELNO(DuckyInstructionSet)
+SELS(DuckyInstructionSet)
+SELNS(DuckyInstructionSet)
+SELG(DuckyInstructionSet)
+SELGE(DuckyInstructionSet)
+SELL(DuckyInstructionSet)
+SELLE(DuckyInstructionSet)
 
 LPM(DuckyInstructionSet)
 
