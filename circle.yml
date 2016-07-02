@@ -8,6 +8,7 @@ dependencies:
     - pip install tox tox-pyenv virtualenv
     - sudo apt-get update; sudo apt-get install scons
     - pyenv local 2.7.10 3.3.3 3.4.3 3.5.0 pypy-2.5.0
+    - ./build-ci-llvm.sh
 
 test:
   override:
