@@ -2,8 +2,8 @@
 
 Import('ENV')
 
-ENV.DuckyObject('smp.o', source = 'smp.asm')
-ENV.Depends('smp.o', ENV.GetDuckyDefine('boot', 'ducky', 'control', 'hdt', 'rtc'))
+ENV.DuckyObject('smp.o', source = 'smp.s')
+ENV.ReadExternalDeps()
 
 ENV.DuckyBinary('smp', source = ['smp.o'], SECTION_BASES = ['.text=0x00000000'])
 ENV.Command('smp.img', 'smp', ENV.DuckyImage('smp.img', 'smp', bio = True))

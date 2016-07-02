@@ -1,0 +1,2 @@
+main.o: main.s
+lib.o: lib.s $HEADERSDIR/arch/tty.hs

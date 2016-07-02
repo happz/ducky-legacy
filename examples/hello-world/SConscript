@@ -2,11 +2,7 @@
 
 Import('ENV', 'common_example')
 
-sources = {
-  'hello-world.asm': ENV.GetDuckyDefine('tty')
-}
-
-common_example(ENV, 'hello-world', sources = sources, link_args = {'SECTION_BASES': ['.text=0x00000000']})
+common_example(ENV, 'hello-world')
 
 ENV.Help("""
      ${BLUE}'scons hello-world'${CLR} to build "Hello, world!" example,

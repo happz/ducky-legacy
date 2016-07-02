@@ -1,0 +1,1 @@
+exceptions.o: exceptions.s $HEADERSDIR/arch/ducky.hs $HEADERSDIR/arch/boot.hs $HEADERSDIR/arch/tty.hs

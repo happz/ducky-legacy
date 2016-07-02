@@ -1,0 +1,1 @@
+loader.o: loader.s $HEADERSDIR/arch/ducky.hs $HEADERSDIR/arch/boot.hs $HEADERSDIR/arch/control.hs $HEADERSDIR/arch/bio.hs

@@ -1,0 +1,68 @@
+#ifndef __DUCKY_DUCKY_H__
+#define __DUCKY_DUCKY_H__
+
+<%
+  import ducky.mm
+  import ducky.cpu.instructions
+%>
+
+/*
+ * Instruction set
+ */
+
+#define DUCKY_INST_SET ${X4(ducky.cpu.instructions.DuckyInstructionSet.instruction_set_id)}
+
+
+/*
+ * Data types
+ */
+
+
+#define WORD_BITS     32
+#define INT_BITS      32
+#define SHORT_BITS    16
+#define BYTE_BITS      8
+
+#define WORD_SIZE     4
+#define INT_SIZE      4
+#define SHORT_SIZE    2
+#define BYTE_SIZE     1
+
+
+/*
+ * Memory
+ */
+
+/*
+.def PAGE_SHIFT:    ${ducky.mm.PAGE_SHIFT}
+.def PAGE_SIZE:     ${ducky.mm.PAGE_SIZE}
+.def PAGE_MASK:     ${X8(ducky.mm.u32_t(ducky.mm.PAGE_MASK).value)}
+
+.def PTE_READ:      ${X2(ducky.mm.PageTableEntry.READ)}
+.def PTE_WRITE:     ${X2(ducky.mm.PageTableEntry.WRITE)}
+.def PTE_EXECUTE:   ${X2(ducky.mm.PageTableEntry.EXECUTE)}
+.def PTE_DIRTY:     ${X2(ducky.mm.PageTableEntry.DIRTY)}
+
+
+;
+; Exceptions
+;
+
+<%
+  from ducky.errors import ExceptionList
+%>
+
+.def EXCEPTION_INVALID_OPCODE:    ${X2(ExceptionList.InvalidOpcode)}
+.def EXCEPTION_INVALID_INST_SET:  ${X2(ExceptionList.InvalidInstSet)}
+.def EXCEPTION_DIVIDE_BY_ZERO:    ${X2(ExceptionList.DivideByZero)}
+.def EXCEPTION_UNALIGNED_ACCESS:  ${X2(ExceptionList.UnalignedAccess)}
+.def EXCEPTION_PRIVILEGED_INST:   ${X2(ExceptionList.PrivilegedInstr)}
+.def EXCEPTION_DOUBLE_FAULT:      ${X2(ExceptionList.DoubleFault)}
+.def EXCEPTION_MEMORY_ACCESS:     ${X2(ExceptionList.MemoryAccess)}
+.def EXCEPTION_REGISTER_ACCESS:   ${X2(ExceptionList.RegisterAccess)}
+.def EXCEPTION_INVALID_EXCEPTION: ${X2(ExceptionList.InvalidException)}
+.def EXCEPTION_COPROCESSOR_ERROR: ${X2(ExceptionList.CoprocessorError)}
+
+.def EXCEPTION_COUNT:             ${X2(ExceptionList.COUNT)}
+*/
+#endif

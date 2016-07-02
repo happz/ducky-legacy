@@ -1,0 +1,1 @@
+clock.o: clock.s $HEADERSDIR/arch/ducky.hs $HEADERSDIR/arch/rtc.hs $HEADERSDIR/arch/svga.hs

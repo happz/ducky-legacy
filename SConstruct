@@ -106,6 +106,7 @@ VARS.Add(BoolVariable('FORTH_DEBUG',        'Build FORTH kernel with debugging e
 VARS.Add(BoolVariable('FORTH_DEBUG_FIND',   'Build FORTH kernel with FIND debugging enabled', False))
 VARS.Add(BoolVariable('FORTH_TIR',          'Build FORTH kernel with TOS in register', True))
 VARS.Add(BoolVariable('FORTH_DIE_ON_UNDEF', 'Die when undefined word is encountered', False))
+VARS.Add(             'LLVMDIR',            'Path to LLVM tools', None)
 
 
 #
@@ -210,7 +211,7 @@ def __pass_var_as_define(self, name, to_boolean = True, ignore_false = True):
   else:
     value = str(self[name])
 
-  self.Append(DEFINES = ['-D %s=%s' % (name, value)])
+  self.Append(DEFS = ['-D %s=%s' % (name, value)])
 
 def __run_something(_env, label, target, runner, *args, **kwargs):
   expected_exit = 0
@@ -332,13 +333,27 @@ class DuckyCommand(object):
   def wrap_by_debugging(self, env):
     self.command += ' -d'
 
+def __asm_from_c(source, target, env):
+  if 'LLVMDIR' not in env:
+    env.ERROR('LLVMDIR not set, don\'t know where to find clang')
+    env.Exit(1)
+
+  cmd = DuckyCommand(env, runner = '')
+  cmd.command = env.subst('$LLVMDIR/bin/clang -cc1 -S -fno-builtin -O3 -masm-verbose {defs} {include} -o {target} {inputs}'.format(
+    inputs  = ' '.join([str(f) for f in source]),
+    defs    = ' '.join(env['DEFS']) if 'DEFS' in env else '',
+    include = ' '.join(env['INCLUDE']) if 'INCLUDE' in env else '',
+    target  = target[0]))
+
+  return cmd.run(env, 'C-to-ASM', target[0])
+
 def __compile_ducky_object(source, target, env):
   cmd = DuckyCommand(env)
-  cmd.command = env.subst('$VIRTUAL_ENV/bin/ducky-as {inputs} {defines} {includes} -o {target}'.format(
-    inputs   = ' '.join(['-i %s' % f for f in source]),
-    defines  = ' '.join(env['DEFINES']) if 'DEFINES' in env else '',
-    includes = ' '.join(env['INCLUDES']) if 'INCLUDES' in env else '',
-    target   = target[0]))
+  cmd.command = env.subst('$VIRTUAL_ENV/bin/ducky-as {inputs} {defs} {include} -o {target}'.format(
+    inputs  = ' '.join(['-i %s' % f for f in source]),
+    defs    = ' '.join(env['DEFS']) if 'DEFS' in env else '',
+    include = ' '.join(env['INCLUDE']) if 'INCLUDE' in env else '',
+    target  = target[0]))
 
   if 'COVERAGEDIR' in env:
     cmd.wrap_by_coverage(env)
@@ -349,7 +364,7 @@ def __compile_ducky_object(source, target, env):
   if GetOption('debug') is True:
     cmd.wrap_by_debugging(env)
 
-  return cmd.run(env, 'COMPILE', target[0])
+  return cmd.run(env, 'ASM-to-OBJ', target[0])
 
 def __link_ducky_binary(source, target, env):
   cmd = DuckyCommand(env)
@@ -365,6 +380,20 @@ def __link_ducky_binary(source, target, env):
     cmd.wrap_by_debugging(env)
 
   return cmd.run(env, 'LINK', target[0])
+
+def __archive_from_objs(source, target, env):
+  cmd = DuckyCommand(env)
+  cmd.command = env.subst('$VIRTUAL_ENV/bin/ducky-ld --archive {inputs} -o {target}'.format(
+      inputs = ' '.join(['-i %s' % f for f in source]),
+      target  = target[0]))
+
+  if 'COVERAGEDIR' in env:
+    cmd.wrap_by_coverage(env)
+
+  if GetOption('debug') is True:
+    cmd.wrap_by_debugging(env)
+
+  return cmd.run(env, 'OBJs-to-ARCH', target[0])
 
 def __run_ducky_binary(self, config, set_options = None, add_options = None, environ = None, expected_exit = 0):
   set_options = set_options or []
@@ -423,6 +452,24 @@ def __create_ducky_image(self, _target, _source, mode = 'binary', bio = False):
 
   return partial(_create_ducky_image, cmd = cmd)
 
+def __read_external_deps(self, directory = None):
+  directory = Dir(directory) if directory is not None else self.Dir('.')
+  deps_file = File(os.path.join(directory.abspath, '.depends')).abspath
+
+  if not os.path.exists(deps_file):
+    #self.ERROR('External dependencies expected in %s but file does not exist' % deps_file)
+    return
+
+  with open(deps_file, 'r') as f:
+    for line in f:
+      line = line.strip()
+      if not line:
+        continue
+
+      target, sources = [s.strip() for s in line.split(':')]
+
+      self.Depends(File(self.subst(target.strip())), [self.File(self.subst(name.strip())) for name in sources.split(' ')])
+
 def __clone_env(self, *args, **kwargs):
   clone = self.Clone(*args, **kwargs)
 
@@ -443,12 +490,13 @@ def __clone_env(self, *args, **kwargs):
     'OnClean':   __on_clean,
     'PassVarAsDefine': __pass_var_as_define,
     'FullClone':       __clone_env,
+    'ReadExternalDeps': __read_external_deps,
 
     # Virtual builders
     'RunSomething':    __run_something,
     'DuckyRun':        __run_ducky_binary,
     'DuckyImage':      __create_ducky_image,
-    'GetDuckyDefine':  lambda self, *names: [os.path.join(str(ENV['DEFSDIR']), name + '.asm') for name in names]
+    'GetDuckyDefine':  lambda self, *names: [os.path.join(str(ENV['HEADERSDIR']), name + '.hs') for name in names]
   }
 
   for name, fn in iteritems(methods):
@@ -564,8 +612,11 @@ def run_publish(target, source, env):
 
   return cmd.run(env, 'INFO', 'publish')
 
+DuckyAsmFromC   = Builder(action = __asm_from_c)
+DuckyObjFromAsm = Builder(action = __compile_ducky_object)
 DuckyObject = Builder(action = __compile_ducky_object)
 DuckyBinary = Builder(action = __link_ducky_binary)
+DuckyArchFromObjs = Builder(action = __archive_from_objs)
 
 
 #
@@ -573,15 +624,16 @@ DuckyBinary = Builder(action = __link_ducky_binary)
 #
 # This is a template for all envs that come after it.
 #
-DEFSDIR = Dir('#defs')
-
 ENV = Environment(
   variables = VARS,
 
   # Our special builders for Ducky files
   BUILDERS = {
+    'DuckyAsmFromC':   DuckyAsmFromC,
+    'DuckyObjFromAsm': DuckyObjFromAsm,
     'DuckyObject': DuckyObject,
-    'DuckyBinary': DuckyBinary
+    'DuckyBinary': DuckyBinary,
+    'DuckyArchFromObjs': DuckyArchFromObjs
   },
 
   # Initial, quite empty environment
@@ -589,9 +641,9 @@ ENV = Environment(
     'PATH': os.environ['PATH']
   },
 
-  # Directory with Ducky-supplied define files
-  DEFSDIR  = DEFSDIR,
-  INCLUDES = ['-I %s' % DEFSDIR.abspath],
+  # Directory with Ducky-supplied header files
+  HEADERSDIR = Dir('#libducky/include').abspath,
+  INCLUDE = ['-I %s' % Dir('#libducky/include').abspath],
 
   # Top-level directory of this Ducky repository
   TOPDIR = Dir('#.').abspath,
@@ -683,14 +735,14 @@ ENV.Help("""
 ENV.Command('info', None, print_info)
 ENV.Help("""     ${BLUE}'scons info'${CLR} to gather information about environment,\n""")
 
-# Defines
-SConscript(os.path.join('defs', 'SConscript'))
-
 # FORTH
 SConscript(os.path.join('forth', 'SConscript'))
 
 # Boot loaders
 SConscript(os.path.join('boot', 'SConscript'))
+
+# Ducky library
+SConscript(os.path.join('libducky', 'SConscript'))
 
 # Examples
 SConscript(os.path.join('examples', 'SConscript'))

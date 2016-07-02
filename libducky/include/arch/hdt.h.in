@@ -1,0 +1,71 @@
+#ifndef __DUCKY_ARCH_HDT_H__
+#define __DUCKY_ARCH_HDT_H__
+
+<%
+  import ducky.hdt
+  from ctypes import sizeof
+%>
+
+#include <types.h>
+
+#define HDT_HEADER_MAGIC ((u32_t)${X8(ducky.hdt.HDT_MAGIC)})
+
+#define HDT_ENTRY_PAYLOAD_OFFSET ${X4(sum([sizeof(f[1]) for f in ducky.hdt.HDTEntry_CPU._fields_[0:2]]))}
+
+enum HDT_ENTRY_TYPE {
+  HDT_ENTRY_CPU      = ${X8(ducky.hdt.HDTEntryTypes.CPU)},
+  HDT_ENTRY_MEMORY   = ${X8(ducky.hdt.HDTEntryTypes.MEMORY)},
+  HDT_ENTRY_ARGUMENT = ${X8(ducky.hdt.HDTEntryTypes.ARGUMENT)},
+  HDT_ENTRY_DEVICE   = ${X8(ducky.hdt.HDTEntryTypes.DEVICE)}
+};
+
+#define HDT_ARGUMENT_NAME_LEN ${X8(ducky.hdt.HDTEntry_Argument.MAX_NAME_LENGTH)}
+#define HDT_ARGUMENT_VALUE_LEN ${X8(ducky.hdt.HDTEntry_Argument.MAX_NAME_LENGTH)}
+
+#define HDT_DEVICE_NAME_LEN   ${X8(ducky.hdt.HDTEntry_Device.MAX_NAME_LENGTH)}
+#define HDT_DEVICE_IDENT_LEN  ${X8(ducky.hdt.HDTEntry_Device.MAX_IDENT_LENGTH)}
+
+typedef struct {
+  u32_t h_magic;
+  u32_t h_entries;
+  u32_t h_length;
+} hdt_header_t;
+
+typedef struct {
+  u16_t h_type;
+  u16_t h_length;
+} hdt_entry_header_t;
+
+
+typedef struct {
+  hdt_entry_header_t e_header;
+
+  u16_t              e_nr_cpus;
+  u16_t              e_nr_cores;
+} hdt_entry_cpu_t;
+
+typedef struct {
+  hdt_entry_header_t e_header;
+
+  u32_t              e_size;
+} hdt_entry_memory_t;
+
+typedef struct {
+  hdt_entry_header_t e_header;
+
+  u8_t               e_name_length;
+  u8_t               e_value_length;
+  u8_t               e_name[HDT_ARGUMENT_NAME_LEN];
+  u8_t               e_value[HDT_ARGUMENT_VALUE_LEN];
+} hdt_entry_argument_t;
+
+typedef struct {
+  hdt_entry_header_t e_header;
+
+  u8_t               e_name_length;
+  u8_t               e_flags;
+  u8_t               e_name[HDT_DEVICE_NAME_LEN];
+  u8_t               e_ident[HDT_DEVICE_IDENT_LEN];
+} hdt_entry_device_t;
+
+#endif

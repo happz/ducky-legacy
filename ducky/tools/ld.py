@@ -7,10 +7,10 @@ import tempfile
 
 from six import iteritems, integer_types
 
-from ..mm import u32_t, UINT32_FMT, u16_t, u8_t, UINT8_FMT, MalformedBinaryError
+from ..mm import u32_t, UINT32_FMT, MalformedBinaryError
 from ..mm.binary import File, SectionTypes, SymbolEntry, SECTION_ITEM_SIZE, SectionFlags, SymbolFlags
 from ..cpu.assemble import align_to_next_page, align_to_next_mmap, sizeof
-from ..cpu.instructions import encoding_to_u32, u32_to_encoding, Encoding
+from ..cpu.instructions import encoding_to_u32, u32_to_encoding
 from ..util import str2int
 from ..errors import UnalignedJumpTargetError, EncodingLargeValueError, IncompatibleLinkerFlagsError, UnknownSymbolError
 
@@ -253,10 +253,11 @@ class RelocationPatcher(object):
     self._patch_section_content = section_content
     original_section_header = original_section_header or section_header
 
-    self.DEBUG('  patch address=%s, section base=%s, original base=%s, section offset=%s', UINT32_FMT(re.patch_address), UINT32_FMT(section_header.base), UINT32_FMT(original_section_header.base), UINT32_FMT(section_offset))
+    self.DEBUG('  section.base=%s, re.address=%s, original.base=%s, section.offset=%s', UINT32_FMT(section_header.base), UINT32_FMT(re.patch_address), UINT32_FMT(original_section_header.base), UINT32_FMT(section_offset))
     self._patch_address = re.patch_address - original_section_header.base + section_offset + section_header.base
     self._patch_address = re.patch_address - section_header.base + (section_header.base - original_section_header.base) + section_offset
-    self.DEBUG('  patch address=%s', UINT32_FMT(self._patch_address))
+    self._ip_address = re.patch_address - original_section_header.base + section_header.base
+    self.DEBUG('  section.base=%s, patch address=%s, ip=%s', UINT32_FMT(section_header.base), UINT32_FMT(self._patch_address), UINT32_FMT(self._ip_address))
 
     self._content_index = self._patch_address // SECTION_ITEM_SIZE[section_header.type]
     self.DEBUG('  content index=%d', self._content_index)
@@ -268,7 +269,7 @@ class RelocationPatcher(object):
     patch = self._se.address
 
     if self._re.flags.relative == 1:
-      patch -= (self._patch_address + 4)
+      patch -= (self._ip_address + 4)
 
     return patch + self._re.patch_add
 
@@ -342,8 +343,6 @@ class RelocationPatcher(object):
     content[content_index + 3].value = (value >> 24) & 0xFF
 
   def patch(self):
-    patch = self._create_patch()
-
     if self._patch_section_header.type == SectionTypes.TEXT:
       self._patch_text()
 
@@ -373,6 +372,7 @@ def resolve_relocations(logger, info, f_out, f_ins):
     for r_header, r_content in reloc_sections:
       for re in r_content:
         D('-----*-----*-----')
+        D('  %s', re)
 
         symbol_name = f_in.string_table.get_string(re.name)
 
@@ -380,6 +380,11 @@ def resolve_relocations(logger, info, f_out, f_ins):
         src_header, _ = f_in.get_section(re.patch_section)
         section_name = f_in.string_table.get_string(src_header.name)
         dst_header, dst_content = f_out.get_section_by_name(section_name)
+
+        D('  section: %s', section_name)
+        D('  src header: %s', src_header)
+        D('  dst header: %s', dst_header)
+        D('  symbol: %s', symbol_name)
 
         # Find referenced symbol
         for name, f_src, se in info.symbols:
@@ -394,7 +399,7 @@ def resolve_relocations(logger, info, f_out, f_ins):
         else:
           # Try searching sections
           if symbol_name not in section_symbols:
-            raise UnknownSymbolError('No such symbol: name=%s' % s_name)
+            raise UnknownSymbolError('No such symbol: name=%s' % symbol_name)
 
           se = section_symbols[symbol_name]
 
@@ -415,20 +420,19 @@ def link_files(logger, info, files_in, file_out, bases = None):
   for file_in in files_in:
     if file_in.endswith('.tgz'):
       with tarfile.open(file_in, 'r:gz') as f_in:
-        for member in f_in.getmembers():
-          f_member = tempfile.NamedTermporaryFile(delete = False)
+        tmpdir = None
 
-          try:
-            f_member.close()
-            temporaries.append(f_member)
-            f_in.extract(member, path = f_member.path)
-            __read_object_file(f_member)
+        try:
+          tmpdir = tempfile.mkdtemp()
 
-          finally:
-            try:
-              os.unlink(f_member)
-            except:
-              pass
+          for member in f_in.getmembers():
+            f_in.extract(member, path = tmpdir)
+            __read_object_file(os.path.join(tmpdir, member.name))
+
+        finally:
+          if tmpdir is not None:
+            import shutil
+            shutil.rmtree(tmpdir)
 
     else:
       __read_object_file(file_in)
@@ -495,7 +499,7 @@ def main():
     parser.print_help()
     sys.exit(1)
 
-  if any(not file_in.endswith('.o') for file_in in options.file_in):
+  if any(not file_in.endswith('.o') and not file_in.endswith('.tgz') for file_in in options.file_in):
     logger.error('All input files must be object files')
     sys.exit(1)
 

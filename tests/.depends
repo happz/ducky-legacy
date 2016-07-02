@@ -1,0 +1,5 @@
+storage/test_block_read.o: ${HEADERSDIR}/bio.hs
+storage/test_block_write.o: ${HEADERSDIR}/bio.hs
+storage/test_out_of_bounds_access_read.o: ${HEADERSDIR}/bio.hs
+storage/test_out_of_bounds_access_write.o: ${HEADERSDIR}/bio.hs
+storage.test_unknown_device_1.o: ${HEADERSDIR}/bio.hs

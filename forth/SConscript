@@ -11,7 +11,7 @@ E = ENV.FullClone(
   ]
 )
 
-E.Append(INCLUDES = '-I %s' % Dir('#forth').abspath)
+E.Append(INCLUDE = '-I %s' % Dir('#forth').abspath)
 
 E.PassVarAsDefine('BUILD_STAMP', to_boolean = False)
 E.PassVarAsDefine('FORTH_DEBUG')
@@ -19,11 +19,13 @@ E.PassVarAsDefine('FORTH_DEBUG_FIND')
 E.PassVarAsDefine('FORTH_TIR')
 E.PassVarAsDefine('FORTH_DIE_ON_UNDEF')
 
-E.DuckyObject('ducky-forth.o', source = 'ducky-forth.asm')
-E.Depends('ducky-forth.o', ['ducky-forth.asm', 'double-cell-ints.asm', 'ducky-forth-defs.asm', 'ducky-forth-words.asm'])
-E.Depends('ducky-forth.o', E.GetDuckyDefine('ducky', 'control', 'keyboard', 'rtc', 'boot', 'tty', 'math', 'hdt'))
+E.DuckyAsmFromC('hdt.s', source = 'hdt.c')
+E.DuckyObjFromAsm('hdt.o', source = 'hdt.s')
+E.DuckyObject('ducky-forth.o', source = 'ducky-forth.s')
 
-E.DuckyBinary('ducky-forth', source = 'ducky-forth.o')
+E.ReadExternalDeps()
+
+E.DuckyBinary('ducky-forth', source = ['ducky-forth.o', 'hdt.o'])
 E.Alias('forth', File('ducky-forth'))
 
 set_options = [

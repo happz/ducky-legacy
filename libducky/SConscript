@@ -1,0 +1,81 @@
+#! /usr/bin/env python
+
+import os
+from functools import partial
+from six import iteritems
+
+Import('ENV', 'DuckyCommand')
+
+
+#
+# ASM header files
+#
+def __header_from_template(source, target, env):
+  cmd = DuckyCommand(env)
+  cmd.command = env.subst('$VIRTUAL_ENV/bin/ducky-defs -i {source} -o {target}'.format(source = str(source[0]), target = str(target[0])))
+
+  if 'COVERAGEDIR' in env:
+    cmd.wrap_by_coverage(env)
+
+  return cmd.run(env, 'HS', target[0])
+
+E = ENV.FullClone(
+  BUILDERS = {
+    'DuckyHeaderFromTemplate': Builder(action = __header_from_template)
+  }
+)
+
+asm_headers = [E.DuckyHeaderFromTemplate(os.path.splitext(str(source))[0], source = source) for source in Glob(os.path.join(E['HEADERSDIR'], 'arch', '*.hs.in'))]
+c_headers   = [E.DuckyHeaderFromTemplate(os.path.splitext(str(source))[0], source = source) for source in Glob(os.path.join(E['HEADERSDIR'], 'arch', '*.h.in'))]
+
+E.Alias('libducky-asm-headers', asm_headers)
+E.Alias('libducky-c-headers',   c_headers)
+
+
+#
+# Object files
+#
+
+E = ENV.FullClone()
+
+c_sources = Glob('*.c')
+asm_sources = Glob('*.s')
+objects = []
+
+for src in Glob('*.c'):
+  dst = os.path.splitext(str(src))[0] + '.s'
+
+  E.DuckyAsmFromC(dst, source = src)
+  asm_sources.append(dst)
+
+for src in asm_sources:
+  dst = os.path.splitext(str(src))[0] + '.o'
+
+  E.DuckyObjFromAsm(dst, source = src)
+  objects.append(dst)
+
+# Move crt0.o to the first place, we need its _entry to be
+# at the beginning of .text
+objects.remove('crt0.o')
+objects.insert(0, 'crt0.o')
+
+E.ReadExternalDeps()
+
+# Pack all object files into an archive
+E.DuckyArchFromObjs('libducky.tgz', source = objects)
+
+E.Alias('libducky', 'libducky.tgz')
+E.Depends('libducky', 'libducky-asm-headers')
+E.Depends('libducky', 'libducky-c-headers')
+
+
+ENV.Help("""
+  ${GREEN}Ducky library:${CLR}
+     ${BLUE}'scons libducky'${CLR} to build Ducky C library,
+     ${BLUE}'scons libducky-asm-headers'${CLR} to build assembly header files,
+     ${BLUE}'scons libducky-c-headers'${CLR} to build C header files,
+""")
+
+ENV.OnClean('libducky-asm-headers')
+ENV.OnClean('libducky-c-headers')
+ENV.OnClean('libducky')

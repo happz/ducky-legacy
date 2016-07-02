@@ -7,7 +7,7 @@ import sys
 from six import print_, iteritems
 from functools import partial
 
-Import('ENV', 'DuckyCommand', 'DEFINES')
+Import('ENV', 'DuckyCommand')
 
 ENV.Help("""
   ${GREEN}Tests:${CLR}
@@ -103,11 +103,8 @@ def run_testsuite_forth(env, target, source):
 def run_testsuite_examples(env, target, source):
   return run_testsuite(env, target, source, tests = ['tests.examples'])
 
-def run_testsuite_compiler(env, target, source):
-  return run_testsuite(env, target, source, tests = ['tests.compiler'])
-
 def run_testsuite_all(env, target, source):
-  return run_testsuite(env, target, source, tests = ['tests.%s' % p for p in ['cpu', 'devices', 'hdt', 'instructions', 'mm', 'storage', 'forth.units', 'forth.ans', 'examples', 'compiler']])
+  return run_testsuite(env, target, source, tests = ['tests.%s' % p for p in ['cpu', 'devices', 'hdt', 'instructions', 'mm', 'storage', 'forth.units', 'forth.ans', 'examples']])
 
 def generate_coverage_summary(target, source, env):
   """
@@ -146,7 +143,7 @@ if 'TESTSETDIR' in ENV:
   ENV.Command(ENV['REPORTDIR'], None, Mkdir(ENV['REPORTDIR']))
   ENV.Command(ENV['SNAPSHOTDIR'], None, Mkdir(ENV['SNAPSHOTDIR']))
 
-  for d in ['forth', 'examples', 'compiler']:
+  for d in ['forth', 'examples']:
     D = d.upper()
 
     ENV.Append(**{'LOGDIR_' + D: os.path.join(ENV['LOGDIR'], d)})
@@ -186,7 +183,6 @@ for routine_src in routines_sources:
   routine_object = routine + '.o'
 
   E.DuckyObject(routine_object, source = routine_src)
-  E.Depends(routine_object, DEFINES)
 
   if 'COVERAGEDIR' in E:
     E.Depends(routine_object, E['COVERAGEDIR'])
@@ -194,6 +190,8 @@ for routine_src in routines_sources:
   E.DuckyBinary(routine, routine_object)
 
   routines.append(routine)
+
+E.ReadExternalDeps(E.Dir('.').abspath)
 
 if 'TESTSETDIR' in E:
   common_requirements     = [E[v] for v in ['TMPDIR', 'RESULTSDIR', 'LOGDIR', 'REPORTDIR', 'CONFIGFILE', 'SNAPSHOTDIR']]
@@ -209,8 +207,8 @@ if 'TESTSETDIR' in E:
                              E.File('#examples/clock/clock'),
                              E.File('#examples/vga/vga'),
                              E.File('#examples/smp/smp'), E.File('#examples/smp/smp.img'),
+                             E.File('#examples/simple-loop/simple-loop'),
                              E.File('#boot/loader')]
-  compiler_requirements    = [E['LOGDIR_COMPILER']]
 
   if 'COVERAGEDIR' in E:
     common_requirements.append(E['COVERAGEDIR'])
@@ -240,13 +238,9 @@ if 'TESTSETDIR' in E:
   E.Command('.tests-examples', None, run_testsuite_examples)
   E.Depends('.tests-examples', common_requirements + examples_requirements)
 
-  # Compiler
-  E.Command('.tests-compiler', None, run_testsuite_compiler)
-  E.Depends('.tests-compiler', common_requirements + compiler_requirements)
-
   # Full testsuite
   E.Command('.tests-all', None, run_testsuite_all)
-  E.Depends('.tests-all', common_requirements + engine_requirements + forth_requirements + forth_unit_requirements + forth_ans_requirements + examples_requirements + compiler_requirements)
+  E.Depends('.tests-all', common_requirements + engine_requirements + forth_requirements + forth_unit_requirements + forth_ans_requirements + examples_requirements)
 
   E.Alias('tests-engine-routines', routines)
   E.Alias('tests-engine',          File('.tests-engine'))
@@ -275,9 +269,6 @@ if 'TESTSETDIR' in E:
   elif E['BUILD_TARGET'] == 'tests-examples':
     E.Depends('.tests', '.tests-examples')
 
-  elif E['BUILD_TARGET'] == 'tests-compiler':
-    E.Depends('.tests', '.tests-compiler')
-
   else:
     E.ERROR('Unhandled tests target: %s' % E['BUILD_TARGET'])
     E.Exit(1)
@@ -295,6 +286,7 @@ ENV.Help("""
      ${BLUE}'scons tests-forth'${CLR} to run all FORTH tests,
      ${BLUE}'scons tests-forth-units'${CLR} to run FORTH unit tests,
      ${BLUE}'scons tests-forth-ans'${CLR} to run FORTH ANS testsuite,
+     ${BLUE}'scons tests-examples'${CLR} to run all examples in testing mode,
 """)
 
 

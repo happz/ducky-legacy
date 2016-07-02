@@ -15,19 +15,20 @@ examples_dir = partial(os.path.join, config['dirs']['examples'])
 loader_dir   = partial(os.path.join, config['dirs']['loader'])
 snapshots_dir = partial(os.path.join, config['dirs']['snapshot'])
 
-def run_example(name, label, options = None, exit_code = 0, snapshot_device = None):
+def run_example(name, binary_name = None, options = None, exit_code = 0, snapshot_device = None):
+  binary_name = binary_name or name
   options = options or []
 
   cmd = [
     config['vm-runner']['ducky-vm'],
-    '--machine-config=%s' % examples_dir(name, '%s.conf' % name),
-    '--set-option=bootloader:file=%s' % examples_dir(name, name),
+    '--machine-config=%s' % examples_dir(name, '%s.conf' % binary_name),
+    '--set-option=bootloader:file=%s' % examples_dir(name, binary_name),
   ]
 
   if snapshot_device is not None:
     cmd += [
       '--set-option=%s:driver=ducky.devices.snapshot.FileSnapshotStorage' % snapshot_device,
-      '--set-option=%s:filepath=%s' % (snapshot_device, snapshots_dir(label))
+      '--set-option=%s:filepath=%s' % (snapshot_device, snapshots_dir(name))
     ]
 
   cmd += options
@@ -36,11 +37,11 @@ def run_example(name, label, options = None, exit_code = 0, snapshot_device = No
 
   if 'COVERAGE_FILE' in os.environ:
     cmd[0] = '%s %s' % (config['vm-runner']['coverage'], cmd[0])
-    env['COVERAGE_FILE'] = os.path.join(config['dirs']['coverage'], '.coverage.example.%s' % label)
+    env['COVERAGE_FILE'] = os.path.join(config['dirs']['coverage'], '.coverage.example.%s' % name)
 
   cmd[0] = '%s %s' % (config['vm-runner']['runner'], cmd[0])
 
-  machine_log = logs_dir('example-%s.machine' % label)
+  machine_log = logs_dir('example-%s.machine' % name)
 
   with open(config['log']['trace'], 'a') as f_trace:
     f_trace.write('CMD: %s\n' % ' '.join(cmd))
@@ -64,27 +65,33 @@ def run_example(name, label, options = None, exit_code = 0, snapshot_device = No
           assert False, 'Example VM failed with exit code %s' % e.returncode
 
 def test_exceptions():
-  run_example('exceptions', 'exceptions')
+  run_example('exceptions')
 
 def test_hello_world():
-  run_example('hello-world', 'hello-world')
+  run_example('hello-world')
+
+def test_hello_world_lib():
+  run_example('hello-world-lib', binary_name = 'hello-world')
 
 def test_clock():
-  run_example('clock', 'clock')
+  run_example('clock')
 
 def test_fib():
-  run_example('fib', 'fib', snapshot_device = 'device-3')
+  run_example('fib', snapshot_device = 'device-3')
 
   with ducky.snapshot.CoreDumpFile.open(logging.getLogger(), snapshots_dir('fib'), 'r') as f_in:
     state = f_in.load()
 
     assert state.get_child('machine').get_cpu_states()[0].get_core_states()[0].registers[0] == 0x000CB228
 
+def test_simple_loop():
+  run_example('simple-loop')
+
 def test_svga():
-  run_example('vga', 'vga')
+  run_example('vga')
 
 def test_smp():
-  run_example('smp', 'smp', options = ['--set-option=bootloader:file=%s' % loader_dir('loader'), '--set-option=device-6:filepath=%s' % examples_dir('smp', 'smp.img')], exit_code = 1, snapshot_device = 'device-4')
+  run_example('smp', options = ['--set-option=bootloader:file=%s' % loader_dir('loader'), '--set-option=device-6:filepath=%s' % examples_dir('smp', 'smp.img')], exit_code = 1, snapshot_device = 'device-4')
 
   expected_exit_codes = [
     [0x00000000, 0x00000001],

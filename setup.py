@@ -74,8 +74,6 @@ setup(name = 'ducky',
       keywords = 'virtual CPU simulator',
       packages = [
         'ducky',
-        'ducky.cc',
-        'ducky.cc.passes',
         'ducky.cpu',
         'ducky.cpu.coprocessor',
         'ducky.mm',
@@ -85,7 +83,6 @@ setup(name = 'ducky',
       entry_points = {
         'console_scripts': [
           'ducky-as = ducky.tools.as:main',
-          'ducky-cc = ducky.tools.cc:main',
           'ducky-ld = ducky.tools.ld:main',
           'ducky-vm = ducky.tools.vm:main',
           'ducky-objdump = ducky.tools.objdump:main',

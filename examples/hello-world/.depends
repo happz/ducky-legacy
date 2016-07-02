@@ -1,0 +1,1 @@
+hello-world.o: hello-world.s $HEADERSDIR/arch/tty.hs
