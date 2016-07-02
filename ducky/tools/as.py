@@ -3,8 +3,6 @@ import sys
 
 from six import iteritems, PY2
 
-from ..util import UINT32_FMT
-
 def translate_buffer(logger, buffer, file_in, options):
   from ..cpu.assemble import AssemblerError, translate_buffer
 
@@ -72,8 +70,6 @@ def save_object_file(logger, sections, file_out, options):
   if os.path.exists(file_out) and not options.force:
     logger.error('Output file %s already exists, use -f to force overwrite', file_out)
     sys.exit(1)
-
-  D = logger.debug
 
   from ..cpu.assemble import sizeof
   from ..mm.binary import File, SectionTypes, SymbolEntry, RelocEntry
