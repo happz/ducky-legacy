@@ -524,8 +524,12 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
 
     v_value = groupdict.get('value_var')
     if v_value:
+      v_value = v_value.strip()
+
       if v_value not in variables:
-        raise buff.get_error(IncompleteDirectiveError, 'unknown variable named "%s"' % v_value, column = integer_start)
+        var.refers_to = Reference(label = '&' + v_value)
+        DEBUG('__parse_integer: var=%s', var)
+        return
 
       variable = variables[v_value]
 
@@ -543,7 +547,6 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
     v_value = groupdict.get('value_label')
     if v_value:
       var.refers_to = Reference(label = v_value)
-
       DEBUG('__parse_integer: var=%s', var)
       return
 
