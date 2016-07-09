@@ -175,7 +175,7 @@ if 'TESTSETDIR' in E:
 #
 # Engine unit tests
 #
-routines_sources = Glob('storage/*.asm')
+routines_sources = Glob('storage/*.s')
 routines = []
 
 for routine_src in routines_sources:
