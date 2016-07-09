@@ -537,6 +537,7 @@ boot_phase1:
 boot_phase2:
   ; set RTC frequency
   la r0, &rtc_mmio_address
+  lw r0, r0
   add r0, $RTC_MMIO_FREQ
   li r1, $RTC_FREQ
   stb r0, r1
@@ -1083,7 +1084,7 @@ __write_prompt_quit:
 
   .global rtc_mmio_address
   .type rtc_mmio_address, int
-  .int 0x00000000
+  .int 0x00008300
 
   ; when EVALUATE is called, current input source specification
   ; is saved on top of this stack
@@ -2441,8 +2442,7 @@ $DEFCODE "=", 1, 0, EQU
   pop $X
   cmp $W, $X
 .endif
-  be &__CMP_true
-  j &__CMP_false
+  $TF_FINISH EQU, be
 
 
 $DEFCODE "<>", 2, 0, NEQU
@@ -2455,8 +2455,7 @@ $DEFCODE "<>", 2, 0, NEQU
   pop $X
   cmp $W, $X
 .endif
-  bne &__CMP_true
-  j &__CMP_false
+  $TF_FINISH NEQU, bne
 
 
 $DEFCODE "0=", 2, 0, ZEQU
@@ -2466,8 +2465,7 @@ $DEFCODE "0=", 2, 0, ZEQU
 .else
   pop $W
 .endif
-  bz &__CMP_true
-  j &__CMP_false
+  $TF_FINISH ZEQU, bz
 
 
 $DEFCODE "0<>", 3, 0, ZNEQU
@@ -2477,8 +2475,7 @@ $DEFCODE "0<>", 3, 0, ZNEQU
 .else
   pop $W
 .endif
-  bnz &__CMP_true
-  j &__CMP_false
+  $TF_FINISH ZNEQU, bnz
 
 
 $DEFCODE "<", 1, 0, LT
@@ -2491,8 +2488,7 @@ $DEFCODE "<", 1, 0, LT
   pop $X
   cmp $X, $W
 .endif
-  bl &__CMP_true
-  j &__CMP_false
+  $TF_FINISH LT, bl
 
 
 $DEFCODE ">", 1, 0, GT
@@ -2504,8 +2500,7 @@ $DEFCODE ">", 1, 0, GT
   pop $X
   cmp $X, $W
 .endif
-  bg &__CMP_true
-  j &__CMP_false
+  $TF_FINISH GT, bg
 
 
 $DEFCODE "<=", 2, 0, LE
@@ -2517,8 +2512,7 @@ $DEFCODE "<=", 2, 0, LE
   pop $X
   cmp $X, $W
 .endif
-  ble &__CMP_true
-  j &__CMP_false
+  $TF_FINISH LE, ble
 
 
 $DEFCODE ">=", 2, 0, GE
@@ -2530,8 +2524,7 @@ $DEFCODE ">=", 2, 0, GE
   pop $X
   cmp $X, $W
 .endif
-  bge &__CMP_true
-  j &__CMP_false
+  $TF_FINISH GE, bge
 
 
 $DEFCODE "0<", 2, 0, ZLT
@@ -2543,8 +2536,7 @@ $DEFCODE "0<", 2, 0, ZLT
   pop $W
   cmp $W, 0
 .endif
-  bl &__CMP_true
-  j &__CMP_false
+  $TF_FINISH ZLT, bl
 
 
 $DEFCODE "0>", 2, 0, ZGT
@@ -2556,8 +2548,7 @@ $DEFCODE "0>", 2, 0, ZGT
   pop $W
   cmp $W, 0
 .endif
-  bg &__CMP_true
-  j &__CMP_false
+  $TF_FINISH ZGT, bg
 
 
 $DEFCODE "0<=", 3, 0, ZLE
@@ -2567,8 +2558,7 @@ $DEFCODE "0<=", 3, 0, ZLE
   pop $W
   cmp $W, 0
 .endif
-  ble &__CMP_true
-  j &__CMP_false
+  $TF_FINISH ZLE, ble
 
 
 $DEFCODE "0>=", 3, 0, ZGE
@@ -2578,8 +2568,7 @@ $DEFCODE "0>=", 3, 0, ZGE
   pop $W
   cmp $W, 0
 .endif
-  bge &__CMP_true
-  j &__CMP_false
+  $TF_FINISH ZGE, bge
 
 
 $DEFCODE "?DUP", 4, 0, QDUP

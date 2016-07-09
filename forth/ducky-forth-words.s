@@ -474,8 +474,7 @@ $DEFCODE "?HIDDEN", 7, 0, ISHIDDEN
   add $W, $wr_flags
   lb $W, $W
   and $W, $F_HIDDEN
-  bz &__CMP_false
-  j &__CMP_true
+  $TF_FINISH ISHIDDEN, bnz
 
 
 $DEFCODE "?IMMEDIATE", 10, 0, ISIMMEDIATE
@@ -488,8 +487,7 @@ $DEFCODE "?IMMEDIATE", 10, 0, ISIMMEDIATE
   add $W, $wr_flags
   lb $W, $W
   and $W, $F_IMMED
-  bz &__CMP_false
-  j &__CMP_true
+  $TF_FINISH ISIMMEDIATE, bnz
 
 
 $DEFCODE "ROLL", 4, 0, ROLL
@@ -1522,8 +1520,7 @@ $DEFCODE "U<", 2, 0, ULT
   pop $X
   cmpu $X, $W
 .endif
-  bl &__CMP_true
-  j &__CMP_false
+  $TF_FINISH ULT, bl
 
 
 $DEFCODE "U>", 2, 0, UGT
@@ -1536,8 +1533,7 @@ $DEFCODE "U>", 2, 0, UGT
   pop $X
   cmpu $X, $W
 .endif
-  bg &__CMP_true
-  j &__CMP_false
+  $TF_FINISH UGT, bg
 
 
 $DEFCODE "MAX", 3, 0, MAX

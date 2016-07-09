@@ -262,6 +262,15 @@ code_#label:
   lb r1, r1     ; load string length
 .end
 
+
+.macro TF_FINISH name, true_test:
+  #true_test &__tf_finish_#name
+  j &__CMP_false
+__tf_finish_#name:
+  j &__CMP_true
+.end
+
+
 .def ERR_UNKNOWN:             -1
 .def ERR_UNDEFINED_WORD:      -2
 .def ERR_UNHANDLED_IRQ:       -3
