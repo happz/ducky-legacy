@@ -4,7 +4,8 @@ import optparse
 import re
 import tabulate
 
-from six import viewkeys
+from six import viewkeys, itervalues
+from collections import defaultdict
 
 from . import add_common_options, parse_options
 from ..cpu.instructions import DuckyInstructionSet, get_instruction_set
@@ -61,26 +62,65 @@ def show_disassemble(logger, f):
   instruction_set = DuckyInstructionSet
   f_header = f.get_header()
 
-  for i in range(0, f_header.sections):
-    header, content = f.get_section(i)
+  symbols = defaultdict(list)
 
+  for header, content in f.iter_sections():
+    if header.type != SectionTypes.SYMBOLS:
+      continue
+
+    for i, entry in enumerate(content):
+      ss_header, ss_content = f.get_section(entry.section)
+
+      if ss_header.type != SectionTypes.TEXT:
+        continue
+
+      ss_name = f.string_table.get_string(ss_header.name)
+      s_name = f.string_table.get_string(entry.name)
+
+      symbols[ss_name].append((entry.address, f.string_table.get_string(entry.name)))
+
+  for s_list in itervalues(symbols):
+    s_list.sort(key = lambda x: x[0])
+
+  for header, content in f.iter_sections():
     if header.type != SectionTypes.TEXT:
       continue
 
     logger.info('  Section %s', f.string_table.get_string(header.name))
 
+    table = [
+      [ '', '', '', '' ]
+    ]
+
+    symbol_list = symbols[f.string_table.get_string(header.name)]
+
     csp = header.base
     for raw_inst in content:
-      csp_str = UINT32_FMT(csp)
-      csp += 4
+      prev_s_name = symbol_list[0][1]
+      for s_addr, s_name in symbol_list:
+        if csp == s_addr:
+          prev_s_name = s_name
+          break
+
+        if csp < s_addr:
+          break
+
+        prev_s_name = s_name
+
+      else:
+        prev_s_name = ''
 
       inst, desc, opcode = instruction_set.decode_instruction(logger, raw_inst.value)
-      logger.info('  %s (%s) %s', csp_str, UINT32_FMT(raw_inst), instruction_set.disassemble_instruction(logger, raw_inst.value))
+
+      table.append([UINT32_FMT(csp), UINT32_FMT(raw_inst), instruction_set.disassemble_instruction(logger, raw_inst.value), prev_s_name])
 
       if opcode == DuckyInstructionSet.opcodes.SIS:
         instruction_set = get_instruction_set(inst.immediate)
 
-  logger.info('')
+      csp += 4
+
+    logger.table(table)
+    logger.info('')
 
 def show_reloc(logger, f):
   logger.info('=== Reloc entries ===')
