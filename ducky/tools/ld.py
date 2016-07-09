@@ -7,12 +7,12 @@ import tempfile
 
 from six import iteritems, integer_types
 
-from ..mm import u32_t, UINT32_FMT, MalformedBinaryError
+from ..mm import i32_t, u32_t, UINT32_FMT, MalformedBinaryError
 from ..mm.binary import File, SectionTypes, SymbolEntry, SECTION_ITEM_SIZE, SectionFlags, SymbolFlags
 from ..cpu.assemble import align_to_next_page, align_to_next_mmap, sizeof
 from ..cpu.instructions import encoding_to_u32, u32_to_encoding
 from ..util import str2int
-from ..errors import UnalignedJumpTargetError, EncodingLargeValueError, IncompatibleLinkerFlagsError, UnknownSymbolError
+from ..errors import UnalignedJumpTargetError, EncodingLargeValueError, IncompatibleLinkerFlagsError, UnknownSymbolError, PatchTooLargeError
 
 def align_nop(n):
   return n
@@ -243,8 +243,9 @@ class RelocationPatcher(object):
     self.DEBUG('  symbol=%s', symbol_name)
     self.DEBUG('  re=%s', re)
     self.DEBUG('  se=%s', se)
-    self.DEBUG('  section=%s', section_header)
+    self.DEBUG('  dsection=%s', section_header)
     self.DEBUG('  osection=%s', original_section_header)
+    self.DEBUG('  offset=%s', UINT32_FMT(section_offset))
 
     self._re = re
     self._se = se
@@ -256,14 +257,14 @@ class RelocationPatcher(object):
     self.DEBUG('  section.base=%s, re.address=%s, original.base=%s, section.offset=%s', UINT32_FMT(section_header.base), UINT32_FMT(re.patch_address), UINT32_FMT(original_section_header.base), UINT32_FMT(section_offset))
     self._patch_address = re.patch_address - original_section_header.base + section_offset + section_header.base
     self._patch_address = re.patch_address - section_header.base + (section_header.base - original_section_header.base) + section_offset
-    self._ip_address = re.patch_address - original_section_header.base + section_header.base
+    self._ip_address = re.patch_address - original_section_header.base + section_header.base + section_offset
     self.DEBUG('  section.base=%s, patch address=%s, ip=%s', UINT32_FMT(section_header.base), UINT32_FMT(self._patch_address), UINT32_FMT(self._ip_address))
 
     self._content_index = self._patch_address // SECTION_ITEM_SIZE[section_header.type]
     self.DEBUG('  content index=%d', self._content_index)
 
     self._patch = self._create_patch()
-    self.DEBUG('  patch=%s', UINT32_FMT(self._patch))
+    self.DEBUG('  patch=%s (%s)', UINT32_FMT(self._patch), i32_t(self._patch).value)
 
   def _create_patch(self):
     patch = self._se.address
@@ -288,17 +289,34 @@ class RelocationPatcher(object):
     self.DEBUG('  masked=%s', UINT32_FMT(masked))
 
     patch = self._patch
+    self.DEBUG('  patch:         %s (%s)', UINT32_FMT(patch), patch)
 
     if re.flags.inst_aligned == 1:
       if patch & 0x3:
         raise UnalignedJumpTargetError(info = 'address=%s' % UINT32_FMT(patch))
 
-      patch >>= 2
+      patch = patch // 4
 
     if patch >= 2 ** re.patch_size:
       raise EncodingLargeValueError(info = 'size=%s, value=%s' % (re.patch_size, UINT32_FMT(patch)))
 
-    self.DEBUG('  patch:         %s', UINT32_FMT(patch))
+    self.DEBUG('  patch:         %s (%s)', UINT32_FMT(patch), patch)
+
+    if re.flags.relative == 1:
+      lower, upper = -(2 ** (re.patch_size - 1)), (2 ** (re.patch_size - 1)) - 1
+
+      if patch < -(2 ** re.patch_size) or patch > ((2 ** re.patch_size) - 1):
+        raise Exception('Cannot patch: re=%s, se=%s', re, self._se)
+
+    else:
+      lower, upper = 0, 2 ** re.patch_size
+
+    self.DEBUG('  patch size:    %s', re.patch_size)
+    self.DEBUG('  patch limits:  %s %s', lower, upper)
+    self.DEBUG('  patch fits?    %s %s', patch < lower, patch > upper)
+
+    if patch < lower or patch > upper:
+      raise PatchTooLargeError('Patch cannot fit into available space: re=%s, se=%s, patch=%s' % (self._re, self._se, patch))
 
     patch = patch << re.patch_offset
     self.DEBUG('  shifted patch: %s', UINT32_FMT(patch))

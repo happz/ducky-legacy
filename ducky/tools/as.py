@@ -3,6 +3,8 @@ import sys
 
 from six import iteritems, PY2
 
+from ..errors import PatchTooLargeError
+
 def translate_buffer(logger, buffer, file_in, options):
   from ..cpu.assemble import AssemblerError, translate_buffer
 
@@ -201,7 +203,12 @@ def save_object_file(logger, sections, file_out, options):
 
         from .ld import RelocationPatcher
 
-        RelocationPatcher(re, se, rs.name, section_headers[rs.patch_section.name], sections[rs.patch_section.name].content).patch()
+        try:
+          RelocationPatcher(re, se, rs.name, section_headers[rs.patch_section.name], sections[rs.patch_section.name].content).patch()
+
+        except PatchTooLargeError as exc:
+          exc.log(logger.error)
+          sys.exit(1)
 
       f_out.set_content(h_section, reloc_entries)
       h_section.data_size = h_section.file_size = sizeof(RelocEntry()) * len(reloc_entries)

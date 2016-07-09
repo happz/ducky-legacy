@@ -113,6 +113,9 @@ class IncompatibleLinkerFlagsError(Error):
 class UnknownSymbolError(Error):
   pass
 
+class PatchTooLargeError(Error):
+  pass
+
 class ExceptionList(enum.IntEnum):
   """
   List of exception IDs (``EVT`` indices).
