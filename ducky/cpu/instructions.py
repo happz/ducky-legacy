@@ -120,7 +120,7 @@ class EncodingC(ctypes.LittleEndianStructure):
     return Encoding.sign_extend_immediate(logger, inst, 0x400, 0xFFFFF800)
 
   def __repr__(self):
-    return '<EncodingC: opcode=%s, reg1=%s, reg2=%s, flag=%s, value=%s, immediate_flag=%s, immediate=%s>' % (self.opcode, self.reg1, self.reg2, self.flag, self.value, self.immediate_flag, UINT16_FMT(self.immediate))
+    return '<EncodingC: opcode=%s, reg1=%s, reg2=%s, flag=%s, value=%s, immediate_flag=%s, immediate=0x%03X>' % (self.opcode, self.reg1, self.reg2, self.flag, self.value, self.immediate_flag, self.immediate)
 
 class EncodingI(ctypes.LittleEndianStructure):
   _pack_ = 0
@@ -614,8 +614,9 @@ class DuckyOpcodes(enum.IntEnum):
   OR     = 35
   XOR    = 36
   NOT    = 37
-  SHIFTL = 38
-  SHIFTR = 39
+  SHL    = 38
+  SHR    = 39
+  SHRS   = 40
 
   # Branch instructions
   J      = 46
@@ -1819,11 +1820,18 @@ class _BITOP(Descriptor_R_RI):
     elif inst.opcode == DuckyOpcodes.XOR:
       value = r.value ^ v
 
-    elif inst.opcode == DuckyOpcodes.SHIFTL:
+    elif inst.opcode == DuckyOpcodes.SHL:
       value = r.value << min(v, 32)
 
-    elif inst.opcode == DuckyOpcodes.SHIFTR:
+    elif inst.opcode == DuckyOpcodes.SHR:
       value = r.value >> min(v, 32)
+
+    elif inst.opcode == DuckyOpcodes.SHRS:
+      shift = min(v, 32)
+      if r.value & 0x80000000 == 0:
+        value = r.value >> shift
+      else:
+        value = (r.value >> shift) | (((1 << shift) - 1) << (32 - shift))
 
     r.value = value
     update_arith_flags(core, r)
@@ -1921,9 +1929,9 @@ class XOR(_BITOP):
 
       return __jit_xor
 
-class SHIFTL(_BITOP):
+class SHL(_BITOP):
   mnemonic = 'shiftl'
-  opcode = DuckyOpcodes.SHIFTL
+  opcode = DuckyOpcodes.SHL
 
   @staticmethod
   def jit(core, inst):
@@ -1989,9 +1997,9 @@ class SHIFTL(_BITOP):
 
       return __jit_shiftl
 
-class SHIFTR(_BITOP):
+class SHR(_BITOP):
   mnemonic = 'shiftr'
-  opcode = DuckyOpcodes.SHIFTR
+  opcode = DuckyOpcodes.SHR
 
   @staticmethod
   def jit(core, inst):
@@ -2050,6 +2058,10 @@ class SHIFTR(_BITOP):
           core.arith_sign = False
 
       return __jit_shiftr
+
+class SHRS(_BITOP):
+  mnemonic = 'shiftrs'
+  opcode = DuckyOpcodes.SHRS
 
 class NOT(Descriptor_R):
   mnemonic = 'not'
@@ -2590,8 +2602,9 @@ AND(DuckyInstructionSet)
 OR(DuckyInstructionSet)
 XOR(DuckyInstructionSet)
 NOT(DuckyInstructionSet)
-SHIFTL(DuckyInstructionSet)
-SHIFTR(DuckyInstructionSet)
+SHL(DuckyInstructionSet)
+SHR(DuckyInstructionSet)
+SHRS(DuckyInstructionSet)
 
 # Memory access
 LW(DuckyInstructionSet)

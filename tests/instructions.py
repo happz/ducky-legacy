@@ -52,7 +52,7 @@ def sign_extend(sign_mask, ext_mask, value):
 
   return u32_t(ext_mask | value).value if value & sign_mask else u32_t(value).value
 
-sign_extend11 = partial(sign_extend, 0x400,   0xFFFF8000)
+sign_extend11 = partial(sign_extend, 0x400,   0xFFFFF800)
 sign_extend15 = partial(sign_extend, 0x4000,  0xFFFF8000)
 sign_extend20 = partial(sign_extend, 0x80000, 0xFFF00000)
 
@@ -234,10 +234,10 @@ def __base_select_test_immediate(state, reg, tv, fv, inst_class = None, cond = N
 
   inst = encode_inst(inst_class, {'register_n0': reg, 'immediate': fv})
 
-  expected_value = tv if cond(state) else fv
-
   state.reset()
   CORE.registers.map[reg].value = tv
+
+  expected_value = tv if cond(state) else sign_extend11(fv)
 
   execute_inst(CORE, inst_class, inst)
 
@@ -2062,60 +2062,96 @@ def test_setz(state, reg):
 
 
 #
-# SHIFTL
+# SHL
 #
-if PYPY:
-  cap_shift = partial(min, 32)
-
-else:
-  def cap_shift(n):
-    return n
+cap_shift = partial(min, 32)
 
 @given(state = STATE, reg = REGISTER, a = VALUE, b = IMMEDIATE15)
 @example(state = STATE.example(), reg = 0, a = 0x01000000, b = 8)
 def test_shiftl_immediate(state, reg, a, b):
-  from ducky.cpu.instructions import SHIFTL
+  from ducky.cpu.instructions import SHL
 
   def compute(state, reg, a, b):
     value = a << cap_shift(sign_extend15(b))
     return value, u32_t(value).value
 
-  __base_arith_test_immediate(state, reg, a, b, inst_class = SHIFTL, compute = compute)
+  __base_arith_test_immediate(state, reg, a, b, inst_class = SHL, compute = compute)
 
 @given(state = STATE, reg1 = REGISTER, reg2 = REGISTER, a = VALUE, b = VALUE)
 @example(state = STATE.example(), reg1 = 0, reg2 = 1, a = 0x01000000, b = 8)
 def test_shiftl_register(state, reg1, reg2, a, b):
-  from ducky.cpu.instructions import SHIFTL
+  from ducky.cpu.instructions import SHL
 
   def compute(state, reg1, reg2, a, b):
     value = b << cap_shift(b) if reg1 == reg2 else a << cap_shift(b)
     return value, u32_t(value).value
 
-  __base_arith_test_register(state, reg1, reg2, a, b, inst_class = SHIFTL, compute = compute)
+  __base_arith_test_register(state, reg1, reg2, a, b, inst_class = SHL, compute = compute)
 
 
 #
-# SHIFTR
+# SHR
 #
 @given(state = STATE, reg = REGISTER, a = VALUE, b = IMMEDIATE15)
 def test_shiftr_immediate(state, reg, a, b):
-  from ducky.cpu.instructions import SHIFTR
+  from ducky.cpu.instructions import SHR
 
   def compute(state, reg, a, b):
     value = a >> cap_shift(sign_extend15(b))
     return value, u32_t(value).value
 
-  __base_arith_test_immediate(state, reg, a, b, inst_class = SHIFTR, compute = compute)
+  __base_arith_test_immediate(state, reg, a, b, inst_class = SHR, compute = compute)
 
 @given(state = STATE, reg1 = REGISTER, reg2 = REGISTER, a = VALUE, b = VALUE)
 def test_shiftr_register(state, reg1, reg2, a, b):
-  from ducky.cpu.instructions import SHIFTR
+  from ducky.cpu.instructions import SHR
 
   def compute(state, reg1, reg2, a, b):
     value = b >> cap_shift(b) if reg1 == reg2 else a >> cap_shift(b)
     return value, u32_t(value).value
 
-  __base_arith_test_register(state, reg1, reg2, a, b, inst_class = SHIFTR, compute = compute)
+  __base_arith_test_register(state, reg1, reg2, a, b, inst_class = SHR, compute = compute)
+
+
+#
+# SHRS
+#
+@given(state = STATE, reg = REGISTER, a = VALUE, b = IMMEDIATE15)
+def test_shrs_immediate(state, reg, a, b):
+  from ducky.cpu.instructions import SHRS
+
+  def compute(state, reg, a, b):
+    b = cap_shift(sign_extend15(b))
+
+    if a & 0x80000000 != 0:
+      value = (a >> b) | (0xFFFFFFFF00000000 >> b)
+      value &= 0xFFFFFFFF
+
+    else:
+      value = a >> b
+
+    return value, u32_t(value).value
+
+  __base_arith_test_immediate(state, reg, a, b, inst_class = SHRS, compute = compute)
+
+@given(state = STATE, reg1 = REGISTER, reg2 = REGISTER, a = VALUE, b = VALUE)
+def test_shrs_register(state, reg1, reg2, a, b):
+  from ducky.cpu.instructions import SHRS
+
+  def compute(state, reg1, reg2, a, b):
+    a = b if reg1 == reg2 else a
+    b = cap_shift(b)
+
+    if a & 0x80000000 != 0:
+      value = (a >> b) | (0xFFFFFFFF00000000 >> b)
+      value &= 0xFFFFFFFF
+
+    else:
+      value = a >> b
+
+    return value, u32_t(value).value
+
+  __base_arith_test_register(state, reg1, reg2, a, b, inst_class = SHRS, compute = compute)
 
 
 #
