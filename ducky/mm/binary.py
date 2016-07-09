@@ -185,6 +185,10 @@ class File(BinaryFile):
   def get_section(self, i):
     return self.__sections[i]
 
+  def iter_sections(self):
+    for i in range(0, self.__header.sections):
+      yield self.__sections[i]
+
   def get_section_by_name(self, name):
     for i in range(0, self.get_header().sections):
       header, content = self.get_section(i)
