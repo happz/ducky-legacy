@@ -1,4 +1,4 @@
-  .include "bio.asm"
+  .include "arch/bio.hs"
 
   .text
 
