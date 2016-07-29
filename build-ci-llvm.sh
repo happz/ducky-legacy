@@ -18,15 +18,11 @@ make
 sudo make install
 popd # cmake-3.5.2
 
-git clone https://github.com/happz/llvm.git
-pushd llvm/tools
-git clone https://github.com/happz/clang.git
-popd # llvm/tools
 
-mkdir llvm-build
-pushd llvm-build
-/usr/local/bin/cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_ASSERTIONS=Off -DCMAKE_INSTALL_PREFIX=$PREFIX -DLLVM_BUILD_TESTS=OFF -DLLVM_BUILD_DOCS=OFF -DLLVM_OPTIMIZED_TABLEGEN=ON -DLLVM_TARGETS_TO_BUILD=Ducky -DLLVM_DEFAULT_TARGET_TRIPLE=ducky-none-none -DCLANG_VENDOR=happz/ducky ~/llvm
-ninja -j1
-popd # llvm-build
+# Clone first instance of LLVM to get the build script
+git clone https://github.com/happz/llvm.git llvm-first
+pushd llvm-first
+JOBS=1 ./build-release.sh
+popd # llvm-first
 
 popd # ~
