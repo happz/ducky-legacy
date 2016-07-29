@@ -50,29 +50,104 @@ Instruction set
 
 CPU supports multiple instruction sets. The default one, `ducky`, is the main workhorse, suited for general coding, but other instruction sets can exist, e.g. coprocessor may use its own instruction set for its operations.
 
-Design principles
-"""""""""""""""""
-
- - load and store operations are performed by dedicated instructions
- - memory-register transfers work with operands of different widths - 32-bit (`word`), 16-bit (`short`), and 8-bit (`byte`)
- - all memory-register transfers work with addresses that are aligned to the size of their operands (1 byte alignment - so no alignment at all - for byte-sized operands)
- - unless said otherwise, destination operand is the first one
- - when content of a register is changed by an instruction, several flags can be modified subsequently. E.g. when new value of register is zero, ``z`` flag is set.
-
-Notes on documentation
-""""""""""""""""""""""
-
- - ``rN`` refers to generaly any register, from ``r0`` up to ``r29`` - special registers are refered to by their common names (e.g. ``SP``).
- - ``rA``, ``rB`` refer to the first and the second instruction operand respectively and stand for any register.
- - ``<value>`` means immediate, absolute value. This covers both integers, specified as base 10 or base 16 integers, both positive and negative, and labels and addresses, specified as ``&label``
- - when instruction accepts more than one operand type, it is documented using ``|`` character, e.g. ``(rA|<value>)`` means either register or immediate value
- - immediate values are encoded in the instructions, therefore such value cannot have full 32-bit width. Each instruction should indicate the maximal width of immediate value that can be safely encoded, should you require grater values, please see ``li`` and ``liu`` instructions
-
 .. toctree::
   :maxdepth: 2
 
   ducky_instruction_set.rst
   math_copro_instruction_set.rst
+
+
+Control coprocessor
+-------------------
+
+Control coprocessor (`CC`) is a coprocessor dedicated to control various runtime properties of CPU core. Using ``ctr`` and ``ctw`` instructions it is possible to inspect and modify these properties.
+
+
+Control registers
+^^^^^^^^^^^^^^^^^
+
+CR0
+"""
+
+``cr0`` register contains so-called ``CPUID`` value which intendifies location of this CPU core in global CPU topology.
+
+ - upper 16 bits contain index number of CPU this core belongs to
+ - lower 16 bits contain index number of this core in the context of its parent CPU
+
+There's always core with ``CPUID`` ``0x00000000``, since there's always at least one core present.
+
+This register is read-only.
+
+
+.. _CR1:
+
+CR1
+"""
+
+``cr1`` register contains :ref:`EVT` address for this core. Be aware that *any* address is accepted, no aligment or any other restrictions are applied.
+
+
+CR2
+"""
+
+``cr2`` register contains page table address for this core. Be aware that *any* address is accepted, no aligment or any other restrictions are applied.
+
+
+CR3
+"""
+
+``cr3`` register provides access to several flags that modify behavior of CPU core.
+
++--------+----------------+------------------------------------------------------------+
+| Mask   | Flag           | Usage                                                      |
++--------+----------------+------------------------------------------------------------+
+| 0x00   | ``pt_enabled`` | If set, MMU consults all memory accesses with page tables. |
++--------+----------------+------------------------------------------------------------+
+| 0x01   | ``jit``        | If set, JIT optimizations are enabled.                     |
++--------+----------------+------------------------------------------------------------+
+| 0x02   | ``vmdebug``    | If set, VM will produce huge amount of debugging logs.     |
++--------+----------------+------------------------------------------------------------+
+
+.. note::
+
+  ``jit`` flag is read-only. It is controlled by options passed to Ducky when VM was created, and cannot be changed in runtime.
+
+.. note::
+  ``vmdebug`` flag is shared between all existing cores. Changing it on one core affects immediately all other cores.
+
+.. note::
+  ``vmdebug`` flag will not produce any debugging output if debug mode was disabled e.g. by not passing ``-d`` option to ``ducky-vm`` tool. If debug mode was allowed, changing this flag will control log level of VM.
+
+
+.. _EVT:
+
+Exception Vector Table
+----------------------
+
+Exception vector table (`EVT`) is located in main memory, by default at address ``0x00000000``, and provides core with routines that can help resolve some of exceptional states core can run into.
+
+``EVT`` address can be set per CPU core, see :ref:`CR1`.
+
+``EVT`` is 256 bytes - 1 memory page - long, providing enough space for 32 entries. Typically, lower 16 entries are reserved for hardware interrupts, provided by devices, and upper
+16 entries lead to software routines that deal with exceptions, and provide additional functionality for running code in form of software interrupts.
+
+
+Entry format
+^^^^^^^^^^^^
+
++------------------+------------------+
+| ``IP`` - 32 bits | ``SP`` - 32 bits |
++------------------+------------------+
+
+When CPU is interrupted - by hardware (device generates IRQ) or software (exception is detected, or program executes ``int`` instruction) interrupt - corresponding entry is located in ``EVT``, using interrupt ID as an index.
+
+
+.. _HDT:
+
+Hardware Description Table
+--------------------------
+
+Hardware Description Table (`HDT`) is located in main memory, by default at address ``0x00000100``, and hardware setup of the machine.
 
 
 Memory
@@ -89,18 +164,6 @@ Memory model
 
 Memory layout
 ^^^^^^^^^^^^^
-
-Exception Vector Table
-""""""""""""""""""""""
-
-Exception vector table (`EVT`), located in main memory, is by default located at address ``0x00000000``. ``EVT`` address can be set per CPU core, see control coprocessor docs for more. ``EVT`` is 256 bytes - 1 memory page - long, providing enough space for 32 entries. Typically, lower 16 entries are reserved for hardware interrupts, provided by devices, and upper 16 entries lead to software routines that deal with exceptions, and provide additional functionality for running code in form of software interrupts.
-
-+------------------+------------------+
-| ``IP`` - 32 bits | ``SP`` - 32 bits |
-+------------------+------------------+
-
-When CPU is interrupted - by hardware (device generates IRQ) or software (exception is detected, or program executes ``int`` instruction) interrupt - corresponding entry is located in ``EVT``, using interrupt ID as an index.
-
 
 Stack
 """""

@@ -95,6 +95,8 @@ Create object file wrapping a binary blob. Such file then contains the data from
 Flags of blob section. Syntax of assembly ``.section`` directive is accepted.
 
 
+.. _ducky-ld:
+
 ld
 --
 

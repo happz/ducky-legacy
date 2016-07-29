@@ -72,7 +72,7 @@ Modular persistent storages are available, and accessible by block IO operations
 Bytecode files
 ^^^^^^^^^^^^^^
 
-Compiled programs are stored in bytecode files that are inspired by ELF executable format. These files consist of common sections (``.text``, ``.data``, ...), symbols, and their content. Assembler (``ducky-as``) translates assembler sources into object files, and these are then processed by a linker (``ducky-ld``) into the final executable. Both object and executable files use the same format and bytecode for instructions and data.
+Compiled programs are stored in bytecode files that are inspired by ELF executable format. These files consist of common sections (``.text``, ``.data``, ...), symbols, and their content. Assembler (``ducky-as``) translates assembly sources into object files, and these are then processed by a linker (``ducky-ld``) into the final executable. Both object and executable files use the same format and bytecode for instructions and data.
 
 
 Snapshots
@@ -96,7 +96,6 @@ Tools
 - ``coredump`` for inspection of snapshots
 - ``vm`` for running virtual machine itself
 - ``img`` for converting binaries to images
-- and ``cc``, an experimental C compiler
 
 
 Planned features

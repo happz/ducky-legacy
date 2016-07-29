@@ -21,29 +21,34 @@ After this, you should have the ``ducky`` module on your path::
 
   >>> import ducky
   >>> ducky.__version__
-  '2.0'
+  '3.0'
 
 
 Prerequisites
 -------------
 
-Ducky runs with both Python 2 **and** 3 - supported versions are 2.7, 3.3, 3.4 and 3.5. There are few other dependencies, installation process (or ``setup.py``) should take care of them autmatically. PyPy is also supported, though only its implementation of Python2.
+Ducky runs with both Python 2 *and* 3 - supported versions are 2.7, 3.3, 3.4
+and 3.5. There are few other dependencies, installation process (or ``setup.py``)
+should take care of them autmatically. PyPy is also supported, though only its
+implementation of Python2.
 
 
 "Hello, world!" tutorial
 ------------------------
 
-Let's try out the "Hello, world!" example. It's a simple program that just prints out the well-known message.
+Let's try out the "Hello, world!" example. It's a simple program that just prints
+out the well-known message.
 
 
 Source code
 ^^^^^^^^^^^
 
-Source is located in ``examples`` directory. If you check it out, it's a plain and simple assembler:
+Source is located in ``examples/hello-world`` directory. If you check it out, it's
+a plain and simple assembler:
 
 .. code-block:: gas
 
-  .include "tty.asm"
+  .include "arch/tty.hs"
 
   .data
 
@@ -103,13 +108,16 @@ It's a little bit more structured that necessary, just for educational purposes.
 Binary
 ^^^^^^
 
-Virtual machine needs binary (or bytecode, if you wish...) code, and there's a tool for it:
+To run this code, we have to create a :term:`binary` of it. Of course, there
+are tools for this very common goal:
 
 .. code-block:: none
 
-  ducky-as -i examples/hello-world/hello-world.asm -o examples/hello-world/hello-world.o
+  ducky-as -i examples/hello-world/hello-world.s -o examples/hello-world/hello-world.o
 
-This command will translate source code to object file, containing instructions for VM and other resources. You can inspect the object file using ``objdump`` tool:
+This command will translate source code to an :term:`object file` which contains
+instructions and other necessary resources for :term:`machine` to run it. You
+can inspect the object file using ``objdump`` tool:
 
 .. code-block:: none
 
@@ -119,7 +127,7 @@ This should produce output similar to this one:
 
 .. code-block:: none
 
-  [INFO] Input file: examples/hello-world.bin
+  [INFO] Input file: examples/hello-world/hello-world.o
   [INFO] 
   [INFO] === File header ===
   [INFO]   Magic:    0xDEAD
@@ -175,33 +183,50 @@ This should produce output similar to this one:
   [INFO]   0x00015C (0x0000000E) ret
   [INFO] 
 
-You can see internal sections in the object file, list of symbols, and disassembled instructions, with labels replaced by dummy offsets. Offsets in jump instructions make no sense yet because object file is not the finalized binary - yet. For that, there's another tool:
+As you can see, object file contains instructions, some additional data, list
+of symbols, and some more, with labels replaced by dummy offsets. Offsets in
+jump instructions make no sense yet because object file is not the finalized
+binary - yet. For that, there's yet another tool:
 
 .. code-block:: none
 
   ducky-ld -i examples/hello-world/hello-world.o -o examples/hello-world/hello-world
 
-This command will take object file (or many of them), and produce one binary by merging code, data and sections in object files, and updates addresses used by instructions to retrieve data and to perform jumps. You can inspect the binary file using ``objdump`` tool, too:
+This command will take object file (or many of them), and produce one
+:term:`binary` by merging code, data and other sections from all source object
+files, and updates addresses used by instructions to retrieve data and to
+perform jumps. You can inspect the resulting binary file using ``objdump`` tool
+as well:
 
 .. code-block:: none
 
   ducky-objdump -i examples/hello-world/hello-world -a
 
-This should produce output very similar to the one you've already seen - not much had changed, there was only one object files, only offsets used by ``call`` and ``j`` instructions are now non-zero, meaning they are now pointing to the correct locations.
+This should produce output very similar to the one you've already seen - not
+much had changed, there was only one object file, only offsets used by ``call``
+and ``j`` instructions are now non-zero, meaning they are now pointing to the
+correct locations.
 
 
 Running
 ^^^^^^^
 
-Virtual machine configuration can get quite complicated, so I try to avoid too many command line options, and opt for using configuration files. For this example, there's one already prepared. Go ahead and try it:
+Virtual machine configuration can get quite complicated, so I try to avoid too
+many command line options, and opt for using configuration files. For this example,
+there's one already prepared. Go ahead and try it:
 
 .. code-block:: none
 
-  ducky-vm --machine-config=examples/hello-world/hello-world.conf -g
+  ducky-vm --machine-config=examples/hello-world/hello-world.conf --set-option=bootloader:file=examples/hello-world/hello-world
 
-There are two other command line options that deserve some explanation:
+There are two command-line options:
 
- - ``-g`` - by default, VM prepares itself, and waits for user to press ``Enter`` to actually start running the loaded binaries. This option tells it to skip "press any key" phase and go ahead.
+ - ``--machine-config`` tells VM where to find its configuration file,
+ - ``--set-option`` modifies this configuration; this particular instance tells
+   VM to set ``file`` option in section ``bootloader`` to path of our freshly
+   built binary, ``examples/hello-world/hello-world``. Since I run examples
+   during testing process, their config files lack this option since it changes
+   all the time.
 
 You should get output similar to this:
 
@@ -244,4 +269,8 @@ You should get output similar to this:
   1441740856.06 [INFO] Executed instructions: 133 0.028670 (4639.0223/sec)
   1441740856.06 [INFO] 
 
-And there, on line 15, between all that funny nonsenses, it is! :) The rest of the output are just various notes about loaded binaries, CPU caches, nothing important right now - as I said, terminal is dedicated to VM itself.
+And there, on line 16, between all that funny nonsenses, it is! :) The rest of
+the output are just various notes about loaded binaries, CPU caches, nothing
+important right now.
+
+And that's it.

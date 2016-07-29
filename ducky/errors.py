@@ -116,6 +116,13 @@ class UnknownSymbolError(Error):
 class PatchTooLargeError(Error):
   pass
 
+class BadLinkerScriptError(Error):
+  def __init__(self, script, exc):
+    super(BadLinkerScriptError, self).__init__()
+
+    self.script = script
+    self.exc = exc
+
 class ExceptionList(enum.IntEnum):
   """
   List of exception IDs (``EVT`` indices).

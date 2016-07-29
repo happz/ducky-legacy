@@ -1,6 +1,6 @@
 """
 This file provides necessary code to allow boot up of a virtual machine with
-the correct program running. This code can provide slightly different environment
+the correct program running. This code may provide slightly different environment
 when compared to real hardware process, since e.g. external files can be mmap-ed
 into VM's memory for writing.
 """
@@ -31,11 +31,11 @@ DEFAULT_BOOTLOADER_ADDRESS = 0x00020000
 class MMapMemoryPage(ExternalMemoryPage):
   """
   Memory page backed by an external file that is accessible via ``mmap()``
-  call. It's a part of one of mm.MMapArea instances, and if such area was
-  opened as `shared`, every change in this page content will affect the
-  content of external file, and vice versa, every change of external file
-  will be reflected in content of this page (if this page lies in affected
-  area).
+  call. It's a part of one of :py:class:`ducky.boot.MMapArea` instances, and
+  if such area was opened as `shared`, every change in the content of its
+  pages will reflect onto the content of an external file, and vice versa,
+  every change of external file will be reflected in content of this page
+  (if this page lies in affected area).
 
   :param MMapArea area: area this page belongs to.
   """
@@ -55,7 +55,7 @@ class MMapMemoryPage(ExternalMemoryPage):
     """
     Read one byte from page.
 
-    This is an abstract method, `__init__` is expected to replace it with
+    This is an abstract method, ``__init__`` is expected to replace it with
     a method, tailored for the Python version used.
 
     :param int offset: offset of the requested byte.
@@ -68,7 +68,7 @@ class MMapMemoryPage(ExternalMemoryPage):
     """
     Write one byte to page.
 
-    This is an abstract method, `__init__` is expected to replace it with
+    This is an abstract method, ``__init__`` is expected to replace it with
     a method, tailored for the Python version used.
 
     :param int offset: offset of the modified byte.
@@ -126,7 +126,7 @@ class MMapArea(object):
   Objects of this class represent one mmaped memory area each, to track this
   information for later use.
 
-  :param ptr: ``mmap object``, as returned by `mmap.mmap` function.
+  :param ptr: ``mmap object``, as returned by :py:meth:`mmap.mmap` function.
   :param u32_t address: address of the first byte of an area in the memory.
   :param u32_t size: length of the area, in bytes.
   :param file_path: path to a source file.
@@ -159,6 +159,11 @@ class MMapArea(object):
     pass
 
 class ROMLoader(IMachineWorker):
+  """
+  This class provides methods for loading all necessary pieces into VM's
+  memory. These methods are called in VM's `boot` phase.
+  """
+
   def __init__(self, machine):
     self.machine = machine
     self.config = machine.config
@@ -265,15 +270,15 @@ class ROMLoader(IMachineWorker):
 
   def setup_hdt(self):
     """
-    Initialize memory area that contains HDT.
+    Initialize memory area containing :ref:`HDT`.
 
-    If VM config file specifies HDT image file, it is loaded, otherwise HDT
-    is constructed for the actual configuration. It is then copied into memory.
+    If VM config file specifies ``HDT`` image file, it is loaded, otherwise HDT
+    is constructed for the actual configuration, and then it's copied into memory.
 
-    :param u32_t machine.hdt-address: Base address of HDT in memory. If not set,
-      :py:const:`ducky.boot.DEFAULT_HDT_ADDRESS` is used.
-    :param machine.hdt-image: HDT image to load. If not set, HDT is constructed
-      for the actual VM's configuration.
+    :param u32_t machine.hdt-address: Base address of ``HDT`` in memory. If not
+      set, :py:const:`ducky.boot.DEFAULT_HDT_ADDRESS` is used.
+    :param str machine.hdt-image: ``HDT`` image to load. If not set, ``HDT`` is
+      constructed for the actual VM's configuration.
     """
 
     self.DEBUG('%s.setup_hdt', self.__class__.__name__)
@@ -376,12 +381,19 @@ class ROMLoader(IMachineWorker):
         a = klass.create_from_config(core.debug, self.config, action_section)
         p.actions.append(a)
 
-  def __load_content(self, base, content):
+  def _load_content(self, base, content):
+    """
+    Load data from binary file into memory.
+
+    :param u32_t base: address of the first byte.
+    :param list content: content to place into memory.
+    """
+
     from .cpu.assemble import SpaceSlot
 
     ptr = base
 
-    self.DEBUG('%s.__load_content: base=%s, items=%s', self.__class__.__name__, UINT32_FMT(base), len(content))
+    self.DEBUG('%s._load_content: base=%s, items=%s', self.__class__.__name__, UINT32_FMT(base), len(content))
 
     def __write(writer, size, value):
       writer(ptr, value)
@@ -394,7 +406,7 @@ class ROMLoader(IMachineWorker):
     }
 
     for i in content:
-      self.DEBUG('%s.__load_content: ptr=%s, i=%s', self.__class__.__name__, UINT32_FMT(ptr), UINT32_FMT(i))
+      self.DEBUG('%s._load_content: ptr=%s, i=%s', self.__class__.__name__, UINT32_FMT(ptr), UINT32_FMT(i))
 
       if isinstance(i, SpaceSlot):
         ptr += i.size
@@ -402,17 +414,20 @@ class ROMLoader(IMachineWorker):
       else:
         ptr = writers[sizeof(i)](i.value)
 
-  def load_text(self, base, content):
-    self.DEBUG('%s.load_text: base=%s', self.__class__.__name__, UINT32_FMT(base))
-
-    self.__load_content(base, content)
-
-  def load_data(self, base, content):
-    self.DEBUG('%s.load_data: base=%s', self.__class__.__name__, UINT32_FMT(base))
-
-    self.__load_content(base, content)
-
   def setup_bootloader(self, filepath, base = None):
+    """
+    Load :term:`bootloader` into main memory.
+
+    In the world of a real hardware, bootloader binary would be transformed
+    into an :term:`image`, and then "burned" in some form into the memory -
+    main, or some kind of ROM from which it'd be loaded into main memory at
+    the very beginning of boot process.
+
+    :param str filepath: path to bootloader binary.
+    :param u32_t base: address of the first byte of bootloader in memory.
+      By default, :py:const:`ducky.boot.DEFAULT_BOOTLOADER_ADDRESS` is used.
+    """
+
     self.DEBUG('%s.setup_bootloader: filepath=%s, base=%s', self.__class__.__name__, filepath, UINT32_FMT(base) if base is not None else '<none>')
 
     base = base or DEFAULT_BOOTLOADER_ADDRESS
@@ -451,10 +466,10 @@ class ROMLoader(IMachineWorker):
             mc.alloc_specific_page(i)
 
           if s_header.type == SectionTypes.TEXT:
-            self.load_text(s_base, s_content)
+            self._load_content(s_base, s_content)
 
           elif s_header.type == SectionTypes.DATA and s_header.flags.bss != 1:
-            self.load_data(s_base, s_content)
+            self._load_content(s_base, s_content)
 
   def poke(self, address, value, length):
     self.DEBUG('%s.poke: addr=%s, value=%s, length=%s', self.__class__.__name__, UINT32_FMT(address), UINT32_FMT(value), length)

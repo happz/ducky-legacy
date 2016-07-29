@@ -53,7 +53,7 @@ All arithmetic instructions take at least one operand, a register. In case of bi
 Bitwise operations
 ^^^^^^^^^^^^^^^^^^
 
-All bitwise operations - with exception of ``not`` - take two operands, a register, and either another register or an immediate value (15 bits wide, sign-extended to 32 bits). The result if always stored in the first operand.
+All bitwise operations - with exception of ``not`` - take two operands, a register, and either another register or an immediate value (15 bits wide, sign-extended to 32 bits). The result is always stored in the first operand.
 
 ``and rA, (rB|<value>)``
 
@@ -64,6 +64,8 @@ All bitwise operations - with exception of ``not`` - take two operands, a regist
 ``shiftl rA, (rB|<value>)``
 
 ``shiftr rA, (rB|<value>)``
+
+``shiftrs rA, (rB|<value>)``
 
 ``xor rA, (rB|<values>)``
 
@@ -87,16 +89,27 @@ Conditional branching
 | Instruction | Jump when ...           |
 +-------------+-------------------------+
 | ``be``      | ``e = 1``               |
++-------------+-------------------------+
 | ``bne``     | ``e = 0``               |
++-------------+-------------------------+
 | ``bs``      | ``s = 1``               |
++-------------+-------------------------+
 | ``bns``     | ``s = 0``               |
++-------------+-------------------------+
 | ``bz``      | ``z = 1``               |
++-------------+-------------------------+
 | ``bnz``     | ``z = 0``               |
++-------------+-------------------------+
 | ``bo``      | ``o = 1``               |
++-------------+-------------------------+
 | ``bno``     | ``o = 0``               |
++-------------+-------------------------+
 | ``bg``      | ``e = 0`` and ``s = 0`` |
++-------------+-------------------------+
 | ``bge``     | ``e = 1`` or ``s = 0``  |
++-------------+-------------------------+
 | ``bl``      | ``e = 0`` and ``s = 1`` |
++-------------+-------------------------+
 | ``ble``     | ``e = 1`` or ``s = 1``  |
 +-------------+-------------------------+
 
@@ -111,16 +124,27 @@ For flags relevant for each instruction, see branching instruction with the same
 | Instruction |
 +-------------+
 | ``sete``    |
++-------------+
 | ``setne``   |
++-------------+
 | ``setz``    |
++-------------+
 | ``setnz``   |
++-------------+
 | ``seto``    |
++-------------+
 | ``setno``   |
++-------------+
 | ``sets``    |
++-------------+
 | ``setns``   |
++-------------+
 | ``setg``    |
++-------------+
 | ``setge``   |
++-------------+
 | ``setl``    |
++-------------+
 | ``setle``   |
 +-------------+
 

@@ -21,6 +21,7 @@ About
   software.rst
   tools.rst
   examples.rst
+  glossary.rst
 
 
 Code Documentation
@@ -32,8 +33,6 @@ Code Documentation
    ducky.boot
    ducky.config
    ducky.console
-   ducky.cc
-   ducky.cc.passes
    ducky.cpu
    ducky.cpu.coprocessor
    ducky.debugging

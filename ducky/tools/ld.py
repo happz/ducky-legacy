@@ -1,30 +1,91 @@
+import ast
 import collections
 import logging
 import os
+import re
 import sys
 import tarfile
 import tempfile
 
-from six import iteritems, integer_types
+from six import iteritems, iterkeys, integer_types
+from functools import partial
 
 from ..mm import i32_t, u32_t, UINT32_FMT, MalformedBinaryError
 from ..mm.binary import File, SectionTypes, SymbolEntry, SECTION_ITEM_SIZE, SectionFlags, SymbolFlags
 from ..cpu.assemble import align_to_next_page, align_to_next_mmap, sizeof
 from ..cpu.instructions import encoding_to_u32, u32_to_encoding
 from ..util import str2int
-from ..errors import UnalignedJumpTargetError, EncodingLargeValueError, IncompatibleLinkerFlagsError, UnknownSymbolError, PatchTooLargeError
+from ..errors import Error, UnalignedJumpTargetError, EncodingLargeValueError, IncompatibleLinkerFlagsError, UnknownSymbolError, PatchTooLargeError, BadLinkerScriptError
 
 def align_nop(n):
   return n
 
+class LinkerScript(object):
+  def __init__(self, filepath = None):
+    self._filepath = filepath
+
+    self._dst_section_start = collections.OrderedDict()
+    self._dst_section_map = collections.OrderedDict()
+
+    if self._filepath is None:
+      return
+
+    with open(filepath, 'r') as f:
+      data = f.read()
+
+    try:
+      script = ast.literal_eval(data)
+
+    except ValueError as e:
+      raise BadLinkerScriptError(filepath, e)
+
+    section_start = None
+
+    for entry in script:
+      if isinstance(entry, integer_types):
+        section_start = entry
+        continue
+
+      if not isinstance(entry, tuple):
+        continue
+
+      dst_section, src_sections = entry
+
+      if section_start is None:
+        self._dst_section_start[dst_section] = None
+
+      else:
+        self._dst_section_start[dst_section] = section_start
+        section_start = None
+
+      for src_section in src_sections:
+        self._dst_section_map[re.compile(r'^' + src_section + r'$')] = dst_section
+
+  def section_ordering(self):
+    return self._dst_section_start.keys()
+
+  def where_to_merge(self, src_section):
+    for src_section_pattern, dst_section in iteritems(self._dst_section_map):
+      if not src_section_pattern.match(src_section):
+        continue
+
+      return dst_section
+
+    raise Exception('foo')
+
+  def where_to_base(self, section):
+    return self._dst_section_start.get(section, None)
+
 class LinkerInfo(object):
-  def __init__(self):
+  def __init__(self, linker_script):
     super(LinkerInfo, self).__init__()
 
     self.section_offsets = collections.defaultdict(dict)
     self.relocations = collections.defaultdict(list)
     self.symbols = collections.defaultdict(list)
     self.section_bases = collections.defaultdict(dict)
+
+    self.linker_script = linker_script
 
 def merge_object_into(logger, info, f_dst, f_src):
   r_header, r_content = f_src.get_section_by_name('.reloc')
@@ -41,14 +102,17 @@ def merge_object_into(logger, info, f_dst, f_src):
     elif s_header.type == SectionTypes.STRINGS:
       continue
 
-    s_name = f_src.string_table.get_string(s_header.name)
+    src_section_name = f_src.string_table.get_string(s_header.name)
 
-    logger.debug('Merge section %s into dst file', s_name)
+    logger.debug('Merge section %s into dst file', src_section_name)
 
     align = align_to_next_mmap if f_dst.get_header().flags.mmapable == 1 else align_nop
 
+    dst_section_name = info.linker_script.where_to_merge(src_section_name)
+    logger.debug('  Section "%s" will be merged into "%s"', src_section_name, dst_section_name)
+
     try:
-      d_header, d_content = f_dst.get_section_by_name(s_name)
+      d_header, d_content = f_dst.get_section_by_name(dst_section_name)
 
     except MalformedBinaryError:
       logger.debug('No such section exists in dst file yet, copy')
@@ -61,7 +125,7 @@ def merge_object_into(logger, info, f_dst, f_src):
       d_header.items = s_header.items
       d_header.data_size = s_header.data_size
       d_header.file_size = align(d_header.data_size)
-      d_header.name = f_dst.string_table.put_string(s_name)
+      d_header.name = f_dst.string_table.put_string(dst_section_name)
       d_header.flags = s_header.flags
       f_dst.set_content(d_header, s_content)
       continue
@@ -83,95 +147,106 @@ def merge_object_into(logger, info, f_dst, f_src):
 
   f_dst.save()
 
-def fix_section_bases(logger, info, f_out, required_bases):
+def fix_section_bases(logger, info, f_out):
   D = logger.debug
 
+  D('----- * ----- * ----- * ----- * -----')
   D('Fixing base addresses of sections')
+  D('----- * ----- * ----- * ----- * -----')
 
-  sections_to_fix = {}
+  sort_by_base = partial(sorted, key = lambda x: x[1].base)
 
-  for s_header, s_content in f_out.sections():
-    s_header.base = 0xFFFFFFFF
+  D('Sections to fix:')
 
-    if s_header.type in (SectionTypes.RELOC, SectionTypes.SYMBOLS, SectionTypes.STRINGS):
+  sections = {}
+
+  for header in f_out.iter_headers():
+    if header.type in (SectionTypes.RELOC, SectionTypes.SYMBOLS, SectionTypes.STRINGS):
       continue
 
-    sections_to_fix[f_out.string_table.get_string(s_header.name)] = s_header
+    name = f_out.string_table.get_string(header.name)
+    sections[name] = header
 
-  D('sections to fix: %s', sections_to_fix)
+    base = info.linker_script.where_to_base(name)
+    header.base = base if base is not None else 0xFFFFFFFF
 
-  for s_name, s_base in iteritems(required_bases):
-    if s_name not in sections_to_fix:
-      continue
+    D('  "%s" - %s', name, header)
 
-    s_header = sections_to_fix[s_name]
+  tmp_sections = collections.OrderedDict(sort_by_base([(name, header) for name, header in iteritems(sections)]))
 
-    s_header.base = s_base
-    del sections_to_fix[s_name]
+  for name, header in iteritems(tmp_sections):
+    if header.base == 0xFFFFFFFF:
+      D('  %s floating', name)
+    else:
+      D('  %s @ %s', name, UINT32_FMT(header.base))
 
-  D('sections to fix without required bases: %s', sections_to_fix)
-
-  fixed_sections = []
-  for s_header, s_content in f_out.sections():
-    if s_header.type in (SectionTypes.RELOC, SectionTypes.SYMBOLS, SectionTypes.STRINGS):
-      continue
-    if s_header.base == 0xFFFFFFFF:
-      continue
-
-    fixed_sections.append(s_header)
-
-  D('fixed sections: %s', fixed_sections)
-  fixed_sections = sorted(fixed_sections, key = lambda x: x.base)
-  D('fixed sections, sorted: %s', fixed_sections)
+  D('Order: %s', info.linker_script.section_ordering())
 
   align = align_to_next_mmap if f_out.get_header().flags.mmapable == 1 else align_to_next_page
 
   def overlap(a, b):
     return max(0, min(a[1], b[1]) - max(a[0], b[0]))
 
-  for s_name, s_header in iteritems(sections_to_fix):
-    base = 0
+  sections = []
 
-    for i, f_header in enumerate(fixed_sections):
-      s_area = (base, align(base + s_header.data_size))
-      f_area = (f_header.base, align(f_header.base + f_header.data_size))
-      D('s_area: from=%s to=%s' % (UINT32_FMT(s_area[0]), UINT32_FMT(s_area[1])))
-      D('f_area: from=%s to=%s' % (UINT32_FMT(f_area[0]), UINT32_FMT(f_area[1])))
+  D('Looking for section base addresses:')
 
-      if overlap(s_area, f_area) != 0:
-        base = f_area[1]
-        D('  colides with f_area')
-        continue
+  def dump_sections():
+    D('')
+    D('Sections:')
 
-      if i < len(fixed_sections) - 1:
-        f_next = fixed_sections[i + 1]
-        if s_area[1] > f_next.base:
-          base = f_next[1]
-          D('   can not fit between f_header and f_next')
-          continue
+    table = [['Name', 'Start', 'End']]
 
-      D('  fits in')
-      s_header.base = base
-      fixed_sections.append(s_header)
-      fixed_sections = sorted(fixed_sections, key = lambda x: x.base)
-      break
+    for name, header in sections:
+      table.append([name, UINT32_FMT(header.base), UINT32_FMT(align(header.base + header.data_size))])
+
+    logger.table(table, fn = logger.debug)
+
+  for name in info.linker_script.section_ordering():
+    dump_sections()
+
+    D('')
+    D('Considering %s', name)
+
+    if name not in tmp_sections:
+      D('  not present')
+      continue
+
+    header = tmp_sections[name]
+
+    if sections:
+      last_name, last_header = sections[-1]
+      base = align(last_header.base + last_header.data_size)
 
     else:
-      if fixed_sections:
-        base = align(fixed_sections[-1].base + fixed_sections[-1].data_size)
-      else:
-        base = 0
+      last_name, last_header = None, None
+      base = 0x00000000
 
-      if base + s_header.data_size >= 0xFFFFFFFF:
-        logger.error('Cant fit %s into any space', s_name)
-        logger.error('section: %s', s_header)
-        logger.error('fixed: %s', fixed_sections)
+    if header.base == 0xFFFFFFFF:
+      D('  base not set')
+
+      if base + header.data_size >= 0xFFFFFFFF:
+        logger.error('Cannot place %s to a base - no space left', name)
+        logger.error('  header: %s', header)
+        dump_sections()
         sys.exit(1)
 
-      D('  append at the end')
-      s_header.base = base
-      fixed_sections.append(s_header)
-      fixed_sections = sorted(fixed_sections, key = lambda x: x.base)
+      header.base = base
+
+    else:
+      D('  base set')
+
+      if header.base < base:
+        logger.error('Cannot place %s to a requested base - previous section is too long', name)
+        logger.error('  header: %s', header)
+        dump_sections()
+        sys.exit(1)
+
+    sections.append((name, header))
+    sections = sort_by_base(sections)
+
+  else:
+    dump_sections()
 
   f_out.save()
 
@@ -195,12 +270,16 @@ def resolve_symbols(logger, info, f_out, f_ins):
         D('Symbol: %s', s_name)
 
         o_header, o_content = f_in.get_section(s_se.section)
-        D('Symbol points to source section: %s', o_header)
+        D('  src section: %s', o_header)
 
-        o_name = f_in.string_table.get_string(o_header.name)
+        o_src_name = f_in.string_table.get_string(o_header.name)
+        D('  src section name: %s', o_src_name)
 
-        d_header, d_content = f_out.get_section_by_name(o_name)
-        D('Symbol points to destination section: %s', d_header)
+        o_dst_name = info.linker_script.where_to_merge(o_src_name)
+        D('  dst section name: %s', o_dst_name)
+
+        d_header, d_content = f_out.get_section_by_name(o_dst_name)
+        D('  dst section: %s', d_header)
 
         D('src base: %s, dst base: %s, symbol addr: %s, section dst offset: %s', UINT32_FMT(o_header.base), UINT32_FMT(d_header.base), UINT32_FMT(s_se.address), UINT32_FMT(info.section_offsets[f_in][o_header.index]))
         new_addr = s_se.address - o_header.base + info.section_offsets[f_in][o_header.index] + d_header.base
@@ -396,11 +475,13 @@ def resolve_relocations(logger, info, f_out, f_ins):
 
         # Get all involved sections
         src_header, _ = f_in.get_section(re.patch_section)
-        section_name = f_in.string_table.get_string(src_header.name)
-        dst_header, dst_content = f_out.get_section_by_name(section_name)
+        src_section_name = f_in.string_table.get_string(src_header.name)
+        dst_section_name = info.linker_script.where_to_merge(src_section_name)
+        dst_header, dst_content = f_out.get_section_by_name(dst_section_name)
 
-        D('  section: %s', section_name)
+        D('  src section: %s', src_section_name)
         D('  src header: %s', src_header)
+        D('  dst section: %s', dst_section_name)
         D('  dst header: %s', dst_header)
         D('  symbol: %s', symbol_name)
 
@@ -425,9 +506,7 @@ def resolve_relocations(logger, info, f_out, f_ins):
 
   f_out.save()
 
-def link_files(logger, info, files_in, file_out, bases = None):
-  bases = bases or {}
-
+def link_files(logger, info, files_in, file_out):
   fs_in = []
 
   def __read_object_file(f):
@@ -469,7 +548,7 @@ def link_files(logger, info, files_in, file_out, bases = None):
     for f_in in fs_in:
       merge_object_into(logger, info, f_out, f_in)
 
-    fix_section_bases(logger, info, f_out, bases)
+    fix_section_bases(logger, info, f_out)
     resolve_symbols(logger, info, f_out, fs_in)
     resolve_relocations(logger, info, f_out, fs_in)
 
@@ -504,8 +583,8 @@ def main():
 
   group = optparse.OptionGroup(parser, 'Linker options')
   parser.add_option_group(group)
+  group.add_option('--script',       dest = 'script',       action = 'store',      default = None,  help = 'Linker script')
   group.add_option('--archive',      dest = 'archive',      action = 'store_true', default = False, help = 'Instead of linking, create an archive containing all input files')
-  group.add_option('--section-base', dest = 'section_base', action = 'append', default = [], help = 'Set base of section to specific address', metavar = 'SECTION=ADDRESS')
 
   options, logger = parse_options(parser)
 
@@ -529,17 +608,29 @@ def main():
     archive_files(logger, options.file_in, options.file_out)
 
   else:
-    info = LinkerInfo()
+    def __cleanup(exc, msg = None):
+      if msg is None:
+        logger.exception(exc)
+
+      else:
+        logger.error(msg)
+
+      if os.path.exists(options.file_out):
+        os.unlink(options.file_out)
+
+      sys.exit(1)
 
     try:
-      link_files(logger, info, options.file_in, options.file_out, bases = {name: str2int(value) for name, value in (e.split('=') for e in options.section_base)})
+      script = LinkerScript(options.script)
+      info = LinkerInfo(script)
 
-    except IncompatibleLinkerFlagsError:
-      logger.error('All input files must have the same mmapable setting')
-      os.unlink(options.file_out)
-      sys.exit(1)
+      link_files(logger, info, options.file_in, options.file_out)
 
-    except UnknownSymbolError as e:
-      logger.exception(e)
-      os.unlink(options.file_out)
-      sys.exit(1)
+    except IncompatibleLinkerFlagsError as e:
+      __cleanup(e, msg = 'All input files must have the same mmapable setting')
+
+    except BadLinkerScriptError as e:
+      __cleanup(e, msg = 'Bad linker script: script=%s, error=%s' % (e.script, str(e.exc)))
+
+    except Error as e:
+      __cleanup(e)

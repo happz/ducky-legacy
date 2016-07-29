@@ -5,10 +5,7 @@ import os
 Import('ENV')
 
 E = ENV.FullClone(
-  SECTION_BASES = [
-    '.text=0x00000000',
-    '.userspace=0x00009000'
-  ]
+  LINKER_SCRIPT = File('forth.ld').abspath
 )
 
 E.Append(INCLUDE = '-I %s' % Dir('#forth').abspath)

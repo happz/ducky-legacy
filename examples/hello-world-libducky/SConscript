@@ -1,0 +1,22 @@
+#! /usr/bin/env python
+
+Import('ENV', 'common_run_example')
+
+E = ENV.FullClone(
+  LINKER_SCRIPT = File('#libducky/libducky.ld').abspath
+)
+
+if 'COVERAGEDIR' in E:
+  E.Depends('main.o', E['COVERAGEDIR'])
+
+E.DuckyAsmFromC('main.s', source = ['main.c'])
+E.DuckyObjFromAsm('main.o', source = ['main.s'])
+E.DuckyBinary(E.File('hello-world'), source = ['#libducky/libducky.tgz', 'main.o'], SECTION_BASES = ['.text.crt0=0x00000000'])
+E.Alias('hello-world-libducky', E.File('hello-world'))
+
+common_run_example(E, 'hello-world', 'hello-world-libducky')
+
+ENV.Help("""
+     ${BLUE}'scons hello-world-libducky'${CLR} to build yet another "Hello, world!" example,
+     ${BLUE}'scons run-hello-world-libducky'${CLR} to run this yet another "Hello, world!" example,
+""")

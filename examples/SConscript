@@ -9,7 +9,7 @@ def common_example(env, example_name, alias_name = None, sources = None, link_ob
   binary = env.File(example_name)
 
   alias_name = alias_name or example_name
-  link_args = link_args if link_args is not None else {'SECTION_BASES': ['.text=0x00000000']}
+  link_args = link_args or {}
   set_options = set_options if set_options is not None else ['bootloader:file=%s' % binary.abspath]
   sources = sources if sources is not None else [example_name + '.s']
 

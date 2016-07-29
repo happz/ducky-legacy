@@ -5,7 +5,7 @@ Import('ENV')
 ENV.DuckyObject('smp.o', source = 'smp.s')
 ENV.ReadExternalDeps()
 
-ENV.DuckyBinary('smp', source = ['smp.o'], SECTION_BASES = ['.text=0x00000000'])
+ENV.DuckyBinary('smp', source = ['smp.o'])
 ENV.Command('smp.img', 'smp', ENV.DuckyImage('smp.img', 'smp', bio = True))
 
 smp = ENV.Alias('smp', File('smp'))

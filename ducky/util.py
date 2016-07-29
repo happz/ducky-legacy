@@ -275,26 +275,67 @@ class StringTable(object):
   much easier.
   """
 
-  def __init__(self):
+  def __init__(self, buff = None):
     super(StringTable, self).__init__()
 
-    self.buff = ''
+    self.buff = buff if buff is not None else ''
+
+  @property
+  def buff(self):
+    """
+    Serialize internal string table to a stream of bytes.
+    """
+
+    if self._buff is not None:
+      return self._buff
+
+    self._buff = ''
+
+    for s, (l, offset) in iteritems(self._string_to_offset):
+      self._buff += l
+      self._buff += s
+
+    return self._buff
+
+  @buff.setter
+  def buff(self, buff):
+    self._string_to_offset = collections.OrderedDict()
+    self._offset_to_string = {}
+
+    buff_len = len(buff)
+    offset = 0
+
+    while offset < buff_len:
+      l = ord(buff[offset])
+      s = buff[offset + 1:offset + 1 + l]
+
+      self._string_to_offset[s] = (chr(l), offset)
+      self._offset_to_string[offset] = s
+
+      offset += 1 + l
+
+    self._buff = buff
+    self._offset = offset
 
   def put_string(self, s):
     """
-    Insert new string into table. String is appended at the end of internal buffer,
-    and terminating zero byte (\0) is appended to mark end of string.
+    Insert new string into table. String is appended at the end of internal buffer.
 
     :returns: offset of inserted string
     :rtype: ``int``
     """
 
-    offset = len(self.buff)
+    if s not in self._string_to_offset:
+      l = len(s)
 
-    self.buff += chr(len(s))
-    self.buff += s
+      self._string_to_offset[s] = (chr(l), self._offset)
+      self._offset_to_string[self._offset] = s
 
-    return offset
+      self._offset += 1 + l
+
+      self._buff = None
+
+    return self._string_to_offset[s][1]
 
   def get_string(self, offset):
     """
@@ -305,8 +346,7 @@ class StringTable(object):
     :rtype: ``string``
     """
 
-    l = ord(self.buff[offset])
-    return ''.join(self.buff[offset + 1:offset + 1 + l])
+    return self._offset_to_string[offset]
 
 class SymbolTable(dict):
   def __init__(self, binary):

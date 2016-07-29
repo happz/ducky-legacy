@@ -161,7 +161,6 @@ if 'TESTSETDIR' in ENV:
 E = ENV.FullClone()
 E.Append(TESTSDIR = ENV.Dir('.').abspath)
 E.Append(FORTHDIR = ENV.Dir('#forth').abspath)
-E.Append(SECTION_BASES = ['.text=0x00000000'])
 
 if 'TESTSETDIR' in E:
   E.Append(RESULTSFILE  = File(E.subst('$RESULTSDIR/testsuite.xml')).abspath)

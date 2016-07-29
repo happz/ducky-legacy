@@ -8,7 +8,7 @@ E = ENV.FullClone()
 E.PassVarAsDefine('BOOT_IMAGE')
 
 E.DuckyObject('loader.o', source = 'loader.s')
-E.DuckyBinary('loader', source = ['loader.o'], SECTION_BASES = ['.text=0x00000000'])
+E.DuckyBinary('loader', source = ['loader.o'])
 E.ReadExternalDeps()
 ENV.Command('loader.img', 'loader', E.DuckyImage('loader.img', 'loader'))
 

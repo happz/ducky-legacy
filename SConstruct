@@ -368,9 +368,9 @@ def __compile_ducky_object(source, target, env):
 
 def __link_ducky_binary(source, target, env):
   cmd = DuckyCommand(env)
-  cmd.command = env.subst('$VIRTUAL_ENV/bin/ducky-ld {inputs} {section_bases} -o {target}'.format(
+  cmd.command = env.subst('$VIRTUAL_ENV/bin/ducky-ld {inputs} {linker_script} -o {target}'.format(
     inputs = ' '.join(['-i %s' % f for f in source]),
-    section_bases = ' '.join(['--section-base=%s' % section_base for section_base in env['SECTION_BASES']]) if 'SECTION_BASES' in env else '',
+    linker_script = ('--script=%s' % env['LINKER_SCRIPT']) if 'LINKER_SCRIPT' in env else '',
     target  = target[0]))
 
   if 'COVERAGEDIR' in env:
@@ -510,6 +510,9 @@ def print_info(source, target, env):
   env.INFO('Build stamp:           %s' % env['BUILD_STAMP'])
   env.INFO('SCONS is using Python: %s (%s)' % (ENV['SCONS_PYTHON'], ENV['SCONS_PYTHON_NAME']))
   env.INFO('Default Python:        %s (%s)' % (ENV['PYTHON'], ENV['PYTHON_NAME']))
+
+  if 'LLVMDIR' in env:
+    env.INFO('LLVM dir:              %s' % ENV['LLVMDIR'])
 
   if 'TESTSETDIR' in env:
     env.INFO('Test set dir:          %s' % ENV['TESTSETDIR'])
@@ -659,8 +662,15 @@ ENV = Environment(
   # Python version provided by virtualenv
   PYTHON = subprocess.check_output('type python', shell = True).split('\n')[0].split(' ')[2].strip(),
   PYTHON_NAME = subprocess.check_output('python -c "from __future__ import print_function; import sys; print(sys.version)"', shell = True).replace('\n', ' ').strip(),
-  PYTHON_VERSION = eval(subprocess.check_output('python -c "from __future__ import print_function; import sys; print(list(sys.version_info))"', shell = True))
+  PYTHON_VERSION = eval(subprocess.check_output('python -c "from __future__ import print_function; import sys; print(list(sys.version_info))"', shell = True)),
+
+  # Default linker script
+  LINKER_SCRIPT = File('#raw.ld').abspath
 )
+
+# If LLVMDIR wasn't specified on command line, maybe it exists in environment
+if 'LLVMDIR' not in ENV and 'LLVMDIR' in os.environ:
+  ENV.Append(LLVMDIR = os.environ['LLVMDIR'])
 
 # Clone ENV to ENV, to add our methods
 ENV = __clone_env(ENV)

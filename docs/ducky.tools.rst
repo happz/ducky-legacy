@@ -7,7 +7,6 @@ Submodules
 .. toctree::
 
    ducky.tools.as
-   ducky.tools.cc
    ducky.tools.coredump
    ducky.tools.defs
    ducky.tools.img
