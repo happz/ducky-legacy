@@ -14,7 +14,7 @@ from ..errors import EncodingLargeValueError, UnalignedJumpTargetError, Assemble
 
 PO_REGISTER  = r'(?P<register_n{operand_index}>(?:r\d\d?)|(?:sp)|(?:fp))'
 PO_AREGISTER = r'(?P<address_register>r\d\d?|sp|fp)(?:\[(?:(?P<offset_sign>-|\+)?(?P<offset_immediate>0x[0-9a-fA-F]+|\d+))\])?'
-PO_IMMEDIATE = r'(?:(?P<immediate>(?:-|\+)?(?:0x[0-9a-fA-F]+|\d+))|(?P<immediate_address>&[a-zA-Z_\.][a-zA-Z0-9_\.]*))'
+PO_IMMEDIATE = r'(?:(?P<immediate>(?:-|\+)?(?:0x[0-9a-fA-F]+|\d+))|(?P<immediate_address>&?[a-zA-Z_\.][a-zA-Z0-9_\.]*))'
 
 def UINT20_FMT(i):
   return '0x%05X' % (i & 0xFFFFF)
@@ -279,8 +279,9 @@ class Descriptor(object):
 
         if reg_group_name in matches and matches[reg_group_name]:
           operands[reg_group_name] = str2reg(matches[reg_group_name])
+          continue
 
-        elif 'address_register' in matches and matches['address_register']:
+        if 'address_register' in matches and matches['address_register']:
           operands['areg'] = str2reg(matches['address_register'])
 
           if 'pointer' in matches and matches['pointer'] is not None:
@@ -300,14 +301,22 @@ class Descriptor(object):
             k = -1 if 'offset_sign' in matches and matches['offset_sign'] and matches['offset_sign'].strip() == '-' else 1
             operands['offset_immediate'] = k * str2int(matches['offset_immediate'])
 
-        elif 'immediate' in matches and matches['immediate']:
-          operands['immediate'] = str2int(matches['immediate'])
+          continue
 
-        elif 'immediate_address' in matches and matches['immediate_address'] is not None:
-          operands['immediate'] = matches['immediate_address']
+        imm = matches.get('immediate')
+        if imm is not None:
+          operands['immediate'] = str2int(imm)
+          continue
 
-        else:
-          raise Exception('Unhandled operand: {}'.format(matches))
+        imm = matches.get('immediate_address')
+        if imm is not None:
+          if imm[0] != '&':
+            imm = '&' + imm
+
+          operands['immediate'] = imm
+          continue
+
+        raise Exception('Unhandled operand: {}'.format(matches))
 
     else:
       pass

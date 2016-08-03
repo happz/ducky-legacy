@@ -79,7 +79,7 @@ def test_parse_immediate_variable(immediate):
   LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
   LOGGER.debug('TEST: immediate="%s"', immediate)
 
-  pattern = ' %s ' % immediate
+  pattern = ' %%%s ' % immediate
   LOGGER.debug('  pattern="%s"', pattern)
 
   m = RE_INTEGER.match(pattern)
@@ -90,11 +90,11 @@ def test_parse_immediate_variable(immediate):
 
   assert m['value_hex'] is None
   assert m['value_label'] is None
-  assert m['value_var'] == immediate
+  assert m['value_var'] == '%' + immediate
   assert m['value_dec'] is None
 
-@given(immediate = text(min_size = 1, alphabet = string.ascii_letters + string.digits + '_.'))
-def test_parse_immediate_label(immediate):
+@given(immediate = text(min_size = 1, alphabet = string.ascii_letters + string.digits + '_.'), prefix = sampled_from(['', '&']))
+def test_parse_immediate_label(immediate, prefix):
   immediate = immediate.encode('ascii', 'replace')
 
   if PY3:
@@ -103,9 +103,9 @@ def test_parse_immediate_label(immediate):
   assume(not immediate[0].isdigit())
 
   LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
-  LOGGER.debug('TEST: immediate="%s"', immediate)
+  LOGGER.debug('TEST: prefix="%s", immediate="%s"', prefix, immediate)
 
-  pattern = ' &%s ' % immediate
+  pattern = ' %s%s ' % (prefix, immediate)
   LOGGER.debug('  pattern="%s"', pattern)
 
   m = RE_INTEGER.match(pattern)
@@ -115,7 +115,7 @@ def test_parse_immediate_label(immediate):
   LOGGER.debug('  matches=%s', m)
 
   assert m['value_hex'] is None
-  assert m['value_label'] == '&' + immediate
+  assert m['value_label'] == prefix + immediate
   assert m['value_var'] is None
   assert m['value_dec'] is None
 
@@ -138,6 +138,7 @@ def __do_test_integer_label(directive, label):
   LOGGER.debug('TEST: directive=%s, label=%s', directive, label)
 
   translate_buffer('  %s  &%s  ; comment' % (directive, label))
+  translate_buffer('  %s  %s   ; comment' % (directive, label))
 
 @given(i = integers(min_value = 0, max_value = 0xFFFFFFFF))
 def test_byte_dec(i):
@@ -176,13 +177,13 @@ def test_short_label(label):
   __do_test_integer_label('.short', label)
 
 def test_byte_var():
-  translate_buffer('  .set foo, 1\n  .byte foo  ; foo ')
+  translate_buffer('  .set %foo, 1\n  .byte %foo  ; foo ')
 
 def test_int_var():
-  translate_buffer('  .set foo, 1\n  .int foo  ; foo ')
+  translate_buffer('  .set %foo, 1\n  .int %foo  ; foo ')
 
 def test_short_var():
-  translate_buffer('  .set foo, 1\n  .short foo  ; foo ')
+  translate_buffer('  .set %foo, 1\n  .short %foo  ; foo ')
 
 def test_int_incomplete():
   line = '  .int    ; foo '

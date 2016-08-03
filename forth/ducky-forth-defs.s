@@ -126,8 +126,8 @@
   .align 4
 
   .type name_#label, int
-  .int link
-  .set link, &name_#label
+  .int %link
+  .set %link, &name_#label
 
   .type __crc_#label, short
   .short 0x7979
@@ -151,8 +151,8 @@
   .align 4
 
   .type name_#label, int
-  .int link
-  .set link, &name_#label
+  .int %link
+  .set %link, &name_#label
 
   .type __crc_#label, short
   .short 0x7979
@@ -176,8 +176,8 @@
   .align 4
 
   .type name_#label, int
-  .int link
-  .set link, &name_#label
+  .int %link
+  .set %link, &name_#label
 
   .type __crc_#label, short
   .short 0x7979

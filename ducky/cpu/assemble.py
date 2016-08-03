@@ -24,7 +24,7 @@ align_to_next_mmap = functools.partial(align, mmap.PAGESIZE)
 def PATTERN(pattern):
   return re.compile(r'^\s*(?P<payload>' + pattern + r')(?:\s*[;#].*)?$', re.MULTILINE)
 
-RE_INTEGER = re.compile(r'^\s+(?:(?P<value_hex>-?0x[a-fA-F0-9]+)|(?P<value_dec>0|(?:-?[1-9][0-9]*))|(?P<value_var>[a-zA-Z][a-zA-Z0-9_]*(?:.*?)?)|(?P<value_label>&[a-zA-Z_\.][a-zA-Z0-9_\.]*))\s*$')
+RE_INTEGER = re.compile(r'^\s+(?:(?P<value_hex>-?0x[a-fA-F0-9]+)|(?P<value_dec>0|(?:-?[1-9][0-9]*))|(?P<value_var>%[a-zA-Z][a-zA-Z0-9_]*(?:.*?)?)|(?P<value_label>&?[a-zA-Z_\.][a-zA-Z0-9_\.]*))\s*$')
 RE_STR = re.compile(r'^\s*"(?P<string>.*?)"\s*$')
 
 RE_COMMENT = re.compile(r'^\s*[/;].*?$', re.MULTILINE)
@@ -42,7 +42,7 @@ RE_DATA = PATTERN(r'\.data(?:\s+(?P<name>\.[a-z][a-z0-9_]*))?')
 RE_INT = PATTERN(r'\.int(?P<integer>.*?)')
 RE_LABEL = PATTERN(r'(?P<label>[a-zA-Z_\.][a-zA-Z0-9_\.]*):')
 RE_SECTION = PATTERN(r'\.section\s+(?P<name>\.[a-zA-z0-9_\.]+)(?:,\s*(?P<flags>[rwxlbmg]*))?')
-RE_SET = PATTERN(r'\.set\s+(?P<name>[a-zA-Z_][a-zA-Z0-9_]*),\s*(?:(?P<current>\.)|(?P<value_hex>-?0x[a-fA-F0-9]+)|(?P<value_dec>0|(?:-?[1-9][0-9]*))|(?P<value_label>&[a-zA-Z][a-zA-Z0-9_]*))')
+RE_SET = PATTERN(r'\.set\s+(?P<name>%[a-zA-Z_][a-zA-Z0-9_]*),\s*(?:(?P<current>\.)|(?P<value_hex>-?0x[a-fA-F0-9]+)|(?P<value_dec>0|(?:-?[1-9][0-9]*))|(?P<value_label>&?[a-zA-Z][a-zA-Z0-9_]*))')
 RE_SHORT = PATTERN(r'\.short(?P<integer>.*?)')
 RE_SIZE = PATTERN(r'\.size\s+(?P<size>[1-9][0-9]*)')
 RE_SPACE = PATTERN(r'\.space\s+(?P<size>(?:0x[a-fA-F0-9]+)|(?:0|(?:[1-9][0-9]*)))')
@@ -524,7 +524,7 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
 
     v_value = groupdict.get('value_var')
     if v_value:
-      v_value = v_value.strip()
+      v_value = v_value.strip()[1:]
 
       if v_value not in variables:
         var.refers_to = Reference(label = '&' + v_value)
@@ -546,6 +546,9 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
 
     v_value = groupdict.get('value_label')
     if v_value:
+      if v_value[0] != '&':
+        v_value = '&' + v_value
+
       var.refers_to = Reference(label = v_value)
       DEBUG('__parse_integer: var=%s', var)
       return
@@ -1103,7 +1106,7 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
       if 'name' not in matches:
         raise buff.get_error(IncompleteDirectiveError, '.set directive without variable')
 
-      name = matches['name']
+      name = matches['name'][1:]
 
       if matches.get('current'):
         value = (curr_section.name, curr_section.ptr)
@@ -1116,6 +1119,8 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
 
       elif matches.get('value_label'):
         value = matches['value_label']
+        if value[0] != '&':
+          value = '&' + value
 
       else:
         raise buff.get_error(IncompleteDirectiveError, '.set directive with unknown value')
