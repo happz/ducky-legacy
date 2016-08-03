@@ -89,7 +89,7 @@ def run_testsuite(env, target, source, tests = None):
   return cmd.run(env, 'TEST', 'Testsuite')
 
 def run_testsuite_engine(env, target, source):
-  return run_testsuite(env, target, source, tests = ['tests.%s' % p for p in ['cpu', 'devices', 'hdt', 'instructions', 'mm', 'storage']])
+  return run_testsuite(env, target, source, tests = ['tests.%s' % p for p in ['assembly', 'cpu', 'devices', 'hdt', 'instructions', 'mm', 'storage']])
 
 def run_testsuite_forth_units(env, target, source):
   return run_testsuite(env, target, source, tests = ['tests.forth.units'])
@@ -104,7 +104,7 @@ def run_testsuite_examples(env, target, source):
   return run_testsuite(env, target, source, tests = ['tests.examples'])
 
 def run_testsuite_all(env, target, source):
-  return run_testsuite(env, target, source, tests = ['tests.%s' % p for p in ['cpu', 'devices', 'hdt', 'instructions', 'mm', 'storage', 'forth.units', 'forth.ans', 'examples']])
+  return run_testsuite(env, target, source, tests = ['tests.%s' % p for p in ['assembly', 'cpu', 'devices', 'hdt', 'instructions', 'mm', 'storage', 'forth.units', 'forth.ans', 'examples']])
 
 def generate_coverage_summary(target, source, env):
   """
