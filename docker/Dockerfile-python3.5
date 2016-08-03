@@ -13,7 +13,7 @@ ADD http://fanny.happz.cz/~happz/ducky-forth/latest/ducky-forth /tmp/
 ADD http://fanny.happz.cz/~happz/ducky-forth/latest/ducky-forth.f /tmp/
 ADD http://fanny.happz.cz/~happz/ducky-forth/latest/forth.conf /tmp/
 
-RUN mkdir -p /home && wget -O /home/ducky.zip --no-check-certificate https://github.com/happz/ducky/archive/master.zip && cd /home && unzip ducky.zip && mv ducky-master ducky && cd /home/ducky && make install-edit
+RUN mkdir -p /home && wget -O /home/ducky.zip --no-check-certificate https://github.com/happz/ducky/archive/master.zip && cd /home && unzip ducky.zip && mv ducky-master ducky && cd /home/ducky && python setup.py install
 
 ENV PYTHONUNBUFFERED=yes
 
