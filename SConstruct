@@ -463,7 +463,7 @@ def __read_external_deps(self, directory = None):
   with open(deps_file, 'r') as f:
     for line in f:
       line = line.strip()
-      if not line:
+      if not line or line[0] == '#':
         continue
 
       target, sources = [s.strip() for s in line.split(':')]
