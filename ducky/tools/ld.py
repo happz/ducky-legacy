@@ -74,7 +74,7 @@ class LinkerScript(object):
     raise Exception('foo')
 
   def where_to_base(self, section):
-    return self._dst_section_start.get(section, None)
+    return self._dst_section_start.get(section)
 
 class LinkerInfo(object):
   def __init__(self, linker_script):
@@ -245,8 +245,7 @@ def fix_section_bases(logger, info, f_out):
     sections.append((name, header))
     sections = sort_by_base(sections)
 
-  else:
-    dump_sections()
+  dump_sections()
 
   f_out.save()
 
@@ -384,9 +383,6 @@ class RelocationPatcher(object):
     if re.flags.relative == 1:
       lower, upper = -(2 ** (re.patch_size - 1)), (2 ** (re.patch_size - 1)) - 1
 
-      if patch < -(2 ** re.patch_size) or patch > ((2 ** re.patch_size) - 1):
-        raise Exception('Cannot patch: re=%s, se=%s', re, self._se)
-
     else:
       lower, upper = 0, 2 ** re.patch_size
 
@@ -394,8 +390,8 @@ class RelocationPatcher(object):
     self.DEBUG('  patch limits:  %s %s', lower, upper)
     self.DEBUG('  patch fits?    %s %s', patch < lower, patch > upper)
 
-    if patch < lower or patch > upper:
-      raise PatchTooLargeError('Patch cannot fit into available space: re=%s, se=%s, patch=%s' % (self._re, self._se, patch))
+    if not (lower <= patch <= upper):
+      raise PatchTooLargeError('Patch cannot fit into available space: re={reloc_entry}, se={symbol_entry}, patch={patch}'.format(reloc_entry = re, symbol_entry = se, patch = patch))
 
     patch = patch << re.patch_offset
     self.DEBUG('  shifted patch: %s', UINT32_FMT(patch))
@@ -630,7 +626,7 @@ def main():
       __cleanup(e, msg = 'All input files must have the same mmapable setting')
 
     except BadLinkerScriptError as e:
-      __cleanup(e, msg = 'Bad linker script: script=%s, error=%s' % (e.script, str(e.exc)))
+      __cleanup(e, msg = 'Bad linker script: script={script}, error={error}'.format(script = e.script, error = str(e.exc)))
 
     except Error as e:
       __cleanup(e)
