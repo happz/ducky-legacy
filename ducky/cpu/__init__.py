@@ -312,7 +312,7 @@ class MMU(ISnapshotable):
     :raises ducky.errors.MemoryAccessError: when access is denied.
     """
 
-    self.DEBUG('%s.check_access: access=%s, addr=%s', self.__class__.__name__, access, UINT32_FMT(addr))
+    self.DEBUG('%s.check_access: access=%s, addr=%s, align=%s', self.__class__.__name__, access, UINT32_FMT(addr), align)
 
     if self.force_aligned_access and align is not None and addr % align:
       raise UnalignedAccessError(core = self.core)
@@ -731,7 +731,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
     :param u32_t args: if present, these values will be pushed onto the stack.
     """
 
-    self.DEBUG('_enter_exception: index=%i', index)
+    self.DEBUG('_enter_exception: index=%s', UINT8_FMT(index))
 
     if index >= ExceptionList.COUNT:
       raise InvalidExceptionError(index)
