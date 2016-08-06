@@ -17,8 +17,8 @@ from ..errors import ExceptionList, AccessViolationError, InvalidResourceError, 
 from ..util import LRUCache, Flags
 from ..snapshot import SnapshotNode
 
-#: Default IVT address
-DEFAULT_IVT_ADDRESS = 0x00000000
+#: Default EVT address
+DEFAULT_EVT_ADDRESS = 0x00000000
 
 #: Default PT address
 DEFAULT_PT_ADDRESS = 0x00010000
@@ -35,7 +35,7 @@ class CPUState(SnapshotNode):
 
 class CPUCoreState(SnapshotNode):
   def __init__(self):
-    super(CPUCoreState, self).__init__('cpuid', 'coreid', 'registers', 'exit_code', 'alive', 'running', 'idle', 'ivt_address', 'pt_address', 'pt_enabled', 'flags')
+    super(CPUCoreState, self).__init__('cpuid', 'coreid', 'registers', 'exit_code', 'alive', 'running', 'idle', 'evt_address', 'pt_address', 'pt_enabled', 'flags')
 
 class InterruptVector(object):
   """
@@ -417,7 +417,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
     self.arith_overflow = False
     self.arith_sign = False
 
-    self.ivt_address = config.getint('cpu', 'ivt-address', DEFAULT_IVT_ADDRESS)
+    self.evt_address = config.getint('cpu', 'evt-address', DEFAULT_EVT_ADDRESS)
 
     self.instruction_set = DuckyInstructionSet
     self.instruction_set_stack = []
@@ -468,7 +468,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
     for i, reg in enumerate(REGISTER_NAMES):
       state.registers.append(int(self.registers.map[reg].value))
 
-    state.ivt_address = self.ivt_address
+    state.evt_address = self.evt_address
     state.pt_address = self.mmu.pt_address
     state.pt_enabled = self.mmu.pt_enabled
 
@@ -486,7 +486,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
     for i, reg in enumerate(REGISTER_NAMES):
       self.registers.map[reg].value = state.registers[i]
 
-    self.ivt_address = state.ivt_address
+    self.evt_address = state.evt_address
     self.mmu.pt_address = state.pt_address
     self.mmu.pt_enabled = state.pt_enabled
 
@@ -699,7 +699,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
   def _enter_exception(self, index, *args):
     """
     Prepare CPU for handling exception routine. CPU core loads new ``IP``
-    and ``SP`` from proper entry of IVT. Old ``SP`` and ``FLAGS`` are saved
+    and ``SP`` from proper entry of EVT. Old ``SP`` and ``FLAGS`` are saved
     on the exception stack, and new call frame is created. Privileged mode
     flag is set, hardware interrupt flag is cleared.
 
@@ -709,7 +709,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
     Exception stack layout then looks like this (original stack is left
     untouched)::
 
-        +---------+ <= IVT SP
+        +---------+ <= EVT SP
         |   SP    |
         +---------+
         |  FLAGS  |
@@ -727,7 +727,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
         |   ...   |
         +---------+
 
-    :param int index: exception ID - IVT index.
+    :param int index: exception ID - EVT index.
     :param u32_t args: if present, these values will be pushed onto the stack.
     """
 
@@ -736,7 +736,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
     if index >= ExceptionList.COUNT:
       raise InvalidExceptionError(index)
 
-    iv = InterruptVector.load(self, self.ivt_address + index * InterruptVector.SIZE)
+    iv = InterruptVector.load(self, self.evt_address + index * InterruptVector.SIZE)
 
     self.DEBUG('_enter_exception: desc=%s', iv)
 
@@ -814,7 +814,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
     This is a wrapper for _enter_exception, for device drivers to call
     when hardware interrupt arrives.
 
-    :param int index: exception ID - IVT index
+    :param int index: exception ID - EVT index
     """
 
     self._run_safely(self._enter_exception, index)

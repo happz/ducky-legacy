@@ -10,14 +10,14 @@ from ducky.util import F
 
 from .. import common_run_machine, assert_raises, mock
 
-def create_machine(ivt_address = None, pt_address = None, privileged = True, jit = False, **kwargs):
+def create_machine(evt_address = None, pt_address = None, privileged = True, jit = False, **kwargs):
   machine_config = ducky.config.MachineConfig()
 
-  if ivt_address is not None or pt_address is not None:
+  if evt_address is not None or pt_address is not None:
     machine_config.add_section('cpu')
 
-    if ivt_address is not None:
-      machine_config.set('cpu', 'ivt-address', ivt_address)
+    if evt_address is not None:
+      machine_config.set('cpu', 'evt-address', evt_address)
 
     if pt_address is not None:
       machine_config.set('cpu', 'pt-address', pt_address)
@@ -56,20 +56,20 @@ def test_cpuid():
 
   assert_raises(lambda: M.cpus[0].cores[0].control_coprocessor.write(ControlRegisters.CR0, 0xFF), ducky.errors.RegisterAccessError)
 
-def test_ivt():
-  M = create_machine(ivt_address = 0xC7C7DEAD)
+def test_evt():
+  M = create_machine(evt_address = 0xC7C7DEAD)
   core = M.cpus[0].cores[0]
 
   core.privileged = True
   assert core.privileged is True, 'Core is not in privileged mode'
 
   v = core.control_coprocessor.read(ControlRegisters.CR1)
-  assert v == 0xC7C7DEAD, F('IVT expected {expected:L}, {actual:L} found instead', expected = 0xC7C7DEAD, actual = v)
+  assert v == 0xC7C7DEAD, F('EVT expected {expected:L}, {actual:L} found instead', expected = 0xC7C7DEAD, actual = v)
 
   core.control_coprocessor.write(ControlRegisters.CR1, 0xF5EEF00D)
 
   v = core.control_coprocessor.read(ControlRegisters.CR1)
-  assert v == 0xF5EEF00D, F('IVT expected {expected:L}, {actual:L} found instead', expected = 0xF5EEF00D, actual = v)
+  assert v == 0xF5EEF00D, F('EVT expected {expected:L}, {actual:L} found instead', expected = 0xF5EEF00D, actual = v)
 
 def test_pt():
   M = create_machine(pt_address = 0xC7C7DEAD)

@@ -24,7 +24,7 @@ Software interrupts
 
 Software interrupts provide access to library of common functions, and - in case of virtual interrupts - to internal, complex and otherwise inaccessible resources of virtual machine itself.
 
-For the list for existing interrupts and their numbers, see :py:class:`ducky.irq.IRQList`. However, by the nature of invoking a software interrupt, this list is not carved into a stone. You may easily provide your own ``IVT``, with entries leading to your own routines, and use e.g. the 33th entry, ``HALT``, to sing a song.
+For the list for existing interrupts and their numbers, see :py:class:`ducky.irq.IRQList`. However, by the nature of invoking a software interrupt, this list is not carved into a stone. You may easily provide your own ``EVT``, with entries leading to your own routines, and use e.g. the 33th entry, ``HALT``, to sing a song.
 
 All values are defined in files in ``defs/`` directory which you can - and should - include into your assembler sources.
 
@@ -33,7 +33,7 @@ All values are defined in files in ``defs/`` directory which you can - and shoul
 ^^^^^^^^^^^
 
 +---------------+--------------------------------------------------------------------------+
-| ``IVT`` entry | ``33``                                                                   |
+| ``EVT`` entry | ``33``                                                                   |
 +---------------+--------+--------------------+--------------------------------------------+
 |               |        | Read mode          | Write mode                                 |
 +---------------+--------+--------------------+--------------------------------------------+
@@ -70,7 +70,7 @@ This operation is implemented as a virtual interrupt, see :py:class:`ducky.block
 ^^^^^^^^^^^
 
 +---------------+----------------------------------------------------------------+
-| ``IVT`` entry | ``34``                                                         |
+| ``EVT`` entry | ``34``                                                         |
 +---------------+--------+-------------------------------------------------------+
 |               |        | ``QUIET`` mode                                        |
 +---------------+--------+-------------------------------------------------------+

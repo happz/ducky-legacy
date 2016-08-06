@@ -26,10 +26,10 @@ class ControlCoprocessor(ISnapshotable, Coprocessor):
     return u32_t((self.core.cpu.id << 16) | self.core.id).value
 
   def read_cr1(self):
-    return u32_t(self.core.ivt_address).value
+    return u32_t(self.core.evt_address).value
 
   def write_cr1(self, address):
-    self.core.ivt_address = address
+    self.core.evt_address = address
 
   def read_cr2(self):
     return u32_t(self.core.mmu.pt_address).value

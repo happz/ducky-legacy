@@ -13,20 +13,20 @@
 
 main:
   ; setup interrupt handling
-  li r0, 0x00                          ; IVT pointer
+  li r0, 0x00                          ; EVT pointer
   la r1, &__interrupt_routine
   la r2, &__interrupt_stack
   add r2, 64
 
-__ivt_init:
+__evt_init:
   stw r0, r1
   add r0, $INT_SIZE
   stw r0, r2
   add r0, $INT_SIZE
   cmp r0, $PAGE_SIZE
-  bne &__ivt_init
+  bne &__evt_init
 
-__ivt_done:
+__evt_done:
   sti                                  ; important: don't forget to enable interrupts
 
   li r1, 0x2A                          ; '*'

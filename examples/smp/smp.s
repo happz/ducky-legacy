@@ -66,17 +66,17 @@ _start:
   li r1, 2
   stb r0, r1
 
-  ; IVT was cleared by bootloader, lets get one routine for timer, and one
+  ; EVT was cleared by bootloader, lets get one routine for timer, and one
   ; dummy routine for all other interrupts.
 
   ; interrupt stack
   la r1, &isr_stack
   add r1, $PAGE_SIZE
 
-  ; get IVT address
-  ctr r2, $CONTROL_IVT
+  ; get EVT address
+  ctr r2, $CONTROL_EVT
 
-  ; this address is the first one *after* IVT
+  ; this address is the first one *after* EVT
   mov r3, r2
   add r3, $PAGE_SIZE
 
@@ -89,16 +89,16 @@ _start:
 
   ; dummy ISRs
   la r4, &isr_dummy
-__ivt_copy_loop:
+__evt_copy_loop:
   stw r2, r4
   add r2, $WORD_SIZE
   stw r2, r1
   add r2, $WORD_SIZE
   cmp r2, r3
-  be &__ivt_copy_finished
-  j &__ivt_copy_loop
+  be &__evt_copy_finished
+  j &__evt_copy_loop
 
-__ivt_copy_finished:
+__evt_copy_finished:
 
   ; setup CWT
   li r1, $BOOT_CWT_ADDRESS

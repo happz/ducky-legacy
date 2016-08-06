@@ -81,7 +81,7 @@ When set, CPU cores will check if stack frames were cleaned properly when ``ret`
 ``bool``, default ``yes``
 
 
-ivt-address
+evt-address
 ^^^^^^^^^^^
 
 Address of interrupt vector table.

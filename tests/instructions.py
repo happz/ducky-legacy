@@ -1176,8 +1176,8 @@ def test_int_immediate(state, index, ip, sp):
   inst = encode_inst(INT, {'immediate': index})
 
   state.reset()
-  CORE.mmu.memory.write_u32(CORE.ivt_address + index * 8,     ip)
-  CORE.mmu.memory.write_u32(CORE.ivt_address + index * 8 + 4, sp)
+  CORE.mmu.memory.write_u32(CORE.evt_address + index * 8,     ip)
+  CORE.mmu.memory.write_u32(CORE.evt_address + index * 8 + 4, sp)
 
   execute_inst(CORE, INT, inst)
 
@@ -1223,8 +1223,8 @@ def test_int_register(state, reg, index, ip, sp):
 
   state.reset()
   CORE.registers.map[reg].value = index
-  CORE.mmu.memory.write_u32(CORE.ivt_address + index * 8,     ip)
-  CORE.mmu.memory.write_u32(CORE.ivt_address + index * 8 + 4, sp)
+  CORE.mmu.memory.write_u32(CORE.evt_address + index * 8,     ip)
+  CORE.mmu.memory.write_u32(CORE.evt_address + index * 8 + 4, sp)
 
   execute_inst(CORE, INT, inst)
 

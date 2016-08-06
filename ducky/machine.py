@@ -365,7 +365,7 @@ class Machine(ISnapshotable, IMachineWorker):
     self.nr_cpus = self.config.getint('machine', 'cpus')
     self.nr_cores = self.config.getint('machine', 'cores')
 
-    # self.ivt_address = machine_config.getint('cpu', 'ivt-address', DEFAULT_IVT_ADDRESS)
+    # self.evt_address = machine_config.getint('cpu', 'evt-address', DEFAULT_EVT_ADDRESS)
     # self.pt_address = machine_config.getint('cpu', 'pt-address', DEFAULT_PT_ADDRESS)
 
     self.memory = mm.MemoryController(self, size = machine_config.getint('memory', 'size', 0x1000000))

@@ -56,16 +56,16 @@ def __base_exception_test_test(state, core, exc_routine, exc_stack, exc_args, *a
     LOGGER.error('Exception argument mismatch: %s expected at %s, %s found', UINT32_FMT(expected_value), UINT32_FMT(addr), UINT32_FMT(actual_value))
     assert False
 
-def __base_exception_test(state, index, ivt, stack, exc_stack, exc_routine, trap, trigger, test):
-  assume(ivt != stack != exc_stack != exc_routine != trap)
+def __base_exception_test(state, index, evt, stack, exc_stack, exc_routine, trap, trigger, test):
+  assume(evt != stack != exc_stack != exc_routine != trap)
   assume(stack >= PAGE_SIZE)
   assume(exc_stack >= PAGE_SIZE)
-  assume(exc_stack != ivt + PAGE_SIZE)  # don't let exception stack overwrite IVT
-  assume(not (ivt <= state.ip < ivt + PAGE_SIZE))  # lets pretend noone could put IP inside IVT
+  assume(exc_stack != evt + PAGE_SIZE)  # don't let exception stack overwrite EVT
+  assume(not (evt <= state.ip < evt + PAGE_SIZE))  # lets pretend noone could put IP inside EVT
   assume(state.ip & 0x03 == 0)  # IP must be aligned
 
   LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
-  LOGGER.debug('TEST: state=%r, index=%d, ivt=%s, stack=%s, exc_stack=%s, exc_routine=%s, trap=%s', state, index, UINT32_FMT(ivt), UINT32_FMT(stack), UINT32_FMT(exc_stack), UINT32_FMT(exc_routine), UINT32_FMT(trap))
+  LOGGER.debug('TEST: state=%r, index=%d, evt=%s, stack=%s, exc_stack=%s, exc_routine=%s, trap=%s', state, index, UINT32_FMT(evt), UINT32_FMT(stack), UINT32_FMT(exc_stack), UINT32_FMT(exc_routine), UINT32_FMT(trap))
 
   setup()
   from ..instructions import CORE
@@ -73,34 +73,34 @@ def __base_exception_test(state, index, ivt, stack, exc_stack, exc_routine, trap
 
   state.reset()
 
-  LOGGER.debug('filling IVT with trap pattern')
-  for i in range(ivt, ivt + PAGE_SIZE, InterruptVector.SIZE):
+  LOGGER.debug('filling EVT with trap pattern')
+  for i in range(evt, evt + PAGE_SIZE, InterruptVector.SIZE):
     M.memory.write_u32(i, trap)
     M.memory.write_u32(i + WORD_SIZE, trap)
 
-  LOGGER.debug('writing IVT table entry for index')
-  M.memory.write_u32(ivt + InterruptVector.SIZE * index, exc_routine)
-  M.memory.write_u32(ivt + InterruptVector.SIZE * index + WORD_SIZE, exc_stack)
+  LOGGER.debug('writing EVT table entry for index')
+  M.memory.write_u32(evt + InterruptVector.SIZE * index, exc_routine)
+  M.memory.write_u32(evt + InterruptVector.SIZE * index + WORD_SIZE, exc_stack)
 
-  CORE.ivt_address = ivt
+  CORE.evt_address = evt
   CORE.registers.sp.value = stack
 
   trigger(state, CORE)
   test(state, CORE)
 
-@given(state = STATE, index = EXC_INDEX, ivt = VALUE_PAGE, stack = VALUE_PAGE, exc_stack = VALUE_PAGE, exc_routine = VALUE_PAGE, exc_args = lists(integers(min_value = 0, max_value = 0xFFFFFFFF), min_size = 1), trap = VALUE_PAGE)
-def test_sanity_enter(state, index, ivt, stack, exc_stack, exc_routine, exc_args, trap):
+@given(state = STATE, index = EXC_INDEX, evt = VALUE_PAGE, stack = VALUE_PAGE, exc_stack = VALUE_PAGE, exc_routine = VALUE_PAGE, exc_args = lists(integers(min_value = 0, max_value = 0xFFFFFFFF), min_size = 1), trap = VALUE_PAGE)
+def test_sanity_enter(state, index, evt, stack, exc_stack, exc_routine, exc_args, trap):
   def trigger(state, core):
     core._handle_exception(None, index, *exc_args)
 
   def test(state, core):
     __base_exception_test_test(state, core, exc_routine, exc_stack, exc_args)
 
-  __base_exception_test(state, index, ivt, stack, exc_stack, exc_routine, trap, trigger, test)
+  __base_exception_test(state, index, evt, stack, exc_stack, exc_routine, trap, trigger, test)
 
 
-@given(state = STATE, ivt = VALUE_PAGE, stack = VALUE_PAGE, exc_stack = VALUE_PAGE, exc_routine = VALUE_PAGE, trap = VALUE_PAGE)
-def test_divide_by_zero(state, ivt, stack, exc_stack, exc_routine, trap):
+@given(state = STATE, evt = VALUE_PAGE, stack = VALUE_PAGE, exc_stack = VALUE_PAGE, exc_routine = VALUE_PAGE, trap = VALUE_PAGE)
+def test_divide_by_zero(state, evt, stack, exc_stack, exc_routine, trap):
   userspace_ip = state.ip
 
   def trigger(state, core):
@@ -117,4 +117,4 @@ def test_divide_by_zero(state, ivt, stack, exc_stack, exc_routine, trap):
   def test(state, core):
     __base_exception_test_test(state, core, exc_routine, exc_stack, [userspace_ip])
 
-  __base_exception_test(state, ExceptionList.DivideByZero, ivt, stack, exc_stack, exc_routine, trap, trigger, test)
+  __base_exception_test(state, ExceptionList.DivideByZero, evt, stack, exc_stack, exc_routine, trap, trigger, test)

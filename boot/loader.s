@@ -90,18 +90,18 @@ __primary_boot:
   add sp, $PAGE_SIZE
   mov fp, sp
 
-  ; clear IVT
-  li r0, $BOOT_IVT_ADDRESS
+  ; clear EVT
+  li r0, $BOOT_EVT_ADDRESS
   li r2, 0x00
   li r1, $PAGE_SIZE
-__ivt_reset_loop:
-  bz &__ivt_reset_finished
+__evt_reset_loop:
+  bz &__evt_reset_finished
   stw r0, r2
   add r0, $WORD_SIZE
   sub r1, $WORD_SIZE
-  j &__ivt_reset_loop
+  j &__evt_reset_loop
 
-__ivt_reset_finished:
+__evt_reset_finished:
 
   ; clear CWT
   li r0, $BOOT_CWT_ADDRESS

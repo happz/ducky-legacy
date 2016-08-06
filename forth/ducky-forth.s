@@ -457,8 +457,8 @@ __relocate_section:
 ; to deal with this, therefore the first think kernel does is relocating
 ; itself to the beggining of the address space.
 ;
-; Unfortunatelly, there are some obstackles in the way - IVT, HDT, CWT, maybe
-; even some mmaped IO ports, ... IVT and HDT can be moved, devices can be
+; Unfortunatelly, there are some obstackles in the way - EVT, HDT, CWT, maybe
+; even some mmaped IO ports, ... EVT and HDT can be moved, devices can be
 ; convinced to move ports to differet offsets, but CWT is bad - if we want to
 ; use more than one CPU core... Which we don't want to \o/
 __relocate_sections:
@@ -559,7 +559,7 @@ boot_phase2:
   ; LPF - Last Page Frame, base address of the last page of memory
   ;
   ; +--------------------+ <- 0x00000000
-  ; | Initial IVT        |
+  ; | Initial EVT        |
   ; +--------------------+ <- 0x00000100
   ; | HDT                |
   ; +--------------------+ <- 0x00000200
@@ -575,13 +575,13 @@ boot_phase2:
   ; +--------------------+ <- HEAP, HEAP-START
   ; | RTC stack          |
   ; +--------------------+
-  ; | Dummy IVT stack    |
+  ; | Dummy EVT stack    |
   ; +--------------------+
   ; | Return stack       |
   ; +--------------------+ <- RSP
   ; | Stack              |
   ; +--------------------+ <- LPF; SP
-  ; | Our IVT            |
+  ; | Our EVT            |
   ; +--------------------+
   ;
 
@@ -613,7 +613,7 @@ boot_phase2:
   la r9, &rstack_top
   stw r9, $RSP
 
-  ; IVT
+  ; EVT
   mov r9, r10                          ; RTC SP
   sub r10, $PAGE_SIZE
   mov r8, r10                          ; Keyboard SP
@@ -629,20 +629,20 @@ boot_phase2:
   sub r10, $PAGE_SIZE
 
   mov r0, r11
-  ctw $CONTROL_IVT, r0
+  ctw $CONTROL_EVT, r0
 
   ; init all entries to fail-safe
   la r2, &failsafe_isr
 
   mov r1, r0
   add r1, $PAGE_SIZE
-__boot_phase2_ivt_failsafe_loop:
+__boot_phase2_evt_failsafe_loop:
   stw r0, r2
   add r0, $INT_SIZE
   stw r0, r7
   add r0, $INT_SIZE
   cmp r0, r1
-  bne &__boot_phase2_ivt_failsafe_loop
+  bne &__boot_phase2_evt_failsafe_loop
 
   mov r0, r11
 

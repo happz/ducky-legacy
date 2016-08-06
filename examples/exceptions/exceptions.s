@@ -91,7 +91,7 @@ main:
   la sp, &__stack
   add sp, $PAGE_SIZE
 
-  li r0, $BOOT_IVT_ADDRESS
+  li r0, $BOOT_EVT_ADDRESS
   mov r1, r0
   add r1, $PAGE_SIZE
   la r2, &__exc_dummy
@@ -106,14 +106,14 @@ __exc_init_loop:
   cmp r0, r1
   bne &__exc_init_loop
 
-  li r0, $BOOT_IVT_ADDRESS
+  li r0, $BOOT_EVT_ADDRESS
   li r1, $EXCEPTION_DIVIDE_BY_ZERO
   mul r1, 8 ; two words per entry
   add r0, r1
   la r1, &__exc_divide_by_zero
   stw r0, r1
 
-  li r0, $BOOT_IVT_ADDRESS
+  li r0, $BOOT_EVT_ADDRESS
   li r1, $EXCEPTION_UNALIGNED_ACCESS
   mul r1, 8
   add r0, r1

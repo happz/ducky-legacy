@@ -154,7 +154,7 @@ class ExecutionException(Exception):
   Base class for all execution-related exceptions, i.e. exceptions raised
   as a direct result of requests made by running code. Runnign code can then
   take care of handling these exceptions, usually by preparing service
-  routines and setting up the ``IVT``.
+  routines and setting up the ``EVT``.
 
   Unless said otherwise, the exception is always raised *before* making
   any changes in the VM state.

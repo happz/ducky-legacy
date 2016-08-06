@@ -172,4 +172,4 @@ Stack
  - grows from higher addresses to lower
  - there is no pre-allocated stack, every bit of code needs to prepare its own if it intends to use instructions that operate with stack
  - when push'ing value to stack, ``SP`` is decreased by 4 (size of general register), and then value is stored on this address
- - each ``IVT`` provides its own stack pointer
+ - each ``EVT`` provides its own stack pointer
