@@ -1,6 +1,8 @@
 #include <types.h>
 #include <hdt.h>
 #include <arch/rtc.h>
+#include <arch/tty.h>
+#include <arch/keyboard.h>
 
 #include <forth.h>
 
@@ -15,6 +17,8 @@ extern u32_t memory_size;
 extern u32_t var_TEST_MODE;
 extern u32_t rtc_mmio_address;
 extern u32_t tty_mmio_address;
+extern u32_t kbd_mmio_address;
+
 
 /*
  * Internal storage for dvice names parsed from HDT
@@ -129,6 +133,20 @@ static int hdt_entry_device(hdt_entry_header_t *entry)
     hdt_entry_device_rtc_t *rtc_device = (hdt_entry_device_rtc_t *)device_entry;
 
     rtc_mmio_address = rtc_device->e_mmio_address;
+    return 0;
+  }
+
+  if (__hdt_strcmp(tty_device_name, name, tty_device_name_length, name_length)) {
+    hdt_entry_device_tty_t *tty_device = (hdt_entry_device_tty_t *)device_entry;
+
+    tty_mmio_address = tty_device->e_mmio_address;
+    return 0;
+  }
+
+  if (__hdt_strcmp(kbd_device_name, name, kbd_device_name_length, name_length)) {
+    hdt_entry_device_kbd_t *kbd_device = (hdt_entry_device_kbd_t *)device_entry;
+
+    kbd_mmio_address = kbd_device->e_mmio_address;
     return 0;
   }
 

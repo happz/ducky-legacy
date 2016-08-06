@@ -1,3 +1,4 @@
-hdt.s: hdt.c $HEADERSDIR/arch/ducky.h $HEADERSDIR/types.h $HEADERSDIR/hdt.h $HEADERSDIR/arch/rtc.h forth.h
+hdt.s: hdt.c $HEADERSDIR/arch/ducky.h $HEADERSDIR/types.h $HEADERSDIR/hdt.h $HEADERSDIR/arch/rtc.h $HEADERSDIR/arch/tty.h $HEADERSDIR/arch/keyboard.h forth.h
+boundaries-post.o: boundaries-post.s
 ducky-forth.o: ducky-forth.s ducky-forth-words.s ducky-forth-defs.s double-cell-ints.s $HEADERSDIR/arch/ducky.hs $HEADERSDIR/arch/math.hs $HEADERSDIR/arch/control.hs $HEADERSDIR/arch/keyboard.hs $HEADERSDIR/arch/rtc.hs $HEADERSDIR/arch/boot.hs $HEADERSDIR/arch/tty.hs $HEADERSDIR/arch/hdt.hs
-ducky-forth: ducky-forth.o hdt.o
+ducky-forth: ducky-forth.o hdt.o boundaries-post.o

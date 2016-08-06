@@ -2,6 +2,9 @@
 
 (
     0x00000000,
+  ( '.text.boot', [ r'\.text\.boot'              ]),
+
+    0x00000A00,
   ( '.text',      [ r'\.text'                    ]),
   ( '.bootstack', [ r'\.bootstack'               ]),
   ( '.rodata',    [ r'\.rodata', r'\.rodata\..*', r'\.data\..*\.ro' ]),

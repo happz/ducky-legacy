@@ -18,11 +18,13 @@ E.PassVarAsDefine('FORTH_DIE_ON_UNDEF')
 
 E.DuckyAsmFromC('hdt.s', source = 'hdt.c')
 E.DuckyObjFromAsm('hdt.o', source = 'hdt.s')
+
+E.DuckyObject('boundaries-post.o', source = 'boundaries-post.s')
 E.DuckyObject('ducky-forth.o', source = 'ducky-forth.s')
 
 E.ReadExternalDeps()
 
-E.DuckyBinary('ducky-forth', source = ['ducky-forth.o', 'hdt.o'])
+E.DuckyBinary('ducky-forth', source = ['ducky-forth.o', 'hdt.o', 'boundaries-post.o'])
 E.Alias('forth', File('ducky-forth'))
 
 set_options = [

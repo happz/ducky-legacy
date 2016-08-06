@@ -31,14 +31,20 @@
   .int 0xDEADBEEF
 
 
-  .section .text
+  .section .text.boot, rxl
 
   ; This is where bootloader jump to, main entry point
 _entry:
-  j &boot_phase1
+  ; Stop all secondary cores, this FORTH kernel has no use for SMP
+  ctr r0, $CONTROL_CPUID
+  bz &boot_phase1
+  hlt 0xFFFF
 
 
   .text
+
+__text_boundary_start:
+  ret
 
 __vmdebug_on:
   push r0
@@ -429,6 +435,7 @@ __relocate_section:
   ; src: first, no change necessary
   ; length: last - first
   sub r2, r0
+  $align4 r2
 
   ; dst: start - BOOT_LOADER_ADDRESS
   mov r1, r0
@@ -455,7 +462,7 @@ __relocate_section:
 ; convinced to move ports to differet offsets, but CWT is bad - if we want to
 ; use more than one CPU core... Which we don't want to \o/
 __relocate_sections:
-  li r0, $BOOT_LOADER_ADDRESS
+  la r0, &__text_boundary_start
   la r1, &__text_boundary_end
   call &__relocate_section
 
@@ -486,10 +493,7 @@ __relocate_sections:
 ; void boot_phase1(void) __attribute__((noreturn))
 ;
 ; This is the first phase of kernel booting process. Its main goal is to
-; relocate kernel sections to the beggining of the address space. Before
-; moving anything the beginning of memory space we have to process HDT,
-; save interesting information for later, just in case we'd need some.
-; And we will...
+; relocate kernel sections to the beggining of the address space.
 ;
 boot_phase1:
   ; First, setup our boot stack.
@@ -499,29 +503,21 @@ boot_phase1:
   ; Next, turn of debugging.
   ;call &__vmdebug_off
 
-  ; Now, walk through HDT, and save interesting info
-  ; Until our C stuff is working correctly, work around it and run in test mode
-  la r0, &var_TEST_MODE
-  li r1, 0xFFFF
-  liu r1, 0xFFFF
-  stw r0, r1
-  ; li r0, $BOOT_HDT_ADDRESS             ; pass HDT address as first argument
-  ; call &process_hdt
-  ; cmp r0, 0x00
-  ; bnz &__ERR_malformed_HDT
-
   ; Setup stack, using the next-to-last memory page
-  ; If the stack is supposed to be on next-to-last page, the initial SP is the base address of the last page...
+  ; If the stack is supposed to be on next-to-last page, the initial SP is the
+  ; base address of the last page...
   la sp, &memory_size
   lw sp, sp
   li r0, $PAGE_MASK
   liu r0, 0xFFFF
   and sp, r0
 
-  ; Now there's nothing blocking us from relocating our sections to more convenient place
+  ; There's nothing blocking us from relocating our sections to more convenient
+  ; place since the .text section should start at 0xA00, at least, leaving
+  ; enough space for HDT.
   call &__relocate_sections
 
-  ; now do long jump to new, relocated version of boot_phase2
+  ; Do long jump to new, relocated version of boot_phase2
   la r0, &boot_phase2
   li r1, $BOOT_LOADER_ADDRESS
   sub r0, r1
@@ -535,6 +531,23 @@ boot_phase1:
 ; necessary work before handing over to FORTH words.
 ;
 boot_phase2:
+  ; Walk through HDT, and save interesting info.
+  li r0, $BOOT_HDT_ADDRESS             ; pass HDT address as first argument
+  call &process_hdt
+  cmp r0, 0x00
+  bnz &__ERR_malformed_HDT
+
+  ; Update MMIO addresses
+  la r0, &kbd_mmio_address
+  lw r1, r0
+  add r1, $KBD_MMIO_DATA
+  stw r0, r1
+
+  la r0, &tty_mmio_address
+  lw r1, r0
+  add r1, $TTY_MMIO_DATA
+  stw r0, r1
+
   ; set RTC frequency
   la r0, &rtc_mmio_address
   lw r0, r0
@@ -552,10 +565,12 @@ boot_phase2:
   ; +--------------------+ <- 0x00000200
   ; |                    |
   ; +--------------------+
-  ; |                    |
-  ; +                    +
   ; ...                ...
-  ; +                    +
+  ; +--------------------+ <- 0x00000A00
+  ; | .text              |
+  ; +--------------------+
+  ; ...                ...
+  ; +--------------------+
   ; |                    |
   ; +--------------------+ <- HEAP, HEAP-START
   ; | RTC stack          |
@@ -1076,15 +1091,15 @@ __write_prompt_quit:
 
   .global kbd_mmio_address
   .type kbd_mmio_address, int
-  .int 0x00008001
+  .int 0xFAFAFAFA
 
   .global tty_mmio_address
   .type tty_mmio_address, int
-  .int 0x00008200
+  .int 0xFBFBFBFB
 
   .global rtc_mmio_address
   .type rtc_mmio_address, int
-  .int 0x00008300
+  .int 0xFCFCFCFC
 
   ; when EVALUATE is called, current input source specification
   ; is saved on top of this stack
@@ -3721,25 +3736,3 @@ $DEFCODE "BYE", 3, 0, BYE
 
   li r0, 0
   call &halt
-
-
-  ;
-  ; Section boundary pivots
-  ;
-  .data
-
-  .align 4
-
-  .type __data_boundary_end, int
-  .int 0xDEADBEEF
-
-  .section .rodata
-
-  .align 4
-
-  .type __rodata_boundary_end, int
-  .int 0xDEADBEEF
-
-  .text
-__text_boundary_end:
-  ret
