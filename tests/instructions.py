@@ -11,7 +11,7 @@ from ducky.cpu.registers import REGISTER_NAMES
 from ducky.errors import UnalignedJumpTargetError, DivideByZeroError, PrivilegedInstructionError, InvalidExceptionError
 from ducky.mm import u32_t, i32_t
 
-from . import LOGGER, PYPY
+from . import LOGGER
 
 from hypothesis import given, example, assume
 from hypothesis.strategies import integers, lists, booleans, composite
