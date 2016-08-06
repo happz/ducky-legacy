@@ -3,12 +3,18 @@ import logging
 import optparse
 import sys
 
-from ..log import create_logger, StreamHandler
+from ..log import create_logger, StreamHandler, LogFormatter, ColorizedLogFormatter
 
-def setup_logger(stream = None, debug = False, quiet = None, verbose = None, default_loglevel = logging.INFO):
+def setup_logger(stream = None, debug = False, quiet = None, verbose = None, default_loglevel = logging.INFO, colorize = None):
   stream = stream or sys.stdout
 
-  logger = create_logger(handler = StreamHandler(stream = stream))
+  if colorize is None:
+    colorize = sys.stdout.isatty()
+
+  formatter = ColorizedLogFormatter() if colorize is True else LogFormatter()
+  handler = StreamHandler(stream = stream, formatter = formatter)
+  logger = create_logger(handler = handler)
+
   logger.setLevel(logging.INFO)
 
   if debug:

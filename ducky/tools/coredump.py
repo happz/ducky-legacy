@@ -10,7 +10,6 @@ from ..mm import PAGE_SIZE, UINT32_FMT, PAGE_MASK, u32_t, u16_t, u8_t, UINT8_FMT
 from ..mm.binary import File, SectionTypes
 from ..cpu import CoreFlags
 from ..cpu.registers import Registers
-from ..log import WHITE, GREEN
 from ..util import str2int, align
 
 def show_header(logger, state):
@@ -41,7 +40,7 @@ def show_cores(logger, state):
       logger.info('  fp=%s    sp=%s    ip=%s', __reg(Registers.FP), __reg(Registers.SP), __reg(Registers.IP))
       logger.info('  flags=%s', flags.to_string())
       logger.info('  cnt=%i, alive=%s, running=%s, idle=%s, exit=%i', cs.registers[Registers.CNT], cs.alive, cs.running, cs.idle, cs.exit_code)
-      logger.info('  ivt=%s', UINT32_FMT(cs.ivt_address))
+      logger.info('  evt=%s', UINT32_FMT(cs.evt_address))
       logger.info('  pt= %s, pt-enabled=%s', UINT32_FMT(cs.pt_address), cs.pt_enabled)
 
       logger.info('')
@@ -57,6 +56,9 @@ def show_memory(logger, state):
 
 def show_pages(logger, state, empty_pages = False):
   logger.info('=== Memory pages ===')
+
+  GREEN = logger.handlers[0].formatter.green
+  WHITE = logger.handlers[0].formatter.white
 
   for pg in sorted(state.get_child('machine').get_child('memory').get_page_states(), key = lambda x: x.index):
     if not empty_pages and all(i == 0 for i in pg.content):
