@@ -99,6 +99,12 @@ AddOption('--clean-testsets',
           default = False,
           help = 'Remove testset dirs when building "clean" target.')
 
+AddOption('--repeats',
+          dest = 'repeats',
+          action = 'append',
+          default = [],
+          help = 'Specify number of repeats of particular tests')
+
 VARS = Variables(None, ARGUMENTS)
 VARS.Add(             'BUILD_STAMP',        'Set to force FORTH kernel build stamp', generate_build_stamp())
 VARS.Add(BoolVariable('BOOT_IMAGE',         'Set to true to build boot loader with support for Ducky images', True))
@@ -470,6 +476,19 @@ def __read_external_deps(self, directory = None):
 
       self.Depends(File(self.subst(target.strip())), [self.File(self.subst(name.strip())) for name in sources.split(' ')])
 
+def __parse_repeats(self):
+  if hasattr(self, '_repeats'):
+    return self._repeats
+
+  repeats = []
+
+  for entry in self.GetOption('repeats'):
+    test, count = entry.split(':')
+    repeats.append((test.strip(), int(count.strip())))
+
+  self._repeats = repeats
+  return repeats
+
 def __clone_env(self, *args, **kwargs):
   clone = self.Clone(*args, **kwargs)
 
@@ -491,6 +510,7 @@ def __clone_env(self, *args, **kwargs):
     'PassVarAsDefine': __pass_var_as_define,
     'FullClone':       __clone_env,
     'ReadExternalDeps': __read_external_deps,
+    'ParseRepeats':     __parse_repeats,
 
     # Virtual builders
     'RunSomething':    __run_something,
@@ -526,6 +546,9 @@ def print_info(source, target, env):
 
     if 'PROFILEDIR' in ENV:
       env.INFO('Profile dir:           %s' % ENV['PROFILEDIR'])
+
+  for test, count in env.ParseRepeats():
+    env.INFO('  Repeat %s %d times' % (test, count))
 
 def build_failure_to_str(bf):
   import SCons.Errors

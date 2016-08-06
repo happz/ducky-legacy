@@ -4,6 +4,8 @@ import sys
 import tempfile
 
 from six import iteritems
+from six.moves import range
+from functools import wraps
 
 import ducky.config
 import ducky.cpu.assemble
@@ -58,6 +60,27 @@ else:
 
 settings.load_profile('ducky-profile')
 
+
+def repeat(*test_paths):
+  def wrap(fn):
+    @wraps(fn)
+    def wrapper():
+      _test_paths = test_paths + ('tests',)
+
+      for test_path in _test_paths:
+        count = config.get('repeats', {}).get(test_path)
+        if count is not None:
+          count = int(count)
+          break
+
+      else:
+        count = 1
+
+      for n in range(count):
+        yield (fn, n)
+
+    return wrapper
+  return wrap
 
 def get_tempfile(keep = True):
   return tempfile.NamedTemporaryFile('w+b', delete = not keep, dir = os.getenv('TMPDIR'))

@@ -14,8 +14,9 @@ ENV.Help("""
      ${BLUE}'scons tests'${CLR} to run all tests,
 """)
 
-
 def create_testsuite_config(target, source, env):
+  repeats = env.ParseRepeats()
+
   with open(target[0].abspath, 'w') as f:
     print >> f, env.subst("""
 [dirs]
@@ -45,10 +46,15 @@ trace = $TRACE_FILE
 Sanity = 50
 Default = 200
 CI = 4000
+
+[repeats]
+{repeats}
 """.format(coverage = 'yes' if 'COVERAGEDIR' in env else 'no',
            coveragedir = ('coverage = %s' % env['COVERAGEDIR']) if 'COVERAGEDIR' in env else '',
            profile = 'yes' if 'PROFILEDIR' in env else 'no',
-           profiledir = ('profile = %s' % env['PROFILEDIR']) if 'PROFILEDIR' in env else ''))
+           profiledir = ('profile = %s' % env['PROFILEDIR']) if 'PROFILEDIR' in env else '',
+           repeats = '\n'.join(['%s = %s' % (test, count) for test, count in repeats]) if repeats else '')
+    )
 
 def run_testsuite(env, target, source, tests = None):
   tests = tests or []
