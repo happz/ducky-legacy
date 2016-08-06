@@ -1,0 +1,24 @@
+#ifndef __DUCKY_ARCH_KBD_H__
+#define __DUCKY_ARCH_KBD_H__
+
+<%
+  import ducky.devices.keyboard
+%>
+
+#define KBD_IRQ ${X2(ducky.devices.keyboard.DEFAULT_IRQ)}
+
+#define KBD_MMIO_ADDRESS  ${X8(ducky.devices.keyboard.DEFAULT_MMIO_ADDRESS)}
+
+enum {
+  KBD_MMIO_STATUS = ${X8(ducky.devices.keyboard.KeyboardPorts.STATUS)},
+  KBD_MMIO_DATA   = ${X8(ducky.devices.keyboard.KeyboardPorts.DATA)}
+};
+
+#include <hdt.h>
+
+typedef struct {
+  hdt_entry_device_t e_header;
+  u32_t              e_mmio_address;
+} hdt_entry_device_kbd_t;
+
+#endif

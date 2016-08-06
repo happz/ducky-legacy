@@ -1,0 +1,21 @@
+#ifndef __DUCKY_ARCH_TTY_H__
+#define __DUCKY_ARCH_TTY_H__
+
+<%
+  import ducky.devices.tty
+%>
+
+#define TTY_MMIO_ADDRESS  ${X8(ducky.devices.tty.DEFAULT_MMIO_ADDRESS)}
+
+enum {
+  TTY_MMIO_DATA = ${X8(ducky.devices.tty.TTYPorts.DATA)}
+};
+
+#include <hdt.h>
+
+typedef struct {
+  hdt_entry_device_t e_header;
+  u32_t              e_mmio_address;
+} hdt_entry_device_tty_t;
+
+#endif
