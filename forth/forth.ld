@@ -4,6 +4,7 @@
     0x00000000,
   ( '.text.boot', [ r'\.text\.boot'              ]),
 
+    # see TEXT_BASE in ducky-forth-defs.s
     0x00000A00,
   ( '.text',      [ r'\.text'                    ]),
   ( '.bootstack', [ r'\.bootstack'               ]),
