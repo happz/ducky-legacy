@@ -7,14 +7,13 @@ import sys
 import tarfile
 import tempfile
 
-from six import iteritems, iterkeys, integer_types
+from six import iteritems, integer_types
 from functools import partial
 
-from ..mm import i32_t, u32_t, UINT32_FMT, MalformedBinaryError
+from ..mm import u8_t, i32_t, u32_t, UINT32_FMT, MalformedBinaryError, WORD_SIZE
 from ..mm.binary import File, SectionTypes, SymbolEntry, SECTION_ITEM_SIZE, SectionFlags, SymbolFlags
 from ..cpu.assemble import align_to_next_page, align_to_next_mmap, sizeof
 from ..cpu.instructions import encoding_to_u32, u32_to_encoding
-from ..util import str2int
 from ..errors import Error, UnalignedJumpTargetError, EncodingLargeValueError, IncompatibleLinkerFlagsError, UnknownSymbolError, PatchTooLargeError, BadLinkerScriptError
 
 def align_nop(n):
@@ -88,7 +87,13 @@ class LinkerInfo(object):
     self.linker_script = linker_script
 
 def merge_object_into(logger, info, f_dst, f_src):
+  D = logger.debug
+
   r_header, r_content = f_src.get_section_by_name('.reloc')
+
+  D('----- * ----- * ----- * ----- * -----')
+  D('Merging %s file', f_src.name)
+  D('----- * ----- * ----- * ----- * -----')
 
   for s_header, s_content in f_src.sections():
     if s_header.type == SectionTypes.RELOC:
@@ -134,7 +139,19 @@ def merge_object_into(logger, info, f_dst, f_src):
       logger.error('Source section has different flags set: d_header=%s, s_header=%s, f_src=%s', d_header, s_header, f_src)
       sys.exit(1)
 
-    logger.debug('Merging into an existing section: %s', d_header)
+    D('  merging into an existing section')
+    D('    name=%s, range=%s - %s', dst_section_name, UINT32_FMT(d_header.base), UINT32_FMT(d_header.base + d_header.data_size))
+    D('    d_header=%s', d_header)
+
+    if d_header.data_size % WORD_SIZE != 0:
+      padding_bytes = WORD_SIZE - (d_header.data_size % WORD_SIZE)
+      D('    * unaligned data section, %d padding bytes appended', padding_bytes)
+
+      d_header.data_size += padding_bytes
+      for _ in range(0, padding_bytes):
+        d_content.append(u8_t(0))
+
+    D('    d_header=%s', d_header)
 
     info.section_offsets[f_src][s_header.index] = d_header.data_size
     info.section_bases[f_src][s_header.index] = s_header.base
@@ -172,7 +189,7 @@ def fix_section_bases(logger, info, f_out):
 
     D('  "%s" - %s', name, header)
 
-  tmp_sections = collections.OrderedDict(sort_by_base([(name, header) for name, header in iteritems(sections)]))
+  tmp_sections = collections.OrderedDict(sort_by_base([(n, h) for n, h in iteritems(sections)]))
 
   for name, header in iteritems(tmp_sections):
     if header.base == 0xFFFFFFFF:
@@ -215,11 +232,11 @@ def fix_section_bases(logger, info, f_out):
     header = tmp_sections[name]
 
     if sections:
-      last_name, last_header = sections[-1]
+      last_header = sections[-1][1]
       base = align(last_header.base + last_header.data_size)
 
     else:
-      last_name, last_header = None, None
+      last_header = None
       base = 0x00000000
 
     if header.base == 0xFFFFFFFF:
@@ -354,6 +371,7 @@ class RelocationPatcher(object):
 
   def _apply_patch(self, value):
     re = self._re
+    se = self._se
 
     self.DEBUG('  value=%s', UINT32_FMT(value))
 
@@ -463,14 +481,14 @@ def resolve_relocations(logger, info, f_out, f_ins):
     D('Processing file %s', f_in.name)
 
     for r_header, r_content in reloc_sections:
-      for re in r_content:
+      for reloc_entry in r_content:
         D('-----*-----*-----')
-        D('  %s', re)
+        D('  %s', reloc_entry)
 
-        symbol_name = f_in.string_table.get_string(re.name)
+        symbol_name = f_in.string_table.get_string(reloc_entry.name)
 
         # Get all involved sections
-        src_header, _ = f_in.get_section(re.patch_section)
+        src_header, _ = f_in.get_section(reloc_entry.patch_section)
         src_section_name = f_in.string_table.get_string(src_header.name)
         dst_section_name = info.linker_script.where_to_merge(src_section_name)
         dst_header, dst_content = f_out.get_section_by_name(dst_section_name)
@@ -498,7 +516,7 @@ def resolve_relocations(logger, info, f_out, f_ins):
 
           se = section_symbols[symbol_name]
 
-        RelocationPatcher(re, se, symbol_name, dst_header, dst_content, original_section_header = src_header, section_offset = info.section_offsets[f_in][src_header.index]).patch()
+        RelocationPatcher(reloc_entry, se, symbol_name, dst_header, dst_content, original_section_header = src_header, section_offset = info.section_offsets[f_in][src_header.index]).patch()
 
   f_out.save()
 
