@@ -24,19 +24,17 @@ def show_file_header(logger, f):
   logger.info('  Flags:    %s (0x%02X)', ''.join(['M' if f_header.flags.mmapable == 1 else '-']), ctypes.cast(ctypes.byref(f_header.flags), ctypes.POINTER(ctypes.c_ubyte)).contents.value)
   logger.info('')
 
-def show_sections(logger, f):
+def show_sections(logger, options, f):
   logger.info('=== Sections ===')
   logger.info('')
-
-  f_header = f.get_header()
 
   table = [
     ['Index', 'Name', 'Type', 'Flags', 'Base', 'Items', 'Data size', 'File size', 'Offset']
   ]
 
-  for i in range(0, f_header.sections):
-    header, content = f.get_section(i)
+  headers = sorted(list(f.iter_headers()), key = lambda x: getattr(x, options.sort_sections))
 
+  for header in headers:
     header_flags = SectionFlags.from_encoding(header.flags)
 
     table.append([
@@ -44,7 +42,7 @@ def show_sections(logger, f):
       f.string_table.get_string(header.name),
       SECTION_TYPES[header.type],
       '%s (%s)' % (header_flags.to_string(), UINT16_FMT(header_flags.to_int())),
-      UINT32_FMT(header.base),
+      '%s - %s' % (UINT32_FMT(header.base), UINT32_FMT(header.base + header.data_size)),
       header.items,
       SIZE_FMT(header.data_size),
       SIZE_FMT(header.file_size),
@@ -60,7 +58,6 @@ def show_disassemble(logger, f):
   logger.info('')
 
   instruction_set = DuckyInstructionSet
-  f_header = f.get_header()
 
   symbols = defaultdict(list)
 
@@ -89,7 +86,7 @@ def show_disassemble(logger, f):
     logger.info('  Section %s', f.string_table.get_string(header.name))
 
     table = [
-      [ '', '', '', '' ]
+      ['', '', '', '']
     ]
 
     symbol_list = symbols[f.string_table.get_string(header.name)]
@@ -153,7 +150,7 @@ def show_reloc(logger, f):
   logger.table(table)
   logger.info('')
 
-def show_symbols(logger, f):
+def show_symbols(logger, options, f):
   ascii_replacements = {
     '\n':   '\\n',
     '\r':   '\\r',
@@ -174,6 +171,8 @@ def show_symbols(logger, f):
     ['Name', 'Section', 'Flags', 'Address', 'Type', 'Size', 'File', 'Line', 'Content']
   ]
 
+  symbols = []
+
   for i in range(0, f_header.sections):
     header, content = f.get_section(i)
 
@@ -182,9 +181,18 @@ def show_symbols(logger, f):
 
     for index, entry in enumerate(content):
       _header, _content = f.get_section(entry.section)
+      name = f.string_table.get_string(entry.name)
+      symbols.append((entry, name, _header, _content))
 
+  sort_key = lambda x: x[1]
+  if options.sort_symbols == 'address':
+    sort_key = lambda x: x[0].address
+
+  symbols = sorted(symbols, key = sort_key)
+
+  for entry, name, _header, _content in symbols:
       table_row = [
-        f.string_table.get_string(entry.name),
+        name,
         f.string_table.get_string(_header.name),
         SymbolFlags.from_encoding(entry.flags).to_string(),
         UINT32_FMT(entry.address),
@@ -250,6 +258,11 @@ def main():
   parser.add_option('-S', dest = 'sections',    default = False, action = 'store_true', help = 'List sections')
   parser.add_option('-a', dest = 'all',         default = False, action = 'store_true', help = 'All of above')
 
+  group = optparse.OptionGroup(parser, 'Sorting options')
+  parser.add_option_group(group)
+  group.add_option('--sort-sections', dest = 'sort_sections', default = 'index', action = 'store', type = 'choice', choices = ['index', 'base'])
+  group.add_option('--sort-symbols',  dest = 'sort_symbols',  default = 'name',  action = 'store', type = 'choice', choices = ['name', 'address'])
+
   options, logger = parse_options(parser)
 
   if not options.file_in:
@@ -271,10 +284,10 @@ def main():
         show_file_header(logger, f_in)
 
       if options.sections:
-        show_sections(logger, f_in)
+        show_sections(logger, options, f_in)
 
       if options.symbols:
-        show_symbols(logger, f_in)
+        show_symbols(logger, options, f_in)
 
       if options.reloc:
         show_reloc(logger, f_in)
