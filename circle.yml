@@ -1,6 +1,8 @@
 machine:
   python:
     version: 2.7.10
+  environment:
+    LLVMDIR: /tmp/llvm-build-Release
 
 dependencies:
   pre:
