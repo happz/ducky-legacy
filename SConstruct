@@ -18,7 +18,27 @@ import subprocess
 import sys
 
 from functools import partial
-from six import print_, iteritems, string_types
+from six import iteritems, string_types
+
+
+def print_(*args, **kwargs):
+  """
+  Simple Python3-print-like function.
+
+  CI boxes I use contain `six` package in a version that does not support `flush`
+  argument. Replacing system python package with one I'd fetch using `pip` is
+  a colosal PITA. Therefore this simple implementation...
+  """
+
+  end = kwargs.pop('end', '\n')
+  flush = kwargs.pop('flush', False)
+  f = kwargs.pop('file', sys.stdout)
+
+  f.write(' '.join([str(arg) for arg in args]) + end)
+
+  if flush is True:
+    f.flush()
+
 
 #
 # Our extra options
