@@ -1,0 +1,6 @@
+ducky-forth-builder:
+  image: ducky-forth-builder
+  command: /usr/local/bin/build.sh
+  volumes:
+    - /data/git/ducky.git:/tmp/ducky-upstream
+    - /tmp:/tmp/ducky-upload
