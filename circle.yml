@@ -10,7 +10,7 @@ dependencies:
     - pip install tox tox-pyenv virtualenv
     - sudo apt-get update; sudo apt-get install scons wget
     - wget --no-check-certificate -O ducky-llvm-latest.tar.gz https://ducky.happz.cz/llvm/ducky-llvm-latest.tar.gz
-    - tar xzf ducky-llvm-latest.tar.gz -C /
+    - sudo tar xzf ducky-llvm-latest.tar.gz -C /
     - pyenv local 2.7.10 3.3.3 3.4.3 3.5.0 pypy-2.5.0
 
 test:
