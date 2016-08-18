@@ -85,7 +85,7 @@ def run_testsuite(env, target, source, tests = None):
     coverage_flags,
     '--tc-file=$CONFIGFILE',
     '--rednose',
-    '-w $TESTSDIR'
+    '-w $TOPDIR'
   ]
 
   cmdline.append(' '.join(tests))
