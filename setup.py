@@ -2,8 +2,6 @@ from setuptools import setup, Extension
 from setuptools.command.test import test as TestCommand
 import sys
 
-mod_native_data_cache = Extension('ducky.native.data_cache', sources = ['ducky/native/data_cache.c'])
-
 install_requires = [
   'colorama',
   'enum34',
