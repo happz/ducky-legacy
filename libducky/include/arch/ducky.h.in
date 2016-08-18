@@ -1,6 +1,8 @@
 #ifndef __DUCKY_DUCKY_H__
 #define __DUCKY_DUCKY_H__
 
+#include <types.h>
+
 <%
   import ducky.mm
   import ducky.cpu.instructions
@@ -33,36 +35,44 @@
  * Memory
  */
 
-/*
-.def PAGE_SHIFT:    ${ducky.mm.PAGE_SHIFT}
-.def PAGE_SIZE:     ${ducky.mm.PAGE_SIZE}
-.def PAGE_MASK:     ${X8(ducky.mm.u32_t(ducky.mm.PAGE_MASK).value)}
+#define PAGE_SHIFT    ${ducky.mm.PAGE_SHIFT}
+#define PAGE_SIZE     ${ducky.mm.PAGE_SIZE}
+#define PAGE_MASK     ${X8(ducky.mm.u32_t(ducky.mm.PAGE_MASK).value)}
 
+/*
 .def PTE_READ:      ${X2(ducky.mm.PageTableEntry.READ)}
 .def PTE_WRITE:     ${X2(ducky.mm.PageTableEntry.WRITE)}
 .def PTE_EXECUTE:   ${X2(ducky.mm.PageTableEntry.EXECUTE)}
 .def PTE_DIRTY:     ${X2(ducky.mm.PageTableEntry.DIRTY)}
+*/
 
 
-;
-; Exceptions
-;
+/*
+ * Exceptions
+ */
 
 <%
   from ducky.errors import ExceptionList
 %>
 
-.def EXCEPTION_INVALID_OPCODE:    ${X2(ExceptionList.InvalidOpcode)}
-.def EXCEPTION_INVALID_INST_SET:  ${X2(ExceptionList.InvalidInstSet)}
-.def EXCEPTION_DIVIDE_BY_ZERO:    ${X2(ExceptionList.DivideByZero)}
-.def EXCEPTION_UNALIGNED_ACCESS:  ${X2(ExceptionList.UnalignedAccess)}
-.def EXCEPTION_PRIVILEGED_INST:   ${X2(ExceptionList.PrivilegedInstr)}
-.def EXCEPTION_DOUBLE_FAULT:      ${X2(ExceptionList.DoubleFault)}
-.def EXCEPTION_MEMORY_ACCESS:     ${X2(ExceptionList.MemoryAccess)}
-.def EXCEPTION_REGISTER_ACCESS:   ${X2(ExceptionList.RegisterAccess)}
-.def EXCEPTION_INVALID_EXCEPTION: ${X2(ExceptionList.InvalidException)}
-.def EXCEPTION_COPROCESSOR_ERROR: ${X2(ExceptionList.CoprocessorError)}
+typedef struct {
+  u32_t e_ip;
+  u32_t e_sp;
+} evt_entry_t;
 
-.def EXCEPTION_COUNT:             ${X2(ExceptionList.COUNT)}
-*/
+enum {
+  EXCEPTION_INVALID_OPCODE    = ${X2(ExceptionList.InvalidOpcode)},
+  EXCEPTION_INVALID_INST_SET  = ${X2(ExceptionList.InvalidInstSet)},
+  EXCEPTION_DIVIDE_BY_ZERO    = ${X2(ExceptionList.DivideByZero)},
+  EXCEPTION_UNALIGNED_ACCESS  = ${X2(ExceptionList.UnalignedAccess)},
+  EXCEPTION_PRIVILEGED_INST   = ${X2(ExceptionList.PrivilegedInstr)},
+  EXCEPTION_DOUBLE_FAULT      = ${X2(ExceptionList.DoubleFault)},
+  EXCEPTION_MEMORY_ACCESS     = ${X2(ExceptionList.MemoryAccess)},
+  EXCEPTION_REGISTER_ACCESS   = ${X2(ExceptionList.RegisterAccess)},
+  EXCEPTION_INVALID_EXCEPTION = ${X2(ExceptionList.InvalidException)},
+  EXCEPTION_COPROCESSOR_ERROR = ${X2(ExceptionList.CoprocessorError)},
+
+  EXCEPTION_COUNT             = ${X2(ExceptionList.COUNT)}
+};
+
 #endif
