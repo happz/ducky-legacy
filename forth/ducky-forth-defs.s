@@ -52,15 +52,15 @@
 .def STRING_SIZE:       255
 
 ; Some commonly used registers
-.def FIP: r28
+.def FIP: r29
 .def PSP: sp
-.def RSP: r27
-.def W:   r26
-.def X:   r25
-.def Y:   r24
-.def Z:   r23
+.def RSP: r28
+.def W:   r27
+.def X:   r26
+.def Y:   r25
+.def Z:   r24
 .ifdef FORTH_TIR
-.def TOS: r22
+.def TOS: r23
 .endif
 
 
@@ -214,6 +214,7 @@ code_#label:
   .align 4
   .type var_#label, int
   .int #initial
+  .global var_#label
 .end
 
 .macro load_minus_one reg:

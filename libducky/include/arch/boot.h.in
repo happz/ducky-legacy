@@ -1,0 +1,16 @@
+#ifndef __DUCKY_ARCH_BOOT_H__
+#define __DUCKY_ARCH_BOOT_H__
+
+<%
+  from ducky import cpu, boot
+%>
+
+// Initial memory layout
+#define BOOT_EVT_ADDRESS       ${X8(cpu.DEFAULT_EVT_ADDRESS)}
+#define BOOT_HDT_ADDRESS       ${X8(boot.DEFAULT_HDT_ADDRESS)}
+#define BOOT_CWT_ADDRESS       0x00000200
+#define BOOT_PT_ADDRESS        ${X8(cpu.DEFAULT_PT_ADDRESS)}
+#define BOOT_LOADER_ADDRESS    ${X8(boot.DEFAULT_BOOTLOADER_ADDRESS)}
+#define BOOT_OS_ADDRESS        0x00030000
+
+#endif

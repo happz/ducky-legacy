@@ -384,45 +384,6 @@ write_word_buffer:
 
 
 ;
-; void init_crcs(void)
-;
-; Compute name CRC for each exisitng word.
-;
-init_crcs:
-  ; Since, by default, we're still in privileged mode, it's not
-  ; necessarry to disable read-only protection of .text and .rodata.
-  ; There's also no PT anyway...
-
-  la r2, &var_LATEST
-
-__init_crcs_loop:
-  lw r2, r2
-  cmp r2, r2
-  bz &__init_crcs_quit
-
-  mov r0, r2
-  add r0, $wr_name
-
-  mov r1, r2
-  add r1, $wr_namelen
-  lb r1, r1
-
-  call &strcrc
-
-  mov r1, r2
-  add r1, $wr_namecrc
-  sts r1, r0
-
-  j &__init_crcs_loop
-
-__init_crcs_quit:
-  ; Flush PTE cache
-  fptc
-
-  ret
-
-
-;
 ; void __relocate_section(u32_t *first, u32_t *last)
 ;
 __relocate_section:
@@ -503,15 +464,6 @@ boot_phase1:
   ; Next, turn of debugging.
   ;call &__vmdebug_off
 
-  ; Setup stack, using the next-to-last memory page
-  ; If the stack is supposed to be on next-to-last page, the initial SP is the
-  ; base address of the last page...
-  la sp, &memory_size
-  lw sp, sp
-  li r0, $PAGE_MASK
-  liu r0, 0xFFFF
-  and sp, r0
-
   ; There's nothing blocking us from relocating our sections to more convenient
   ; place since the .text section should start at 0xA00, at least, leaving
   ; enough space for HDT.
@@ -531,76 +483,21 @@ boot_phase1:
 ; necessary work before handing over to FORTH words.
 ;
 boot_phase2:
-  ; Walk through HDT, and save interesting info.
-  li r0, $BOOT_HDT_ADDRESS             ; pass HDT address as first argument
-  call &process_hdt
-  cmp r0, 0x00
-  bnz &__ERR_malformed_HDT
+  ; Re-set boot stack to use the correct, relocated address
+  la sp, .bootstack
+  add sp, $PAGE_SIZE
 
-  ; Update MMIO addresses
-  la r0, &kbd_mmio_address
-  lw r1, r0
-  add r1, $KBD_MMIO_DATA
+  ; Set LATEST to the correct value, after relocation
+  la r0, &var_LATEST
+  la r1, &name_BYE
   stw r0, r1
 
-  la r0, &tty_mmio_address
-  lw r1, r0
-  add r1, $TTY_MMIO_DATA
-  stw r0, r1
+  ; Call the C code - that will do biggest part of necessary work
+  call do_boot_phase2
 
-  ; set RTC frequency
-  la r0, &rtc_mmio_address
-  lw r0, r0
-  add r0, $RTC_MMIO_FREQ
-  li r1, $RTC_FREQ
-  stb r0, r1
-
-  ;
-  ; LPF - Last Page Frame, base address of the last page of memory
-  ;
-  ; +--------------------+ <- 0x00000000
-  ; | Initial EVT        |
-  ; +--------------------+ <- 0x00000100
-  ; | HDT                |
-  ; +--------------------+ <- 0x00000200
-  ; |                    |
-  ; +--------------------+
-  ; ...                ...
-  ; +--------------------+ <- 0x00000A00
-  ; | .text              |
-  ; +--------------------+
-  ; ...                ...
-  ; +--------------------+
-  ; |                    |
-  ; +--------------------+ <- HEAP, HEAP-START
-  ; | RTC stack          |
-  ; +--------------------+
-  ; | Dummy EVT stack    |
-  ; +--------------------+
-  ; | Return stack       |
-  ; +--------------------+ <- RSP
-  ; | Stack              |
-  ; +--------------------+ <- LPF; SP
-  ; | Our EVT            |
-  ; +--------------------+
-  ;
-
-  ; r11 will hold the LPF, as a reference point
-  la r11, &memory_size
-  lw r11, r11
-  li r0, $PAGE_MASK
-  liu r0, 0xFFFF
-  and r11, r0
-  sub r11, $PAGE_SIZE
-
-  ; r10 is our current page pointer
-  mov r10, r11
-
-  ; Reset stack, just in case there are some leftovers on it - we won't need them anymore
-  mov sp, r10
-  sub r10, $PAGE_SIZE
-  la r9, &var_SZ
-  stw r9, sp
+  ; Get rid of boot stack
+  la r0, var_SZ
+  lw sp, r0
 .ifdef FORTH_TIR
   ; Init TOS
   li $TOS, 0xBEEF
@@ -608,113 +505,51 @@ boot_phase2:
 .endif
 
   ; Return stack
-  mov $RSP, r10
-  sub r10, $PAGE_SIZE
-  la r9, &rstack_top
-  stw r9, $RSP
+  la r0, rstack_top
+  lw $RSP, r0
 
-  ; EVT
-  mov r9, r10                          ; RTC SP
-  sub r10, $PAGE_SIZE
-  mov r8, r10                          ; Keyboard SP
-  sub r10, $PAGE_SIZE
-  mov r7, r10                          ; dummy SP
-  sub r10, $PAGE_SIZE
-
-  ; Init heap pointer
-  la r0, &var_HEAP_START
-  la r1, &var_HEAP
-  stw r0, r10
-  stw r1, r10
-  sub r10, $PAGE_SIZE
-
-  mov r0, r11
+  ; Tell CPU about or EVT
+  la r0, var_EVT
+  lw r0, r0
   ctw $CONTROL_EVT, r0
-
-  ; init all entries to fail-safe
-  la r2, &failsafe_isr
-
-  mov r1, r0
-  add r1, $PAGE_SIZE
-__boot_phase2_evt_failsafe_loop:
-  stw r0, r2
-  add r0, $INT_SIZE
-  stw r0, r7
-  add r0, $INT_SIZE
-  cmp r0, r1
-  bne &__boot_phase2_evt_failsafe_loop
-
-  mov r0, r11
-
-  ; set the first entry to RTC ISR
-  la r2, &rtc_isr
-  stw r0, r2
-  add r0, $INT_SIZE
-  stw r0, r9
-  add r0, $INT_SIZE
-
-  ; set the second entry to NOP ISR for keyboard
-  la r2, &nop_isr
-  stw r0, r2
-  add r0, $INT_SIZE
-  stw r0, r8
-  add r0, $INT_SIZE
-
-  ; init LATEST
-  la r0, &var_LATEST
-  la r1, &name_BYE
-  stw r0, r1
 
   ; init pictured numeric output buffer
   call &__reset_pno_buffer
 
-  ; init words' crcs
-  call &init_crcs
+  ; Invalidate all CPU caches
+  fptc
 
   ; give up the privileged mode
   ; lpm
+
+  ; Enable interrupts as well
   sti
 
-  ; and boot the FORTH itself...
+  ; And boot the FORTH itself...
   la $FIP, &cold_start
   $NEXT
 
 
 ;
-; void failsafe_isr(void) __attribute__((noreturn))
-;
-; Fail-safe interrupt service routine - if this interrupt
-; gets triggered, kill kernel.
-;
-  .section .rodata
-  .type __ERR_unhandled_irq_message, string
-  .string "\r\nERROR: $ERR_UNHANDLED_IRQ: Unhandled irq\r\n"
-
-  .text
-
-failsafe_isr:
-  la r0, &__ERR_unhandled_irq_message
-  li r1, $ERR_UNHANDLED_IRQ
-  j &__ERR_die
-
-
-;
-; void nop_isr(void) __attribute__((noreturn))
+; void nop_esr(void)
 ;
 ; NOP ISR - just retint, we have nothing else to do.
 ;
-nop_isr:
+nop_esr:
   retint
+
+  .global nop_esr
 
 
 ;
-; void rtc_isr(void) __attribute__((noreturn))
+; void rtc_isr(void)
 ;
 ; RTC interrupt service routine.
 ;
-rtc_isr:
+rtc_esr:
   retint
 
+  .global rtc_esr
 
 
 DOCOL:
@@ -762,15 +597,46 @@ cold_start:
   .data
 
   .align 4
+  .global rstack_top
   .type rstack_top, int
   .int 0xFFFFFE00
 
   .type jiffies, int
   .int 0x00000000
 
+  ; Memory-related info - where do interesting things start?
   .global memory_size
   .type memory_size, int
   .int 0x01000000
+
+  .global __mm_evt
+  .type __mm_evt, int
+  .int 0xFFFFFFFF
+
+  .global __mm_heap
+  .type __mm_heap, int
+  .int 0xDEADBEEF
+
+  .global __mm_rtc_esr_sp
+  .type __mm_rtc_esr_sp, int
+  .int 0xDEADBEEF
+
+  .global __mm_kbd_esr_sp
+  .type __mm_kbd_esr_sp, int
+  .int 0xDEADBEEF
+
+  .global __mm_failsafe_esr_sp
+  .type __mm_failsafe_esr_sp, int
+  .int 0xDEADBEEF
+
+  .global __mm_rsp
+  .type __mm_rsp, int
+  .int 0xDEADBEEF
+
+  .global __mm_sp
+  .type __mm_sp, int
+  .int 0xDEADBEEF
+
 
   ; Temporary stack
   ; Keep it in a separate section, so it can be BSS, and reused when not needed anymore
@@ -795,8 +661,7 @@ cold_start:
 ;
 ; Variables
 ;
-.global var_TEST_MODE
-
+$DEFVAR "EVT", 3, 0, EVT, 0x00000000
 $DEFVAR "TEST-MODE", 9, 0, TEST_MODE, 0x00000000
 $DEFVAR "ECHO", 4, 0, ECHO, 0
 $DEFVAR "UP", 2, 0, UP, $USERSPACE_BASE
@@ -807,6 +672,7 @@ $DEFVAR "S0", 2, 0, SZ, 0xFFFFFF00
 $DEFVAR "BASE", 4, 0, BASE, 10
 $DEFVAR "SOURCE-ID", 9, 0, SOURCE_ID, 0
 $DEFVAR "SHOW-PROMPT", 11, 0, SHOW_PROMPT, 0
+
 
 $DEFCODE "DUCKY", 5, $F_HIDDEN, DUCKY
   la r0, &__ducky_welcome
@@ -925,6 +791,7 @@ $DEFCODE "VMDEBUGOFF", 10, $F_IMMED, VMDEBUGOFF
 ; Generic fatal error handler
   .text
 
+  .global __ERR_die
 __ERR_die:
   call &writes
   hlt r1
@@ -1007,6 +874,8 @@ __ERR_no_interpretation_semantics:
 ; Raised when HDT is malformed.
 ;
   .text
+
+  .global __ERR_malformed_HDT
 
 __ERR_malformed_HDT:
   li r0, $ERR_MALFORMED_HDT
