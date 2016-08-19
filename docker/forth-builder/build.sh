@@ -5,7 +5,7 @@ TMPDIR=$(mktemp -d)
 DUCKY_UPSTREAM=/tmp/ducky-upstream
 DUCKY_REPO=/tmp/ducky-repo
 DUCKY_UPLOAD=/tmp/ducky-upload
-LLVM_TARBALL=https://ducky.happz.cz/llvm/ducky-llvm-latest.tar.gz
+LLVM_TARBALL=https://ducky.happz.cz/llvm/ubuntu-trusty/ducky-llvm-latest.tar.gz
 
 wget --no-check-certificate -O ducky-llvm-latest.tar.gz $LLVM_TARBALL
 tar xzf ducky-llvm-latest.tar.gz -C /
