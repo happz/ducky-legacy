@@ -2,7 +2,7 @@ import os
 import random
 import string
 
-from .. import TestCase, prepare_file, common_run_machine, common_asserts
+from .. import TestCase, prepare_file, common_run_machine, common_asserts, tests_dir
 from functools import partial
 from ducky.boot import DEFAULT_BOOTLOADER_ADDRESS
 
@@ -48,7 +48,7 @@ class Tests(TestCase):
       file_assert[0][1][msg_offset + i + 2] = ord(msg[i + 2])
       file_assert[0][1][msg_offset + i + 3] = ord(msg[i + 3])
 
-    common_case(binary = os.path.join('storage', 'test_mmap_read'),
+    common_case(binary = tests_dir('storage', 'test_mmap_read'),
                 mmaps = [mmap_desc],
                 pokes = [(data_base + 4 + msg_length + 4, msg_offset, 4)],
                 mm_asserts = mm_assert, file_asserts = file_assert,
@@ -87,7 +87,7 @@ class Tests(TestCase):
       file_assert[0][1][msg_offset + i + 2] = ord(msg[i + 2])
       file_assert[0][1][msg_offset + i + 3] = ord(msg[i + 3])
 
-    common_case(binary = os.path.join('storage', 'test_mmap_write'),
+    common_case(binary = tests_dir('storage', 'test_mmap_write'),
                 mmaps = [mmap_desc],
                 pokes = [(data_base + msg_length, msg_offset, 4)] + [(data_base + i, ord(msg[i]), 1) for i in range(0, msg_length)],
                 mm_asserts = mm_assert, file_asserts = file_assert,

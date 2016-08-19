@@ -26,6 +26,7 @@ logs  = $LOGDIR
 examples = $EXAMPLESDIR
 loader   = $LOADERDIR
 snapshot = $SNAPSHOTDIR
+tmp = $TMPDIR
 {coveragedir}
 {profiledir}
 

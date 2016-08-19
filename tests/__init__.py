@@ -5,7 +5,7 @@ import tempfile
 
 from six import iteritems
 from six.moves import range
-from functools import wraps
+from functools import partial, wraps
 
 import ducky.config
 import ducky.cpu.assemble
@@ -82,8 +82,13 @@ def repeat(*test_paths):
     return wrapper
   return wrap
 
+
+tests_dir = partial(os.path.join, config['dirs']['tests'])
+tmp_dir = partial(os.path.join, config['dirs']['tmp'])
+
+
 def get_tempfile(keep = True):
-  return tempfile.NamedTemporaryFile('w+b', delete = not keep, dir = os.getenv('TMPDIR'))
+  return tempfile.NamedTemporaryFile('w+b', delete = not keep, dir = tmp_dir())
 
 def prepare_file(size, messages = None, pattern = 0xDE):
   f_tmp = get_tempfile()

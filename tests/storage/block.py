@@ -4,7 +4,7 @@ import os
 
 import ducky.devices.storage
 
-from .. import common_run_machine, prepare_file, common_asserts, TestCase
+from .. import common_run_machine, prepare_file, common_asserts, TestCase, tests_dir
 from functools import partial
 from ducky.boot import DEFAULT_BOOTLOADER_ADDRESS
 
@@ -15,17 +15,17 @@ class Tests(TestCase):
   def test_unknown_device(self):
     f_tmp = prepare_file(ducky.devices.storage.BLOCK_SIZE * 10)
 
-    common_case(binary = os.path.join('storage', 'test_unknown_device_1'),
+    common_case(binary = tests_dir('storage', 'test_unknown_device_1'),
                 storages = [('ducky.devices.storage.FileBackedStorage', 1, f_tmp.name)],
                 r0 = 0x01, r1 = 0x02, r10 = 0x08, z = True)
 
   def test_out_of_bounds_access(self):
     f_tmp = prepare_file(ducky.devices.storage.BLOCK_SIZE * 10)
 
-    common_case(binary = os.path.join('storage', 'test_out_of_bounds_access_read'),
+    common_case(binary = tests_dir('storage', 'test_out_of_bounds_access_read'),
                 storages = [('ducky.devices.storage.FileBackedStorage', 1, f_tmp.name)],
                 r0 = 0x01, r1 = 0x01, r2 = 0x02, r10 = 0x24, z = True)
-    common_case(binary = os.path.join('storage', 'test_out_of_bounds_access_write'),
+    common_case(binary = tests_dir('storage', 'test_out_of_bounds_access_write'),
                 storages = [('ducky.devices.storage.FileBackedStorage', 1, f_tmp.name)],
                 r0 = 0x01, r1 = 0x01, r2 = 0x02, r10 = 0x28, z = True)
 
@@ -64,7 +64,7 @@ class Tests(TestCase):
       file_assert[0][1][msg_block * ducky.devices.storage.BLOCK_SIZE + i + 2] = ord(msg[i + 2])
       file_assert[0][1][msg_block * ducky.devices.storage.BLOCK_SIZE + i + 3] = ord(msg[i + 3])
 
-    common_case(binary = os.path.join('storage', 'test_block_read'),
+    common_case(binary = tests_dir('storage', 'test_block_read'),
                 storages = [storage_desc], pokes = [(data_base, msg_block, 4)],
                 mm_asserts = mm_assert, file_asserts = file_assert,
                 r0 = 0x01, r1 = 0x01, r2 = 0x01, r10 = 0x24, z = True)
@@ -101,7 +101,7 @@ class Tests(TestCase):
       file_assert[0][1][msg_block * ducky.devices.storage.BLOCK_SIZE + i + 2] = ord(msg[i + 2])
       file_assert[0][1][msg_block * ducky.devices.storage.BLOCK_SIZE + i + 3] = ord(msg[i + 3])
 
-    common_case(binary = os.path.join('storage', 'test_block_write'),
+    common_case(binary = tests_dir('storage', 'test_block_write'),
                 storages = [storage_desc], pokes = [(data_base, msg_block, 4)] + [(data_base + 4 + i, ord(msg[i]), 1) for i in range(0, ducky.devices.storage.BLOCK_SIZE)],
                 mm_asserts = mm_assert, file_assertss = file_assert,
                 r0 = 0x01, r1 = 0x01, r2 = 0x01, r10 = 0x28, z = True)
