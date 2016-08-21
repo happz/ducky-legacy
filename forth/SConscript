@@ -16,15 +16,15 @@ E.PassVarAsDefine('FORTH_DEBUG_FIND')
 E.PassVarAsDefine('FORTH_TIR')
 E.PassVarAsDefine('FORTH_DIE_ON_UNDEF')
 
-E.DuckyAsmFromC('boot.s', source = 'boot.c')
-E.DuckyObjFromAsm('boot.o', source = 'boot.s')
+E.ObjectFromC('string.c')
+E.ObjectFromC('boot')
 
 E.DuckyObject('boundaries-post.o', source = 'boundaries-post.s')
 E.DuckyObject('ducky-forth.o', source = 'ducky-forth.s')
 
 E.ReadExternalDeps()
 
-E.DuckyBinary('ducky-forth', source = ['ducky-forth.o', 'boot.o', 'boundaries-post.o'])
+E.DuckyBinary('ducky-forth', source = ['ducky-forth.o', 'boot.o', 'string.o', 'boundaries-post.o'])
 E.Alias('forth', File('ducky-forth'))
 
 set_options = [

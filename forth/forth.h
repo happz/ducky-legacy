@@ -59,6 +59,18 @@ enum {
 
 /* Some common functions */
 
+extern int __c_strcmp(char *s1, char *s2, u32_t len1, u32_t len2);
+extern void __c_bzero(char *s, u32_t len);
+extern void __c_memcpy(char *dst, char *src, u32_t len);
+extern u16_t __c_strcrc(char *s, u8_t len);
+
+extern void putc(char c) FORTHCC;
+extern void write(char *s, u32_t len) FORTHCC;
+extern void writes(char *s) FORTHCC;
+extern void writeln(char *s, u32_t len) FORTHCC;
+extern void writesln(char *s) FORTHCC;
+extern void write_new_line(void) FORTHCC;
+
 extern void halt(int errno) __attribute__((noreturn));
 extern void __ERR_die(char *msg, int errno) __attribute__((noreturn));
 

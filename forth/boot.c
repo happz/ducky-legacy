@@ -35,51 +35,6 @@ extern void nop_esr(void);
 
 
 //-----------------------------------------------------------------------------
-// Helper functions
-//-----------------------------------------------------------------------------
-
-static int __c_strcmp(char *s1, char *s2, u32_t len1, u32_t len2)
-{
-  if (len1 != len2)
-    return 0;
-
-  if (len1 == 0)
-    return 0;
-
-  while (len1-- > 0)
-    if (*s1++ != *s2++)
-      return 0;
-
-  return 1;
-}
-
-static void __c_bzero(char *s, u32_t len)
-{
-  while(len-- > 0)
-    *s++ = '\0';
-}
-
-static void __c_memcpy(char *dst, char *src, u32_t len)
-{
-  if (len == 0)
-    return;
-
-  while (len-- > 0)
-    *dst++ = *src++;
-}
-
-static u16_t __c_strcrc(char *s, u8_t len)
-{
-  u32_t crc = 0;
-
-  while(len-- > 0)
-    crc += *s++;
-
-  return crc;
-}
-
-
-//-----------------------------------------------------------------------------
 // HDT processing
 //-----------------------------------------------------------------------------
 
@@ -310,14 +265,16 @@ static void init_memory(void)
 // EVT setup
 //-----------------------------------------------------------------------------
 
+static void __failsafe_esr(void) __attribute__((noreturn));
+
 static char __unhandled_irq_message[] = "\r\nERROR: $ERR_UNHANDLED_IRQ: Unhandled irq\r\n";
 
-static void __failsafe_esr(void) __attribute__((noreturn))
+static void __failsafe_esr(void)
 {
   __ERR_die(__unhandled_irq_message, ERR_UNHANDLED_IRQ);
 }
 
-static void init_evt(void) FORTHCC
+static void init_evt(void)
 {
   int i;
   evt_entry_t *evt = (evt_entry_t *)__mm_evt, *entry;
@@ -352,15 +309,10 @@ extern u32_t var_LATEST;
 
 static void init_crcs(void)
 {
-  if (var_LATEST == 0)
-    return;
+  forth_word_header_t *header;
 
-  forth_word_header_t *header = (forth_word_header_t *)var_LATEST;
-
-  do {
+  for(header = (forth_word_header_t *)var_LATEST; header != NULL; header = header->wh_link)
     header->wh_name_crc = __c_strcrc(&header->wh_name, header->wh_name_len);
-    header = (forth_word_header_t *)header->wh_link;
-  } while(header->wh_link != NULL);
 }
 
 void do_boot_phase2(void)
