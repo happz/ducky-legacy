@@ -478,6 +478,12 @@ def __create_ducky_image(self, _target, _source, mode = 'binary', bio = False):
 
   return partial(_create_ducky_image, cmd = cmd)
 
+def __object_from_c(self, target):
+  basename, ext = os.path.splitext(str(target))
+
+  self.DuckyAsmFromC(basename + '.s', source = basename + '.c')
+  self.DuckyObjFromAsm(basename + '.o', source = basename + '.s')
+
 def __read_external_deps(self, directory = None):
   directory = Dir(directory) if directory is not None else self.Dir('.')
   deps_file = File(os.path.join(directory.abspath, '.depends')).abspath
@@ -534,6 +540,7 @@ def __clone_env(self, *args, **kwargs):
 
     # Virtual builders
     'RunSomething':    __run_something,
+    'ObjectFromC':     __object_from_c,
     'DuckyRun':        __run_ducky_binary,
     'DuckyImage':      __create_ducky_image,
     'GetDuckyDefine':  lambda self, *names: [os.path.join(str(ENV['HEADERSDIR']), name + '.hs') for name in names]
