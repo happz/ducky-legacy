@@ -148,7 +148,7 @@ class InstructionCache(LoggingCapable, dict):
 
     self._mmu = mmu
     self._core = mmu.core
-    self._size = size
+    self.size = size
 
     self.reads   = 0
     self.inserts = 0
@@ -156,7 +156,7 @@ class InstructionCache(LoggingCapable, dict):
     self.misses  = 0
     self.prunes  = 0
 
-    if self.core.cpu.machine.config.getbool('machine', 'jit', False):
+    if self._core.cpu.machine.config.getbool('machine', 'jit', False):
       self._fetch = self._fetch_jit
 
   def _prune(self):
@@ -181,7 +181,7 @@ class InstructionCache(LoggingCapable, dict):
 
     if addr in self:
       self.hits += 1
-      return self[addr]
+      return super(InstructionCache, self).__getitem__(addr)
 
     self.misses += 1
     self[addr] = inst = self._fetch(addr)
@@ -196,7 +196,7 @@ class InstructionCache(LoggingCapable, dict):
 
     self.DEBUG('%s.__setitem__: addr=%s, inst=%s', self.__class__.__name__, UINT32_FMT(addr), inst)
 
-    if len(self) == self._size:
+    if len(self) == self.size:
       self._prune()
 
     super(InstructionCache, self).__setitem__(addr, inst)
