@@ -178,93 +178,6 @@ class BinaryFile(object):
 
     self.write(st)
 
-class LRUCache(collections.OrderedDict):
-  """
-  Simple LRU cache, based on ``OrderedDict``, with limited size. When limit
-  is reached, the least recently inserted item is removed.
-
-  :param logging.Logger logger: logger object instance should use for logging.
-  :param int size: maximal number of entries allowed.
-  """
-
-  def __init__(self, logger, size, *args, **kwargs):
-    super(LRUCache, self).__init__(*args, **kwargs)
-
-    self.size = size
-
-    self.reads   = 0
-    self.inserts = 0
-    self.hits    = 0
-    self.misses  = 0
-    self.prunes  = 0
-
-    self.DEBUG = logger.debug
-    self.INFO = logger.info
-    self.WARN = logger.warn
-    self.ERROR = logger.error
-    self.EXCEPTION = logger.exception
-
-  def make_space(self):
-    """
-    This method is called when there is no free space in cache. It's responsible
-    for freeing at least one slot, upper limit of removed entries is not enforced.
-    """
-
-    self.DEBUG('%s.make_space', self.__class__.__name__)
-
-    self.popitem(last = False)
-    self.prunes += 1
-
-  def __getitem__(self, key):
-    """
-    Return entry with specified key.
-    """
-
-    self.DEBUG('%s.__getitem__: key=%s', self.__class__.__name__, key)
-
-    self.reads += 1
-
-    if key in self:
-      self.hits += 1
-    else:
-      self.misses += 1
-
-    return super(LRUCache, self).__getitem__(key)
-
-  def __setitem__(self, key, value):
-    """
-    Called when item is inserted into cache. Size limit is checked and if there's no free
-    space in cache, ``make_space`` method is called.
-    """
-
-    self.DEBUG('%s.__setitem__: key=%s, value=%s', self.__class__.__name__, key, value)
-
-    if len(self) == self.size:
-      self.make_space()
-
-    super(LRUCache, self).__setitem__(key, value)
-    self.inserts += 1
-
-  def get_object(self, key):
-    """
-    The real workhorse - responsible for getting requested item from outside when it's
-    not present in cache. Called by ``__missing__`` method. This method itself makes no
-    changes to cache at all.
-    """
-
-    raise NotImplementedError('Cache %s does not implement get() method' % self.__class__.__name__)
-
-  def __missing__(self, key):
-    """
-    Called when requested entry is not in cache. It's responsible for getting missing item
-    and inserting it into cache. Returns new item.
-    """
-
-    self.DEBUG('%s.__missing__: key=%s', self.__class__.__name__, key)
-
-    self[key] = value = self.get_object(key)
-    return value
-
 class StringTable(object):
   """
   Simple string table, used by many classes operating with files (core, binaries, ...).
@@ -449,3 +362,15 @@ class Flags(object):
 
   def __repr__(self):
     return '<{}: {}>'.format(self.__class__.__name__, self.to_string())
+
+class LoggingCapable(object):
+  def __init__(self, logger, *args, **kwargs):
+    super(LoggingCapable, self).__init__(*args, **kwargs)
+
+    self._logger = logger
+
+    self.DEBUG = logger.debug
+    self.INFO = logger.info
+    self.WARN = logger.warn
+    self.ERROR = logger.error
+    self.EXCEPTION = logger.exception

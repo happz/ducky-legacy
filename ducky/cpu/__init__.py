@@ -14,7 +14,7 @@ from ..mm import UINT8_FMT, UINT16_FMT, UINT32_FMT, PAGE_SIZE, PAGE_MASK, PAGE_S
 from .registers import Registers, REGISTER_NAMES
 from .instructions import DuckyInstructionSet
 from ..errors import ExceptionList, AccessViolationError, InvalidResourceError, ExecutionException, InvalidOpcodeError, MemoryAccessError, InvalidExceptionError, PrivilegedInstructionError, InvalidFrameError, UnalignedAccessError
-from ..util import LRUCache, Flags
+from ..util import LoggingCapable, Flags
 from ..snapshot import SnapshotNode
 
 #: Default EVT address
@@ -135,24 +135,74 @@ class CoreFlags(Flags):
   _labels = 'PHEZOS'
 
 
-class InstructionCache(LRUCache):
+class InstructionCache(LoggingCapable, dict):
   """
-  Simple instruction cache class, based on LRU dictionary, with a limited size.
+  Simple instruction cache class, based on a dictionary, with a limited size.
 
   :param ducky.cpu.CPUCore core: CPU core that owns this cache.
   :param int size: maximal number of entries this cache can store.
   """
 
   def __init__(self, mmu, size, *args, **kwargs):
-    super(InstructionCache, self).__init__(mmu.core.cpu.machine.LOGGER, size, *args, **kwargs)
+    super(InstructionCache, self).__init__(mmu.core.cpu.machine.LOGGER, *args, **kwargs)
 
-    self.mmu = mmu
-    self.core = mmu.core
+    self._mmu = mmu
+    self._core = mmu.core
+    self._size = size
 
-    if mmu.core.cpu.machine.config.getbool('machine', 'jit', False):
-      self.get_object = self.get_object_jit
+    self.reads   = 0
+    self.inserts = 0
+    self.hits    = 0
+    self.misses  = 0
+    self.prunes  = 0
 
-  def get_object(self, addr):
+    if self.core.cpu.machine.config.getbool('machine', 'jit', False):
+      self._fetch = self._fetch_jit
+
+  def _prune(self):
+    """
+    This method is called when there is no free space in cache. It's responsible
+    for freeing at least one slot, upper limit of removed entries is not enforced.
+    """
+
+    self.DEBUG('%s._prune', self.__class__.__name__)
+
+    self.popitem(last = False)
+    self.prunes += 1
+
+  def __getitem__(self, addr):
+    """
+    Get instruction from the specified address.
+    """
+
+    self.DEBUG('%s.__getitem__: addr=%s', self.__class__.__name__, UINT32_FMT(addr))
+
+    self.reads += 1
+
+    if addr in self:
+      self.hits += 1
+      return self[addr]
+
+    self.misses += 1
+    self[addr] = inst = self._fetch(addr)
+
+    return inst
+
+  def __setitem__(self, addr, inst):
+    """
+    Called to add instruction into cache. Size limit is checked and if there's no free
+    space in cache, ``_prune`` method is called.
+    """
+
+    self.DEBUG('%s.__setitem__: addr=%s, inst=%s', self.__class__.__name__, UINT32_FMT(addr), inst)
+
+    if len(self) == self._size:
+      self._prune()
+
+    super(InstructionCache, self).__setitem__(addr, inst)
+    self.inserts += 1
+
+  def _fetch(self, addr):
     """
     Read instruction from memory. This method is responsible for the real job of
     fetching instructions and filling the cache.
@@ -162,12 +212,12 @@ class InstructionCache(LRUCache):
     :rtype: ``InstBinaryFormat_Master``
     """
 
-    core = self.core
+    core = self._core
 
     inst, desc, opcode = core.instruction_set.decode_instruction(core.LOGGER, core.MEM_IN32(addr, not_execute = False), core = core)
     return inst, opcode, partial(desc.execute, core, inst)
 
-  def get_object_jit(self, addr):
+  def _fetch_jit(self, addr):
     """
     Read instruction from memory. This method is responsible for the real job of
     fetching instructions and filling the cache.
@@ -177,7 +227,7 @@ class InstructionCache(LRUCache):
     :rtype: ``InstBinaryFormat_Master``
     """
 
-    core = self.core
+    core = self._core
 
     inst, desc, opcode = core.instruction_set.decode_instruction(core.LOGGER, core.MEM_IN32(addr, not_execute = False), core = core)
 
