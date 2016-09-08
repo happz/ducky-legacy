@@ -54,6 +54,7 @@ def sign_extend(sign_mask, ext_mask, value):
 
 sign_extend11 = partial(sign_extend, 0x400,   0xFFFFF800)
 sign_extend15 = partial(sign_extend, 0x4000,  0xFFFF8000)
+sign_extend16 = partial(sign_extend, 0x8000,  0xFFFF0000)
 sign_extend20 = partial(sign_extend, 0x80000, 0xFFF00000)
 
 def encode_inst(desc, operands):
@@ -205,6 +206,7 @@ VALUE16     = integers(min_value = 0, max_value = 0xFFFF)
 VALUE8      = integers(min_value = 0, max_value = 0xFF)
 IMMEDIATE11 = integers(min_value = 0, max_value = 0x7FF)
 IMMEDIATE15 = integers(min_value = 0, max_value = 0x7FFF)
+IMMEDIATE16 = integers(min_value = 0, max_value = 0xFFFF)
 IMMEDIATE20 = integers(min_value = 0, max_value = 0xFFFFF)
 
 @composite
@@ -268,7 +270,7 @@ def __base_branch_test_immediate(state, offset, inst_class = None, cond = None):
 
   inst = encode_inst(inst_class, {'immediate': offset})
 
-  expected_value = ((state.ip + sign_extend11(offset // 4) * 4) % (2 ** 32)) if cond(state) else state.ip
+  expected_value = ((state.ip + sign_extend16(offset // 4) * 4) % (2 ** 32)) if cond(state) else state.ip
 
   state.reset()
 
@@ -501,7 +503,7 @@ def test_and_register(state, reg1, reg2, a, b):
 #
 # Branching - B*
 #
-@given(offset = IMMEDIATE11)
+@given(offset = IMMEDIATE16)
 def test_branch_unaligned(offset):
   from ducky.cpu.instructions import BE
 
@@ -523,7 +525,7 @@ def test_branch_unaligned(offset):
 #
 # BE
 #
-@given(state = STATE, offset = IMMEDIATE11)
+@given(state = STATE, offset = IMMEDIATE16)
 def test_be_immediate(state, offset):
   from ducky.cpu.instructions import BE
 
@@ -539,7 +541,7 @@ def test_be_register(state, reg, addr):
 #
 # BG
 #
-@given(state = STATE, offset = IMMEDIATE11)
+@given(state = STATE, offset = IMMEDIATE16)
 def test_bg_immediate(state, offset):
   from ducky.cpu.instructions import BG
 
@@ -555,7 +557,7 @@ def test_bg_register(state, reg, addr):
 #
 # BGE
 #
-@given(state = STATE, offset = IMMEDIATE11)
+@given(state = STATE, offset = IMMEDIATE16)
 def test_bge_immediate(state, offset):
   from ducky.cpu.instructions import BGE
 
@@ -571,7 +573,7 @@ def test_bge_register(state, reg, addr):
 #
 # BL
 #
-@given(state = STATE, offset = IMMEDIATE11)
+@given(state = STATE, offset = IMMEDIATE16)
 def test_bl_immediate(state, offset):
   from ducky.cpu.instructions import BL
 
@@ -587,7 +589,7 @@ def test_bl_register(state, reg, addr):
 #
 # BLE
 #
-@given(state = STATE, offset = IMMEDIATE11)
+@given(state = STATE, offset = IMMEDIATE16)
 def test_ble_immediate(state, offset):
   from ducky.cpu.instructions import BLE
 
@@ -603,7 +605,7 @@ def test_ble_register(state, reg, addr):
 #
 # BNE
 #
-@given(state = STATE, offset = IMMEDIATE11)
+@given(state = STATE, offset = IMMEDIATE16)
 def test_bne_immediate(state, offset):
   from ducky.cpu.instructions import BNE
 
@@ -619,7 +621,7 @@ def test_bne_register(state, reg, addr):
 #
 # BNO
 #
-@given(state = STATE, offset = IMMEDIATE11)
+@given(state = STATE, offset = IMMEDIATE16)
 def test_bno_immediate(state, offset):
   from ducky.cpu.instructions import BNO
 
@@ -635,7 +637,7 @@ def test_bno_register(state, reg, addr):
 #
 # BNS
 #
-@given(state = STATE, offset = IMMEDIATE11)
+@given(state = STATE, offset = IMMEDIATE16)
 def test_bns_immediate(state, offset):
   from ducky.cpu.instructions import BNS
 
@@ -651,7 +653,7 @@ def test_bns_register(state, reg, addr):
 #
 # BNZ
 #
-@given(state = STATE, offset = IMMEDIATE11)
+@given(state = STATE, offset = IMMEDIATE16)
 def test_bnz_immediate(state, offset):
   from ducky.cpu.instructions import BNZ
 
@@ -667,7 +669,7 @@ def test_bnz_register(state, reg, addr):
 #
 # BO
 #
-@given(state = STATE, offset = IMMEDIATE11)
+@given(state = STATE, offset = IMMEDIATE16)
 def test_bo_immediate(state, offset):
   from ducky.cpu.instructions import BO
 
@@ -683,7 +685,7 @@ def test_bo_register(state, reg, addr):
 #
 # BS
 #
-@given(state = STATE, offset = IMMEDIATE11)
+@given(state = STATE, offset = IMMEDIATE16)
 def test_bs_immediate(state, offset):
   from ducky.cpu.instructions import BS
 
@@ -699,7 +701,7 @@ def test_bs_register(state, reg, addr):
 #
 # BZ
 #
-@given(state = STATE, offset = IMMEDIATE11)
+@given(state = STATE, offset = IMMEDIATE16)
 def test_bz_immediate(state, offset):
   from ducky.cpu.instructions import BZ
 

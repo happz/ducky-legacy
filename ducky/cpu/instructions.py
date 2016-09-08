@@ -100,6 +100,31 @@ class EncodingC(ctypes.LittleEndianStructure):
   _pack_ = 0
   _fields_ = [
     IE_OPCODE(),                # 0
+    IE_REG('reg'),              # 6
+    IE_IMM('flag', 3),          # 11
+    IE_FLAG('value'),           # 14
+    IE_FLAG('immediate_flag'),  # 25
+    IE_IMM('immediate', 16)     # 16
+  ]
+
+  @staticmethod
+  def fill_reloc_slot(logger, inst, slot):
+    logger.debug('fill_reloc_slot: inst=%s, slot=%s', inst, slot)
+
+    slot.patch_offset = 16
+    slot.patch_size = 16
+
+  @staticmethod
+  def sign_extend_immediate(logger, inst):
+    return Encoding.sign_extend_immediate(logger, inst, 0x8000, 0xFFFF0000)
+
+  def __repr__(self):
+    return '<EncodingC: opcode=%s, reg=%s, flag=%s, value=%s, immediate_flag=%s, immediate=0x%04X>' % (self.opcode, self.reg, self.flag, self.value, self.immediate_flag, self.immediate)
+
+class EncodingS(ctypes.LittleEndianStructure):
+  _pack_ = 0
+  _fields_ = [
+    IE_OPCODE(),                # 0
     IE_REG('reg1'),             # 6
     IE_REG('reg2'),             # 11
     IE_IMM('flag', 3),          # 16
@@ -120,7 +145,7 @@ class EncodingC(ctypes.LittleEndianStructure):
     return Encoding.sign_extend_immediate(logger, inst, 0x400, 0xFFFFF800)
 
   def __repr__(self):
-    return '<EncodingC: opcode=%s, reg1=%s, reg2=%s, flag=%s, value=%s, immediate_flag=%s, immediate=0x%03X>' % (self.opcode, self.reg1, self.reg2, self.flag, self.value, self.immediate_flag, self.immediate)
+    return '<EncodingS: opcode=%s, reg1=%s, reg2=%s, flag=%s, value=%s, immediate_flag=%s, immediate=0x%03X>' % (self.opcode, self.reg1, self.reg2, self.flag, self.value, self.immediate_flag, self.immediate)
 
 class EncodingI(ctypes.LittleEndianStructure):
   _pack_ = 0
@@ -1175,8 +1200,6 @@ class MOD(_BINOP):
 # Conditional and unconditional jumps
 #
 class _COND(Descriptor):
-  encoding = EncodingC
-
   FLAGS = ['arith_equal', 'arith_zero', 'arith_overflow', 'arith_sign', 'l', 'g']
   GFLAGS = [0, 1, 2, 3]
   MNEMONICS = ['e', 'z', 'o', 's', 'g', 'l']
@@ -1213,6 +1236,7 @@ class _COND(Descriptor):
     return False
 
 class _BRANCH(_COND):
+  encoding = EncodingC
   operands = 'ri'
   opcode = DuckyOpcodes.BRANCH
   relative_address = True
@@ -1225,7 +1249,7 @@ class _BRANCH(_COND):
     logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
 
     if 'register_n0' in operands:
-      ENCODE(logger, buffer, inst, 'reg1', 5, operands['register_n0'])
+      ENCODE(logger, buffer, inst, 'reg', 5, operands['register_n0'])
 
     else:
       v = operands['immediate']
@@ -1236,7 +1260,7 @@ class _BRANCH(_COND):
         if v & 0x3 != 0:
           raise buffer.get_error(UnalignedJumpTargetError, 'address=%s' % UINT32_FMT(v))
 
-        ENCODE(logger, buffer, inst, 'immediate', 11, v >> 2)
+        ENCODE(logger, buffer, inst, 'immediate', 16, v >> 2)
 
       elif isinstance(v, string_types):
         inst.refers_to = Reference(label = v)
@@ -1288,7 +1312,7 @@ class _BRANCH(_COND):
   @staticmethod
   def disassemble_operands(logger, inst):
     if inst.immediate_flag == 0:
-      return [REGISTER_NAMES[inst.reg1]]
+      return [REGISTER_NAMES[inst.reg]]
 
     return [str(inst.refers_to) if hasattr(inst, 'refers_to') and inst.refers_to is not None else UINT32_FMT(inst.immediate << 2)]
 
@@ -1307,7 +1331,7 @@ class _BRANCH(_COND):
   @staticmethod
   def execute(core, inst):
     if _COND.evaluate(core, inst):
-      JUMP(core, inst, 'reg1')
+      JUMP(core, inst, 'reg')
 
   @staticmethod
   def jit(core, inst):
@@ -1317,7 +1341,7 @@ class _BRANCH(_COND):
       i = inst.sign_extend_immediate(core.LOGGER, inst) << 2
 
     else:
-      reg = core.registers.map[inst.reg1]
+      reg = core.registers.map[inst.reg]
 
     ip = core.registers.ip
 
@@ -1449,6 +1473,7 @@ class _BRANCH(_COND):
     return None
 
 class _SET(_COND):
+  encoding = EncodingS
   operands = 'r'
   opcode = DuckyOpcodes.SET
 
@@ -1514,7 +1539,7 @@ class _SET(_COND):
     update_arith_flags(core, core.registers.map[inst.reg1])
 
 class _SELECT(Descriptor):
-  encoding = EncodingC
+  encoding = EncodingS
   operands = 'r,ri'
   opcode = DuckyOpcodes.SELECT
 
