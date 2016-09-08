@@ -51,6 +51,7 @@ RE_TEXT = PATTERN(r'\.text(?:\s+(?P<name>\.[a-z][a-z0-9_]*))?')
 RE_TYPE = PATTERN(r'\.type\s+(?P<name>[a-zA-Z_\.][a-zA-Z0-9_\.]*),\s*(?P<type>(?:char|byte|short|int|ascii|string|space))')
 RE_GLOBAL = PATTERN(r'\.global\s+(?P<name>[a-zA-Z_\.][a-zA-Z0-9_\.]*)')
 RE_ALIGN  = PATTERN(r'\.align\s+(?P<boundary>[0-9]+)')
+RE_FILE   = PATTERN(r'\.file\s+"(?P<filename>[^"]+?)"')
 
 class SourceLocation(object):
   def __init__(self, filename = None, lineno = None, column = None, length = None):
@@ -957,6 +958,13 @@ def translate_buffer(logger, buff, base_address = None, mmapable_sections = Fals
         data_section = curr_section
         DEBUG(msg_prefix + 'data section changed to %s', s_name)
 
+      continue
+
+    matches = RE_FILE.match(line)
+    if matches:
+      matches = matches.groupdict()
+
+      buff.location.filename = matches['filename']
       continue
 
     matches = RE_DATA.match(line)
