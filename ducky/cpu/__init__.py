@@ -94,11 +94,12 @@ def do_log_cpu_core_state(core, logger = None, disassemble = True, inst_set = No
   if disassemble is True:
     if core.current_instruction is not None:
       inst = inst_set.disassemble_instruction(core.LOGGER, core.current_instruction)
-      logger('inst-set=%02d current=%s', inst_set.instruction_set_id, inst)
     else:
-      logger('inst-set=%02d current=<none>', inst_set.instruction_set_id)
+      inst = '<none>'
   else:
-    logger('inst-set=%02d current=<unknown>', inst_set.instruction_set_id)
+    inst = '<unknown>'
+
+  logger('current-inst: inst-set=%02d ip=%s inst=%s', inst_set.instruction_set_id, UINT32_FMT(core.current_ip) if core.current_ip is not None else '<unknown>', inst)
 
   for index, frame in enumerate(core.frames):
     logger('Frame #%i: %s %s', index, UINT32_FMT(frame.sp), UINT32_FMT(frame.ip))
