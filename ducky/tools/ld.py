@@ -101,6 +101,7 @@ def merge_object_into(logger, info, f_dst, f_src):
       continue
 
     elif s_header.type == SectionTypes.SYMBOLS:
+      s_header._filename = f_src.name
       info.symbols[f_src].append((s_header, s_content))
       continue
 
@@ -274,6 +275,8 @@ def resolve_symbols(logger, info, f_out, f_ins):
   symbols = []
   symbol_map = []
 
+  duplicity_check = {}
+
   for f_in, symbol_sections in iteritems(info.symbols):
     D('Processing file %s', f_in.name)
 
@@ -282,8 +285,15 @@ def resolve_symbols(logger, info, f_out, f_ins):
 
       for s_se in s_content:
         s_name = f_in.string_table.get_string(s_se.name)
+        s_se._filename = f_in.string_table.get_string(s_se.filename)
 
         D('Symbol: %s', s_name)
+
+        old_s_se = duplicity_check.get(s_name)
+        if old_s_se is not None and (s_se.flags.globally_visible == 1 or old_s_se.flags.globally_visible == 1):
+          logger.warn('Symbol with name "%s" is already defined: first seen at %s:%d, new one is from %s:%d', s_name, old_s_se._filename, old_s_se.lineno, s_se._filename, s_se.lineno)
+
+        duplicity_check[s_name] = s_se
 
         o_header, o_content = f_in.get_section(s_se.section)
         D('  src section: %s', o_header)
