@@ -65,7 +65,7 @@ class AssemblerError(Error):
     if self.line is not None:
       text.append(self.line)
 
-    if self.location.column is not None:
+    if self.location is not None and self.location.column is not None:
       text.append(' ' * self.location.column + '^')
 
     self.text = text
