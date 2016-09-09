@@ -168,7 +168,7 @@ def show_symbols(logger, options, f):
   f_header = f.get_header()
 
   table = [
-    ['Name', 'Section', 'Flags', 'Address', 'Type', 'Size', 'File', 'Line', 'Content']
+    ['Name', 'Section', 'Flags', 'Address', 'Type', 'Size', 'File', 'Content']
   ]
 
   symbols = []
@@ -198,8 +198,7 @@ def show_symbols(logger, options, f):
         UINT32_FMT(entry.address),
         '%s (%i)' % (SYMBOL_DATA_TYPES[entry.type], entry.type),
         SIZE_FMT(entry.size),
-        f.string_table.get_string(entry.filename),
-        entry.lineno
+        '%s:%d' % (f.string_table.get_string(entry.filename), entry.lineno)
       ]
 
       symbol_content = ''
