@@ -67,7 +67,7 @@ def show_pages(logger, state, empty_pages = False):
     CPR = 32
     pg_addr = pg.index * PAGE_SIZE
 
-    logger.info('  Page #%8i   %s', pg.index, ' '.join(['%02X' % i for i in range(CPR)]))
+    logger.info('  Page #%8i   %s    %s', pg.index, ' '.join(['%02X' % i for i in range(CPR)]), '0123456789ABCDEF0123456789ABCDEF')
     # logger.info('    Flags: %s', pg.flags.to_string())
 
     for i in range(0, 256 // CPR):
