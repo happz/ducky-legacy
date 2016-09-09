@@ -55,7 +55,7 @@ class LogFormatter(logging.Formatter):
       msg = [self._format.format(message = record.getMessage(), **vars)]
 
       if record.exc_info is not None:
-        msg += [self._format.format(message = l, **vars) for l in self.formatException(record.exc_info).split('\n')[-15:]]
+        msg += [self._format.format(message = l, **vars) for l in self.formatException(record.exc_info).split('\n')]
 
       return '\n'.join(msg)
 
