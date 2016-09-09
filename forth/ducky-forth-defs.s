@@ -276,11 +276,3 @@ code_#label:
 __tf_finish_#name:
   j &__CMP_true
 .end
-
-
-.def ERR_UNKNOWN:             1
-.def ERR_UNDEFINED_WORD:      2
-.def ERR_UNHANDLED_IRQ:       3
-.def ERR_NO_INTERPRET_SEMANTICS: 4
-.def ERR_MALFORMED_HDT:          5
-.def ERR_UNHANDLED_ARGUMENT:     6
