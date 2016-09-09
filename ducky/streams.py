@@ -287,13 +287,14 @@ class StdinStream(InputStream):
 
       fd_blocking(fd, block = False)
 
-      try:
-        self.old_termios = termios.tcgetattr(fd)
-        tty.setcbreak(fd)
+      if stream.isatty():
+        try:
+          self.old_termios = termios.tcgetattr(fd)
+          tty.setcbreak(fd)
 
-      except termios.error as e:
-        if e.args[0] != errno.ENOTTY:
-          raise e
+        except termios.error as e:
+          if e.args[0] != errno.ENOTTY:
+            raise e
 
       DEBUG('%s.__init__: stream=%r, fd=%r', self.__class__.__name__, stream, fd)
 
