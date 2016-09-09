@@ -1,6 +1,25 @@
-forth.h: config.h
-boot.s: boot.c $HEADERSDIR/arch/ducky.h $HEADERSDIR/types.h $HEADERSDIR/arch/rtc.h $HEADERSDIR/arch/keyboard.h $HEADERSDIR/hdt.h $HEADERSDIR/arch/tty.h $HEADERSDIR/arch/keyboard.h forth.h $HEADERSDIR/arch/boot.h
-string.s: string.c $HEADERSDIR/arch/ducky.h forth.h
+# Main FORTH header file
+forth.h: config.h $HEADERSDIR/arch/ducky.h
+
+# Assembly files
+ducky-forth-words.s: ducky-forth-defs.s $HEADERSDIR/arch/math.hs
+words/double-cell-ints.s: ducky-forth-defs.s
+
+# Object files
 boundaries-post.o: boundaries-post.s
-ducky-forth.o: ducky-forth.s ducky-forth-words.s ducky-forth-defs.s double-cell-ints.s $HEADERSDIR/arch/ducky.hs $HEADERSDIR/arch/math.hs $HEADERSDIR/arch/control.hs $HEADERSDIR/arch/keyboard.hs $HEADERSDIR/arch/rtc.hs $HEADERSDIR/arch/boot.hs $HEADERSDIR/arch/tty.hs $HEADERSDIR/arch/hdt.hs
-ducky-forth: ducky-forth.o boot.o string.o boundaries-post.o
+ducky-forth.o: ducky-forth.s ducky-forth-defs.s ducky-forth-words.s words/double-cell-ints.s $HEADERSDIR/arch/control.hs $HEADERSDIR/arch/keyboard.hs $HEADERSDIR/arch/rtc.hs $HEADERSDIR/arch/boot.hs $HEADERSDIR/arch/tty.hs $HEADERSDIR/arch/hdt.hs $HEADERSDIR/arch/ducky.hs
+
+lib/boot.o:             lib/boot.c forth.h $HEADERSDIR/types.h $HEADERSDIR/arch/rtc.h $HEADERSDIR/arch/keyboard.h $HEADERSDIR/arch/tty.h $HEADERSDIR/arch/boot.h $HEADERSDIR/arch/hdt.h
+lib/errors.o:           lib/errors.c forth.h
+lib/forth.o:            lib/forth.c forth.h
+lib/input.o:            lib/input.c forth.h
+lib/math.o:             lib/math.c forth.h
+lib/number.o:           lib/number.c forth.h
+lib/string.o:           lib/string.c forth.h
+lib/tty.o:              lib/tty.c forth.h
+words/compile.o:        words/compile.c forth.h
+words/env.o:            words/env.c forth.h
+words/interpret.o:      words/interpret.c forth.h
+words/number.o:         words/number.c forth.h
+words/output.o:         words/output.c forth.h
+words/system.o:         words/system.c forth.h

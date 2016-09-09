@@ -12,6 +12,6 @@
   ( '.data',      [ r'\.data',   r'\.data\..*'   ]),
   ( '.bss',       [ r'\.bss'                     ]),
 
-    0x00009000,
+    0x0000A000,
   ( '.userspace', [ r'\.userspace'               ])
 )

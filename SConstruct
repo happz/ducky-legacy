@@ -130,7 +130,6 @@ VARS.Add(             'BUILD_STAMP',        'Set to force FORTH kernel build sta
 VARS.Add(BoolVariable('BOOT_IMAGE',         'Set to true to build boot loader with support for Ducky images', True))
 VARS.Add(BoolVariable('FORTH_DEBUG',        'Build FORTH kernel with debugging enabled', False))
 VARS.Add(BoolVariable('FORTH_DEBUG_FIND',   'Build FORTH kernel with FIND debugging enabled', False))
-VARS.Add(BoolVariable('FORTH_TIR',          'Build FORTH kernel with TOS in register', True))
 VARS.Add(BoolVariable('FORTH_DIE_ON_UNDEF', 'Die when undefined word is encountered', False))
 VARS.Add(             'LLVMDIR',            'Path to LLVM tools', None)
 
@@ -365,13 +364,27 @@ def __asm_from_c(source, target, env):
     env.Exit(1)
 
   cmd = DuckyCommand(env, runner = '')
-  cmd.command = env.subst('$LLVMDIR/bin/clang -cc1 -S -fno-builtin -O3 -masm-verbose {defs} {include} -o {target} {inputs}'.format(
+  cmd.command = env.subst('$LLVMDIR/bin/clang -cc1 -S -fno-builtin -O3 -masm-verbose -mllvm -disable-tail-duplicate {defs} {include} -o {target} {inputs}'.format(
     inputs  = ' '.join([str(f) for f in source]),
     defs    = ' '.join(env['DEFS']) if 'DEFS' in env else '',
     include = ' '.join(env['INCLUDE']) if 'INCLUDE' in env else '',
     target  = target[0]))
 
   return cmd.run(env, 'C-to-ASM', target[0])
+
+def __object_from_c(source, target, env):
+  if 'LLVMDIR' not in env:
+    env.ERROR('LLVMDIR not set, don\'t know where to find clang')
+    env.Exit(1)
+
+  cmd = DuckyCommand(env, runner = '')
+  cmd.command = env.subst('$LLVMDIR/bin/clang -c -fno-builtin -fno-integrated-as -O3 -mllvm -disable-tail-duplicate {defs} {include} -o {target} {inputs}'.format(
+    inputs  = ' '.join([str(f) for f in source]),
+    defs    = ' '.join(env['DEFS']) if 'DEFS' in env else '',
+    include = ' '.join(env['INCLUDE']) if 'INCLUDE' in env else '',
+    target  = target[0]))
+
+  return cmd.run(env, 'C-to-OBJ', target[0])
 
 def __compile_ducky_object(source, target, env):
   cmd = DuckyCommand(env)
@@ -478,12 +491,6 @@ def __create_ducky_image(self, _target, _source, mode = 'binary', bio = False):
 
   return partial(_create_ducky_image, cmd = cmd)
 
-def __object_from_c(self, target):
-  basename, ext = os.path.splitext(str(target))
-
-  self.DuckyAsmFromC(basename + '.s', source = basename + '.c')
-  self.DuckyObjFromAsm(basename + '.o', source = basename + '.s')
-
 def __read_external_deps(self, directory = None):
   directory = Dir(directory) if directory is not None else self.Dir('.')
   deps_file = File(os.path.join(directory.abspath, '.depends')).abspath
@@ -540,7 +547,6 @@ def __clone_env(self, *args, **kwargs):
 
     # Virtual builders
     'RunSomething':    __run_something,
-    'ObjectFromC':     __object_from_c,
     'DuckyRun':        __run_ducky_binary,
     'DuckyImage':      __create_ducky_image,
     'GetDuckyDefine':  lambda self, *names: [os.path.join(str(ENV['HEADERSDIR']), name + '.hs') for name in names]
@@ -667,6 +673,7 @@ def run_publish(target, source, env):
 
 DuckyAsmFromC   = Builder(action = __asm_from_c)
 DuckyObjFromAsm = Builder(action = __compile_ducky_object)
+DuckyObjFromC   = Builder(action = __object_from_c)
 DuckyObject = Builder(action = __compile_ducky_object)
 DuckyBinary = Builder(action = __link_ducky_binary)
 DuckyArchFromObjs = Builder(action = __archive_from_objs)
@@ -684,6 +691,7 @@ ENV = Environment(
   BUILDERS = {
     'DuckyAsmFromC':   DuckyAsmFromC,
     'DuckyObjFromAsm': DuckyObjFromAsm,
+    'DuckyObjFromC':   DuckyObjFromC,
     'DuckyObject': DuckyObject,
     'DuckyBinary': DuckyBinary,
     'DuckyArchFromObjs': DuckyArchFromObjs

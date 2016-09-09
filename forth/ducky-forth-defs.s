@@ -22,6 +22,9 @@
 .def CELL:               4
 .def HALFCELL:           2
 
+; 255 chars should be enough for a string length (and it fits into 1 byte)
+.def STRING_SIZE:       255
+
 ; This is actually 8192 - first four bytes are used by HERE_INIT
 ; needed for HERE inicialization. HERE_INIT's space can be then
 ; reused as userspace
@@ -43,13 +46,10 @@
 .def INPUT_BUFFER_SIZE: 512
 
 ; 32 chars should be enough for any word
-.def WORD_BUFFER_SIZE:   32
+.def WORD_BUFFER_SIZE:  $STRING_SIZE
 
 ;
 .def PNO_BUFFER_SIZE:   64
-
-; 255 chars should be enough for a string length (and it fits into 1 byte)
-.def STRING_SIZE:       255
 
 ; Some commonly used registers
 .def FIP: r29
@@ -59,9 +59,7 @@
 .def X:   r26
 .def Y:   r25
 .def Z:   r24
-.ifdef FORTH_TIR
 .def TOS: r23
-.endif
 
 
 ; Offsets of word header fields
@@ -122,6 +120,8 @@
 .end
 
 .macro DEFWORD name, len, flags, label:
+  .global #label
+
   .section .rodata
   .align 4
 
@@ -147,6 +147,8 @@
 .end
 
 .macro DEFDOESWORD name, len, flags, label:
+  .global #label
+
   .section .rodata
   .align 4
 
@@ -172,6 +174,8 @@
 .end
 
 .macro DEFCODE name, len, flags, label:
+  .global #label
+
   .section .rodata
   .align 4
 
@@ -192,6 +196,7 @@
   .ascii #name
 
   .align 4
+  .global code_#label
   .type #label, int
   .int &code_#label
 
@@ -201,13 +206,8 @@ code_#label:
 
 .macro DEFVAR name, len, flags, label, initial:
   $DEFCODE #name, #len, #flags, #label
-.ifdef FORTH_TIR
   push $TOS
   la $TOS, &var_#label
-.else
-  la $W, &var_#label
-  push $W
-.endif
   $NEXT
 
   .data
@@ -215,6 +215,12 @@ code_#label:
   .type var_#label, int
   .int #initial
   .global var_#label
+.end
+
+.macro DEFCSTUB name, len, flags, label:
+  $DEFCODE #name, #len, #flags, #label
+  call do_#label
+  $NEXT
 .end
 
 .macro load_minus_one reg:
@@ -272,9 +278,9 @@ __tf_finish_#name:
 .end
 
 
-.def ERR_UNKNOWN:             -1
-.def ERR_UNDEFINED_WORD:      -2
-.def ERR_UNHANDLED_IRQ:       -3
-.def ERR_NO_INTERPRET_SEMANTICS: -4
-.def ERR_MALFORMED_HDT:          -5
-.def ERR_UNHANDLED_ARGUMENT:     -6
+.def ERR_UNKNOWN:             1
+.def ERR_UNDEFINED_WORD:      2
+.def ERR_UNHANDLED_IRQ:       3
+.def ERR_NO_INTERPRET_SEMANTICS: 4
+.def ERR_MALFORMED_HDT:          5
+.def ERR_UNHANDLED_ARGUMENT:     6
