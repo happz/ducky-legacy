@@ -110,7 +110,7 @@ class SymbolEntry(LittleEndianStructure):
   ]
 
   def __repr__(self):
-    return '<SymbolEntry: section={}, name={}, type={}, addr={}, flags={}>'.format(self.section, self.name, SYMBOL_DATA_TYPES[self.type], UINT32_FMT(self.address), SymbolFlags.from_encoding(self.flags).to_string())
+    return '<SymbolEntry: section={}, name={}, type={}, addr={}, flags={}, filename={}, lineno={}>'.format(self.section, self.name, SYMBOL_DATA_TYPES[self.type], UINT32_FMT(self.address), SymbolFlags.from_encoding(self.flags).to_string(), self.filename, self.lineno)
 
 class RelocFlagsEncoding(LittleEndianStructure):
   _fields_ = [
