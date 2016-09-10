@@ -252,6 +252,7 @@ typedef struct {
 
 extern void do_BYE(void) __attribute__((ASM_CC,noreturn));
 extern ASM_CALLABLE(void do_PAREN(void));
+extern ASM_CALLABLE(void do_COMMA(u32_t));
 extern ASM_CALLABLE(void do_CR(void));
 extern ASM_CALLABLE(void do_DOT_PAREN(void));
 extern ASM_CALLABLE(environment_query_status_t do_ENVIRONMENT_QUERY(char *, u32_t, environment_query_result_t *));
