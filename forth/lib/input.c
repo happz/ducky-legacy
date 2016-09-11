@@ -55,6 +55,57 @@ void input_stack_push(input_desc_t *input)
 // Refilling input buffer
 //-----------------------------------------------------------------------------
 
+ASM_PTR(u8_t *, kbd_mmio_address);
+
+/*
+ * Read 1 character from keyboard's data port.
+ *
+ * If there are no characters available in keyboard buffer, the function
+ * will block until interrupt arrives (possible race condition...).
+ */
+static u8_t __read_raw_kbd_char(void)
+{
+  u8_t c;
+
+  while (1) {
+    // Fetch a single character from keyboard
+    c = *kbd_mmio_address;
+
+    // No data available? Idle until there are some chars to read.
+    if (c == 0xFF) {
+      __idle();
+      continue;
+    }
+
+    return c;
+  }
+}
+
+/*
+ * Handling of control characters.
+ */
+#define _LEFT1() do { putc(27); putc('\b'); } while(0)
+
+/*
+ * Consume control characters. Returns next incomming character.
+ */
+static u8_t __consume_control_chars(u8_t c, u32_t *index)
+{
+  if (c == 0x08) {
+    // Backspace
+
+    if (*index == 0)
+      return 0xFF;
+
+    _LEFT1(); putc(' '); _LEFT1();
+    (*index)--;
+
+    return __read_raw_kbd_char();
+  }
+
+  return c;
+}
+
 /*
  * The "refill input buffer" function. It's only job is to get new data
  * from current input, and revert to a previous one if that's no longer
@@ -76,13 +127,9 @@ void __refill_input_buffer()
 }
 
 ASM_INT(u32_t, var_ECHO);
-ASM_PTR(u8_t *, kbd_mmio_address);
 
 /*
  * Read one line from keyboard buffer.
- *
- * If there are no characters available in keyboard buffer, the function
- * will block until interrupt arrives (possible race condition...).
  */
 u32_t __read_line_from_kbd(char *buff, u32_t max_length)
 {
@@ -95,14 +142,11 @@ u32_t __read_line_from_kbd(char *buff, u32_t max_length)
   u8_t c;
 
   while(max > 0) {
-    // Fetch a single character from keyboard
-    c = *kbd_mmio_address;
+    c = __read_raw_kbd_char();
 
-    // No data available? Idle until there are some chars to read.
-    if (c == 0xFF) {
-      __idle();
+    c = __consume_control_chars(c, &i);
+    if (c == 0xFF)
       continue;
-    }
 
     // Print char if echo is enabled
     if (echo_enabled)
