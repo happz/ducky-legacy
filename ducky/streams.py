@@ -277,6 +277,8 @@ class StdinStream(InputStream):
     stream = machine.stdin.buffer if hasattr(machine.stdin, 'buffer') else machine.stdin
     fd = machine.stdin.fileno() if hasattr(machine.stdin, 'fileno') else None
 
+    DEBUG('%s.__init__: stream=%s, fd=%s', self.__class__.__name__, stream, fd)
+
     if fd is not None:
       DEBUG('%s.__init__: re-pack <stdin> fd as a new stream to avoid colisions', self.__class__.__name__)
 
@@ -288,8 +290,14 @@ class StdinStream(InputStream):
       fd_blocking(fd, block = False)
 
       if stream.isatty():
+        DEBUG('%s.__init__: attempt to set CBREAK and NOECHO mode', self.__class__.__name__)
+
         try:
           self.old_termios = termios.tcgetattr(fd)
+
+          flags = termios.tcgetattr(fd)
+          flags[3] = flags[3] & ~termios.ECHO
+          termios.tcsetattr(fd, termios.TCSANOW, flags)
           tty.setcbreak(fd)
 
         except termios.error as e:
@@ -304,7 +312,7 @@ class StdinStream(InputStream):
     self.DEBUG('%s.close', self.__class__.__name__)
 
     if self.old_termios is not None:
-      termios.tcsetattr(self.fd, termios.TCSADRAIN, self.old_termios)
+      termios.tcsetattr(self.fd, termios.TCSANOW, self.old_termios)
 
   def get_selectee(self):
     return self.stream
