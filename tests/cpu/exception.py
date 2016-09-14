@@ -3,6 +3,7 @@ from six.moves import range
 import ducky.config
 from ducky.cpu import InterruptVector
 from ducky.cpu.instructions import encoding_to_u32
+from ducky.cpu.registers import Registers
 from ducky.errors import ExceptionList
 from ducky.mm import PAGE_SIZE, DEFAULT_MEMORY_SIZE, WORD_SIZE, UINT32_FMT
 
@@ -83,7 +84,7 @@ def __base_exception_test(state, index, evt, stack, exc_stack, exc_routine, trap
   M.memory.write_u32(evt + InterruptVector.SIZE * index + WORD_SIZE, exc_stack)
 
   CORE.evt_address = evt
-  CORE.registers.sp.value = stack
+  CORE.registers.sp = stack
 
   trigger(state, CORE)
   test(state, CORE)
@@ -109,7 +110,7 @@ def test_divide_by_zero(state, evt, stack, exc_stack, exc_routine, trap):
     inst = encode_inst(DIV, {'register_n0': 5, 'immediate': 0})
     inst = encoding_to_u32(inst)
 
-    state.r5 = core.registers.r5.value = 10
+    state.r5 = core.registers[Registers.R05] = 10
     core.cpu.machine.memory.write_u32(state.ip, inst)
 
     core.step()

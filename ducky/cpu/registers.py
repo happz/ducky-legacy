@@ -1,7 +1,5 @@
 import enum
 
-from ..mm import u32_t, u64_t
-
 class Registers(enum.IntEnum):
   # General purpose registers
   R00   =  0
@@ -58,19 +56,45 @@ PROTECTED_REGISTERS = [
 FLAGS = Registers.REGISTER_COUNT.value + 100
 
 GENERAL_REGISTERS   = [r for r in Registers if r.value < Registers.REGISTER_SPECIAL.value]
-RESETABLE_REGISTERS = [r for r in Registers if r.value < Registers.CNT]
+RESETABLE_REGISTERS = [r for r in Registers if r.value < Registers.IP]
 
 REGISTER_NAMES = ['r{}'.format(r.value) for r in Registers if r.value < Registers.REGISTER_SPECIAL.value] + ['fp', 'sp', 'ip', 'cnt']
 
-class RegisterSet(object):
+class RegisterSet(list):
   def __init__(self):
     super(RegisterSet, self).__init__()
 
-    self.map = {}
+    for reg_name in REGISTER_NAMES:
+      self.append(0)
 
-    for register_name, register_id in zip(REGISTER_NAMES, Registers):
-      register = u32_t(0) if register_name != 'cnt' else u64_t(0)
+  def __get_ip(self):
+    return self[Registers.IP.value]
 
-      setattr(self, register_name, register)
-      self.map[register_name] = register
-      self.map[register_id.value] = register
+  def __set_ip(self, v):
+    self[Registers.IP.value] = v
+
+  ip = property(__get_ip, __set_ip)
+
+  def __get_cnt(self):
+    return self[Registers.CNT.value]
+
+  def __set_cnt(self, v):
+    self[Registers.CNT.value] = v
+
+  cnt = property(__get_cnt, __set_cnt)
+
+  def __get_fp(self):
+    return self[Registers.FP.value]
+
+  def __set_fp(self, v):
+    self[Registers.FP.value] = v
+
+  fp = property(__get_fp, __set_fp)
+
+  def __get_sp(self):
+    return self[Registers.SP.value]
+
+  def __set_sp(self, v):
+    self[Registers.SP.value] = v
+
+  sp = property(__get_sp, __set_sp)

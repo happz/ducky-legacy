@@ -275,7 +275,7 @@ class SAVEW(Descriptor_MATH):
 
   @staticmethod
   def execute(core, inst):
-    core.registers.map[inst.reg1].value = u32_t(core.math_coprocessor.registers.pop().value & 0xFFFFFFFF).value
+    core.registers[inst.reg1] = core.math_coprocessor.registers.pop().value & 0xFFFFFFFF
 
 class POPW(Descriptor_MATH):
   """
@@ -310,7 +310,7 @@ class LOADW(Descriptor_MATH):
 
   @staticmethod
   def execute(core, inst):
-    core.math_coprocessor.sign_extend_with_push(core.registers.map[inst.reg1].value)
+    core.math_coprocessor.sign_extend_with_push(core.registers[inst.reg1])
 
 class POPUW(Descriptor_MATH):
   """
@@ -345,7 +345,7 @@ class LOADUW(Descriptor_MATH):
 
   @staticmethod
   def execute(core, inst):
-    core.math_coprocessor.extend_with_push(core.registers.map[inst.reg1].value)
+    core.math_coprocessor.extend_with_push(core.registers[inst.reg1])
 
 class PUSH(Descriptor_MATH):
   """
@@ -386,8 +386,8 @@ class SAVE(Descriptor_MATH):
   def execute(core, inst):
     v = core.math_coprocessor.registers.pop().value
 
-    core.registers.map[inst.reg1].value = v >> 32
-    core.registers.map[inst.reg2].value = v & 0xFFFFFFFF
+    core.registers[inst.reg1] = (v >> 32) % 4294967296
+    core.registers[inst.reg2] = v & 0xFFFFFFFF
 
 class POP(Descriptor_MATH):
   """
@@ -426,8 +426,8 @@ class LOAD(Descriptor_MATH):
 
   @staticmethod
   def execute(core, inst):
-    hi = core.registers.map[inst.reg1].value
-    lo = core.registers.map[inst.reg2].value
+    hi = core.registers[inst.reg1]
+    lo = core.registers[inst.reg2]
 
     core.math_coprocessor.registers.push(u64_t((hi << 32) | lo))
 

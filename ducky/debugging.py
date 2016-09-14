@@ -137,7 +137,7 @@ class LogValueAction(Action):
     data = self.get_values(core, point)
     data.update({
       'watchpoint': repr(point),
-      'ip':         UINT32_FMT(core.registers.ip.value),
+      'ip':         UINT32_FMT(core.registers.ip),
       'value':      self.formatter(data['value'])
     })
 
@@ -226,9 +226,9 @@ class BreakPoint(Point):
     self.ip = ip
 
   def is_triggered(self, core):
-    core.DEBUG('core IP=%s, self IP=%s', core.IP().value, self.ip)
+    core.DEBUG('core IP=%s, self IP=%s', core.IP(), self.ip)
 
-    return core.IP().value == self.ip
+    return core.IP() == self.ip
 
   def __repr__(self):
     return '<BreakPoint: IP=%s>' % UINT32_FMT(self.ip)

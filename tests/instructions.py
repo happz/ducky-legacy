@@ -102,8 +102,8 @@ class CoreState(object):
 
     core.reset()
 
-    for i, value in enumerate(self.registers):
-      core.registers.map[i].value = value
+    for i, (value, reg_name) in enumerate(zip(self.registers, self.register_names)):
+      core.registers[i] = value
 
     for flag, value in zip(CoreState.flag_names, self.flags):
       setattr(core, flag, value)
@@ -165,7 +165,7 @@ class CoreState(object):
 
     # Assert registers
     expected = [getattr(container, reg) for reg in CoreState.register_names]
-    actual   = [CORE.registers.map[i].value for i, reg in enumerate(CoreState.register_names)]
+    actual   = [CORE.registers[i] for i, _ in enumerate(CoreState.register_names)]
 
     for reg, expected_value, actual_value in zip(CoreState.register_names, expected, actual):
       if actual_value == expected_value:
@@ -237,7 +237,7 @@ def __base_select_test_immediate(state, reg, tv, fv, inst_class = None, cond = N
   inst = encode_inst(inst_class, {'register_n0': reg, 'immediate': fv})
 
   state.reset()
-  CORE.registers.map[reg].value = tv
+  CORE.registers[reg] = tv
 
   expected_value = tv if cond(state) else sign_extend11(fv)
 
@@ -254,8 +254,8 @@ def __base_select_test_register(state, reg1, reg2, tv, fv, inst_class = None, co
   expected_value = fv if reg1 == reg2 else (tv if cond(state) else fv)
 
   state.reset()
-  CORE.registers.map[reg1].value = tv
-  CORE.registers.map[reg2].value = fv
+  CORE.registers[reg1] = tv
+  CORE.registers[reg2] = fv
 
   execute_inst(CORE, inst_class, inst)
 
@@ -290,7 +290,7 @@ def __base_branch_test_register(state, reg, addr, inst_class = None, cond = None
   expected_value = addr if cond(state) else state.ip
 
   state.reset()
-  CORE.registers.map[reg].value = addr
+  CORE.registers[reg] = addr
 
   execute_inst(CORE, inst_class, inst)
 
@@ -305,7 +305,7 @@ def __base_arith_test_immediate(state, reg, a, b, inst_class = None, compute = N
   value, expected_value = compute(state, reg, a, b)
 
   state.reset()
-  CORE.registers.map[reg].value = a
+  CORE.registers[reg] = a
 
   execute_inst(CORE, inst_class, inst)
 
@@ -320,8 +320,8 @@ def __base_arith_test_register(state, reg1, reg2, a, b, inst_class = None, compu
   value, expected_value = compute(state, reg1, reg2, a, b)
 
   state.reset()
-  CORE.registers.map[reg1].value = a
-  CORE.registers.map[reg2].value = b
+  CORE.registers[reg1] = a
+  CORE.registers[reg2] = b
 
   execute_inst(CORE, inst_class, inst)
 
@@ -335,7 +335,7 @@ def __base_arith_by_zero_immediate(state, reg, a, inst_class = None):
   inst = encode_inst(inst_class, {'register_n0': reg, 'immediate': b})
 
   state.reset()
-  CORE.registers.map[reg].value = a
+  CORE.registers[reg] = a
 
   try:
     execute_inst(CORE, inst_class, inst)
@@ -356,8 +356,8 @@ def __base_arith_by_zero_register(state, reg1, reg2, a, inst_class = None):
   inst = encode_inst(inst_class, {'register_n0': reg1, 'register_n1': reg2})
 
   state.reset()
-  CORE.registers.map[reg1].value = a
-  CORE.registers.map[reg2].value = b
+  CORE.registers[reg1] = a
+  CORE.registers[reg2] = b
 
   try:
     execute_inst(CORE, inst_class, inst)
@@ -391,7 +391,7 @@ def __base_load_test(state, reg1, reg2, address, value, inst_class, size, offset
   inst = encode_inst(inst_class, operands)
 
   state.reset()
-  CORE.registers.map[reg2].value = address
+  CORE.registers[reg2] = address
 
   if size == 1:
     CORE.mmu.memory.write_u8(memory_address, value)
@@ -429,10 +429,10 @@ def __base_store_test(state, reg1, reg2, address, value, inst_class, size, offse
   inst = encode_inst(inst_class, operands)
 
   state.reset()
-  CORE.registers.map[reg1].value = address
+  CORE.registers[reg1] = address
 
   if reg1 != reg2:
-    CORE.registers.map[reg2].value = value
+    CORE.registers[reg2] = value
 
   execute_inst(CORE, inst_class, inst)
 
@@ -733,7 +733,7 @@ def test_call_immediate(state, ip, offset):
   expected_value = (ip + sign_extend20(offset // 4) * 4) % (2 ** 32)
 
   state.reset()
-  CORE.registers.ip.value = ip
+  CORE.registers.ip = ip
 
   execute_inst(CORE, CALL, inst)
 
@@ -764,8 +764,8 @@ def test_call_register(state, ip, reg, addr):
     expected_ip = expected_fp = expected_sp = u32_t(addr - 8).value
 
   state.reset()
-  CORE.registers.ip.value = ip
-  CORE.registers.map[reg].value = addr
+  CORE.registers.ip = ip
+  CORE.registers[reg] = addr
 
   execute_inst(CORE, CALL, inst)
 
@@ -788,9 +788,9 @@ def __base_cas_test(state, reg1, reg2, reg3, addr, memory_value, register_value,
   inst = encode_inst(CAS, {'register_n0': reg1, 'register_n1': reg2, 'register_n2': reg3})
 
   state.reset()
-  CORE.registers.map[reg1].value = addr
-  CORE.registers.map[reg2].value = register_value
-  CORE.registers.map[reg3].value = replace
+  CORE.registers[reg1] = addr
+  CORE.registers[reg2] = register_value
+  CORE.registers[reg3] = replace
   CORE.mmu.memory.write_u32(addr, memory_value)
 
   execute_inst(CORE, CAS, inst)
@@ -874,7 +874,7 @@ def test_cmp_immediate(state, reg, a, b):
   b_extended = sign_extend15(b)
 
   state.reset()
-  CORE.registers.map[reg].value = a
+  CORE.registers[reg] = a
 
   execute_inst(CORE, CMP, inst)
 
@@ -897,8 +897,8 @@ def test_cmp_register(state, reg1, reg2, a, b):
   inst = encode_inst(CMP, {'register_n0': reg1, 'register_n1': reg2})
 
   state.reset()
-  CORE.registers.map[reg1].value = a
-  CORE.registers.map[reg2].value = b
+  CORE.registers[reg1] = a
+  CORE.registers[reg2] = b
 
   execute_inst(CORE, CMP, inst)
 
@@ -926,7 +926,7 @@ def test_cmpu_immediate(state, reg, a, b):
   inst = encode_inst(CMPU, {'register_n0': reg, 'immediate': b})
 
   state.reset()
-  CORE.registers.map[reg].value = a
+  CORE.registers[reg] = a
 
   execute_inst(CORE, CMPU, inst)
 
@@ -949,8 +949,8 @@ def test_cmpu_register(state, reg1, reg2, a, b):
   inst = encode_inst(CMPU, {'register_n0': reg1, 'register_n1': reg2})
 
   state.reset()
-  CORE.registers.map[reg1].value = a
-  CORE.registers.map[reg2].value = b
+  CORE.registers[reg1] = a
+  CORE.registers[reg2] = b
 
   execute_inst(CORE, CMPU, inst)
 
@@ -979,7 +979,7 @@ def test_dec(state, reg, a):
   expected_value = value % (2 ** 32)
 
   state.reset()
-  CORE.registers.map[reg].value = a
+  CORE.registers[reg] = a
 
   execute_inst(CORE, DEC, inst)
 
@@ -1077,7 +1077,7 @@ def test_hlt_register(state, reg, a):
 
   CORE.boot()
   state.reset()
-  CORE.registers.map[reg].value = a
+  CORE.registers[reg] = a
 
   execute_inst(CORE, HLT, inst)
 
@@ -1153,7 +1153,7 @@ def test_inc(state, reg, a):
   expected_value = value % (2 ** 32)
 
   state.reset()
-  CORE.registers.map[reg].value = a
+  CORE.registers[reg] = a
 
   execute_inst(CORE, INC, inst)
 
@@ -1224,7 +1224,7 @@ def test_int_register(state, reg, index, ip, sp):
   inst = encode_inst(INT, {'register_n0': reg})
 
   state.reset()
-  CORE.registers.map[reg].value = index
+  CORE.registers[reg] = index
   CORE.mmu.memory.write_u32(CORE.evt_address + index * 8,     ip)
   CORE.mmu.memory.write_u32(CORE.evt_address + index * 8 + 4, sp)
 
@@ -1244,7 +1244,7 @@ def test_int_register_out_of_range(state, reg, index):
   inst = encode_inst(INT, {'register_n0': reg})
 
   state.reset()
-  CORE.registers.map[reg].value = index
+  CORE.registers[reg] = index
 
   try:
     execute_inst(CORE, INT, inst)
@@ -1276,7 +1276,7 @@ def test_j_immediate(state, ip, offset):
   expected_value = (ip + sign_extend20(offset // 4) * 4) % (2 ** 32)
 
   state.reset()
-  CORE.registers.ip.value = ip
+  CORE.registers.ip = ip
 
   execute_inst(CORE, J, inst)
 
@@ -1294,8 +1294,8 @@ def test_j_register(state, ip, reg, addr):
   inst = encode_inst(J, {'register_n0': reg})
 
   state.reset()
-  CORE.registers.ip.value = ip
-  CORE.registers.map[reg].value = addr
+  CORE.registers.ip = ip
+  CORE.registers[reg] = addr
 
   execute_inst(CORE, J, inst)
 
@@ -1335,7 +1335,7 @@ def test_la(state, reg, ip, offset):
   expected_value = (ip + sign_extend20(offset)) % (2 ** 32)
 
   state.reset()
-  CORE.registers.ip.value = ip
+  CORE.registers.ip = ip
 
   execute_inst(CORE, LA, inst)
 
@@ -1395,7 +1395,7 @@ def test_liu(state, reg, a, b):
   expected_value = ((b & 0xFFFF) << 16) | (a & 0xFFFF)
 
   state.reset()
-  CORE.registers.map[reg].value = a
+  CORE.registers[reg] = a
 
   execute_inst(CORE, LIU, inst)
 
@@ -1550,8 +1550,8 @@ def test_mov(state, reg1, reg2, a, b):
   inst = encode_inst(MOV, {'register_n0': reg1, 'register_n1': reg2})
 
   state.reset()
-  CORE.registers.map[reg1].value = a
-  CORE.registers.map[reg2].value = b
+  CORE.registers[reg1] = a
+  CORE.registers[reg2] = b
 
   execute_inst(CORE, MOV, inst)
 
@@ -1622,7 +1622,7 @@ def test_not(state, reg, a):
   expected_value = u32_t(value).value
 
   state.reset()
-  CORE.registers.map[reg].value = a
+  CORE.registers[reg] = a
 
   execute_inst(CORE, NOT, inst)
 
@@ -2317,8 +2317,8 @@ def test_swap(state, reg1, reg2, a, b):
   inst = encode_inst(SWP, {'register_n0': reg1, 'register_n1': reg2})
 
   state.reset()
-  CORE.registers.map[reg1].value = a
-  CORE.registers.map[reg2].value = b
+  CORE.registers[reg1] = a
+  CORE.registers[reg2] = b
 
   execute_inst(CORE, SWP, inst)
 

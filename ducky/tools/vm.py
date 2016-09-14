@@ -162,7 +162,7 @@ def print_machine_stats(logger, M):
 
     table_cnts.append([
       str(core),
-      core.registers.cnt.value
+      core.registers.cnt
     ])
 
   for core in M.cores:
@@ -178,7 +178,7 @@ def print_machine_stats(logger, M):
   logger.table(table_cnts)
   logger.info('')
 
-  inst_executed = sum([core.registers.cnt.value for core in M.cores])
+  inst_executed = sum([core.registers.cnt for core in M.cores])
   runtime = float(M.end_time - M.start_time)
   if runtime > 0:
     logger.info('Executed instructions: %i %f (%.4f/sec)', inst_executed, runtime, float(inst_executed) / runtime)
