@@ -59,18 +59,15 @@ class CommQueue(object):
   def write_in(self, o):
     self.queue_in.append(o)
 
-  def __read(self, queue):
-    try:
-      return queue.pop(0)
-
-    except IndexError:
-      return None
-
   def read_out(self):
-    return self.__read(self.queue_out)
+    q = self.queue_out
+
+    return q.pop(0) if q else None
 
   def read_in(self):
-    return self.__read(self.queue_in)
+    q = self.queue_in
+
+    return q.pop(0) if q else None
 
 class CommChannel(object):
   def __init__(self, machine):
