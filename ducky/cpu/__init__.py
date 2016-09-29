@@ -79,9 +79,9 @@ def do_log_cpu_core_state(core, logger = None, disassemble = True, inst_set = No
     s = ['r{:02d}={}'.format(reg, UINT32_FMT(core.registers[reg])) for reg in regs]
     logger(' '.join(s))
 
-  logger('fp=%s    sp=%s    ip=%s', UINT32_FMT(core.registers.fp), UINT32_FMT(core.registers.sp), UINT32_FMT(core.registers.ip))
+  logger('fp=%s    sp=%s    ip=%s', UINT32_FMT(core.registers[Registers.FP]), UINT32_FMT(core.registers[Registers.SP]), UINT32_FMT(core.registers[Registers.IP]))
   logger('flags=%s', core.flags.to_string())
-  logger('cnt=%s, alive=%s, running=%s, idle=%s, exit=%i', core.registers.cnt, core.alive, core.running, core.idle, core.exit_code)
+  logger('cnt=%s, alive=%s, running=%s, idle=%s, exit=%i', core.registers[Registers.CNT], core.alive, core.running, core.idle, core.exit_code)
 
   if hasattr(core, 'math_coprocessor'):
     for index, v in enumerate(core.math_coprocessor.registers.stack):
@@ -560,13 +560,13 @@ class CPUCore(ISnapshotable, IMachineWorker):
     return self.registers[reg]
 
   def IP(self):
-    return self.registers.ip
+    return self.registers[Registers.IP]
 
   def SP(self):
-    return self.registers.sp
+    return self.registers[Registers.SP]
 
   def FP(self):
-    return self.registers.fp
+    return self.registers[Registers.FP]
 
   def reset(self, new_ip = 0x00000000):
     """
@@ -584,7 +584,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
 
     self.flags = CoreFlags.create(privileged = True)
 
-    self.registers.ip = new_ip
+    self.registers[Registers.IP] = new_ip
 
     self.mmu.reset()
 
@@ -603,7 +603,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
       ip = self.mmu.memory.read_u32(frame.address + 4)
       bt.append(ip)
 
-    ip = self.registers.ip - 4
+    ip = self.registers[Registers.IP] - 4
     bt.append(ip)
 
     return bt
@@ -635,10 +635,10 @@ class CPUCore(ISnapshotable, IMachineWorker):
     :param u32 val: value to be pushed
     """
 
-    self.DEBUG('_raw_push: sp=%s, addr=%s, value=%s', UINT32_FMT(self.registers.sp), UINT32_FMT(self.registers.sp - WORD_SIZE), UINT32_FMT(val))
+    self.DEBUG('_raw_push: sp=%s, addr=%s, value=%s', UINT32_FMT(self.registers[Registers.SP]), UINT32_FMT(self.registers[Registers.SP] - WORD_SIZE), UINT32_FMT(val))
 
-    self.registers.sp = (self.registers.sp - 4) % 4294967296
-    self.MEM_OUT32(self.registers.sp, val)
+    self.registers[Registers.SP] = (self.registers[Registers.SP] - 4) % 4294967296
+    self.MEM_OUT32(self.registers[Registers.SP], val)
 
   def _raw_pop(self):
     """
@@ -648,12 +648,12 @@ class CPUCore(ISnapshotable, IMachineWorker):
     :rtype: ``u32``
     """
 
-    sp = self.registers.sp
+    sp = self.registers[Registers.SP]
 
     self.DEBUG('_raw_pop: sp=%s', UINT32_FMT(sp))
 
     ret = self.MEM_IN32(sp)
-    self.registers.sp = (self.registers.sp + WORD_SIZE) % 4294967296
+    self.registers[Registers.SP] = (self.registers[Registers.SP] + WORD_SIZE) % 4294967296
     self.DEBUG('_raw_pop: value=%s', UINT32_FMT(ret))
 
     return ret
@@ -712,10 +712,10 @@ class CPUCore(ISnapshotable, IMachineWorker):
     self.DEBUG('create_frame')
 
     self.push(Registers.IP, Registers.FP)
-    self.registers.fp = self.registers.sp
+    self.registers[Registers.FP] = self.registers[Registers.SP]
 
     if self.check_frames:
-      self.frames.append(StackFrame(self.registers.sp, ip = self.current_ip))
+      self.frames.append(StackFrame(self.registers[Registers.SP], ip = self.current_ip))
 
   def destroy_frame(self):
     """
@@ -740,8 +740,8 @@ class CPUCore(ISnapshotable, IMachineWorker):
     self.DEBUG('destroy_frame')
 
     if self.check_frames:
-      if self.frames[-1].sp != self.registers.sp:
-        raise InvalidFrameError(self.frames[-1].sp, self.registers.sp)
+      if self.frames[-1].sp != self.registers[Registers.SP]:
+        raise InvalidFrameError(self.frames[-1].sp, self.registers[Registers.SP])
 
       self.frames.pop()
 
@@ -791,9 +791,9 @@ class CPUCore(ISnapshotable, IMachineWorker):
 
     self.DEBUG('_enter_exception: desc=%s', iv)
 
-    old_SP = self.registers.sp
+    old_SP = self.registers[Registers.SP]
 
-    self.registers.sp = iv.sp
+    self.registers[Registers.SP] = iv.sp
 
     self._raw_push(old_SP)
     self.push_flags()
@@ -806,7 +806,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
     self.privileged = True
     self.hwint_allowed = False
 
-    self.registers.ip = iv.ip
+    self.registers[Registers.IP] = iv.ip
 
     if self.check_frames:
       self.frames[-1].IP = iv.ip
@@ -830,7 +830,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
 
     old_SP = self._raw_pop()
 
-    self.registers.sp = old_SP
+    self.registers[Registers.SP] = old_SP
 
     self.instruction_set = self.instruction_set_stack.pop(0)
 
@@ -917,14 +917,14 @@ class CPUCore(ISnapshotable, IMachineWorker):
     self.DEBUG('"FETCH" phase')
 
     regset = self.registers
-    ip = regset.ip
+    ip = regset[Registers.IP]
     self.current_ip = ip
 
     self.DEBUG('fetch instruction: ip=%s', UINT32_FMT(ip))
 
     def __do_step():
       self.current_instruction, opcode, execute = self.mmu.instruction_cache[ip]
-      regset.ip = (ip + 4) % 4294967296
+      regset[Registers.IP] = (ip + 4) % 4294967296
 
       self.DEBUG('"EXECUTE" phase: %s %s', UINT32_FMT(ip), self.instruction_set.disassemble_instruction(self.LOGGER, self.current_instruction))
       log_cpu_core_state(self)
@@ -934,7 +934,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
     if self._run_safely(__do_step) is not True:
       return
 
-    regset.cnt += 1
+    regset[Registers.CNT] += 1
 
     self.DEBUG('"SYNC" phase:')
     log_cpu_core_state(self)

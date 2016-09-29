@@ -7,7 +7,7 @@ from six import iteritems, integer_types
 import ducky.cpu.registers
 from ducky.cpu.assemble import SourceLocation
 from ducky.cpu.instructions import DuckyInstructionSet
-from ducky.cpu.registers import REGISTER_NAMES
+from ducky.cpu.registers import REGISTER_NAMES, Registers
 from ducky.errors import UnalignedJumpTargetError, DivideByZeroError, PrivilegedInstructionError, InvalidExceptionError
 from ducky.mm import u32_t, i32_t
 
@@ -733,7 +733,7 @@ def test_call_immediate(state, ip, offset):
   expected_value = (ip + sign_extend20(offset // 4) * 4) % (2 ** 32)
 
   state.reset()
-  CORE.registers.ip = ip
+  CORE.registers[Registers.IP] = ip
 
   execute_inst(CORE, CALL, inst)
 
@@ -764,7 +764,7 @@ def test_call_register(state, ip, reg, addr):
     expected_ip = expected_fp = expected_sp = u32_t(addr - 8).value
 
   state.reset()
-  CORE.registers.ip = ip
+  CORE.registers[Registers.IP] = ip
   CORE.registers[reg] = addr
 
   execute_inst(CORE, CALL, inst)
@@ -1276,7 +1276,7 @@ def test_j_immediate(state, ip, offset):
   expected_value = (ip + sign_extend20(offset // 4) * 4) % (2 ** 32)
 
   state.reset()
-  CORE.registers.ip = ip
+  CORE.registers[Registers.IP] = ip
 
   execute_inst(CORE, J, inst)
 
@@ -1294,7 +1294,7 @@ def test_j_register(state, ip, reg, addr):
   inst = encode_inst(J, {'register_n0': reg})
 
   state.reset()
-  CORE.registers.ip = ip
+  CORE.registers[Registers.IP] = ip
   CORE.registers[reg] = addr
 
   execute_inst(CORE, J, inst)
@@ -1335,7 +1335,7 @@ def test_la(state, reg, ip, offset):
   expected_value = (ip + sign_extend20(offset)) % (2 ** 32)
 
   state.reset()
-  CORE.registers.ip = ip
+  CORE.registers[Registers.IP] = ip
 
   execute_inst(CORE, LA, inst)
 

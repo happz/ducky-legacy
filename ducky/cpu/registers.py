@@ -66,35 +66,3 @@ class RegisterSet(list):
 
     for reg_name in REGISTER_NAMES:
       self.append(0)
-
-  def __get_ip(self):
-    return self[Registers.IP.value]
-
-  def __set_ip(self, v):
-    self[Registers.IP.value] = v
-
-  ip = property(__get_ip, __set_ip)
-
-  def __get_cnt(self):
-    return self[Registers.CNT.value]
-
-  def __set_cnt(self, v):
-    self[Registers.CNT.value] = v
-
-  cnt = property(__get_cnt, __set_cnt)
-
-  def __get_fp(self):
-    return self[Registers.FP.value]
-
-  def __set_fp(self, v):
-    self[Registers.FP.value] = v
-
-  fp = property(__get_fp, __set_fp)
-
-  def __get_sp(self):
-    return self[Registers.SP.value]
-
-  def __set_sp(self, v):
-    self[Registers.SP.value] = v
-
-  sp = property(__get_sp, __set_sp)

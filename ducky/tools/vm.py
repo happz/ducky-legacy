@@ -10,6 +10,7 @@ from ..util import str2int, UINT32_FMT
 from ..streams import OutputStream, InputStream
 from ..interfaces import IReactorTask
 from ..profiler import STORE
+from ..cpu.registers import Registers
 
 import optparse
 import os
@@ -162,7 +163,7 @@ def print_machine_stats(logger, M):
 
     table_cnts.append([
       str(core),
-      core.registers.cnt
+      core.registers[Registers.CNT]
     ])
 
   for core in M.cores:
@@ -178,7 +179,7 @@ def print_machine_stats(logger, M):
   logger.table(table_cnts)
   logger.info('')
 
-  inst_executed = sum([core.registers.cnt for core in M.cores])
+  inst_executed = sum([core.registers[Registers.CNT] for core in M.cores])
   runtime = float(M.end_time - M.start_time)
   if runtime > 0:
     logger.info('Executed instructions: %i %f (%.4f/sec)', inst_executed, runtime, float(inst_executed) / runtime)

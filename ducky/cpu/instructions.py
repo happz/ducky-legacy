@@ -564,20 +564,20 @@ def RI_ADDR(core, inst, reg):
 
 def JUMP(core, inst, reg):
   core.DEBUG('JUMP: inst=%s', inst)
-  core.DEBUG('  IP=%s', UINT32_FMT(core.registers.ip))
+  core.DEBUG('  IP=%s', UINT32_FMT(core.registers[Registers.IP]))
 
   if inst.immediate_flag == 0:
     reg = getattr(inst, reg)
     core.DEBUG('  register=%d, value=%s', reg, UINT32_FMT(core.registers[reg]))
-    core.registers.ip = core.registers[reg]
+    core.registers[Registers.IP] = core.registers[reg]
 
   else:
     v = inst.sign_extend_immediate(core.LOGGER, inst)
-    nip = (core.registers.ip + (v << 2)) % 4294967296
-    core.DEBUG('  offset=%s, aligned=%s, ip=%s, new=%s', UINT32_FMT(v), UINT32_FMT(v << 2), UINT32_FMT(core.registers.ip), UINT32_FMT(nip))
-    core.registers.ip = nip
+    nip = (core.registers[Registers.IP] + (v << 2)) % 4294967296
+    core.DEBUG('  offset=%s, aligned=%s, ip=%s, new=%s', UINT32_FMT(v), UINT32_FMT(v << 2), UINT32_FMT(core.registers[Registers.IP]), UINT32_FMT(nip))
+    core.registers[Registers.IP] = nip
 
-  core.DEBUG('JUMP: new ip=%s', UINT32_FMT(core.registers.ip))
+  core.DEBUG('JUMP: new ip=%s', UINT32_FMT(core.registers[Registers.IP]))
 
 def update_arith_flags(core, reg):
   """
@@ -762,21 +762,24 @@ class CALL(_JUMP):
     JUMP(core, inst, 'reg')
 
     if core.check_frames:
-      core.frames[-1].IP = core.registers.ip
+      core.frames[-1].IP = core.registers[Registers.IP]
 
   @staticmethod
   def jit(core, inst):
     regset = core.registers
     push = core._raw_push
+    ip = Registers.IP.value
+    fp = Registers.FP.value
+    sp = Registers.SP.value
 
     if inst.immediate_flag == 0:
       reg = inst.reg
 
       def __jit_call():
-        push(regset.ip)
-        push(regset.fp)
-        regset.fp = regset.sp
-        regset.ip = regset[reg]
+        push(regset[ip])
+        push(regset[fp])
+        regset[fp] = regset[sp]
+        regset[ip] = regset[reg]
 
       return __jit_call
 
@@ -784,10 +787,10 @@ class CALL(_JUMP):
       i = inst.sign_extend_immediate(core.LOGGER, inst) << 2
 
       def __jit_call():
-        push(regset.ip)
-        push(regset.fp)
-        regset.fp = regset.sp
-        regset.ip = (regset.ip + i) % 4294967296
+        push(regset[ip])
+        push(regset[fp])
+        regset[fp] = regset[sp]
+        regset[ip] = (regset[ip] + i) % 4294967296
 
       return __jit_call
 
@@ -802,12 +805,13 @@ class J(_JUMP):
   @staticmethod
   def jit(core, inst):
     regset = core.registers
+    ip = Registers.IP.value
 
     if inst.immediate_flag == 0:
       reg = inst.reg
 
       def __jit_j():
-        regset.ip = regset[reg]
+        regset[ip] = regset[reg]
 
       return __jit_j
 
@@ -815,7 +819,7 @@ class J(_JUMP):
       i = inst.sign_extend_immediate(core.LOGGER, inst) << 2
 
       def __jit_j():
-        regset.ip = (regset.ip + i) % 4294967296
+        regset[ip] = (regset[ip] + i) % 4294967296
 
       return __jit_j
 
@@ -832,10 +836,12 @@ class RET(Descriptor):
   def jit(core, inst):
     regset = core.registers
     pop = core._raw_pop
+    fp = Registers.FP.value
+    ip = Registers.IP.value
 
     def __jit_ret():
-      regset.fp = pop()
-      regset.ip = pop()
+      regset[fp] = pop()
+      regset[ip] = pop()
 
     return __jit_ret
 
@@ -1342,6 +1348,7 @@ class _BRANCH(_COND):
     core.DEBUG('JIT: %s', inst)
 
     regset = core.registers
+    ip = Registers.IP.value
 
     if inst.immediate_flag == 1:
       i = inst.sign_extend_immediate(core.LOGGER, inst) << 2
@@ -1355,14 +1362,14 @@ class _BRANCH(_COND):
           if inst.immediate_flag == 0:
             def __branch_ne():
               if core.arith_equal is False:
-                regset.ip = regset[reg]
+                regset[ip] = regset[reg]
 
             return __branch_ne
 
           else:
             def __branch_ne():
               if core.arith_equal is False:
-                regset.ip = (regset.ip + i) % 4294967296
+                regset[ip] = (regset[ip] + i) % 4294967296
 
             return __branch_ne
 
@@ -1370,14 +1377,14 @@ class _BRANCH(_COND):
           if inst.immediate_flag == 0:
             def __branch_e():
               if core.arith_equal is True:
-                regset.ip = regset[reg]
+                regset[ip] = regset[reg]
 
             return __branch_e
 
           else:
             def __branch_e():
               if core.arith_equal is True:
-                regset.ip = (regset.ip + i) % 4294967296
+                regset[ip] = (regset[ip] + i) % 4294967296
 
             return __branch_e
 
@@ -1386,14 +1393,14 @@ class _BRANCH(_COND):
           if inst.immediate_flag == 0:
             def __branch_nz():
               if core.arith_zero is False:
-                regset.ip = regset[reg]
+                regset[ip] = regset[reg]
 
             return __branch_nz
 
           else:
             def __branch_nz():
               if core.arith_zero is False:
-                regset.ip = (regset.ip + i) % 4294967296
+                regset[ip] = (regset[ip] + i) % 4294967296
 
             return __branch_nz
 
@@ -1401,14 +1408,14 @@ class _BRANCH(_COND):
           if inst.immediate_flag == 0:
             def __branch_z():
               if core.arith_zero is True:
-                regset.ip = regset[reg]
+                regset[ip] = regset[reg]
 
             return __branch_z
 
           else:
             def __branch_z():
               if core.arith_zero is True:
-                regset.ip = (regset.ip + i) % 4294967296
+                regset[ip] = (regset[ip] + i) % 4294967296
 
             return __branch_z
 
@@ -1417,14 +1424,14 @@ class _BRANCH(_COND):
           if inst.immediate_flag == 0:
             def __branch_no():
               if core.arith_overflow is False:
-                regset.ip = regset[reg]
+                regset[ip] = regset[reg]
 
             return __branch_no
 
           else:
             def __branch_no():
               if core.arith_overflow is False:
-                regset.ip = (regset.ip + i) % 4294967296
+                regset[ip] = (regset[ip] + i) % 4294967296
 
             return __branch_no
 
@@ -1432,14 +1439,14 @@ class _BRANCH(_COND):
           if inst.immediate_flag == 0:
             def __branch_o():
               if core.arith_overflow is True:
-                regset.ip = regset[reg]
+                regset[ip] = regset[reg]
 
             return __branch_o
 
           else:
             def __branch_o():
               if core.arith_overflow is True:
-                regset.ip = (regset.ip + i) % 4294967296
+                regset[ip] = (regset[ip] + i) % 4294967296
 
             return __branch_o
 
@@ -1448,14 +1455,14 @@ class _BRANCH(_COND):
           if inst.immediate_flag == 0:
             def __branch_ns():
               if core.arith_sign is False:
-                regset.ip = regset[reg]
+                regset[ip] = regset[reg]
 
             return __branch_ns
 
           else:
             def __branch_ns():
               if core.arith_sign is False:
-                regset.ip = (regset.ip + i) % 4294967296
+                regset[ip] = (regset[ip] + i) % 4294967296
 
             return __branch_ns
 
@@ -1463,14 +1470,14 @@ class _BRANCH(_COND):
           if inst.immediate_flag == 0:
             def __branch_s():
               if core.arith_sign is True:
-                regset.ip = regset[reg]
+                regset[ip] = regset[reg]
 
             return __branch_s
 
           else:
             def __branch_s():
               if core.arith_sign is True:
-                regset.ip = (regset.ip + i) % 4294967296
+                regset[ip] = (regset[ip] + i) % 4294967296
 
             return __branch_s
 
@@ -1659,8 +1666,10 @@ class _CMP(Descriptor_R_RI):
       return
 
     if signed:
-      x = i32_t(x).value
-      y = i32_t(y).value
+      if (x & 0x80000000 != 0):
+        x = i32_t(x).value
+      if (y & 0x80000000 != 0):
+        y = i32_t(y).value
 
     if x < y:
       core.arith_sign = True
@@ -1694,14 +1703,31 @@ class CMP(_CMP):
 
         core.arith_equal = False
         core.arith_zero  = False
-        core.arith_sign = i32_t(x).value < i32_t(y).value
+
+        xs = (x & 0x80000000) != 0
+        ys = (y & 0x80000000) != 0
+
+        if xs:
+          if ys:
+            # x < 0, y < 0
+            core.arith_sign = abs(x) < abs(y)
+          else:
+            # x < 0, y >= =
+            core.arith_sign = True
+        else:
+          if ys:
+            # x >= 0, y < 0
+            core.arith_sign = False
+          else:
+            # x >= 0, y >= 0
+            core.arith_sign = x < y
 
       return __jit_cmp
 
     else:
       reg = inst.reg1
       y = inst.sign_extend_immediate(core.LOGGER, inst)
-      y_signed = i32_t(y).value
+      ys = (y & 0x80000000) != 0
 
       def __jit_cmp():
         x = regset[reg]
@@ -1716,7 +1742,19 @@ class CMP(_CMP):
 
         core.arith_equal = False
         core.arith_zero  = False
-        core.arith_sign = i32_t(x).value < y_signed
+
+        xs = (x & 0x80000000) != 0
+
+        if xs:
+          if ys:
+            core.arith_sign = abs(x) < abs(y)
+          else:
+            core.arith_sign = True
+        else:
+          if ys:
+            core.arith_sign = False
+          else:
+            core.arith_sign = x < y
 
       return __jit_cmp
 
@@ -1729,6 +1767,54 @@ class CMPU(_CMP):
   @staticmethod
   def execute(core, inst):
     _CMP.evaluate(core, core.registers[inst.reg1], RI_VAL(core, inst, 'reg2', sign_extend = False), signed = False)
+
+  @staticmethod
+  def jit(core, inst):
+    regset = core.registers
+
+    if inst.immediate_flag == 0:
+      reg1, reg2 = inst.reg1, inst.reg2
+
+      def __jit_cmp():
+        x = regset[reg1]
+        y = regset[reg2]
+
+        core.arith_overflow = False
+
+        if x == y:
+          core.arith_equal = True
+          core.arith_zero = x == 0
+          core.arith_sign = False
+          return
+
+        core.arith_equal = False
+        core.arith_zero  = False
+        core.arith_sign  = x < y
+
+      return __jit_cmp
+
+    else:
+      reg = inst.reg1
+      y = inst.immediate
+
+      def __jit_cmp():
+        x = regset[reg]
+
+        core.arith_overflow = False
+
+        if x == y:
+          core.arith_equal = True
+          core.arith_zero = x == 0
+          core.arith_sign = False
+          return
+
+        core.arith_equal = False
+        core.arith_zero  = False
+        core.arith_sign  = x < y
+
+      return __jit_cmp
+
+    return None
 
 class BE(_BRANCH):
   mnemonic = 'be'
@@ -2494,6 +2580,30 @@ class LIU(_LOAD_IMM):
 
     regset[reg] = (regset[reg] & 0xFFFF) | ((inst.sign_extend_immediate(core.LOGGER, inst) & 0xFFFF) << 16)
 
+  @staticmethod
+  def jit(core, inst):
+    regset, reg = core.registers, inst.reg
+    i = (inst.sign_extend_immediate(core.LOGGER, inst) & 0xFFFF) << 16
+
+    if i == 0:
+      def __jit_liu():
+        r = regset[reg]
+        regset[reg] = r = (r & 0xFFFF) | i
+        core.arith_zero = r == 0
+        core.arith_overflow = False
+        core.arith_sign = False
+
+      return __jit_liu
+
+    else:
+      def __jit_liu():
+        r = regset[reg]
+        regset[reg] = r = (r & 0xFFFF) | i
+        core.arith_zero = False
+        core.arith_overflow = False
+        core.arith_sign = (r & 0x80000000) != 0
+
+
 class LA(_LOAD_IMM):
   mnemonic = 'la'
   opcode   = DuckyOpcodes.LA
@@ -2501,17 +2611,18 @@ class LA(_LOAD_IMM):
 
   @classmethod
   def load(cls, core, inst):
-    core.registers[inst.reg] = (core.registers.ip + inst.sign_extend_immediate(core.LOGGER, inst)) % 4294967296
+    core.registers[inst.reg] = (core.registers[Registers.IP] + inst.sign_extend_immediate(core.LOGGER, inst)) % 4294967296
 
   @staticmethod
   def jit(core, inst):
     regset = core.registers
     reg = inst.reg
     offset = inst.sign_extend_immediate(core.LOGGER, inst)
+    ip = Registers.IP.value
 
     if offset == 0:
       def __jit_la():
-        regset[reg] = v = regset.ip
+        regset[reg] = v = regset[ip]
         core.arith_zero = v == 0
         core.arith_overflow = False
         core.arith_sign = (v & 0x80000000) != 0
@@ -2520,7 +2631,7 @@ class LA(_LOAD_IMM):
 
     else:
       def __jit_la():
-        v = regset.ip + offset
+        v = regset[ip] + offset
         regset[reg] = v % 4294967296
         core.arith_zero = v == 0
         core.arith_overflow = False
