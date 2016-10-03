@@ -232,14 +232,14 @@ def __base_setting_test(state, reg, inst_class = None, cond = None):
 
 def __base_select_test_immediate(state, reg, tv, fv, inst_class = None, cond = None):
   LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
-  LOGGER.debug('TEST: state=%r, reg=%d, tv=0x%08X, fv=0x%08X', state, reg, tv, fv)
+  LOGGER.debug('TEST: state=%r, reg=%d, tv=0x%08X, fv=0x%08X, class=%s', state, reg, tv, fv, inst_class.__name__)
 
   inst = encode_inst(inst_class, {'register_n0': reg, 'immediate': fv})
 
   state.reset()
   CORE.registers[reg] = tv
 
-  expected_value = tv if cond(state) else sign_extend11(fv)
+  expected_value = tv if cond(state) is True else sign_extend11(fv)
 
   execute_inst(CORE, inst_class, inst)
 
@@ -2126,7 +2126,7 @@ def test_shrs_immediate(state, reg, a, b):
     b = cap_shift(sign_extend15(b))
 
     if a & 0x80000000 != 0:
-      value = (a >> b) | (0xFFFFFFFF00000000 >> b)
+      value = (0xFFFFFFFF00000000 | (a & 0xFFFFFFFF)) >> b
       value &= 0xFFFFFFFF
 
     else:
@@ -2145,7 +2145,7 @@ def test_shrs_register(state, reg1, reg2, a, b):
     b = cap_shift(b)
 
     if a & 0x80000000 != 0:
-      value = (a >> b) | (0xFFFFFFFF00000000 >> b)
+      value = (0xFFFFFFFF00000000 | (a & 0xFFFFFFFF)) >> b
       value &= 0xFFFFFFFF
 
     else:
