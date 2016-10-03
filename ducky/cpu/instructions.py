@@ -10,7 +10,7 @@ from functools import partial
 from .registers import Registers, REGISTER_NAMES
 from ..mm import u32_t, i32_t, UINT16_FMT, UINT32_FMT
 from ..util import str2int
-from ..errors import EncodingLargeValueError, UnalignedJumpTargetError, AssemblerError, InvalidOpcodeError, DivideByZeroError, InvalidInstructionSetError
+from ..errors import EncodingLargeValueError, UnalignedJumpTargetError, AssemblerError, InvalidOpcodeError, DivideByZeroError, InvalidInstructionSetError, PrivilegedInstructionError
 
 PO_REGISTER  = r'(?P<register_n{operand_index}>(?:r\d\d?)|(?:sp)|(?:fp))'
 PO_AREGISTER = r'(?P<address_register>r\d\d?|sp|fp)(?:\[(?:(?P<offset_sign>-|\+)?(?P<offset_immediate>0x[0-9a-fA-F]+|\d+))\])?'
@@ -712,6 +712,20 @@ class RETINT(Descriptor):
     core.check_protected_ins()
     core._exit_exception()
 
+  @staticmethod
+  def jit(core, inst):
+    exit_exception = core._exit_exception
+    err = PrivilegedInstructionError(core = core)
+
+    def __jit_retint():
+      if core.privileged is False:
+        raise err
+
+      exit_exception()
+
+    return __jit_retint
+
+
 #
 # Jumps
 #
@@ -868,6 +882,18 @@ class CLI(Descriptor):
     core.check_protected_ins()
     core.hwint_allowed = False
 
+  @staticmethod
+  def jit(core, inst):
+    err = PrivilegedInstructionError(core = core)
+
+    def __jit_cli():
+      if core.privileged is False:
+        raise err
+
+      core.hwint_allowed = False
+
+    return __jit_cli
+
 class STI(Descriptor):
   mnemonic = 'sti'
   opcode = DuckyOpcodes.STI
@@ -877,6 +903,18 @@ class STI(Descriptor):
   def execute(core, inst):
     core.check_protected_ins()
     core.hwint_allowed = True
+
+  @staticmethod
+  def jit(core, inst):
+    err = PrivilegedInstructionError(core = core)
+
+    def __jit_sti():
+      if core.privileged is False:
+        raise err
+
+      core.hwint_allowed = True
+
+    return __jit_sti
 
 class HLT(Descriptor_RI):
   mnemonic = 'hlt'
@@ -914,6 +952,25 @@ class SIS(Descriptor_RI):
   @staticmethod
   def execute(core, inst):
     core.instruction_set = get_instruction_set(RI_VAL(core, inst, 'reg'))
+
+  @staticmethod
+  def jit(core, inst):
+    if inst.immediate_flag == 0:
+      regset = core.registers
+      reg = inst.reg
+
+      def __jit_sis():
+        core.instruction_set = INSTRUCTION_SETS[regset[reg]]
+
+      return __jit_sis
+
+    else:
+      i = inst.sign_extend_immediate(core.LOGGER, inst)
+
+      def __jit_sis():
+        core.instruction_set = INSTRUCTION_SETS[i]
+
+      return __jit_sis
 
 
 #
@@ -1197,13 +1254,189 @@ class DIV(_BINOP):
   mnemonic = 'div'
   opcode = DuckyOpcodes.DIV
 
+  @staticmethod
+  def jit(core, inst):
+    regset = core.registers
+    err = DivideByZeroError(core = core)
+
+    if inst.immediate_flag == 1:
+      y = inst.sign_extend_immediate(core.LOGGER, inst)
+
+      if y == 0:
+        def __jit_div():
+          raise err
+
+        return __jit_div
+
+      else:
+        reg = inst.reg1
+        y_i = i32_t(y).value
+        y_a = abs(y_i)
+
+        def __jit_div():
+          x = regset[reg]
+          x_i = i32_t(x).value
+
+          if y_a > abs(x_i):
+            r = 0
+
+            core.arith_zero = True
+
+          else:
+            r = x_i // y_i
+
+            core.arith_zero = False
+
+          regset[reg] = r % 4294967296
+
+          core.arith_overflow = False
+          core.arith_sign = (r & 0x80000000) != 0
+
+        return __jit_div
+
+    else:
+      reg1 = inst.reg1
+      reg2 = inst.reg2
+
+      def __jit_div():
+        y = regset[reg2]
+
+        if y == 0:
+          raise err
+
+        y_i = i32_t(y).value
+        y_a = abs(y_i)
+
+        x = regset[reg1]
+        x_i = i32_t(x).value
+        x_a = abs(x_i)
+
+        if y_a > x_a:
+          r = 0
+
+          core.arith_zero = True
+
+        else:
+          r = x_i // y_i
+
+          core.arith_zero = False
+
+        regset[reg1] = r % 4294967296
+
+        core.arith_overflow = False
+        core.arith_sign = (r & 0x80000000) != 0
+
+      return __jit_div
+
 class UDIV(_BINOP):
   mnemonic = 'udiv'
   opcode = DuckyOpcodes.UDIV
 
+  @staticmethod
+  def jit(core, inst):
+    regset = core.registers
+    err = DivideByZeroError(core = core)
+
+    if inst.immediate_flag == 1:
+      y = inst.sign_extend_immediate(core.LOGGER, inst)
+
+      if y == 0:
+        def __jit_udiv():
+          raise err
+
+        return __jit_udiv
+
+      else:
+        reg = inst.reg1
+
+        def __jit_udiv():
+          x = regset[reg]
+
+          r = x // y
+          regset[reg] = r % 4294967296
+
+          core.arith_zero = r == 0
+          core.arith_overflow = False
+          core.arith_sign = (r & 0x80000000) != 0
+
+        return __jit_udiv
+
+    else:
+      reg1 = inst.reg1
+      reg2 = inst.reg2
+
+      def __jit_udiv():
+        y = regset[reg2]
+
+        if y == 0:
+          raise err
+
+        x = regset[reg1]
+
+        r = x // y
+        regset[reg1] = r % 4294967296
+
+        core.arith_zero = r == 0
+        core.arith_overflow = False
+        core.arith_sign = (r & 0x80000000) != 0
+
+      return __jit_udiv
+
 class MOD(_BINOP):
   mnemonic = 'mod'
   opcode = DuckyOpcodes.MOD
+
+  @staticmethod
+  def jit(core, inst):
+    regset = core.registers
+    err = DivideByZeroError(core = core)
+
+    if inst.immediate_flag == 1:
+      y = inst.sign_extend_immediate(core.LOGGER, inst)
+
+      if y == 0:
+        def __jit_mod():
+          raise err
+
+        return __jit_mod
+
+      else:
+        reg = inst.reg1
+        y_i = i32_t(y).value
+
+        def __jit_mod():
+          x_i = i32_t(regset[reg]).value
+
+          r = x_i % y_i
+          regset[reg] = r % 4294967296
+
+          core.arith_zero = r == 0
+          core.arith_overflow = False
+          core.arith_sign = (r & 0x80000000) != 0
+
+        return __jit_mod
+
+    else:
+      reg1 = inst.reg1
+      reg2 = inst.reg2
+
+      def __jit_mod():
+        y = regset[reg2]
+
+        if y == 0:
+          raise err
+
+        y_i = i32_t(y).value
+        x_i = i32_t(regset[reg1]).value
+
+        r = x_i % y_i
+        regset[reg1] = r % 4294967296
+
+        core.arith_zero = r == 0
+        core.arith_overflow = False
+        core.arith_sign = (r & 0x80000000) != 0
+
+      return __jit_mod
 
 
 #
@@ -1356,130 +1589,191 @@ class _BRANCH(_COND):
     else:
       reg = inst.reg
 
-    if inst.flag in _COND.GFLAGS:
-      if inst.flag == 0:
-        if inst.value == 0:
-          if inst.immediate_flag == 0:
-            def __branch_ne():
-              if core.arith_equal is False:
-                regset[ip] = regset[reg]
+    if inst.flag == 0:
+      if inst.value == 0:
+        if inst.immediate_flag == 0:
+          def __branch_ne():
+            if core.arith_equal is False:
+              regset[ip] = regset[reg]
 
-            return __branch_ne
-
-          else:
-            def __branch_ne():
-              if core.arith_equal is False:
-                regset[ip] = (regset[ip] + i) % 4294967296
-
-            return __branch_ne
+          return __branch_ne
 
         else:
-          if inst.immediate_flag == 0:
-            def __branch_e():
-              if core.arith_equal is True:
-                regset[ip] = regset[reg]
+          def __branch_ne():
+            if core.arith_equal is False:
+              regset[ip] = (regset[ip] + i) % 4294967296
 
-            return __branch_e
+          return __branch_ne
 
-          else:
-            def __branch_e():
-              if core.arith_equal is True:
-                regset[ip] = (regset[ip] + i) % 4294967296
+      else:
+        if inst.immediate_flag == 0:
+          def __branch_e():
+            if core.arith_equal is True:
+              regset[ip] = regset[reg]
 
-            return __branch_e
-
-      elif inst.flag == 1:
-        if inst.value == 0:
-          if inst.immediate_flag == 0:
-            def __branch_nz():
-              if core.arith_zero is False:
-                regset[ip] = regset[reg]
-
-            return __branch_nz
-
-          else:
-            def __branch_nz():
-              if core.arith_zero is False:
-                regset[ip] = (regset[ip] + i) % 4294967296
-
-            return __branch_nz
+          return __branch_e
 
         else:
-          if inst.immediate_flag == 0:
-            def __branch_z():
-              if core.arith_zero is True:
-                regset[ip] = regset[reg]
+          def __branch_e():
+            if core.arith_equal is True:
+              regset[ip] = (regset[ip] + i) % 4294967296
 
-            return __branch_z
+          return __branch_e
 
-          else:
-            def __branch_z():
-              if core.arith_zero is True:
-                regset[ip] = (regset[ip] + i) % 4294967296
+    elif inst.flag == 1:
+      if inst.value == 0:
+        if inst.immediate_flag == 0:
+          def __branch_nz():
+            if core.arith_zero is False:
+              regset[ip] = regset[reg]
 
-            return __branch_z
-
-      elif inst.flag == 2:
-        if inst.value == 0:
-          if inst.immediate_flag == 0:
-            def __branch_no():
-              if core.arith_overflow is False:
-                regset[ip] = regset[reg]
-
-            return __branch_no
-
-          else:
-            def __branch_no():
-              if core.arith_overflow is False:
-                regset[ip] = (regset[ip] + i) % 4294967296
-
-            return __branch_no
+          return __branch_nz
 
         else:
-          if inst.immediate_flag == 0:
-            def __branch_o():
-              if core.arith_overflow is True:
-                regset[ip] = regset[reg]
+          def __branch_nz():
+            if core.arith_zero is False:
+              regset[ip] = (regset[ip] + i) % 4294967296
 
-            return __branch_o
+          return __branch_nz
 
-          else:
-            def __branch_o():
-              if core.arith_overflow is True:
-                regset[ip] = (regset[ip] + i) % 4294967296
+      else:
+        if inst.immediate_flag == 0:
+          def __branch_z():
+            if core.arith_zero is True:
+              regset[ip] = regset[reg]
 
-            return __branch_o
-
-      elif inst.flag == 3:
-        if inst.value == 0:
-          if inst.immediate_flag == 0:
-            def __branch_ns():
-              if core.arith_sign is False:
-                regset[ip] = regset[reg]
-
-            return __branch_ns
-
-          else:
-            def __branch_ns():
-              if core.arith_sign is False:
-                regset[ip] = (regset[ip] + i) % 4294967296
-
-            return __branch_ns
+          return __branch_z
 
         else:
-          if inst.immediate_flag == 0:
-            def __branch_s():
-              if core.arith_sign is True:
-                regset[ip] = regset[reg]
+          def __branch_z():
+            if core.arith_zero is True:
+              regset[ip] = (regset[ip] + i) % 4294967296
 
-            return __branch_s
+          return __branch_z
 
-          else:
-            def __branch_s():
-              if core.arith_sign is True:
-                regset[ip] = (regset[ip] + i) % 4294967296
+    elif inst.flag == 2:
+      if inst.value == 0:
+        if inst.immediate_flag == 0:
+          def __branch_no():
+            if core.arith_overflow is False:
+              regset[ip] = regset[reg]
 
-            return __branch_s
+          return __branch_no
+
+        else:
+          def __branch_no():
+            if core.arith_overflow is False:
+              regset[ip] = (regset[ip] + i) % 4294967296
+
+          return __branch_no
+
+      else:
+        if inst.immediate_flag == 0:
+          def __branch_o():
+            if core.arith_overflow is True:
+              regset[ip] = regset[reg]
+
+          return __branch_o
+
+        else:
+          def __branch_o():
+            if core.arith_overflow is True:
+              regset[ip] = (regset[ip] + i) % 4294967296
+
+          return __branch_o
+
+    elif inst.flag == 3:
+      if inst.value == 0:
+        if inst.immediate_flag == 0:
+          def __branch_ns():
+            if core.arith_sign is False:
+              regset[ip] = regset[reg]
+
+          return __branch_ns
+
+        else:
+          def __branch_ns():
+            if core.arith_sign is False:
+              regset[ip] = (regset[ip] + i) % 4294967296
+
+          return __branch_ns
+
+      else:
+        if inst.immediate_flag == 0:
+          def __branch_s():
+            if core.arith_sign is True:
+              regset[ip] = regset[reg]
+
+          return __branch_s
+
+        else:
+          def __branch_s():
+            if core.arith_sign is True:
+              regset[ip] = (regset[ip] + i) % 4294967296
+
+          return __branch_s
+
+    elif inst.flag == 4:
+      if inst.value == 0:
+        if inst.immediate_flag == 0:
+          def __branch_ge():
+            if core.arith_sign is False or core.arith_equal is True:
+              regset[ip] = regset[reg]
+
+          return __branch_ge
+
+        else:
+          def __branch_ge():
+            if core.arith_sign is False or core.arith_equal is True:
+              regset[ip] = (regset[ip] + i) % 4294967296
+
+          return __branch_ge
+
+      else:
+        if inst.immediate_flag == 0:
+          def __branch_l():
+            if core.arith_sign is True and core.arith_equal is False:
+              regset[ip] = regset[reg]
+
+          return __branch_l
+
+        else:
+          def __branch_l():
+            if core.arith_sign is True and core.arith_equal is False:
+              regset[ip] = (regset[ip] + i) % 4294967296
+
+          return __branch_l
+
+    elif inst.flag == 5:
+      if inst.value == 0:
+        if inst.immediate_flag == 0:
+          def __branch_le():
+            if core.arith_sign is True or core.arith_equal is True:
+              regset[ip] = regset[reg]
+
+          return __branch_le
+
+        else:
+          def __branch_le():
+            if core.arith_sign is True or core.arith_equal is True:
+              regset[ip] = (regset[ip] + i) % 4294967296
+
+          return __branch_le
+
+      else:
+        if inst.immediate_flag == 0:
+          def __branch_g():
+            if core.arith_sign is False and core.arith_equal is False:
+              regset[ip] = regset[reg]
+
+          return __branch_g
+
+        else:
+          def __branch_g():
+            if core.arith_sign is False and core.arith_equal is False:
+              regset[ip] = (regset[ip] + i) % 4294967296
+
+          return __branch_g
 
     return None
 
@@ -1618,7 +1912,7 @@ class _SELECT(Descriptor):
     if inst.immediate_flag == 0:
       return [REGISTER_NAMES[inst.reg1], REGISTER_NAMES[inst.reg2]]
 
-    return [str(inst.refers_to) if hasattr(inst, 'refers_to') and inst.refers_to is not None else UINT32_FMT(inst.immediate)]
+    return [REGISTER_NAMES[inst.reg1], str(inst.refers_to) if hasattr(inst, 'refers_to') and inst.refers_to is not None else UINT32_FMT(inst.immediate)]
 
   @staticmethod
   def disassemble_mnemonic(inst):
@@ -1626,7 +1920,7 @@ class _SELECT(Descriptor):
       return 'sel%s%s' % ('n' if inst.value == 0 else '', _COND.MNEMONICS[inst.flag])
 
     else:
-      return 'sel%s%s' % (_COND.MNEMONICS[inst.flag], 'e' if inst.value == 1 else '')
+      return 'sel%s%s' % (_COND.MNEMONICS[inst.flag], '' if inst.value == 1 else 'e')
 
   @staticmethod
   def execute(core, inst):
@@ -1634,6 +1928,220 @@ class _SELECT(Descriptor):
       core.registers[inst.reg1] = RI_VAL(core, inst, 'reg2')
 
     update_arith_flags(core, core.registers[inst.reg1])
+
+  @staticmethod
+  def jit(core, inst):
+    regset = core.registers
+    reg1 = inst.reg1
+
+    if inst.immediate_flag == 1:
+      i = inst.sign_extend_immediate(core.LOGGER, inst)
+      zero = i == 0
+      sign = (i & 0x80000000) != 0
+
+    else:
+      reg2 = inst.reg2
+
+    if inst.flag == 0:
+      if inst.value == 0:
+        if inst.immediate_flag == 0:
+          def __jit_selne():
+            if core.arith_equal is True:
+              regset[reg1] = v = regset[reg2]
+
+            else:
+              v = regset[reg1]
+
+            core.arith_zero = v == 0
+            core.arith_overflow = False
+            core.arith_sign = (v & 0x80000000) != 0
+
+          return __jit_selne
+
+        else:
+          def __jit_selne():
+            if core.arith_equal is True:
+              regset[reg1] = i
+
+              core.arith_zero = zero
+              core.arith_sign = sign
+
+            else:
+              v = regset[reg1]
+
+              core.arith_zero = v == 0
+              core.arith_sign = (v & 0x80000000) != 0
+
+            core.arith_overflow = False
+
+          return __jit_selne
+
+      else:
+        if inst.immediate_flag == 0:
+          def __jit_sele():
+            if core.arith_equal is False:
+              regset[reg1] = v = regset[reg2]
+
+            else:
+              v = regset[reg1]
+
+            core.arith_zero = v == 0
+            core.arith_overflow = False
+            core.arith_sign = (v & 0x80000000) != 0
+
+          return __jit_sele
+
+        else:
+          def __jit_sele():
+            if core.arith_equal is False:
+              regset[reg1] = i
+
+              core.arith_zero = zero
+              core.arith_sign = sign
+
+            else:
+              v = regset[reg1]
+
+              core.arith_zero = v == 0
+              core.arith_sign = (v & 0x80000000) != 0
+
+            core.arith_overflow = False
+
+          return __jit_sele
+
+    elif inst.flag == 4:
+      if inst.value == 0:
+        if inst.immediate_flag == 0:
+          def __jit_selge():
+            if core.arith_sign is True and core.arith_equal is False:
+              regset[reg1] = v = regset[reg2]
+
+            else:
+              v = regset[reg1]
+
+            core.arith_zero = v == 0
+            core.arith_overflow = False
+            core.arith_sign = (v & 0x80000000) != 0
+
+          return __jit_selge
+
+        else:
+          def __jit_selge():
+            if core.arith_sign is True and core.arith_equal is False:
+              regset[reg1] = i
+
+              core.arith_zero = zero
+              core.arith_sign = sign
+
+            else:
+              v = regset[reg1]
+
+              core.arith_zero = v == 0
+              core.arith_sign = (v & 0x80000000) != 0
+
+            core.arith_overflow = False
+
+          return __jit_selge
+
+      else:
+        if inst.immediate_flag == 0:
+          def __jit_sell():
+            if core.arith_sign is False or core.arith_equal is True:
+              regset[reg1] = v = regset[reg2]
+
+            else:
+              v = regset[reg1]
+
+            core.arith_zero = v == 0
+            core.arith_overflow = False
+            core.arith_sign = (v & 0x80000000) != 0
+
+          return __jit_sell
+
+        else:
+          def __jit_sell():
+            if core.arith_sign is False or core.arith_equal is True:
+              regset[reg1] = i
+
+              core.arith_zero = zero
+              core.arith_sign = sign
+
+            else:
+              v = regset[reg1]
+
+              core.arith_zero = v == 0
+              core.arith_sign = (v & 0x80000000) != 0
+
+            core.arith_overflow = False
+
+          return __jit_sell
+
+    elif inst.flag == 5:
+      if inst.value == 0:
+        if inst.immediate_flag == 0:
+          def __jit_selle():
+            if core.arith_sign is False and core.arith_equal is False:
+              regset[reg1] = v = regset[reg2]
+
+            else:
+              v = regset[reg1]
+
+            core.arith_zero = v == 0
+            core.arith_overflow = False
+            core.arith_sign = (v & 0x80000000) != 0
+
+          return __jit_selle
+
+        else:
+          def __jit_selle():
+            if core.arith_sign is False and core.arith_equal is False:
+              regset[reg1] = i
+
+              core.arith_zero = zero
+              core.arith_sign = sign
+
+            else:
+              v = regset[reg1]
+
+              core.arith_zero = v == 0
+              core.arith_sign = (v & 0x80000000) != 0
+
+            core.arith_overflow = False
+
+          return __jit_selle
+
+      else:
+        if inst.immediate_flag == 0:
+          def __jit_selg():
+            if core.arith_sign is True or core.arith_equal is True:
+              regset[reg1] = v = regset[reg2]
+
+            else:
+              v = regset[reg1]
+
+            core.arith_zero = v == 0
+            core.arith_overflow = False
+            core.arith_sign = (v & 0x80000000) != 0
+
+          return __jit_selg
+
+        else:
+          def __jit_selg():
+            if core.arith_sign is True or core.arith_equal is True:
+              regset[reg1] = i
+
+              core.arith_zero = zero
+              core.arith_sign = sign
+
+            else:
+              v = regset[reg1]
+
+              core.arith_zero = v == 0
+              core.arith_sign = (v & 0x80000000) != 0
+
+            core.arith_overflow = False
+
+          return __jit_selg
 
 class _CMP(Descriptor_R_RI):
   encoding = EncodingR
@@ -2192,6 +2700,73 @@ class SHRS(_BITOP):
   mnemonic = 'shiftrs'
   opcode = DuckyOpcodes.SHRS
 
+  @staticmethod
+  def jit(core, inst):
+    regset = core.registers
+
+    if inst.immediate_flag == 1:
+      reg = inst.reg1
+      i = min(inst.sign_extend_immediate(core.LOGGER, inst), 32)
+
+      if i == 0:
+        def __jit_shrs():
+          v = regset[reg]
+          core.arith_zero = v == 0
+          core.arith_overflow = False
+          core.arith_sign = (v & 0x80000000) != 0
+
+        return __jit_shrs
+
+      else:
+        sign_mask = (((1 << i) - 1) << (32 - i))
+
+        def __jit_shrs():
+          x = regset[reg]
+
+          if x & 0x80000000 == 0:
+            v = x >> i
+            core.arith_sign = False
+
+          else:
+            v = (x >> i) | sign_mask
+            core.arith_sign = True
+
+          regset[reg] = v
+
+          core.arith_zero = v == 0
+          core.arith_overflow = False
+
+        return __jit_shrs
+
+    else:
+      reg1, reg2 = inst.reg1, inst.reg2
+
+      def __jit_shrs():
+        i = min(regset[reg2], 32)
+
+        if i == 0:
+          v = regset[reg1]
+          core.arith_zero = v == 0
+          core.arith_overflow = False
+          core.arith_sign = (v & 0x80000000) != 0
+
+        else:
+          x = regset[reg1]
+
+          if x & 0x80000000 == 0:
+            v = x >> i
+            core.arith_sign = False
+          else:
+            v = (x >> i) | (((1 << i) - 1) << (32 - i))
+            core.arith_sign = True
+
+          regset[reg1] = v
+
+          core.arith_zero = v == 0
+          core.arith_overflow = False
+
+      return __jit_shrs
+
 class NOT(Descriptor_R):
   mnemonic = 'not'
   opcode = DuckyOpcodes.NOT
@@ -2603,6 +3178,7 @@ class LIU(_LOAD_IMM):
         core.arith_overflow = False
         core.arith_sign = (r & 0x80000000) != 0
 
+      return __jit_liu
 
 class LA(_LOAD_IMM):
   mnemonic = 'la'
@@ -2704,6 +3280,22 @@ class CTR(Descriptor_R_R):
     core.registers[inst.reg1] = core.control_coprocessor.read(inst.reg2)
     update_arith_flags(core, core.registers[inst.reg1])
 
+  @staticmethod
+  def jit(core, inst):
+    reg1 = inst.reg1
+    reg2 = inst.reg2
+    regset = core.registers
+    reader = core.control_coprocessor.read
+
+    def __jit_ctr():
+      regset[reg1] = v = reader(reg2)
+
+      core.arith_zero = v == 0
+      core.arith_overflow = False
+      core.arith_sign = (v & 0x80000000) != 0
+
+    return __jit_ctr
+
 class CTW(Descriptor_R_R):
   mnemonic = 'ctw'
   opcode = DuckyOpcodes.CTW
@@ -2712,6 +3304,18 @@ class CTW(Descriptor_R_R):
   @staticmethod
   def execute(core, inst):
     core.control_coprocessor.write(inst.reg1, core.registers[inst.reg2])
+
+  @staticmethod
+  def jit(core, inst):
+    reg1 = inst.reg1
+    reg2 = inst.reg2
+    regset = core.registers
+    writer = core.control_coprocessor.write
+
+    def __jit_ctw():
+      writer(reg1, regset[reg2])
+
+    return __jit_ctw
 
 class FPTC(Descriptor):
   mnemonic = 'fptc'
@@ -2722,6 +3326,14 @@ class FPTC(Descriptor):
   def execute(core, inst):
     core.mmu.release_ptes()
 
+  @staticmethod
+  def jit(core, inst):
+    mmu = core.mmu
+
+    def __jit_fptc():
+      mmu.release_ptes()
+
+    return __jit_fptc
 
 class DuckyInstructionSet(InstructionSet):
   instruction_set_id = 0

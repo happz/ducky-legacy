@@ -277,6 +277,17 @@ class SAVEW(Descriptor_MATH):
   def execute(core, inst):
     core.registers[inst.reg1] = core.math_coprocessor.registers.pop().value & 0xFFFFFFFF
 
+  @staticmethod
+  def jit(core, inst):
+    regset = core.registers
+    reg = inst.reg1
+    pop = core.math_coprocessor.registers.pop
+
+    def __jit_savew():
+      regset[reg] = pop().value & 0xFFFFFFFF
+
+    return __jit_savew
+
 class POPW(Descriptor_MATH):
   """
   Pop the ``int`` from data stack, extend it to ``long``, and make the result TOS.
@@ -288,6 +299,16 @@ class POPW(Descriptor_MATH):
   @staticmethod
   def execute(core, inst):
     core.math_coprocessor.sign_extend_with_push(core._raw_pop())
+
+  @staticmethod
+  def jit(core, inst):
+    raw_pop = core._raw_pop
+    push = core.math_coprocessor.sign_extend_with_push
+
+    def __jit_popw():
+      push(raw_pop())
+
+    return __jit_popw
 
 class LOADW(Descriptor_MATH):
   """
@@ -311,6 +332,17 @@ class LOADW(Descriptor_MATH):
   @staticmethod
   def execute(core, inst):
     core.math_coprocessor.sign_extend_with_push(core.registers[inst.reg1])
+
+  @staticmethod
+  def jit(core, inst):
+    push = core.math_coprocessor.sign_extend_with_push
+    regset = core.registers
+    reg = inst.reg1
+
+    def __jit_loadw():
+      push(regset[reg])
+
+    return __jit_loadw
 
 class POPUW(Descriptor_MATH):
   """
@@ -346,6 +378,17 @@ class LOADUW(Descriptor_MATH):
   @staticmethod
   def execute(core, inst):
     core.math_coprocessor.extend_with_push(core.registers[inst.reg1])
+
+  @staticmethod
+  def jit(core, inst):
+    push = core.math_coprocessor.extend_with_push
+    regset = core.registers
+    reg = inst.reg1
+
+    def __jit_loaduw():
+      push(regset[reg])
+
+    return __jit_loaduw
 
 class PUSH(Descriptor_MATH):
   """
@@ -388,6 +431,20 @@ class SAVE(Descriptor_MATH):
 
     core.registers[inst.reg1] = (v >> 32) % 4294967296
     core.registers[inst.reg2] = v & 0xFFFFFFFF
+
+  @staticmethod
+  def jit(core, inst):
+    pop = core.math_coprocessor.registers.pop
+    regset = core.registers
+    reg1, reg2 = inst.reg1, inst.reg2
+
+    def __jit_save():
+      v = pop().value
+
+      regset[reg1] = (v >> 32) % 4294967296
+      regset[reg2] = v & 0xFFFFFFFF
+
+    return __jit_save
 
 class POP(Descriptor_MATH):
   """
@@ -484,6 +541,16 @@ class MULL(Descriptor_MATH):
     b = RS.pop()
 
     RS.push(u64_t(a.value * b.value))
+
+  @staticmethod
+  def jit(core, inst):
+    pop, push = core.math_coprocessor.registers.pop, core.math_coprocessor.registers.push
+
+    def __jit_mull():
+      a, b = pop(), pop()
+      push(u64_t(a.value * b.value))
+
+    return __jit_mull
 
 class DIVL(Descriptor_MATH):
   """
