@@ -1,20 +1,17 @@
 import ctypes
 import enum
-import re
+import logging
 import sys
 
-from six import integer_types, string_types, add_metaclass
+from six import add_metaclass, iteritems, string_types
 from six.moves import range
 from functools import partial
+from collections import OrderedDict
 
 from .registers import Registers, REGISTER_NAMES
 from ..mm import u32_t, i32_t, UINT16_FMT, UINT32_FMT
-from ..util import str2int
-from ..errors import EncodingLargeValueError, UnalignedJumpTargetError, AssemblerError, InvalidOpcodeError, DivideByZeroError, InvalidInstructionSetError, PrivilegedInstructionError
-
-PO_REGISTER  = r'(?P<register_n{operand_index}>(?:r\d\d?)|(?:sp)|(?:fp))'
-PO_AREGISTER = r'(?P<address_register>r\d\d?|sp|fp)(?:\[(?:(?P<offset_sign>-|\+)?(?P<offset_immediate>0x[0-9a-fA-F]+|\d+))\])?'
-PO_IMMEDIATE = r'(?:(?P<immediate>(?:-|\+)?(?:0x[0-9a-fA-F]+|\d+))|(?P<immediate_address>&?[a-zA-Z_\.][a-zA-Z0-9_\.]*))'
+from ..util import LoggingCapable
+from ..errors import EncodingLargeValueError, UnalignedJumpTargetError, InvalidOpcodeError, DivideByZeroError, InvalidInstructionSetError, OperandMismatchError, PrivilegedInstructionError
 
 def UINT20_FMT(i):
   return '0x%05X' % (i & 0xFFFFF)
@@ -69,8 +66,21 @@ class Encoding(ctypes.LittleEndianStructure):
 
     else:
       i = inst.immediate
-      return ((ext_mask | i) % 4294967296) if i & sign_mask else i
-      return u32_t(ext_mask | inst.immediate).value if inst.immediate & sign_mask else u32_t(inst.immediate).value
+      return ((ext_mask | i) & 0xFFFFFFFF) if i & sign_mask else i
+
+  @staticmethod
+  def repr(inst, fields):
+    d = OrderedDict()
+
+    fields.insert(0, ('opcode', '%02d'))
+
+    for field, fmt in fields:
+      d[field] = fmt % getattr(inst, field)
+
+    if hasattr(inst, 'refers_to'):
+      d['refers_to'] = str(getattr(inst, 'refers_to'))
+
+    return '<%s: %s>' % (inst.__class__.__name__, ', '.join(['%s=%s' % (k, v) for k, v in iteritems(d)]))
 
 class EncodingR(ctypes.LittleEndianStructure):
   _pack_ = 0
@@ -83,8 +93,8 @@ class EncodingR(ctypes.LittleEndianStructure):
   ]
 
   @staticmethod
-  def fill_reloc_slot(logger, inst, slot):
-    logger.debug('fill_reloc_slot: inst=%s, slot=%s', inst, slot)
+  def fill_reloc_slot(inst, slot):
+    logging.getLogger().debug('fill_reloc_slot: inst=%s, slot=%s', inst, slot)
 
     slot.patch_offset = 17
     slot.patch_size = 15
@@ -94,7 +104,7 @@ class EncodingR(ctypes.LittleEndianStructure):
     return Encoding.sign_extend_immediate(logger, inst, 0x4000, 0xFFFF8000)
 
   def __repr__(self):
-    return '<EncodingR: opcode=%s, reg1=%s, reg2=%s, immediate_flag=%s, immediate=%s>' % (self.opcode, self.reg1, self.reg2, self.immediate_flag, UINT16_FMT(self.immediate))
+    return Encoding.repr(self, [('reg1', '%02d'), ('reg2', '%02d'), ('immediate_flag', '%d'), ('immediate', '0x%04X')])
 
 class EncodingC(ctypes.LittleEndianStructure):
   _pack_ = 0
@@ -108,8 +118,8 @@ class EncodingC(ctypes.LittleEndianStructure):
   ]
 
   @staticmethod
-  def fill_reloc_slot(logger, inst, slot):
-    logger.debug('fill_reloc_slot: inst=%s, slot=%s', inst, slot)
+  def fill_reloc_slot(inst, slot):
+    logging.getLogger().debug('fill_reloc_slot: inst=%s, slot=%s', inst, slot)
 
     slot.patch_offset = 16
     slot.patch_size = 16
@@ -119,7 +129,7 @@ class EncodingC(ctypes.LittleEndianStructure):
     return Encoding.sign_extend_immediate(logger, inst, 0x8000, 0xFFFF0000)
 
   def __repr__(self):
-    return '<EncodingC: opcode=%s, reg=%s, flag=%s, value=%s, immediate_flag=%s, immediate=0x%04X>' % (self.opcode, self.reg, self.flag, self.value, self.immediate_flag, self.immediate)
+    return Encoding.repr(self, [('reg', '%02d'), ('flag', '%02d'), ('value', '%d'), ('immediate_flag', '%d'), ('immediate', '0x%04X')])
 
 class EncodingS(ctypes.LittleEndianStructure):
   _pack_ = 0
@@ -134,8 +144,8 @@ class EncodingS(ctypes.LittleEndianStructure):
   ]
 
   @staticmethod
-  def fill_reloc_slot(logger, inst, slot):
-    logger.debug('fill_reloc_slot: inst=%s, slot=%s', inst, slot)
+  def fill_reloc_slot(inst, slot):
+    logging.getLogger().debug('fill_reloc_slot: inst=%s, slot=%s', inst, slot)
 
     slot.patch_offset = 21
     slot.patch_size = 11
@@ -145,7 +155,7 @@ class EncodingS(ctypes.LittleEndianStructure):
     return Encoding.sign_extend_immediate(logger, inst, 0x400, 0xFFFFF800)
 
   def __repr__(self):
-    return '<EncodingS: opcode=%s, reg1=%s, reg2=%s, flag=%s, value=%s, immediate_flag=%s, immediate=0x%03X>' % (self.opcode, self.reg1, self.reg2, self.flag, self.value, self.immediate_flag, self.immediate)
+    return Encoding.repr(self, [('reg1', '%02d'), ('reg2', '%02d'), ('flag', '%02d'), ('value', '%d'), ('immediate_flag', '%d'), ('immediate', '0x%04X')])
 
 class EncodingI(ctypes.LittleEndianStructure):
   _pack_ = 0
@@ -157,8 +167,8 @@ class EncodingI(ctypes.LittleEndianStructure):
   ]
 
   @staticmethod
-  def fill_reloc_slot(logger, inst, slot):
-    logger.debug('fill_reloc_slot: inst=%s, slot=%s', inst, slot)
+  def fill_reloc_slot(inst, slot):
+    logging.getLogger().debug('fill_reloc_slot: inst=%s, slot=%s', inst, slot)
 
     slot.patch_offset = 12
     slot.patch_size = 20
@@ -168,7 +178,7 @@ class EncodingI(ctypes.LittleEndianStructure):
     return Encoding.sign_extend_immediate(logger, inst, 0x80000, 0xFFF00000)
 
   def __repr__(self):
-    return '<EncodingI: opcode=%s, reg=%s, immediate_flag=%s, immediate=%s>' % (self.opcode, self.reg, self.immediate_flag, UINT20_FMT(self.immediate))
+    return Encoding.repr(self, [('reg', '%02d'), ('immediate_flag', '%d'), ('immediate', '0x%04X')])
 
 class EncodingA(ctypes.LittleEndianStructure):
   _pack_ = 0
@@ -180,22 +190,26 @@ class EncodingA(ctypes.LittleEndianStructure):
   ]
 
   def __repr__(self):
-    return '<EncodingA: opcode=%s, reg1=%s, reg2=%s, reg3=%s>' % (self.opcode, self.reg1, self.reg2, self.reg3)
+    return Encoding.repr(self, [('reg1', '%02d'), ('reg2', '%02d'), ('reg3', '%02d')])
 
-def ENCODE(logger, buffer, inst, field, size, value, raise_on_large_value = False):
-  logger.debug('ENCODE: inst=%s, field=%s, size=%s, value=%s, raise_on_large_value=%s', inst, field, size, value, raise_on_large_value)
+class EncodingContext(LoggingCapable, object):
+  def __init__(self, logger):
+    super(EncodingContext, self).__init__(logger)
 
-  setattr(inst, field, value)
+  def encode(self, inst, field, size, value, raise_on_large_value = False):
+    self.DEBUG('encode: inst=%s, field=%s, size=%s, value=%s, raise_on_large_value=%s', inst, field, size, value, raise_on_large_value)
 
-  logger.debug('ENCODE: inst=%s', inst)
+    setattr(inst, field, value)
 
-  if value >= 2 ** size:
-    e = buffer.get_error(EncodingLargeValueError, 'inst=%s, field=%s, size=%s, value=%s' % (inst, field, size, UINT32_FMT(value)))
+    self.DEBUG('encode: inst=%s', inst)
 
-    if raise_on_large_value is True:
-      raise e
+    if value >= 2 ** size:
+      e = buffer.get_error(EncodingLargeValueError, 'inst=%s, field=%s, size=%s, value=%s' % (inst, field, size, UINT32_FMT(value)))
 
-    e.log(logger.warn)
+      if raise_on_large_value is True:
+        raise e
+
+      e.log(self.WARN)
 
 class Descriptor(object):
   mnemonic      = None
@@ -205,8 +219,6 @@ class Descriptor(object):
   # this is a default encoding, and by the way it silents Codacy's warning
   encoding      = EncodingR
 
-  pattern       = None
-
   relative_address = False
   inst_aligned = False
 
@@ -214,39 +226,20 @@ class Descriptor(object):
     super(Descriptor, self).__init__()
 
     self.instruction_set = instruction_set
-
-    pattern = r'\s*' + self.mnemonic
-
-    if self.operands:
-      operand_patterns = []
-
-      self.operands = [ot.strip() for ot in self.operands.split(',')]
-
-      for operand_index, operand_types in zip(list(range(0, len(self.operands))), self.operands):
-        operand_pattern = []
-
-        for operand_type in operand_types:
-          if operand_type == 'r':
-            operand_pattern.append(PO_REGISTER.format(operand_index = operand_index))
-
-          elif operand_type == 'a':
-            operand_pattern.append(PO_AREGISTER)
-
-          elif operand_type == 'i':
-            operand_pattern.append(PO_IMMEDIATE)
-
-          else:
-            raise Exception('Unhandled operand type: {}'.format(operand_type))
-
-        operand_patterns.append('(?:' + '|'.join(operand_pattern) + ')')
-
-      pattern += r' ' + r',\s*'.join(operand_patterns)
-
-    pattern = r'^' + pattern + '(?:\s*[;#].*)?$'
-    self.pattern = re.compile(pattern, re.MULTILINE)
-
     self.instruction_set.instructions.append(self)
 
+    self._expand_operands()
+
+  def _expand_operands(self):
+    if isinstance(self.__class__.operands, list):
+      return
+
+    self.__class__.operands = [ot.strip() for ot in self.operands.split(',')] if self.operands is not None else []
+    self.operands = self.__class__.operands
+
+  #
+  # Execution
+  #
   @staticmethod
   def jit(core, inst):
     return None
@@ -255,13 +248,16 @@ class Descriptor(object):
   def execute(core, inst):
     raise NotImplementedError('%s does not implement execute method' % inst.opcode)
 
+  #
+  # Encoding
+  #
   @staticmethod
-  def assemble_operands(logger, buffer, inst, operands):
+  def assemble_operands(ctx, inst, operands):
     pass
 
   @staticmethod
-  def fill_reloc_slot(logger, inst, slot):
-    inst.fill_reloc_slot(logger, inst, slot)
+  def fill_reloc_slot(inst, slot):
+    inst.fill_reloc_slot(inst, slot)
 
   @staticmethod
   def disassemble_operands(logger, inst):
@@ -271,87 +267,36 @@ class Descriptor(object):
   def disassemble_mnemonic(cls, inst):
     return cls.mnemonic
 
-  def emit_instruction(self, logger, buffer, line):
-    DEBUG = logger.debug
+  @staticmethod
+  def _match_operand_type(allowed, operand):
+    from ..asm.ast import RegisterOperand, ImmediateOperand
 
-    DEBUG('emit_instruction: input line: %s', line)
+    if isinstance(operand, RegisterOperand) and 'r' not in allowed:
+      raise OperandMismatchError(None, allowed, operand)
 
-    binst = self.encoding()
+    if isinstance(operand, ImmediateOperand) and 'i' not in allowed:
+      raise OperandMismatchError(None, allowed, operand)
 
-    DEBUG('emit_instruction: encoding=%s', self.encoding.__name__)
-    DEBUG('emit_instruction: desc is %s', self)
+  @staticmethod
+  def emit_instruction(ctx, desc, operands):
+    D = ctx.DEBUG
 
-    binst.opcode = self.opcode
+    binst = desc.encoding()
 
-    raw_match = self.pattern.match(line)
-    matches = raw_match.groupdict()
-    DEBUG('emit_instruction: matches=%s', matches)
+    D('emit_instruction: desc=%s, encoding=%s', desc.__class__.__name__, desc.encoding.__name__)
 
-    operands = {}
+    binst.opcode = desc.opcode
 
-    def str2reg(r):
-      if r == 'sp':
-        return Registers.SP
+    D('emit_instruction: desc.operands=%s, operands=%s', desc.operands, operands)
 
-      if r == 'fp':
-        return Registers.FP
+    if isinstance(desc.operands, string_types):
+      desc._expand_operands()
 
-      return Registers(int(r[1:]))
+    for index, allowed_types, operand in zip(range(0, len(desc.operands)), desc.operands, operands):
+      D('emit_instruction: check operand: allowed=%s, operand=%s', allowed_types, operand)
+      Descriptor._match_operand_type(allowed_types, operand)
 
-    if self.operands and len(self.operands):
-      for operand_index in range(0, len(self.operands)):
-        reg_group_name = 'register_n{}'.format(operand_index)
-
-        if reg_group_name in matches and matches[reg_group_name]:
-          operands[reg_group_name] = str2reg(matches[reg_group_name])
-          continue
-
-        if 'address_register' in matches and matches['address_register']:
-          operands['areg'] = str2reg(matches['address_register'])
-
-          if 'pointer' in matches and matches['pointer'] is not None:
-            if matches['pointer'] == '[':
-              operands['pointer'] = 'offset'
-
-            elif matches['pointer'] == '(':
-              operands['pointer'] = 'segment'
-
-            else:
-              raise Exception('Unhandled pointer type: {}'.format(matches))
-
-          if 'offset_register' in matches and matches['offset_register'] is not None:
-            operands['offset_register'] = str2reg(matches['offset_register'])
-
-          elif 'offset_immediate' in matches and matches['offset_immediate'] is not None:
-            k = -1 if 'offset_sign' in matches and matches['offset_sign'] and matches['offset_sign'].strip() == '-' else 1
-            operands['offset_immediate'] = k * str2int(matches['offset_immediate'])
-
-          continue
-
-        imm = matches.get('immediate')
-        if imm is not None:
-          operands['immediate'] = str2int(imm)
-          continue
-
-        imm = matches.get('immediate_address')
-        if imm is not None:
-          if imm[0] != '&':
-            imm = '&' + imm
-
-          operands['immediate'] = imm
-          continue
-
-        raise Exception('Unhandled operand: {}'.format(matches))
-
-    else:
-      pass
-
-    try:
-      self.assemble_operands(logger, buffer, binst, operands)
-
-    except AssemblerError as e:
-      e.location = buffer.location.copy()
-      raise e
+    desc.assemble_operands(ctx, binst, operands)
 
     return binst
 
@@ -360,59 +305,34 @@ class Descriptor_R(Descriptor):
   encoding = EncodingR
 
   @staticmethod
-  def assemble_operands(logger, buffer, inst, operands):
-    logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
-
-    ENCODE(logger, buffer, inst, 'reg1', 5, operands['register_n0'])
+  def assemble_operands(ctx, inst, operands):
+    ctx.encode(inst, 'reg1', 5, operands[0].operand)
 
   @staticmethod
   def disassemble_operands(logger, inst):
     return [REGISTER_NAMES[inst.reg1]]
-
-class Descriptor_I(Descriptor):
-  operands = 'i'
-
-  @staticmethod
-  def assemble_operands(logger, buffer, inst, operands):
-    from .assemble import Reference
-
-    logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
-
-    v = operands['immediate']
-
-    if isinstance(v, integer_types):
-      inst.immediate = v
-
-    elif isinstance(v, string_types):
-      inst.refers_to = Reference(label = v)
-
-  @staticmethod
-  def disassemble_operands(logger, inst):
-    return [str(inst.refers_to) if hasattr(inst, 'refers_to') and inst.refers_to is not None else UINT16_FMT(inst.immediate)]
 
 class Descriptor_RI(Descriptor):
   operands = 'ri'
   encoding = EncodingI
 
   @staticmethod
-  def assemble_operands(logger, buffer, inst, operands):
-    from .assemble import Reference
+  def assemble_operands(ctx, inst, operands):
+    from ..asm.ast import RegisterOperand, ReferenceOperand
 
-    logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
+    op = operands[0]
 
-    if 'register_n0' in operands:
-      ENCODE(logger, buffer, inst, 'reg', 5, operands['register_n0'])
+    if isinstance(op, RegisterOperand):
+      ctx.encode(inst, 'reg', 5, op.operand)
 
     else:
-      v = operands['immediate']
+      ctx.encode(inst, 'immediate_flag', 1, 1)
 
-      ENCODE(logger, buffer, inst, 'immediate_flag', 1, 1)
+      if isinstance(op, ReferenceOperand):
+        inst.refers_to = op
 
-      if isinstance(v, integer_types):
-        ENCODE(logger, buffer, inst, 'immediate', 20, v)
-
-      elif isinstance(v, string_types):
-        inst.refers_to = Reference(label = v)
+      else:
+        ctx.encode(inst, 'immediate', 20, op.operand)
 
   @staticmethod
   def disassemble_operands(logger, inst):
@@ -426,21 +346,19 @@ class Descriptor_R_I(Descriptor):
   encoding = EncodingI
 
   @staticmethod
-  def assemble_operands(logger, buffer, inst, operands):
-    from .assemble import Reference
+  def assemble_operands(ctx, inst, operands):
+    from ..asm.ast import ReferenceOperand
 
-    logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
+    ctx.encode(inst, 'reg', 5, operands[0].operand)
+    ctx.encode(inst, 'immediate_flag', 1, 1)
 
-    ENCODE(logger, buffer, inst, 'reg', 5, operands['register_n0'])
-    ENCODE(logger, buffer, inst, 'immediate_flag', 1, 1)
+    op = operands[1]
 
-    v = operands['immediate']
+    if isinstance(op, ReferenceOperand):
+      inst.refers_to = op
 
-    if isinstance(v, integer_types):
-      ENCODE(logger, buffer, inst, 'immediate', 20, v)
-
-    elif isinstance(v, string_types):
-      inst.refers_to = Reference(label = v)
+    else:
+      ctx.encode(inst, 'immediate', 20, op.operand)
 
   @staticmethod
   def disassemble_operands(logger, inst):
@@ -451,26 +369,24 @@ class Descriptor_R_RI(Descriptor):
   encoding = EncodingR
 
   @staticmethod
-  def assemble_operands(logger, buffer, inst, operands):
-    from .assemble import Reference
+  def assemble_operands(ctx, inst, operands):
+    from ..asm.ast import RegisterOperand, ReferenceOperand
 
-    logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
+    ctx.encode(inst, 'reg1', 5, operands[0].operand)
 
-    ENCODE(logger, buffer, inst, 'reg1', 5, operands['register_n0'])
+    op = operands[1]
 
-    if 'register_n1' in operands:
-      ENCODE(logger, buffer, inst, 'reg2', 5, operands['register_n1'])
+    if isinstance(op, RegisterOperand):
+      ctx.encode(inst, 'reg2', 5, op.operand)
 
     else:
-      ENCODE(logger, buffer, inst, 'immediate_flag', 1, 1)
+      ctx.encode(inst, 'immediate_flag', 1, 1)
 
-      v = operands['immediate']
+      if isinstance(op, ReferenceOperand):
+        inst.refers_to = op
 
-      if isinstance(v, integer_types):
-        ENCODE(logger, buffer, inst, 'immediate', 15, v)
-
-      elif isinstance(v, string_types):
-        inst.refers_to = Reference(label = v)
+      else:
+        ctx.encode(inst, 'immediate', 15, op.operand)
 
   @staticmethod
   def disassemble_operands(logger, inst):
@@ -484,11 +400,9 @@ class Descriptor_R_R(Descriptor):
   encoding = EncodingR
 
   @staticmethod
-  def assemble_operands(logger, buffer, inst, operands):
-    logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
-
-    ENCODE(logger, buffer, inst, 'reg1', 5, operands['register_n0'])
-    ENCODE(logger, buffer, inst, 'reg2', 5, operands['register_n1'])
+  def assemble_operands(ctx, inst, operands):
+    ctx.encode(inst, 'reg1', 5, operands[0].operand)
+    ctx.encode(inst, 'reg2', 5, operands[1].operand)
 
   @staticmethod
   def disassemble_operands(logger, inst):
@@ -736,27 +650,22 @@ class _JUMP(Descriptor):
   inst_aligned = True
 
   @staticmethod
-  def assemble_operands(logger, buffer, inst, operands):
-    from .assemble import Reference
+  def assemble_operands(ctx, inst, operands):
+    from ..asm.ast import RegisterOperand, ReferenceOperand
 
-    logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
+    op = operands[0]
 
-    if 'register_n0' in operands:
-      ENCODE(logger, buffer, inst, 'reg', 5, operands['register_n0'])
+    if isinstance(op, RegisterOperand):
+      ctx.encode(inst, 'reg', 5, op.operand)
 
     else:
-      v = operands['immediate']
+      ctx.encode(inst, 'immediate_flag', 1, 1)
 
-      ENCODE(logger, buffer, inst, 'immediate_flag', 1, 1)
+      if isinstance(op, ReferenceOperand):
+        inst.refers_to = op
 
-      if isinstance(v, integer_types):
-        if v & 0x3 != 0:
-          raise buffer.get_error(UnalignedJumpTargetError, 'address=%s' % UINT32_FMT(v))
-
-        ENCODE(logger, buffer, inst, 'immediate', 20, v >> 2)
-
-      elif isinstance(v, string_types):
-        inst.refers_to = Reference(label = v)
+      else:
+        ctx.encode(inst, 'immediate', 20, op.operand >> 2)
 
   @staticmethod
   def disassemble_operands(logger, inst):
@@ -1448,11 +1357,11 @@ class _COND(Descriptor):
   MNEMONICS = ['e', 'z', 'o', 's', 'g', 'l']
 
   @staticmethod
-  def set_condition(logger, buffer, inst, flag, value):
-    logger.debug('set_condition: flag=%s, value=%s', flag, value)
+  def set_condition(ctx, inst, flag, value):
+    ctx.DEBUG('set_condition: flag=%s, value=%s', flag, value)
 
-    ENCODE(logger, buffer, inst, 'flag', 3, _COND.FLAGS.index(flag))
-    ENCODE(logger, buffer, inst, 'value', 1, 1 if value is True else 0)
+    ctx.encode(inst, 'flag', 3, _COND.FLAGS.index(flag))
+    ctx.encode(inst, 'value', 1, 1 if value is True else 0)
 
   @staticmethod
   def evaluate(core, inst):
@@ -1486,29 +1395,29 @@ class _BRANCH(_COND):
   inst_aligned = True
 
   @classmethod
-  def assemble_operands(cls, logger, buffer, inst, operands):
-    from .assemble import Reference
+  def assemble_operands(cls, ctx, inst, operands):
+    from ..asm.ast import RegisterOperand, ReferenceOperand
 
-    logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
+    op = operands[0]
 
-    if 'register_n0' in operands:
-      ENCODE(logger, buffer, inst, 'reg', 5, operands['register_n0'])
+    if isinstance(op, RegisterOperand):
+      ctx.encode(inst, 'reg', 5, op.operand)
 
     else:
-      v = operands['immediate']
+      ctx.encode(inst, 'immediate_flag', 1, 1)
 
-      ENCODE(logger, buffer, inst, 'immediate_flag', 1, 1)
+      if isinstance(op, ReferenceOperand):
+        inst.refers_to = op
 
-      if isinstance(v, integer_types):
+      else:
+        v = op.operand
+
         if v & 0x3 != 0:
           raise buffer.get_error(UnalignedJumpTargetError, 'address=%s' % UINT32_FMT(v))
 
-        ENCODE(logger, buffer, inst, 'immediate', 16, v >> 2)
+        ctx.encode(inst, 'immediate', 16, v >> 2)
 
-      elif isinstance(v, string_types):
-        inst.refers_to = Reference(label = v)
-
-    set_condition = partial(_COND.set_condition, logger, buffer, inst)
+    set_condition = partial(_COND.set_condition, ctx, inst)
 
     if cls is BE:
       set_condition('arith_equal', True)
@@ -1547,8 +1456,8 @@ class _BRANCH(_COND):
       set_condition('l', False)
 
   @staticmethod
-  def fill_reloc_slot(logger, inst, slot):
-    inst.fill_reloc_slot(logger, inst, slot)
+  def fill_reloc_slot(inst, slot):
+    inst.fill_reloc_slot(inst, slot)
 
     slot.flags.inst_aligned = True
 
@@ -1783,12 +1692,10 @@ class _SET(_COND):
   opcode = DuckyOpcodes.SET
 
   @classmethod
-  def assemble_operands(cls, logger, buffer, inst, operands):
-    logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
+  def assemble_operands(cls, ctx, inst, operands):
+    ctx.encode(inst, 'reg1', 5, operands[0].operand)
 
-    ENCODE(logger, buffer, inst, 'reg1', 5, operands['register_n0'])
-
-    set_condition = partial(_COND.set_condition, logger, buffer, inst)
+    set_condition = partial(_COND.set_condition, ctx, inst)
 
     if cls is SETE:
       set_condition('arith_equal', True)
@@ -1849,27 +1756,25 @@ class _SELECT(Descriptor):
   opcode = DuckyOpcodes.SELECT
 
   @classmethod
-  def assemble_operands(cls, logger, buffer, inst, operands):
-    logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
+  def assemble_operands(cls, ctx, inst, operands):
+    from ..asm.ast import RegisterOperand, ReferenceOperand
 
-    ENCODE(logger, buffer, inst, 'reg1', 5, operands['register_n0'])
+    ctx.encode(inst, 'reg1', 5, operands[0].operand)
 
-    if 'register_n1' in operands:
-      ENCODE(logger, buffer, inst, 'reg2', 5, operands['register_n1'])
+    op = operands[1]
+
+    if isinstance(op, RegisterOperand):
+      ctx.encode(inst, 'reg2', 5, op.operand)
 
     else:
-      v = operands['immediate']
+      ctx.encode(inst, 'immediate_flag', 1, 1)
 
-      ENCODE(logger, buffer, inst, 'immediate_flag', 1, 1)
+      if isinstance(op, ReferenceOperand):
+        inst.refers_to = op
+      else:
+        ctx.encode(inst, 'immediate', 11, op.operand)
 
-      if isinstance(v, integer_types):
-        ENCODE(logger, buffer, inst, 'immediate', 11, v)
-
-      elif isinstance(v, string_types):
-        from .assemble import Reference
-        inst.refers_to = Reference(label = v)
-
-    set_condition = partial(_COND.set_condition, logger, buffer, inst)
+    set_condition = partial(_COND.set_condition, ctx, inst)
 
     if cls is SELE:
       set_condition('arith_equal', True)
@@ -2788,12 +2693,10 @@ class CAS(Descriptor):
   encoding = EncodingA
 
   @staticmethod
-  def assemble_operands(logger, buffer, inst, operands):
-    logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
-
-    ENCODE(logger, buffer, inst, 'reg1', 5, operands['register_n0'])
-    ENCODE(logger, buffer, inst, 'reg2', 5, operands['register_n1'])
-    ENCODE(logger, buffer, inst, 'reg3', 5, operands['register_n2'])
+  def assemble_operands(ctx, inst, operands):
+    ctx.encode(inst, 'reg1', 5, operands[0].operand)
+    ctx.encode(inst, 'reg2', 5, operands[1].operand)
+    ctx.encode(inst, 'reg3', 5, operands[2].operand)
 
   @staticmethod
   def disassemble_operands(logger, inst):
@@ -2824,16 +2727,16 @@ class _LOAD(Descriptor):
   encoding = EncodingR
 
   @staticmethod
-  def assemble_operands(logger, buffer, inst, operands):
-    logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
+  def assemble_operands(ctx, inst, operands):
+    ctx.encode(inst, 'reg1', 5, operands[0].operand)
 
-    ENCODE(logger, buffer, inst, 'reg1', 5, operands['register_n0'])
-    ENCODE(logger, buffer, inst, 'reg2', 5, operands['areg'])
+    base, offset = operands[1].operand
 
-    offset_immediate = operands.get('offset_immediate')
-    if offset_immediate is not None:
-      ENCODE(logger, buffer, inst, 'immediate_flag', 1, 1)
-      ENCODE(logger, buffer, inst, 'immediate', 15, int(offset_immediate))
+    ctx.encode(inst, 'reg2', 5, base.operand)
+
+    if offset.operand != 0:
+      ctx.encode(inst, 'immediate_flag', 1, 1)
+      ctx.encode(inst, 'immediate', 15, offset.operand)
 
   @staticmethod
   def disassemble_operands(logger, inst):
@@ -2973,16 +2876,16 @@ class _STORE(Descriptor):
   encoding = EncodingR
 
   @staticmethod
-  def assemble_operands(logger, buffer, inst, operands):
-    logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
+  def assemble_operands(ctx, inst, operands):
+    ctx.encode(inst, 'reg2', 5, operands[1].operand)
 
-    ENCODE(logger, buffer, inst, 'reg1', 5, operands['areg'])
-    ENCODE(logger, buffer, inst, 'reg2', 5, operands['register_n1'])
+    base, offset = operands[0].operand
 
-    offset_immediate = operands.get('offset_immediate')
-    if offset_immediate is not None:
-      ENCODE(logger, buffer, inst, 'immediate_flag', 1, 1)
-      ENCODE(logger, buffer, inst, 'immediate', 15, int(offset_immediate))
+    ctx.encode(inst, 'reg1', 5, base.operand)
+
+    if offset.operand != 0:
+      ctx.encode(inst, 'immediate_flag', 1, 1)
+      ctx.encode(inst, 'immediate', 15, offset.operand)
 
   @staticmethod
   def disassemble_operands(logger, inst):

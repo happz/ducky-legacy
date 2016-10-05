@@ -20,7 +20,7 @@ import enum
 from ...interfaces import ISnapshotable
 from . import Coprocessor
 from ...errors import CoprocessorError
-from ..instructions import InstructionSet, SIS, INSTRUCTION_SETS, Descriptor_R_R, ENCODE, REGISTER_NAMES
+from ..instructions import InstructionSet, SIS, INSTRUCTION_SETS, Descriptor_R_R, REGISTER_NAMES
 from ...mm import u32_t, i64_t, u64_t, UINT64_FMT
 from ...snapshot import SnapshotNode
 
@@ -198,9 +198,9 @@ class MathCoprocessorOpcodes(enum.IntEnum):
   LOADW   = 4
   LOADUW  = 5
 
-  POP     = 6
+  POPL    = 6
   SAVE    = 7
-  PUSH    = 8
+  PUSHL   = 8
   LOAD    = 9
 
   MULL    = 10
@@ -235,7 +235,7 @@ class Descriptor_MATH(Descriptor_R_R):
   operands = ''
 
   @staticmethod
-  def assemble_operands(logger, buffer, inst, operands):
+  def assemble_operands(ctx, inst, operands):
     pass
 
   @staticmethod
@@ -264,10 +264,8 @@ class SAVEW(Descriptor_MATH):
   operands = 'r'
 
   @staticmethod
-  def assemble_operands(logger, buffer, inst, operands):
-    logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
-
-    ENCODE(logger, buffer, inst, 'reg1', 5, operands['register_n0'])
+  def assemble_operands(ctx, inst, operands):
+    ctx.encode(inst, 'reg1', 5, operands[0].operand)
 
   @staticmethod
   def disassemble_operands(logger, inst):
@@ -320,10 +318,8 @@ class LOADW(Descriptor_MATH):
   operands = 'r'
 
   @staticmethod
-  def assemble_operands(logger, buffer, inst, operands):
-    logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
-
-    ENCODE(logger, buffer, inst, 'reg1', 5, operands['register_n0'])
+  def assemble_operands(ctx, inst, operands):
+    ctx.encode(inst, 'reg1', 5, operands[0].operand)
 
   @staticmethod
   def disassemble_operands(logger, inst):
@@ -366,10 +362,8 @@ class LOADUW(Descriptor_MATH):
   operands = 'r'
 
   @staticmethod
-  def assemble_operands(logger, buffer, inst, operands):
-    logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
-
-    ENCODE(logger, buffer, inst, 'reg1', 5, operands['register_n0'])
+  def assemble_operands(ctx, inst, operands):
+    ctx.encode(inst, 'reg1', 5, operands[0].operand)
 
   @staticmethod
   def disassemble_operands(logger, inst):
@@ -390,13 +384,13 @@ class LOADUW(Descriptor_MATH):
 
     return __jit_loaduw
 
-class PUSH(Descriptor_MATH):
+class PUSHL(Descriptor_MATH):
   """
   Push the TOS on the data stack.
   """
 
-  mnemonic = 'push'
-  opcode = MathCoprocessorOpcodes.PUSH
+  mnemonic = 'pushl'
+  opcode = MathCoprocessorOpcodes.PUSHL
 
   @staticmethod
   def execute(core, inst):
@@ -415,11 +409,9 @@ class SAVE(Descriptor_MATH):
   operands = 'r,r'
 
   @staticmethod
-  def assemble_operands(logger, buffer, inst, operands):
-    logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
-
-    ENCODE(logger, buffer, inst, 'reg1', 5, operands['register_n0'])
-    ENCODE(logger, buffer, inst, 'reg2', 5, operands['register_n1'])
+  def assemble_operands(ctx, inst, operands):
+    ctx.encode(inst, 'reg1', 5, operands[0].operand)
+    ctx.encode(inst, 'reg2', 5, operands[1].operand)
 
   @staticmethod
   def disassemble_operands(logger, inst):
@@ -446,13 +438,13 @@ class SAVE(Descriptor_MATH):
 
     return __jit_save
 
-class POP(Descriptor_MATH):
+class POPL(Descriptor_MATH):
   """
   Pop the ``long`` from data stack, and make it new TOS.
   """
 
-  mnemonic = 'pop'
-  opcode = MathCoprocessorOpcodes.POP
+  mnemonic = 'popl'
+  opcode = MathCoprocessorOpcodes.POPL
 
   @staticmethod
   def execute(core, inst):
@@ -471,11 +463,9 @@ class LOAD(Descriptor_MATH):
   operands = 'r,r'
 
   @staticmethod
-  def assemble_operands(logger, buffer, inst, operands):
-    logger.debug('assemble_operands: inst=%s, operands=%s', inst, operands)
-
-    ENCODE(logger, buffer, inst, 'reg1', 5, operands['register_n0'])
-    ENCODE(logger, buffer, inst, 'reg2', 5, operands['register_n1'])
+  def assemble_operands(ctx, inst, operands):
+    ctx.encode(inst, 'reg1', 5, operands[0].operand)
+    ctx.encode(inst, 'reg2', 5, operands[1].operand)
 
   @staticmethod
   def disassemble_operands(logger, inst):
@@ -638,7 +628,7 @@ class DUP2(Descriptor_MATH):
     M.registers.push(u64_t(a.value))
 
 class SWP(Descriptor_MATH):
-  mnemonic = 'swp'
+  mnemonic = 'swpl'
   opcode = MathCoprocessorOpcodes.SWP
 
   @staticmethod
@@ -716,9 +706,9 @@ POPW(MathCoprocessorInstructionSet)
 LOADW(MathCoprocessorInstructionSet)
 POPUW(MathCoprocessorInstructionSet)
 LOADUW(MathCoprocessorInstructionSet)
-PUSH(MathCoprocessorInstructionSet)
+PUSHL(MathCoprocessorInstructionSet)
 SAVE(MathCoprocessorInstructionSet)
-POP(MathCoprocessorInstructionSet)
+POPL(MathCoprocessorInstructionSet)
 LOAD(MathCoprocessorInstructionSet)
 SIS(MathCoprocessorInstructionSet)
 

@@ -847,8 +847,6 @@ class CPUCore(ISnapshotable, IMachineWorker):
 
     self.DEBUG('_handle_exception: exc=%r, index=%d, args=%s', exc, index, args)
 
-    self.EXCEPTION(exc)
-
     try:
       self._enter_exception(index, *args)
 

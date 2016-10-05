@@ -7,9 +7,9 @@
 
 #define TTY_MMIO_ADDRESS  ${X8(ducky.devices.tty.DEFAULT_MMIO_ADDRESS)}
 
-enum {
-  TTY_MMIO_DATA = ${X8(ducky.devices.tty.TTYPorts.DATA)}
-};
+#define TTY_MMIO_DATA     ${X8(ducky.devices.tty.TTYPorts.DATA)}
+
+#ifndef __DUCKY_PURE_ASM__
 
 #include <hdt.h>
 
@@ -17,5 +17,7 @@ typedef struct {
   hdt_entry_device_t e_header;
   u32_t              e_mmio_address;
 } hdt_entry_device_tty_t;
+
+#endif // __DUCKY_PURE_ASM__
 
 #endif

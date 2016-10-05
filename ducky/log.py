@@ -3,6 +3,7 @@ import logging
 import tabulate
 
 from six import print_
+from functools import partial
 
 LEVELS = {
   logging.DEBUG:    'DEBG',
@@ -128,6 +129,10 @@ def create_logger(name = None, handler = None, level = logging.INFO):
 
   logger.table = __table
 
+  logger.DEBUG = logger.debug
+
   logger.setLevel(level)
 
   return logger
+
+get_logger = partial(logging.getLogger, 'ducky')

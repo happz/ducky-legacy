@@ -17,7 +17,7 @@ from .interfaces import IMachineWorker
 from .errors import InvalidResourceError
 from .util import align, BinaryFile
 from .mm import u8_t, u16_t, u32_t, UINT32_FMT, PAGE_SIZE, area_to_pages, PAGE_MASK, ExternalMemoryPage
-from .mm.binary import SectionFlags, File, SectionTypes
+from .mm.binary import SectionFlags, File
 from .snapshot import SnapshotNode
 from .hdt import HDT, HDTEntry_Argument, HDTEntry_Device
 from .debugging import Point  # noqa
@@ -381,39 +381,6 @@ class ROMLoader(IMachineWorker):
         a = klass.create_from_config(core.debug, self.config, action_section)
         p.actions.append(a)
 
-  def _load_content(self, base, content):
-    """
-    Load data from binary file into memory.
-
-    :param u32_t base: address of the first byte.
-    :param list content: content to place into memory.
-    """
-
-    from .cpu.assemble import SpaceSlot
-
-    ptr = base
-
-    self.DEBUG('%s._load_content: base=%s, items=%s', self.__class__.__name__, UINT32_FMT(base), len(content))
-
-    def __write(writer, size, value):
-      writer(ptr, value)
-      return ptr + size
-
-    writers = {
-      1: partial(__write, self.machine.memory.write_u8,  1),
-      2: partial(__write, self.machine.memory.write_u16, 2),
-      4: partial(__write, self.machine.memory.write_u32, 4)
-    }
-
-    for i in content:
-      self.DEBUG('%s._load_content: ptr=%s, i=%s', self.__class__.__name__, UINT32_FMT(ptr), UINT32_FMT(i))
-
-      if isinstance(i, SpaceSlot):
-        ptr += i.size
-
-      else:
-        ptr = writers[sizeof(i)](i.value)
-
   def setup_bootloader(self, filepath, base = None):
     """
     Load :term:`bootloader` into main memory.
@@ -434,42 +401,27 @@ class ROMLoader(IMachineWorker):
     mc = self.machine.memory
 
     with File.open(self.machine.LOGGER, filepath, 'r') as f:
-      f.load()
+      for section in f.sections:
+        self.DEBUG('%s.setup_bootloader: section=%s, base=%s', self.__class__.__name__, section.name, UINT32_FMT(section.header.base))
 
-      f_header = f.get_header()
-
-      for i in range(0, f_header.sections):
-        s_header, s_content = f.get_section(i)
-
-        s_base = s_header.base
-
-        self.DEBUG('%s.setup_bootloader: section=%s, base=%s', self.__class__.__name__, f.string_table.get_string(s_header.name), UINT32_FMT(s_base))
-
-        if s_header.type == SectionTypes.SYMBOLS:
+        if section.header.flags.loadable != 1:
+          self.DEBUG('%s.setup_bootloader: section is not loadable', self.__class__.__name__)
           continue
 
-        if s_header.flags.loadable != 1:
+        section_base = base + section.header.base
+
+        pages_start, pages_cnt = area_to_pages(section_base, section.header.data_size)
+
+        for i in range(pages_start, pages_start + pages_cnt):
+          mc.alloc_specific_page(i)
+
+        if section.header.flags.bss == 1:
+          self.DEBUG('%s.setup_bootloader: BSS section, allocating pages is good enough', self.__class__.__name__)
           continue
 
-        s_base = base + s_base
-
-        pages_start, pages_cnt = area_to_pages(s_base, s_header.file_size)
-
-        if f_header.flags.mmapable == 1:
-          # Always mmap sections as RW, and disable W if section' flags requires that
-          # Otherwise, when program asks Vm to enable W, any access would fail because
-          # the underlying mmap area was not mmaped as writable
-          self.mmap_area(f.name, s_base, s_header.file_size, offset = s_header.offset, flags = SectionFlags.from_encoding(s_header.flags), shared = False)
-
-        else:
-          for i in range(pages_start, pages_start + pages_cnt):
-            mc.alloc_specific_page(i)
-
-          if s_header.type == SectionTypes.TEXT:
-            self._load_content(s_base, s_content)
-
-          elif s_header.type == SectionTypes.DATA and s_header.flags.bss != 1:
-            self._load_content(s_base, s_content)
+        for b in section.payload:
+          self.machine.memory.write_u8(section_base, b)
+          section_base += 1
 
   def poke(self, address, value, length):
     self.DEBUG('%s.poke: addr=%s, value=%s, length=%s', self.__class__.__name__, UINT32_FMT(address), UINT32_FMT(value), length)

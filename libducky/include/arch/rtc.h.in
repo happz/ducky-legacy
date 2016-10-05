@@ -11,15 +11,15 @@
 
 #define RTC_MMIO_ADDRESS  ${X8(ducky.devices.rtc.DEFAULT_MMIO_ADDRESS)}
 
-enum {
-  RTC_MMIO_FREQ   = ${X8(ducky.devices.rtc.RTCPorts.FREQUENCY)},
-  RTC_MMIO_SECOND = ${X8(ducky.devices.rtc.RTCPorts.SECOND)},
-  RTC_MMIO_MINUTE = ${X8(ducky.devices.rtc.RTCPorts.MINUTE)},
-  RTC_MMIO_HOUR   = ${X8(ducky.devices.rtc.RTCPorts.HOUR)},
-  RTC_MMIO_DAY    = ${X8(ducky.devices.rtc.RTCPorts.DAY)},
-  RTC_MMIO_MONTH  = ${X8(ducky.devices.rtc.RTCPorts.MONTH)},
-  RTC_MMIO_YEAR   = ${X8(ducky.devices.rtc.RTCPorts.YEAR)}
-};
+#define RTC_MMIO_FREQ   ${X8(ducky.devices.rtc.RTCPorts.FREQUENCY)}
+#define RTC_MMIO_SECOND ${X8(ducky.devices.rtc.RTCPorts.SECOND)}
+#define RTC_MMIO_MINUTE ${X8(ducky.devices.rtc.RTCPorts.MINUTE)}
+#define RTC_MMIO_HOUR   ${X8(ducky.devices.rtc.RTCPorts.HOUR)}
+#define RTC_MMIO_DAY    ${X8(ducky.devices.rtc.RTCPorts.DAY)}
+#define RTC_MMIO_MONTH  ${X8(ducky.devices.rtc.RTCPorts.MONTH)}
+#define RTC_MMIO_YEAR   ${X8(ducky.devices.rtc.RTCPorts.YEAR)}
+
+#ifndef __DUCKY_PURE_ASM__
 
 #include <hdt.h>
 
@@ -27,5 +27,7 @@ typedef struct {
   hdt_entry_device_t e_header;
   u32_t              e_mmio_address;
 } hdt_entry_device_rtc_t;
+
+#endif
 
 #endif

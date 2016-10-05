@@ -1,1 +1,1 @@
-vga.o: vga.s $HEADERSDIR/arch/ducky.hs $HEADERSDIR/arch/svga.hs
+vga.o: vga.s $HEADERSDIR/arch/ducky.h $HEADERSDIR/arch/svga.h

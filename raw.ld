@@ -4,5 +4,6 @@
     0x00000000,
   ( '.text',      [ r'\.text'                    ]),
   ( '.rodata',    [ r'\.rodata', r'\.rodata\..*' ]),
-  ( '.data',      [ r'\.data',   r'\.data\..*'   ])
+  ( '.data',      [ r'\.data',   r'\.data\..*'   ]),
+  ( '.bss',       [ r'\.bss',    r'\.bss\..*'    ])
 )

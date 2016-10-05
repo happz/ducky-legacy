@@ -9,10 +9,11 @@
 
 #define KBD_MMIO_ADDRESS  ${X8(ducky.devices.keyboard.DEFAULT_MMIO_ADDRESS)}
 
-enum {
-  KBD_MMIO_STATUS = ${X8(ducky.devices.keyboard.KeyboardPorts.STATUS)},
-  KBD_MMIO_DATA   = ${X8(ducky.devices.keyboard.KeyboardPorts.DATA)}
-};
+#define KBD_MMIO_STATUS   ${X8(ducky.devices.keyboard.KeyboardPorts.STATUS)}
+#define KBD_MMIO_DATA     ${X8(ducky.devices.keyboard.KeyboardPorts.DATA)}
+
+
+#ifndef __DUCKY_PURE_ASM__
 
 #include <hdt.h>
 
@@ -20,5 +21,7 @@ typedef struct {
   hdt_entry_device_t e_header;
   u32_t              e_mmio_address;
 } hdt_entry_device_kbd_t;
+
+#endif // __DUCKY_PURE_ASM__
 
 #endif

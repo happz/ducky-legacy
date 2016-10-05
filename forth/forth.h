@@ -1,18 +1,15 @@
 #ifndef __DUCKY_FORTH_H__
 #define __DUCKY_FORTH_H__
 
-/*
- * Keep values in this file in sync with its model, ducky-forth-defs.s
- */
-
 #include <config.h>
+
 #include <arch/ducky.h>
 
-#define FORTH_VERSION 0x0002
 
-
-#define CELL              4
-#define HALFCELL          (CELL / 2)
+/*
+ * Kernel version. Upper byte MAJOR, lower byte MINOR.
+ */
+#define FORTH_VERSION 0x0100
 
 
 // Stringify helpers
@@ -55,6 +52,8 @@
  * Internal kernel structures
  */
 
+#ifndef __DUCKY_PURE_ASM__
+
 typedef u32_t cell_t;
 
 typedef struct {
@@ -78,8 +77,23 @@ struct word_header {
 extern ASM_CALLABLE(int fw_search(char *, u32_t, word_header_t **));
 extern ASM_CALLABLE(cf_t *fw_cfa(word_header_t *word));
 
+#endif // __DUCKY_PURE_ASM__
+
+/* Offsets of word header' fields */
+#define WR_LINK                        0
+#define WR_NAMECRC                     4
+#define WR_FLAGS                       6
+#define WR_NAMELEN                     7
+#define WR_NAME                        8
+
+/* Word flags */
+#define F_IMMED                     0x0001
+#define F_HIDDEN                    0x0002
+
 
 /* Input stack structures */
+#ifndef __DUCKY_PURE_ASM__
+
 typedef struct input_desc input_desc_t;
 
 typedef enum {
@@ -100,10 +114,7 @@ struct input_desc {
   u32_t            id_max_length;
 };
 
-
-/* Word flags */
-#define F_IMMED                     0x0001
-#define F_HIDDEN                    0x0002
+#endif // __DUCKY_PURE_ASM__
 
 
 /* FORTH boolean "flags" */
@@ -127,6 +138,8 @@ struct input_desc {
 /**
  * Internal kernel API
  */
+
+#ifndef __DUCKY_PURE_ASM__
 
 static inline u32_t align4(u32_t u)
 {
@@ -265,5 +278,158 @@ extern ASM_CALLABLE(void do_SPACES(i32_t n));
 extern ASM_CALLABLE(cf_t *do_TCFA(word_header_t *));
 extern ASM_CALLABLE(u32_t *do_TOIN(void));
 extern ASM_CALLABLE(u32_t do_UWIDTH(u32_t));
+
+#endif // __DUCKY_PURE_ASM__
+
+/*
+ * Following macros and definitions are used in the assembly
+ * sources.
+ */
+
+#ifdef __DUCKY_PURE_ASM__
+
+// Syntax sugar, to help me define variables in assembly
+#define WORD(_name, _init) \
+  .align CELL              \
+  .type _name, word, _init \
+  .global _name
+
+#define SHORT(_name, _init) \
+  .align HALFCELL           \
+  .type _name, short, _init \
+  .global _name
+
+#define BYTE(_name, _init) \
+  .type _name, byte, _init \
+  .global _name
+
+#define ASCII(_name, _init) \
+  .type _name, ascii, _init \
+  .global _name
+
+#define SPACE(_name, _init) \
+  .type _name, space, _init \
+  .global _name
+
+/* Return stack manipulation */
+#define PUSHRSP(_reg) \
+  sub RSP, CELL       \
+  stw RSP, _reg
+
+#define POPRSP(_reg)  \
+  lw _reg, RSP        \
+  add RSP, CELL
+
+
+/*
+ * "Move to the next word" bit, at the end of every word
+ *
+ * FIP points to a cell with address of a Code Field,
+ * and Code Field contains address of routine.
+ */
+
+#define NEXT     \
+  lw W, FIP      \
+  add FIP, CELL  \
+  lw X, W        \
+  j X
+
+
+/* Word definition macros */
+#define __DEFWORD(name, len, flags, label) \
+  .global label                            \
+                                           \
+  .section .rodata                         \
+                                           \
+  WORD(name_ ## label, link)               \
+  .set link, name_ ## label                \
+                                           \
+  SHORT(__crc_ ## label, 0x7979)           \
+  BYTE(__flags_ ## label, flags)           \
+  BYTE(__len_ ## label, len)               \
+  ASCII(__name_ ## label, name)            \
+  .align CELL
+
+/*
+  .align CELL                              \
+                                           \
+  .type name_ ## label, word, link         \
+  .set link, name_ ## label                \
+                                           \
+  .type __crc_ ## label, short, 0x7979     \
+  .type __flags_ ## label, byte, flags     \
+  .type __len_ ## label, byte, len         \
+  .type __name_ ## label, ascii, name      \
+                                           \
+  .align CELL
+*/
+
+#define DEFWORD(name, len, flags, label) \
+  __DEFWORD(name, len, flags, label)     \
+                                         \
+  .type label, word, DOCOL
+
+#define DEFDOESWORD(name, len, flags, label) \
+  __DEFWORD(name, len, flags, label)         \
+                                             \
+  .type label, word, DODOES
+
+#define DEFCODE(name, len, flags, label) \
+  __DEFWORD(name, len, flags, label)     \
+                                         \
+  .global code_ ## label                 \
+  .type label, word, code_ ## label      \
+                                         \
+  .text                                  \
+code_ ## label:
+
+#define DEFVAR(name, len, flags, label, initial) \
+  DEFCODE(name, len, flags, label)               \
+                                                 \
+  push TOS                                       \
+  la TOS, var_ ## label                          \
+  NEXT                                           \
+                                                 \
+  .data                                          \
+  .align CELL                                    \
+  .type var_ ## label, word, initial             \
+  .global var_ ## label
+
+#define DEFCSTUB(name, len, flags, label)        \
+  DEFCODE(name, len, flags, label)               \
+                                                 \
+  call do_ ## label                              \
+  NEXT
+
+
+// Compare words have always the same epilog...
+#define TF_FINISH(name, true_test) \
+  true_test __tf_finish_ ## name   \
+  j __CMP_false                    \
+__tf_finish_ ## name:              \
+  j __CMP_true
+
+#define LOAD_TRUE(reg) \
+  li reg, 0xFFFF       \
+  liu reg, 0xFFFF
+
+#define LOAD_FALSE(reg) \
+  li reg, 0x0000        \
+  liu reg, 0x0000
+
+#define PUSH_TRUE(reg) \
+  LOAD_TRUE(reg)       \
+  push reg
+
+#define ALIGN_CELL(reg) \
+  add reg, 3            \
+  and reg, 0x7FFC
+
+#define UNPACK_WORD_FOR_FIND() \
+   mov r1, r0    /* copy c-addr to r1 */  \
+   inc r0        /* point r0 to string */ \
+   lb r1, r1     /* load string length */
+
+#endif // __DUCKY_PURE_ASM__
 
 #endif

@@ -106,8 +106,9 @@ def test_divide_by_zero(state, evt, stack, exc_stack, exc_routine, trap):
 
   def trigger(state, core):
     from ducky.cpu.instructions import DIV
+    from ducky.asm.ast import RegisterOperand, ImmediateOperand
 
-    inst = encode_inst(DIV, {'register_n0': 5, 'immediate': 0})
+    inst = encode_inst(DIV, [RegisterOperand(5), ImmediateOperand(0)])
     inst = encoding_to_u32(inst)
 
     state.r5 = core.registers[Registers.R05] = 10

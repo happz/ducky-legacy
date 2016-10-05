@@ -12,18 +12,18 @@
 
 #define HDT_ENTRY_PAYLOAD_OFFSET ${X4(sum([sizeof(f[1]) for f in ducky.hdt.HDTEntry_CPU._fields_[0:2]]))}
 
-enum HDT_ENTRY_TYPE {
-  HDT_ENTRY_CPU      = ${X8(ducky.hdt.HDTEntryTypes.CPU)},
-  HDT_ENTRY_MEMORY   = ${X8(ducky.hdt.HDTEntryTypes.MEMORY)},
-  HDT_ENTRY_ARGUMENT = ${X8(ducky.hdt.HDTEntryTypes.ARGUMENT)},
-  HDT_ENTRY_DEVICE   = ${X8(ducky.hdt.HDTEntryTypes.DEVICE)}
-};
+#define HDT_ENTRY_CPU      ${X8(ducky.hdt.HDTEntryTypes.CPU)}
+#define HDT_ENTRY_MEMORY   ${X8(ducky.hdt.HDTEntryTypes.MEMORY)}
+#define HDT_ENTRY_ARGUMENT ${X8(ducky.hdt.HDTEntryTypes.ARGUMENT)}
+#define HDT_ENTRY_DEVICE   ${X8(ducky.hdt.HDTEntryTypes.DEVICE)}
 
 #define HDT_ARGUMENT_NAME_LEN ${X8(ducky.hdt.HDTEntry_Argument.MAX_NAME_LENGTH)}
 #define HDT_ARGUMENT_VALUE_LEN ${X8(ducky.hdt.HDTEntry_Argument.MAX_NAME_LENGTH)}
 
 #define HDT_DEVICE_NAME_LEN   ${X8(ducky.hdt.HDTEntry_Device.MAX_NAME_LENGTH)}
 #define HDT_DEVICE_IDENT_LEN  ${X8(ducky.hdt.HDTEntry_Device.MAX_IDENT_LENGTH)}
+
+#ifndef __DUCKY_PURE_ASM__
 
 typedef struct {
   u32_t h_magic;
@@ -67,5 +67,7 @@ typedef struct {
   u8_t               e_name[HDT_DEVICE_NAME_LEN];
   u8_t               e_ident[HDT_DEVICE_IDENT_LEN];
 } hdt_entry_device_t;
+
+#endif // __DUCKY_PURE_ASM__
 
 #endif

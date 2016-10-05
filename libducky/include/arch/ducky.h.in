@@ -39,12 +39,11 @@
 #define PAGE_SIZE     ${ducky.mm.PAGE_SIZE}
 #define PAGE_MASK     ${X8(ducky.mm.u32_t(ducky.mm.PAGE_MASK).value)}
 
-/*
-.def PTE_READ:      ${X2(ducky.mm.PageTableEntry.READ)}
-.def PTE_WRITE:     ${X2(ducky.mm.PageTableEntry.WRITE)}
-.def PTE_EXECUTE:   ${X2(ducky.mm.PageTableEntry.EXECUTE)}
-.def PTE_DIRTY:     ${X2(ducky.mm.PageTableEntry.DIRTY)}
-*/
+
+#define PTE_READ      ${X2(ducky.mm.PageTableEntry.READ)}
+#define PTE_WRITE     ${X2(ducky.mm.PageTableEntry.WRITE)}
+#define PTE_EXECUTE   ${X2(ducky.mm.PageTableEntry.EXECUTE)}
+#define PTE_DIRTY     ${X2(ducky.mm.PageTableEntry.DIRTY)}
 
 
 /*
@@ -55,24 +54,26 @@
   from ducky.errors import ExceptionList
 %>
 
+#define EXCEPTION_INVALID_OPCODE    ${X2(ExceptionList.InvalidOpcode)}
+#define EXCEPTION_INVALID_INST_SET  ${X2(ExceptionList.InvalidInstSet)}
+#define EXCEPTION_DIVIDE_BY_ZERO    ${X2(ExceptionList.DivideByZero)}
+#define EXCEPTION_UNALIGNED_ACCESS  ${X2(ExceptionList.UnalignedAccess)}
+#define EXCEPTION_PRIVILEGED_INST   ${X2(ExceptionList.PrivilegedInstr)}
+#define EXCEPTION_DOUBLE_FAULT      ${X2(ExceptionList.DoubleFault)}
+#define EXCEPTION_MEMORY_ACCESS     ${X2(ExceptionList.MemoryAccess)}
+#define EXCEPTION_REGISTER_ACCESS   ${X2(ExceptionList.RegisterAccess)}
+#define EXCEPTION_INVALID_EXCEPTION ${X2(ExceptionList.InvalidException)}
+#define EXCEPTION_COPROCESSOR_ERROR ${X2(ExceptionList.CoprocessorError)}
+
+#define EXCEPTION_COUNT             ${X2(ExceptionList.COUNT)}
+
+#ifndef __DUCKY_PURE_ASM__
+
 typedef struct {
   u32_t e_ip;
   u32_t e_sp;
 } evt_entry_t;
 
-enum {
-  EXCEPTION_INVALID_OPCODE    = ${X2(ExceptionList.InvalidOpcode)},
-  EXCEPTION_INVALID_INST_SET  = ${X2(ExceptionList.InvalidInstSet)},
-  EXCEPTION_DIVIDE_BY_ZERO    = ${X2(ExceptionList.DivideByZero)},
-  EXCEPTION_UNALIGNED_ACCESS  = ${X2(ExceptionList.UnalignedAccess)},
-  EXCEPTION_PRIVILEGED_INST   = ${X2(ExceptionList.PrivilegedInstr)},
-  EXCEPTION_DOUBLE_FAULT      = ${X2(ExceptionList.DoubleFault)},
-  EXCEPTION_MEMORY_ACCESS     = ${X2(ExceptionList.MemoryAccess)},
-  EXCEPTION_REGISTER_ACCESS   = ${X2(ExceptionList.RegisterAccess)},
-  EXCEPTION_INVALID_EXCEPTION = ${X2(ExceptionList.InvalidException)},
-  EXCEPTION_COPROCESSOR_ERROR = ${X2(ExceptionList.CoprocessorError)},
-
-  EXCEPTION_COUNT             = ${X2(ExceptionList.COUNT)}
-};
+#endif // __DUCKY_PURE_ASM__
 
 #endif

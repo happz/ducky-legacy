@@ -13,7 +13,6 @@ Submodules
 
 .. toctree::
 
-   ducky.cpu.assemble
    ducky.cpu.instructions
    ducky.cpu.registers
 

@@ -18,6 +18,7 @@ class Error(Exception):
     return self.message
 
   def log(self, logger):
+    logger('')
     logger(self.message)
 
 class InvalidResourceError(Error):
@@ -35,6 +36,13 @@ class AccessViolationError(Error):
   """
 
   pass
+
+class OperandMismatchError(Error):
+  """
+  """
+
+  def __init__(self, instr, expected, actual):
+    super(OperandMismatchError, self).__init__('Operand type mismatch: instr=%s, expected=%s, actual=%s' % (instr, expected, actual))
 
 class AssemblerError(Error):
   """
@@ -65,8 +73,8 @@ class AssemblerError(Error):
     if self.line is not None:
       text.append(self.line)
 
-    if self.location is not None and self.location.column is not None:
-      text.append(' ' * self.location.column + '^')
+      if self.location is not None and self.location.column is not None:
+        text.append(' ' * self.location.column + '^')
 
     self.text = text
 
@@ -74,6 +82,22 @@ class AssemblerError(Error):
     logger('')
     for line in self.text:
       logger(line)
+
+class AssemblyIllegalCharError(AssemblerError):
+  def __init__(self, c = None, **kwargs):
+    super(AssemblyIllegalCharError, self).__init__(message = 'Illegal character: c="%s"' % c, **kwargs)
+
+    self.c = c
+
+class AssemblyParseError(AssemblerError):
+  def __init__(self, token = None, **kwargs):
+    super(AssemblyParseError, self).__init__(message = 'Parse error', **kwargs)
+
+    self.token = token
+
+class UnknownInstructionError(AssemblerError):
+  def __init__(self, **kwargs):
+    super(UnknownInstructionError, self).__init__(message = 'Unknown instruction {instr}'.format(**kwargs))
 
 class TooManyLabelsError(AssemblerError):
   def __init__(self, **kwargs):
@@ -105,23 +129,40 @@ class EncodingLargeValueError(AssemblerError):
 
 class ConflictingNamesError(AssemblerError):
   def __init__(self, **kwargs):
-    super(ConflictingNamesError, self).__init__(message = 'Label already defined: {info}'.format(**kwargs), **kwargs)
+    super(ConflictingNamesError, self).__init__(message = 'Label already defined: name="{name}", prev-location={prev_location}'.format(**kwargs), **kwargs)
 
-class IncompatibleLinkerFlagsError(Error):
+
+#
+# Linker errors
+#
+class LinkerError(Error):
   pass
 
-class UnknownSymbolError(Error):
+class UnknownSymbolError(LinkerError):
   pass
 
-class PatchTooLargeError(Error):
+class PatchTooLargeError(LinkerError):
   pass
 
-class BadLinkerScriptError(Error):
-  def __init__(self, script, exc):
-    super(BadLinkerScriptError, self).__init__()
+class BadLinkerScriptError(LinkerError):
+  def __init__(self, script, exc, *args, **kwargs):
+    super(BadLinkerScriptError, self).__init__('Bad linker script: script=%s, error=%s' % (script, exc), *args, **kwargs)
 
     self.script = script
     self.exc = exc
+
+class IncompatibleSectionFlagsError(LinkerError):
+  def __init__(self, dst_section, src_section, *args, **kwargs):
+    super(IncompatibleSectionFlagsError, self).__init__('Source section has different flags set: dst_header=%s, src_header=%s' % (dst_section.header, src_section.header), *args, **kwargs)
+
+    self.dst_section = dst_section
+    self.src_section = src_section
+
+class UnknownDestinationSectionError(LinkerError):
+  def __init__(self, src_section, *args, **kwargs):
+    super(UnknownDestinationSectionError, self).__init__('Unknown destination section for source section %s' % src_section, *args, **kwargs)
+
+    self.src_section = src_section
 
 class ExceptionList(enum.IntEnum):
   """

@@ -1,85 +1,71 @@
 import os
 import sys
 
-from six.moves import range
-
-from ..mm import u32_t, u8_t, PAGE_SIZE
-from ..mm.binary import File, SectionTypes, SectionFlags
+from ..mm import u32_t, PAGE_SIZE
+from ..mm.binary import File, SectionTypes
 from ..util import BinaryFile, align
 from ..devices.storage import BLOCK_SIZE
 from ..hdt import HDT
+from ..log import get_logger
 
-NULL8  = u8_t(0)
-NULL32 = u32_t(0)
+def align_file(f_out, boundary):
+  D = get_logger().debug
 
-def align_file(logger, f_out, boundary):
-  logger.debug('Adding padding bytes to align with BLOCK_SIZE')
+  D('Adding padding bytes to align with BLOCK_SIZE')
 
   f_out.seek(0, os.SEEK_END)
   pos = f_out.tell()
-  logger.debug('  Last position: %s => %s', pos, align(boundary, pos))
+  D('  Last position: %s => %s', pos, align(boundary, pos))
 
   missing = align(boundary, pos) - pos
-  logger.debug('  Missing %s bytes', missing)
+  D('  Missing %s bytes', missing)
 
-  for _ in range(0, missing):
-    f_out.write(NULL8)
+  f_out.write(bytearray([0] * missing))
 
-def create_binary_image(logger, f_in, f_out, bio = False):
-  f_out.seek(0)
+def create_binary_image(f_in, f_out, bio = False):
+  D = get_logger().debug
 
-  reserved_space = 0
+  D('create_binary_image: f_in=%s, f_out=%s, bio=%s', f_in.name, f_out.name, bio)
 
-  if bio is True:
-    logger.debug('Reserving 1st block for header')
+  reserved_space = BLOCK_SIZE
 
-    reserved_space = BLOCK_SIZE
+  for section in f_in.sections:
+    D('Process section %s', section.name)
 
-    for _ in range(0, BLOCK_SIZE // 4):
-      f_out.write(NULL32)
-
-  for s_header, s_content in f_in.sections():
-    s_name = f_in.string_table.get_string(s_header.name)
-    s_flags = SectionFlags.from_encoding(s_header.flags)
-
-    logger.debug('Process section %s', s_name)
-
-    if s_header.type not in (SectionTypes.TEXT, SectionTypes.DATA):
-      logger.debug('  Not a text or data section, ignore')
+    if section.header.type != SectionTypes.PROGBITS:
+      D('  Not a text or data section, ignore')
       continue
 
-    if s_flags.loadable != 1:
-      logger.debug('  Not loadable, ignore')
+    if section.header.flags.loadable != 1:
+      D('  Not loadable, ignore')
       continue
 
-    logger.debug('  Base 0x%08X', s_header.base)
-    logger.debug('  Seeking to %s', s_header.base + reserved_space)
-    f_out.seek(s_header.base + reserved_space)
+    D('  Base 0x%08X', section.header.base)
+    D('  Seeking to %s', section.header.base + reserved_space)
+    f_out.seek(section.header.base + reserved_space)
 
-    if s_flags.bss == 1:
-      for i in range(0, s_header.data_size):
-        f_out.write(NULL8)
+    if section.header.flags.bss == 1:
+      f_out.write(bytearray([0] * section.header.data_size))
 
     else:
-      for i, item in enumerate(s_content):
-        f_out.write(item)
+      f_out.write(section.payload)
 
-    logger.debug('%s items written', i)
-
-  align_file(logger, f_out, BLOCK_SIZE if bio else PAGE_SIZE)
+  align_file(f_out, BLOCK_SIZE if bio else PAGE_SIZE)
 
   end = f_out.tell()
-  logger.debug('Last position: %s', end)
+  D('Last position: %s', end)
 
   if bio is True:
-    logger.debug('Writing header')
+    D('Writing header')
 
     f_out.seek(0)
     f_out.write(u32_t(end // BLOCK_SIZE))
 
   f_out.flush()
 
-def create_hdt_image(logger, file_in, f_out, options):
+def create_hdt_image(file_in, f_out, options):
+  logger = get_logger()
+
   from .vm import process_config_options
 
   config = process_config_options(logger,
@@ -99,7 +85,7 @@ def create_hdt_image(logger, file_in, f_out, options):
   for entry in hdt.entries:
     f_out.write(entry)
 
-  align_file(logger, f_out, PAGE_SIZE)
+  align_file(f_out, PAGE_SIZE)
 
   f_out.flush()
 
@@ -137,11 +123,9 @@ def main():
 
   if options.image == 'binary':
     with File.open(logger, options.file_in, 'r') as f_in:
-      f_in.load()
-
       with BinaryFile.open(logger, options.file_out, 'w') as f_out:
-        create_binary_image(logger, f_in, f_out, bio = options.bio)
+        create_binary_image(f_in, f_out, bio = options.bio)
 
   elif options.image == 'hdt':
     with BinaryFile.open(logger, options.file_out, 'w') as f_out:
-      create_hdt_image(logger, options.file_in, f_out, options)
+      create_hdt_image(options.file_in, f_out, options)

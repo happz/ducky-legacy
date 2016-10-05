@@ -10,14 +10,11 @@ import tempfile
 from six import iteritems, integer_types
 from functools import partial
 
-from ..mm import u8_t, i32_t, u32_t, UINT32_FMT, MalformedBinaryError, WORD_SIZE
-from ..mm.binary import File, SectionTypes, SymbolEntry, SECTION_ITEM_SIZE, SectionFlags, SymbolFlags
-from ..cpu.assemble import align_to_next_page, align_to_next_mmap, sizeof
-from ..cpu.instructions import encoding_to_u32, u32_to_encoding
-from ..errors import Error, UnalignedJumpTargetError, EncodingLargeValueError, IncompatibleLinkerFlagsError, UnknownSymbolError, PatchTooLargeError, BadLinkerScriptError
-
-def align_nop(n):
-  return n
+from ..mm import i32_t, UINT32_FMT, MalformedBinaryError, WORD_SIZE
+from ..mm.binary import File, SectionTypes, SymbolEntry, SectionFlags, SymbolFlags
+from ..asm import align_to_next_page
+from ..errors import Error, UnalignedJumpTargetError, EncodingLargeValueError, UnknownSymbolError, PatchTooLargeError, BadLinkerScriptError, IncompatibleSectionFlagsError, UnknownDestinationSectionError, LinkerError
+from ..log import get_logger
 
 class LinkerScript(object):
   def __init__(self, filepath = None):
@@ -70,7 +67,7 @@ class LinkerScript(object):
 
       return dst_section
 
-    raise Exception('foo')
+    raise UnknownDestinationSectionError(src_section)
 
   def where_to_base(self, section):
     return self._dst_section_start.get(section)
@@ -86,121 +83,115 @@ class LinkerInfo(object):
 
     self.linker_script = linker_script
 
-def merge_object_into(logger, info, f_dst, f_src):
-  D = logger.debug
-
-  r_header, r_content = f_src.get_section_by_name('.reloc')
+def merge_object_into(info, f_dst, f_src):
+  D = get_logger().debug
 
   D('----- * ----- * ----- * ----- * -----')
   D('Merging %s file', f_src.name)
   D('----- * ----- * ----- * ----- * -----')
 
-  for s_header, s_content in f_src.sections():
-    if s_header.type == SectionTypes.RELOC:
-      info.relocations[f_src].append((s_header, s_content))
+  for src_section in f_src.sections:
+    src_header = src_section.header
+
+    if src_header.type == SectionTypes.RELOC:
+      info.relocations[f_src].append(src_section)
       continue
 
-    elif s_header.type == SectionTypes.SYMBOLS:
-      s_header._filename = f_src.name
-      info.symbols[f_src].append((s_header, s_content))
+    elif src_header.type == SectionTypes.SYMBOLS:
+      src_section._filename = f_src.name
+      info.symbols[f_src].append(src_section)
       continue
 
-    elif s_header.type == SectionTypes.STRINGS:
+    elif src_header.type == SectionTypes.STRINGS:
       continue
 
-    src_section_name = f_src.string_table.get_string(s_header.name)
+    assert src_header.type == SectionTypes.PROGBITS
 
-    logger.debug('Merge section %s into dst file', src_section_name)
+    D('Merge section %s into dst file', src_section.name)
 
-    align = align_to_next_mmap if f_dst.get_header().flags.mmapable == 1 else align_nop
-
-    dst_section_name = info.linker_script.where_to_merge(src_section_name)
-    logger.debug('  Section "%s" will be merged into "%s"', src_section_name, dst_section_name)
+    dst_section_name = info.linker_script.where_to_merge(src_section.name)
+    D('  Section "%s" will be merged into "%s"', src_section.name, dst_section_name)
 
     try:
-      d_header, d_content = f_dst.get_section_by_name(dst_section_name)
+      dst_section = f_dst.get_section_by_name(dst_section_name, dont_create = True)
 
     except MalformedBinaryError:
-      logger.debug('No such section exists in dst file yet, copy')
+      D('  No such section exists in dst file yet, copy')
 
-      info.section_offsets[f_src][s_header.index] = 0
-      info.section_bases[f_src][s_header.index] = s_header.base
+      info.section_offsets[f_src][src_header.index] = 0
+      info.section_bases[f_src][src_header.index] = src_header.base
 
-      d_header = f_dst.create_section()
-      d_header.type = s_header.type
-      d_header.items = s_header.items
-      d_header.data_size = s_header.data_size
-      d_header.file_size = align(d_header.data_size)
-      d_header.name = f_dst.string_table.put_string(dst_section_name)
-      d_header.flags = s_header.flags
-      f_dst.set_content(d_header, s_content)
+      dst_section = f_dst.create_section(name = dst_section_name)
+      dst_header = dst_section.header
+
+      dst_header.type      = src_header.type
+      dst_header.name      = f_dst.string_table.put_string(dst_section_name)
+      dst_header.data_size = src_header.data_size
+      dst_header.file_size = src_header.data_size
+      dst_header.flags     = src_header.flags
+      dst_section.payload  = src_section.payload[:]
       continue
 
-    if SectionFlags.from_encoding(d_header.flags).to_int() != SectionFlags.from_encoding(s_header.flags).to_int():
-      logger.error('Source section has different flags set: d_header=%s, s_header=%s, f_src=%s', d_header, s_header, f_src)
-      sys.exit(1)
+    else:
+      dst_header = dst_section.header
+
+    if SectionFlags.from_encoding(dst_header.flags).to_int() != SectionFlags.from_encoding(src_header.flags).to_int():
+      raise IncompatibleSectionFlagsError(dst_section, src_section)
 
     D('  merging into an existing section')
-    D('    name=%s, range=%s - %s', dst_section_name, UINT32_FMT(d_header.base), UINT32_FMT(d_header.base + d_header.data_size))
-    D('    d_header=%s', d_header)
+    D('    name=%s, range=%s - %s', dst_section.name, UINT32_FMT(dst_header.base), UINT32_FMT(dst_header.base + dst_header.data_size))
+    D('    dst_header=%s', dst_header)
 
-    if d_header.data_size % WORD_SIZE != 0:
-      padding_bytes = WORD_SIZE - (d_header.data_size % WORD_SIZE)
+    if dst_header.data_size % WORD_SIZE != 0:
+      padding_bytes = WORD_SIZE - (dst_header.data_size % WORD_SIZE)
       D('    * unaligned data section, %d padding bytes appended', padding_bytes)
 
-      d_header.data_size += padding_bytes
-      for _ in range(0, padding_bytes):
-        d_content.append(u8_t(0))
+      dst_header.data_size += padding_bytes
+      dst_section.payload += bytearray([0 for _ in range(0, padding_bytes)])
 
-    D('    d_header=%s', d_header)
+    D('    dst_header=%s', dst_header)
 
-    info.section_offsets[f_src][s_header.index] = d_header.data_size
-    info.section_bases[f_src][s_header.index] = s_header.base
+    info.section_offsets[f_src][src_header.index] = dst_header.data_size
+    info.section_bases[f_src][src_header.index] = src_header.base
 
-    d_header.items += s_header.items
-    d_header.data_size += s_header.data_size
-    d_header.file_size = align(d_header.data_size)
-    d_content += s_content
-    f_dst.set_content(d_header, d_content)
+    dst_header.data_size += src_header.data_size
+    dst_header.file_size = dst_header.data_size
+    dst_section.payload += src_section.payload
 
-  f_dst.save()
-
-def fix_section_bases(logger, info, f_out):
-  D = logger.debug
+def fix_section_bases(info, f_out):
+  logger, D = get_logger(), get_logger().debug
 
   D('----- * ----- * ----- * ----- * -----')
   D('Fixing base addresses of sections')
   D('----- * ----- * ----- * ----- * -----')
 
-  sort_by_base = partial(sorted, key = lambda x: x[1].base)
+  sort_by_base = partial(sorted, key = lambda x: x.header.base)
 
   D('Sections to fix:')
 
   sections = {}
 
-  for header in f_out.iter_headers():
-    if header.type in (SectionTypes.RELOC, SectionTypes.SYMBOLS, SectionTypes.STRINGS):
+  for section in f_out.sections:
+    if section.header.type != SectionTypes.PROGBITS:
       continue
 
-    name = f_out.string_table.get_string(header.name)
-    sections[name] = header
+    sections[section.name] = section
 
-    base = info.linker_script.where_to_base(name)
-    header.base = base if base is not None else 0xFFFFFFFF
+    base = info.linker_script.where_to_base(section.name)
+    section.header.base = base if base is not None else 0xFFFFFFFF
 
-    D('  "%s" - %s', name, header)
+    D('  %s - %s', section.name, section.header)
 
-  tmp_sections = collections.OrderedDict(sort_by_base([(n, h) for n, h in iteritems(sections)]))
+  tmp_sections = collections.OrderedDict([(section.name, section) for section in sort_by_base(sections.values())])
 
-  for name, header in iteritems(tmp_sections):
-    if header.base == 0xFFFFFFFF:
-      D('  %s floating', name)
+  for _, section in iteritems(tmp_sections):
+    if section.header.base == 0xFFFFFFFF:
+      D('  %s floating', section.name)
+
     else:
-      D('  %s @ %s', name, UINT32_FMT(header.base))
+      D('  %s @ %s', section.name, UINT32_FMT(section.header.base))
 
   D('Order: %s', info.linker_script.section_ordering())
-
-  align = align_to_next_mmap if f_out.get_header().flags.mmapable == 1 else align_to_next_page
 
   def overlap(a, b):
     return max(0, min(a[1], b[1]) - max(a[0], b[0]))
@@ -215,8 +206,8 @@ def fix_section_bases(logger, info, f_out):
 
     table = [['Name', 'Start', 'End']]
 
-    for name, header in sections:
-      table.append([name, UINT32_FMT(header.base), UINT32_FMT(align(header.base + header.data_size))])
+    for section in sections:
+      table.append([name, UINT32_FMT(section.header.base), UINT32_FMT(align_to_next_page(section.header.base + section.header.data_size))])
 
     logger.table(table, fn = logger.debug)
 
@@ -230,45 +221,48 @@ def fix_section_bases(logger, info, f_out):
       D('  not present')
       continue
 
-    header = tmp_sections[name]
+    section = tmp_sections[name]
+
+    D('  section: %s', section)
+    D('  header:  %s', section.header)
 
     if sections:
-      last_header = sections[-1][1]
-      base = align(last_header.base + last_header.data_size)
+      last_section = sections[-1]
+      base = align_to_next_page(last_section.header.base + last_section.header.data_size)
 
     else:
-      last_header = None
+      last_section = None
       base = 0x00000000
 
-    if header.base == 0xFFFFFFFF:
+    D('  suggested base=%s', UINT32_FMT(base))
+
+    if section.header.base == 0xFFFFFFFF:
       D('  base not set')
 
-      if base + header.data_size >= 0xFFFFFFFF:
+      if base + section.header.data_size >= 0xFFFFFFFF:
         logger.error('Cannot place %s to a base - no space left', name)
-        logger.error('  header: %s', header)
+        logger.error('  header: %s', section.header)
         dump_sections()
         sys.exit(1)
 
-      header.base = base
+      section.header.base = base
 
     else:
-      D('  base set')
+      D('  base requested')
 
-      if header.base < base:
+      if section.header.base < base:
         logger.error('Cannot place %s to a requested base - previous section is too long', name)
-        logger.error('  header: %s', header)
+        logger.error('  header: %s', section.header)
         dump_sections()
         sys.exit(1)
 
-    sections.append((name, header))
+    sections.append(section)
     sections = sort_by_base(sections)
 
   dump_sections()
 
-  f_out.save()
-
-def resolve_symbols(logger, info, f_out, f_ins):
-  D = logger.debug
+def resolve_symbols(info, f_out, f_ins):
+  logger, D = get_logger(), get_logger().debug
 
   D('Resolve symbols - compute their new addresses')
 
@@ -280,92 +274,83 @@ def resolve_symbols(logger, info, f_out, f_ins):
   for f_in, symbol_sections in iteritems(info.symbols):
     D('Processing file %s', f_in.name)
 
-    for s_header, s_content in symbol_sections:
-      D('Symbol section: %s', s_header)
+    for section in symbol_sections:
+      D('Symbol section: %s', section.header)
 
-      for s_se in s_content:
-        s_name = f_in.string_table.get_string(s_se.name)
-        s_se._filename = f_in.string_table.get_string(s_se.filename)
+      for symbol in section.payload:
+        symbol_name = f_in.string_table.get_string(symbol.name)
+        symbol._filename = f_in.string_table.get_string(symbol.filename)
 
-        D('Symbol: %s', s_name)
+        D('Symbol: %s', symbol_name)
 
-        old_s_se = duplicity_check.get(s_name)
-        if old_s_se is not None and (s_se.flags.globally_visible == 1 or old_s_se.flags.globally_visible == 1):
-          logger.warn('Symbol with name "%s" is already defined: first seen at %s:%d, new one is from %s:%d', s_name, old_s_se._filename, old_s_se.lineno, s_se._filename, s_se.lineno)
+        old_symbol = duplicity_check.get(symbol_name)
+        if old_symbol is not None and (symbol.flags.globally_visible == 1 or old_symbol.flags.globally_visible == 1):
+          logger.warn('Symbol with name "%s" is already defined: first seen at %s:%d, new one is from %s:%d', symbol_name, old_symbol._filename, old_symbol.lineno, symbol._filename, symbol.lineno)
 
-        duplicity_check[s_name] = s_se
+        duplicity_check[symbol_name] = symbol
 
-        o_header, o_content = f_in.get_section(s_se.section)
-        D('  src section: %s', o_header)
+        src_symbol_section = f_in.get_section_by_index(symbol.section)
+        D('  src section: %s', src_symbol_section.header)
+        D('  src section name: %s', src_symbol_section.name)
 
-        o_src_name = f_in.string_table.get_string(o_header.name)
-        D('  src section name: %s', o_src_name)
+        dst_symbol_section = f_out.get_section_by_name(info.linker_script.where_to_merge(src_symbol_section.name))
+        D('  dst section: %s', dst_symbol_section.header)
+        D('  dst section name: %s', dst_symbol_section.name)
 
-        o_dst_name = info.linker_script.where_to_merge(o_src_name)
-        D('  dst section name: %s', o_dst_name)
+        D('src base: %s, dst base: %s, symbol addr: %s, section dst offset: %s', UINT32_FMT(src_symbol_section.header.base), UINT32_FMT(dst_symbol_section.header.base), UINT32_FMT(symbol.address), UINT32_FMT(info.section_offsets[f_in][src_symbol_section.header.index]))
+        new_addr = symbol.address - src_symbol_section.header.base + info.section_offsets[f_in][src_symbol_section.header.index] + dst_symbol_section.header.base
 
-        d_header, d_content = f_out.get_section_by_name(o_dst_name)
-        D('  dst section: %s', d_header)
+        dst_symbol = SymbolEntry()
+        dst_symbol.flags = symbol.flags
+        dst_symbol.name = f_out.string_table.put_string(symbol_name)
+        dst_symbol.address = new_addr
+        dst_symbol.size = symbol.size
+        dst_symbol.section = dst_symbol_section.header.index
+        dst_symbol.type = symbol.type
+        dst_symbol.filename = f_out.string_table.put_string(symbol._filename)
+        dst_symbol.lineno = symbol.lineno
 
-        D('src base: %s, dst base: %s, symbol addr: %s, section dst offset: %s', UINT32_FMT(o_header.base), UINT32_FMT(d_header.base), UINT32_FMT(s_se.address), UINT32_FMT(info.section_offsets[f_in][o_header.index]))
-        new_addr = s_se.address - o_header.base + info.section_offsets[f_in][o_header.index] + d_header.base
+        symbols.append(dst_symbol)
+        symbol_map.append((symbol_name, f_in, dst_symbol))
 
-        d_se = SymbolEntry()
-        d_se.flags = s_se.flags
-        d_se.name = f_out.string_table.put_string(f_in.string_table.get_string(s_se.name))
-        d_se.address = new_addr
-        d_se.size = s_se.size
-        d_se.section = d_header.index
-        d_se.type = s_se.type
-        d_se.filename = f_out.string_table.put_string(f_in.string_table.get_string(s_se.filename))
-        d_se.lineno = s_se.lineno
+        D('New symbol: %s', dst_symbol)
 
-        symbols.append(d_se)
-        symbol_map.append((s_name, f_in, d_se))
-
-        D('New symbol: %s', d_se)
-
-  h_symtab = f_out.create_section()
-  h_symtab.type = SectionTypes.SYMBOLS
-  h_symtab.items = len(symbols)
-  h_symtab.name = f_out.string_table.put_string('.symtab')
-  h_symtab.base = 0xFFFFFFFF
-
-  f_out.set_content(h_symtab, symbols)
-  h_symtab.data_size = h_symtab.file_size = len(symbols) * sizeof(SymbolEntry())
-
-  f_out.save()
+  symtab = f_out.create_section(name = '.symtab')
+  symtab.header.name = f_out.string_table.put_string('.symtab')
+  symtab.header.type = SectionTypes.SYMBOLS
+  symtab.payload = symbols
 
   info.symbols = symbol_map
 
 
 class RelocationPatcher(object):
-  def __init__(self, re, se, symbol_name, section_header, section_content, original_section_header = None, section_offset = 0):
+  def __init__(self, re, se, symbol_name, section, original_section = None, section_offset = 0):
     self._logger = logging.getLogger('ducky')
     self.DEBUG = self._logger.debug
+
+    original_section = original_section or section
 
     self.DEBUG('%s:', self.__class__.__name__)
     self.DEBUG('  symbol=%s', symbol_name)
     self.DEBUG('  re=%s', re)
     self.DEBUG('  se=%s', se)
-    self.DEBUG('  dsection=%s', section_header)
-    self.DEBUG('  osection=%s', original_section_header)
+    self.DEBUG('  dsection=%s', section.header)
+    self.DEBUG('  osection=%s', original_section.header)
     self.DEBUG('  offset=%s', UINT32_FMT(section_offset))
 
     self._re = re
     self._se = se
 
-    self._patch_section_header = section_header
-    self._patch_section_content = section_content
-    original_section_header = original_section_header or section_header
+    self._patch_section_header = section.header
+    self._patch_section_content = section.payload
 
-    self.DEBUG('  section.base=%s, re.address=%s, original.base=%s, section.offset=%s', UINT32_FMT(section_header.base), UINT32_FMT(re.patch_address), UINT32_FMT(original_section_header.base), UINT32_FMT(section_offset))
-    self._patch_address = re.patch_address - original_section_header.base + section_offset + section_header.base
-    self._patch_address = re.patch_address - section_header.base + (section_header.base - original_section_header.base) + section_offset
-    self._ip_address = re.patch_address - original_section_header.base + section_header.base + section_offset
-    self.DEBUG('  section.base=%s, patch address=%s, ip=%s', UINT32_FMT(section_header.base), UINT32_FMT(self._patch_address), UINT32_FMT(self._ip_address))
+    self.DEBUG('  section.base=%s, re.address=%s, original.base=%s, section.offset=%s', UINT32_FMT(section.header.base), UINT32_FMT(re.patch_address), UINT32_FMT(original_section.header.base), UINT32_FMT(section_offset))
+    self._patch_address = re.patch_address - original_section.header.base + section_offset + section.header.base
+    self._patch_address = re.patch_address - section.header.base + (section.header.base - original_section.header.base) + section_offset
+    self._ip_address = re.patch_address - original_section.header.base + section.header.base + section_offset
+    self.DEBUG('  section.base=%s, patch address=%s, ip=%s', UINT32_FMT(section.header.base), UINT32_FMT(self._patch_address), UINT32_FMT(self._ip_address))
 
-    self._content_index = self._patch_address // SECTION_ITEM_SIZE[section_header.type]
+    self._content_index = self._patch_address
     self.DEBUG('  content index=%d', self._content_index)
 
     self._patch = self._create_patch()
@@ -432,81 +417,57 @@ class RelocationPatcher(object):
 
     return value
 
-  def _patch_text(self):
-    value = self._patch_section_content[self._content_index]
-
-    if isinstance(value, integer_types):
-      value = self._apply_patch(value)
-
-    elif isinstance(value, u32_t):
-      value = u32_t(self._apply_patch(value.value))
-
-    else:
-      encoded = value
-      encoding = type(encoded)
-      value = encoding_to_u32(encoded)
-
-      value = self._apply_patch(value)
-      value = u32_to_encoding(value, encoding)
-
-    self._patch_section_content[self._content_index] = value
-
-  def _patch_data(self):
+  def patch(self):
     content = self._patch_section_content
     content_index = self._content_index
 
-    value = content[content_index].value | (content[content_index + 1].value << 8) | (content[content_index + 2].value << 16) | (content[content_index + 3].value << 24)
+    value = content[content_index] | (content[content_index + 1] << 8) | (content[content_index + 2] << 16) | (content[content_index + 3] << 24)
     value = self._apply_patch(value)
 
-    content[content_index].value =      value        & 0xFF
-    content[content_index + 1].value = (value >> 8)  & 0xFF
-    content[content_index + 2].value = (value >> 16) & 0xFF
-    content[content_index + 3].value = (value >> 24) & 0xFF
+    content[content_index] =      value        & 0xFF
+    content[content_index + 1] = (value >> 8)  & 0xFF
+    content[content_index + 2] = (value >> 16) & 0xFF
+    content[content_index + 3] = (value >> 24) & 0xFF
 
-  def patch(self):
-    if self._patch_section_header.type == SectionTypes.TEXT:
-      self._patch_text()
+def resolve_relocations(info, f_out, f_ins):
+  D = get_logger().debug
 
-    elif self._patch_section_header.type == SectionTypes.DATA:
-      self._patch_data()
-
-def resolve_relocations(logger, info, f_out, f_ins):
-  D = logger.debug
-
+  D('')
+  D('----- * ----- * ----- * ----- * -----')
   D('Resolve relocations')
+  D('----- * ----- * ----- * ----- * -----')
 
   section_symbols = {}
 
-  for s_header, s_content in f_out.sections():
-    D('name=%s base=%s header=%s', f_out.string_table.get_string(s_header.name), UINT32_FMT(s_header.base), s_header)
+  for section in f_out.sections:
+    D('name=%s base=%s header=%s', section.name, UINT32_FMT(section.header.base), section.header)
 
     se = SymbolEntry()
     se.flags = SymbolFlags.from_int(0).to_encoding()
-    se.name = s_header.name
-    se.address = s_header.base
+    se.name = f_out.string_table.put_string(section.name)
+    se.address = section.header.base
 
-    section_symbols[f_out.string_table.get_string(s_header.name)] = se
+    section_symbols[section.name] = se
 
   for f_in, reloc_sections in iteritems(info.relocations):
     D('Processing file %s', f_in.name)
 
-    for r_header, r_content in reloc_sections:
-      for reloc_entry in r_content:
+    for section in reloc_sections:
+      for reloc_entry in section.payload:
         D('-----*-----*-----')
         D('  %s', reloc_entry)
 
         symbol_name = f_in.string_table.get_string(reloc_entry.name)
 
         # Get all involved sections
-        src_header, _ = f_in.get_section(reloc_entry.patch_section)
-        src_section_name = f_in.string_table.get_string(src_header.name)
-        dst_section_name = info.linker_script.where_to_merge(src_section_name)
-        dst_header, dst_content = f_out.get_section_by_name(dst_section_name)
+        src_section = f_in.get_section_by_index(reloc_entry.patch_section)
+        dst_section_name = info.linker_script.where_to_merge(src_section.name)
+        dst_section = f_out.get_section_by_name(dst_section_name)
 
-        D('  src section: %s', src_section_name)
-        D('  src header: %s', src_header)
-        D('  dst section: %s', dst_section_name)
-        D('  dst header: %s', dst_header)
+        D('  src section: %s', src_section.name)
+        D('  src header: %s', src_section.header)
+        D('  dst section: %s', dst_section.name)
+        D('  dst header: %s', dst_section.header)
         D('  symbol: %s', symbol_name)
 
         # Find referenced symbol
@@ -526,57 +487,70 @@ def resolve_relocations(logger, info, f_out, f_ins):
 
           se = section_symbols[symbol_name]
 
-        RelocationPatcher(reloc_entry, se, symbol_name, dst_header, dst_content, original_section_header = src_header, section_offset = info.section_offsets[f_in][src_header.index]).patch()
+        RelocationPatcher(reloc_entry, se, symbol_name, dst_section, original_section = src_section, section_offset = info.section_offsets[f_in][src_section.header.index]).patch()
 
-  f_out.save()
+def link_files(info, files_in, file_out):
+  D = get_logger().debug
 
-def link_files(logger, info, files_in, file_out):
   fs_in = []
 
-  def __read_object_file(f):
-    with File.open(logger, f, 'r') as f_in:
-      f_in.load()
-      fs_in.append(f_in)
+  cleanup_dirs = []
+  opened_files = []
 
-  for file_in in files_in:
-    if file_in.endswith('.tgz'):
-      with tarfile.open(file_in, 'r:gz') as f_in:
-        tmpdir = None
+  def __gather_input_files():
+    D('----- * ----- * ----- * ----- * -----')
+    D('Create a list of input object files')
+    D('----- * ----- * ----- * ----- * -----')
 
-        try:
+    for file_in in files_in:
+      D('Input file: %s', file_in)
+
+      if file_in.endswith('.tgz'):
+        D('  archive, unpack and add its content')
+
+        with tarfile.open(file_in, 'r:gz') as f_in:
           tmpdir = tempfile.mkdtemp()
+          cleanup_dirs.append(tmpdir)
 
           for member in f_in.getmembers():
             f_in.extract(member, path = tmpdir)
-            __read_object_file(os.path.join(tmpdir, member.name))
 
-        finally:
-          if tmpdir is not None:
-            import shutil
-            shutil.rmtree(tmpdir)
+            D('  %s added', os.path.join(tmpdir, member.name))
+            fs_in.append(os.path.join(tmpdir, member.name))
 
-    else:
-      __read_object_file(file_in)
+      else:
+        D('  %s added', file_in)
+        fs_in.append(file_in)
 
-  if not all([f.get_header().flags.mmapable == fs_in[0].get_header().flags.mmapable for f in fs_in]):
-    raise IncompatibleLinkerFlagsError()
+    D('')
 
-  with File.open(logger, file_out, 'w') as f_out:
-    h_file = f_out.create_header()
-    h_file.flags.mmapable = fs_in[0].get_header().flags.mmapable
+  try:
+    __gather_input_files()
 
-    h_section = f_out.create_section()
-    h_section.type = SectionTypes.STRINGS
-    h_section.name = f_out.string_table.put_string('.strings')
+    with File.open(get_logger(), file_out, 'w') as f_out:
+      for file_in in fs_in:
+        f_in = File.open(get_logger(), file_in, 'r')
+        opened_files.append(f_in)
 
-    for f_in in fs_in:
-      merge_object_into(logger, info, f_out, f_in)
+        merge_object_into(info, f_out, f_in)
 
-    fix_section_bases(logger, info, f_out)
-    resolve_symbols(logger, info, f_out, fs_in)
-    resolve_relocations(logger, info, f_out, fs_in)
+      fix_section_bases(info, f_out)
+      resolve_symbols(info, f_out, fs_in)
+      resolve_relocations(info, f_out, fs_in)
 
-    f_out.save()
+      f_out.save()
+
+  except KeyError as e:
+    import shutil
+
+    for d in cleanup_dirs:
+      shutil.rmtree(d)
+
+    raise e
+
+  finally:
+    for f in opened_files:
+      f.close()
 
 def archive_files(logger, files_in, file_out):
   D = logger.debug
@@ -633,11 +607,11 @@ def main():
 
   else:
     def __cleanup(exc, msg = None):
-      if msg is None:
-        logger.exception(exc)
+      if hasattr(e, 'log'):
+        e.log(logger.error)
 
       else:
-        logger.error(msg)
+        logger.exception(exc)
 
       if os.path.exists(options.file_out):
         os.unlink(options.file_out)
@@ -648,13 +622,10 @@ def main():
       script = LinkerScript(options.script)
       info = LinkerInfo(script)
 
-      link_files(logger, info, options.file_in, options.file_out)
+      link_files(info, options.file_in, options.file_out)
 
-    except IncompatibleLinkerFlagsError as e:
-      __cleanup(e, msg = 'All input files must have the same mmapable setting')
-
-    except BadLinkerScriptError as e:
-      __cleanup(e, msg = 'Bad linker script: script={script}, error={error}'.format(script = e.script, error = str(e.exc)))
+    except LinkerError as e:
+      __cleanup(e)
 
     except Error as e:
       __cleanup(e)

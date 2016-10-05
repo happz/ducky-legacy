@@ -17,7 +17,7 @@ def __header_from_template(source, target, env):
   if 'COVERAGEDIR' in env:
     cmd.wrap_by_coverage(env)
 
-  return cmd.run(env, 'HS', target[0])
+  return cmd.run(env, 'Header', target[0])
 
 E = ENV.FullClone(
   BUILDERS = {
@@ -25,11 +25,8 @@ E = ENV.FullClone(
   }
 )
 
-asm_headers = [E.DuckyHeaderFromTemplate(os.path.splitext(str(source))[0], source = source) for source in Glob(os.path.join(E['HEADERSDIR'], 'arch', '*.hs.in'))]
-c_headers   = [E.DuckyHeaderFromTemplate(os.path.splitext(str(source))[0], source = source) for source in Glob(os.path.join(E['HEADERSDIR'], 'arch', '*.h.in'))]
-
-E.Alias('libducky-asm-headers', asm_headers)
-E.Alias('libducky-c-headers',   c_headers)
+headers = [E.DuckyHeaderFromTemplate(os.path.splitext(str(source))[0], source = source) for source in Glob(os.path.join(E['HEADERSDIR'], 'arch', '*.h.in'))]
+E.Alias('libducky-headers', headers)
 
 
 #
@@ -43,10 +40,10 @@ asm_sources = Glob('*.s')
 objects = []
 
 for src in Glob('*.c'):
-  dst = os.path.splitext(str(src))[0] + '.s'
+  dst = os.path.splitext(str(src))[0] + '.o'
 
-  E.DuckyAsmFromC(dst, source = src)
-  asm_sources.append(dst)
+  E.DuckyObjFromC(dst, source = src)
+  objects.append(dst)
 
 for src in asm_sources:
   dst = os.path.splitext(str(src))[0] + '.o'
@@ -65,17 +62,14 @@ E.ReadExternalDeps()
 E.DuckyArchFromObjs('libducky.tgz', source = objects)
 
 E.Alias('libducky', 'libducky.tgz')
-E.Depends('libducky', 'libducky-asm-headers')
-E.Depends('libducky', 'libducky-c-headers')
+E.Depends('libducky', 'libducky-headers')
 
 
 ENV.Help("""
   ${GREEN}Ducky library:${CLR}
      ${BLUE}'scons libducky'${CLR} to build Ducky C library,
-     ${BLUE}'scons libducky-asm-headers'${CLR} to build assembly header files,
-     ${BLUE}'scons libducky-c-headers'${CLR} to build C header files,
+     ${BLUE}'scons libducky-headers'${CLR} to build header files,
 """)
 
-ENV.OnClean('libducky-asm-headers')
-ENV.OnClean('libducky-c-headers')
+ENV.OnClean('libducky-headers')
 ENV.OnClean('libducky')

@@ -137,6 +137,8 @@ class BinaryFile(object):
     self.tell = stream.tell
     self.write = stream.write
 
+    self.mode = stream.mode
+
     self.setup()
 
   def __enter__(self):

@@ -387,10 +387,15 @@ def __object_from_c(source, target, env):
   return cmd.run(env, 'C-to-OBJ', target[0])
 
 def __compile_ducky_object(source, target, env):
+  defs = '-D__DUCKY_PURE_ASM__ '
+
+  if 'DEFS' in env:
+    defs += ' '.join(env['DEFS'])
+
   cmd = DuckyCommand(env)
   cmd.command = env.subst('$VIRTUAL_ENV/bin/ducky-as {inputs} {defs} {include} -o {target}'.format(
     inputs  = ' '.join(['-i %s' % f for f in source]),
-    defs    = ' '.join(env['DEFS']) if 'DEFS' in env else '',
+    defs    = defs,
     include = ' '.join(env['INCLUDE']) if 'INCLUDE' in env else '',
     target  = target[0]))
 
@@ -634,7 +639,7 @@ def run_flake(target, source, env):
   sources += __find_files(Dir('#tests'), '*.py')
 
   cmd = DuckyCommand(env, runner = '')
-  cmd.command = 'flake8 --config={config_file} {files}'.format(
+  cmd.command = 'flake8 --config={config_file} --exclude parsetab.py {files}'.format(
     config_file = File('#flake8.cfg').abspath,
     files = ' '.join(sources)
   )

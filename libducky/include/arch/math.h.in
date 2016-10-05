@@ -1,0 +1,18 @@
+#ifndef __DUCKY_ARCH_MATH_H__
+#define __DUCKY_ARCH_MATH_H__
+
+/*
+ * Math Coprocessors defines
+ */
+
+<%
+  import ducky.cpu.coprocessor.math_copro
+%>
+
+/*
+ * Instruction set
+ */
+
+#define MATH_INST_SET ${X4(ducky.cpu.coprocessor.math_copro.MathCoprocessorInstructionSet.instruction_set_id)}
+
+#endif // __DUCKY_ARCH_MATH_H__

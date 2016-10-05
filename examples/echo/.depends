@@ -1,1 +1,1 @@
-echo.o: echo.s $HEADERSDIR/arch/ducky.hs $HEADERSDIR/arch/keyboard.hs $HEADERSDIR/arch/tty.hs
+echo.o: echo.s $HEADERSDIR/arch/ducky.h $HEADERSDIR/arch/keyboard.h $HEADERSDIR/arch/tty.h

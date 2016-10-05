@@ -8,7 +8,6 @@ from six.moves import range
 from functools import partial, wraps
 
 import ducky.config
-import ducky.cpu.assemble
 import ducky.cpu.registers
 import ducky.console
 import ducky.log

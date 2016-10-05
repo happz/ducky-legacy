@@ -5,11 +5,12 @@ from functools import partial
 from six import iteritems, integer_types
 
 import ducky.cpu.registers
-from ducky.cpu.assemble import SourceLocation
-from ducky.cpu.instructions import DuckyInstructionSet
+from ducky.cpu.instructions import DuckyInstructionSet, EncodingContext
 from ducky.cpu.registers import REGISTER_NAMES, Registers
-from ducky.errors import UnalignedJumpTargetError, DivideByZeroError, PrivilegedInstructionError, InvalidExceptionError
+from ducky.errors import DivideByZeroError, PrivilegedInstructionError, InvalidExceptionError
 from ducky.mm import u32_t, i32_t
+
+from ducky.asm.ast import RegisterOperand, ImmediateOperand, BOOperand
 
 from . import LOGGER
 
@@ -18,7 +19,6 @@ from hypothesis.strategies import integers, lists, booleans, composite
 
 
 CORE = None
-BUFFER = None
 
 def setup():
   from ducky.cpu import CPU
@@ -37,16 +37,6 @@ def setup():
   global LOGGER
   LOGGER.setLevel(logging.DEBUG)
 
-  class SimpleBuffer(object):
-    def get_error(self, cls, info, column = None, length = None, **kwargs):
-      kwargs['location'] = SourceLocation(filename = '<unknown>', lineno = 0)
-      kwargs['info'] = info
-
-      raise cls(**kwargs)
-
-  global BUFFER
-  BUFFER = SimpleBuffer()
-
 def sign_extend(sign_mask, ext_mask, value):
   LOGGER.debug('sign_extend: sign_mask=%s, ext_mas=%s, value=%s', sign_mask, ext_mask, value)
 
@@ -58,12 +48,28 @@ sign_extend16 = partial(sign_extend, 0x8000,  0xFFFF0000)
 sign_extend20 = partial(sign_extend, 0x80000, 0xFFF00000)
 
 def encode_inst(desc, operands):
-  inst = desc.encoding()
-  inst.opcode = desc.opcode
-  desc.assemble_operands(LOGGER, BUFFER, inst, operands)
+  ctx = EncodingContext(LOGGER)
+
+  inst = desc.emit_instruction(ctx, desc, operands)
   LOGGER.debug('TEST: inst=%s' % DuckyInstructionSet.disassemble_instruction(LOGGER, inst))
 
   return inst
+
+def encode_inst_R(inst_class, reg):
+  return encode_inst(inst_class, [RegisterOperand(reg)])
+
+def encode_inst_I(inst_class, imm):
+  return encode_inst(inst_class, [ImmediateOperand(imm)])
+
+def encode_inst_RR(inst_class, reg1, reg2):
+  return encode_inst(inst_class, [RegisterOperand(reg1), RegisterOperand(reg2)])
+
+def encode_inst_RI(inst_class, reg, imm):
+  return encode_inst(inst_class, [RegisterOperand(reg), ImmediateOperand(imm)])
+
+def encode_inst_RRR(inst_class, reg1, reg2, reg3):
+  return encode_inst(inst_class, [RegisterOperand(reg1), RegisterOperand(reg2), RegisterOperand(reg3)])
+
 
 JIT = os.environ.get('JIT', 'no') == 'yes'
 
@@ -220,7 +226,7 @@ def __base_setting_test(state, reg, inst_class = None, cond = None):
   LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
   LOGGER.debug('TEST: state=%r, reg=%d', state, reg)
 
-  inst = encode_inst(inst_class, {'register_n0': reg})
+  inst = encode_inst_R(inst_class, reg)
 
   expected_value = 1 if cond(state) else 0
 
@@ -234,7 +240,7 @@ def __base_select_test_immediate(state, reg, tv, fv, inst_class = None, cond = N
   LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
   LOGGER.debug('TEST: state=%r, reg=%d, tv=0x%08X, fv=0x%08X, class=%s', state, reg, tv, fv, inst_class.__name__)
 
-  inst = encode_inst(inst_class, {'register_n0': reg, 'immediate': fv})
+  inst = encode_inst_RI(inst_class, reg, fv)
 
   state.reset()
   CORE.registers[reg] = tv
@@ -249,7 +255,7 @@ def __base_select_test_register(state, reg1, reg2, tv, fv, inst_class = None, co
   LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
   LOGGER.debug('TEST: state=%r, reg=1%d, reg2=%d, tv=0x%08X, fv=0x%08X', state, reg1, reg2, tv, fv)
 
-  inst = encode_inst(inst_class, {'register_n0': reg1, 'register_n1': reg2})
+  inst = encode_inst_RR(inst_class, reg1, reg2)
 
   expected_value = fv if reg1 == reg2 else (tv if cond(state) else fv)
 
@@ -268,7 +274,7 @@ def __base_branch_test_immediate(state, offset, inst_class = None, cond = None):
   LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
   LOGGER.debug('TEST: state=%r, offset=0x%08X', state, offset)
 
-  inst = encode_inst(inst_class, {'immediate': offset})
+  inst = encode_inst_I(inst_class, offset)
 
   expected_value = ((state.ip + sign_extend16(offset // 4) * 4) % (2 ** 32)) if cond(state) else state.ip
 
@@ -285,7 +291,7 @@ def __base_branch_test_register(state, reg, addr, inst_class = None, cond = None
   LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
   LOGGER.debug('TEST: state=%r, reg=%d, addr=0x%08X', state, reg, addr)
 
-  inst = encode_inst(inst_class, {'register_n0': reg})
+  inst = encode_inst_R(inst_class, reg)
 
   expected_value = addr if cond(state) else state.ip
 
@@ -300,7 +306,7 @@ def __base_arith_test_immediate(state, reg, a, b, inst_class = None, compute = N
   LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
   LOGGER.debug('TEST: state=%r, reg=%d, a=0x%08X, b=0x%08X', state, reg, a, b)
 
-  inst = encode_inst(inst_class, {'register_n0': reg, 'immediate': b})
+  inst = encode_inst_RI(inst_class, reg, b)
 
   value, expected_value = compute(state, reg, a, b)
 
@@ -315,7 +321,7 @@ def __base_arith_test_register(state, reg1, reg2, a, b, inst_class = None, compu
   LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
   LOGGER.debug('TEST: state=%r, reg1=%d, reg2=%d, a=0x%08X, b=0x%08X', state, reg1, reg2, a, b)
 
-  inst = encode_inst(inst_class, {'register_n0': reg1, 'register_n1': reg2})
+  inst = encode_inst_RR(inst_class, reg1, reg2)
 
   value, expected_value = compute(state, reg1, reg2, a, b)
 
@@ -332,7 +338,7 @@ def __base_arith_by_zero_immediate(state, reg, a, inst_class = None):
   LOGGER.debug('TEST: state=%r, reg=%d, a=0x%08X', state, reg, a)
 
   b = 0
-  inst = encode_inst(inst_class, {'register_n0': reg, 'immediate': b})
+  inst = encode_inst_RI(inst_class, reg, b)
 
   state.reset()
   CORE.registers[reg] = a
@@ -353,7 +359,7 @@ def __base_arith_by_zero_register(state, reg1, reg2, a, inst_class = None):
   LOGGER.debug('TEST: state=%r, reg1=%d, reg2=%d, a=0x%08X', state, reg1, reg2, a)
 
   b = 0
-  inst = encode_inst(inst_class, {'register_n0': reg1, 'register_n1': reg2})
+  inst = encode_inst_RR(inst_class, reg1, reg2)
 
   state.reset()
   CORE.registers[reg1] = a
@@ -377,14 +383,7 @@ def __base_load_test(state, reg1, reg2, address, value, inst_class, size, offset
   # reset machine, to get clear memory
   setup()
 
-  operands = {
-    'register_n0': reg1,
-    'areg': reg2
-  }
-
-  if offset is not None:
-    operands['offset_immediate'] = offset
-
+  operands = [RegisterOperand(reg1), BOOperand(RegisterOperand(reg2), ImmediateOperand(0 if offset is None else offset))]
   offset = sign_extend15(offset or 0)
   memory_address = u32_t(address + offset).value
 
@@ -413,14 +412,7 @@ def __base_store_test(state, reg1, reg2, address, value, inst_class, size, offse
   # reset machine, to get clear memory
   setup()
 
-  operands = {
-    'areg': reg1,
-    'register_n1': reg2
-  }
-
-  if offset is not None:
-    operands['offset_immediate'] = offset
-
+  operands = [BOOperand(RegisterOperand(reg1), ImmediateOperand(0 if offset is None else offset)), RegisterOperand(reg2)]
   offset = sign_extend15(offset or 0)
   memory_address = u32_t(address + offset).value
 
@@ -503,24 +495,6 @@ def test_and_register(state, reg1, reg2, a, b):
 #
 # Branching - B*
 #
-@given(offset = IMMEDIATE16)
-def test_branch_unaligned(offset):
-  from ducky.cpu.instructions import BE
-
-  assume(offset & 0x3 != 0)
-
-  LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
-  LOGGER.debug('TEST: offset=0x%08X' % offset)
-
-  try:
-    encode_inst(BE, {'immediate': offset})
-
-  except UnalignedJumpTargetError:
-    pass
-
-  else:
-    assert False, 'Encoding expected to raise an error with un-aligned offset'
-
 
 #
 # BE
@@ -728,7 +702,7 @@ def test_call_immediate(state, ip, offset):
   LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
   LOGGER.debug('TEST: state=%r, ip=0x%08X, offset=0x%08X', state, ip, offset)
 
-  inst = encode_inst(CALL, {'immediate': offset})
+  inst = encode_inst_I(CALL, offset)
 
   expected_value = (ip + sign_extend20(offset // 4) * 4) % (2 ** 32)
 
@@ -751,7 +725,7 @@ def test_call_register(state, ip, reg, addr):
   LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
   LOGGER.debug('TEST: state=%r, ip=0x%08X, reg=%d, addr=0x%08X', state, ip, reg, addr)
 
-  inst = encode_inst(CALL, {'register_n0': reg})
+  inst = encode_inst_R(CALL, reg)
 
   expected_ip = addr
   expected_fp = u32_t(state.sp - 8).value
@@ -785,7 +759,7 @@ def __base_cas_test(state, reg1, reg2, reg3, addr, memory_value, register_value,
   LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
   LOGGER.debug('TEST: state=%r, reg1=%d, reg2=%d, reg3=%d, addr=0x%08X, memory_value=0x%08X, register_value=0x%08X, replace=0x%08X', state, reg1, reg2, reg3, addr, memory_value, register_value, replace)
 
-  inst = encode_inst(CAS, {'register_n0': reg1, 'register_n1': reg2, 'register_n2': reg3})
+  inst = encode_inst_RRR(CAS, reg1, reg2, reg3)
 
   state.reset()
   CORE.registers[reg1] = addr
@@ -822,7 +796,7 @@ def test_cli(state):
   LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
   LOGGER.debug('TEST: state=%r', state)
 
-  inst = encode_inst(CLI, {})
+  inst = encode_inst(CLI, [])
 
   state.reset()
 
@@ -839,7 +813,7 @@ def test_cli_unprivileged(state):
   LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
   LOGGER.debug('TEST: state=%r', state)
 
-  inst = encode_inst(CLI, {})
+  inst = encode_inst(CLI, [])
 
   state.reset()
 
@@ -869,7 +843,7 @@ def test_cmp_immediate(state, reg, a, b):
   LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
   LOGGER.debug('TEST: state=%r, reg=%d, a=0x%08X, b=0x%08X', state, reg, a, b)
 
-  inst = encode_inst(CMP, {'register_n0': reg, 'immediate': b})
+  inst = encode_inst_RI(CMP, reg, b)
 
   b_extended = sign_extend15(b)
 
@@ -894,7 +868,7 @@ def test_cmp_register(state, reg1, reg2, a, b):
   LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
   LOGGER.debug('TEST: state=%r, reg1=%d, reg2=%d, a=0x%08X, b=0x%08X', state, reg1, reg2, a, b)
 
-  inst = encode_inst(CMP, {'register_n0': reg1, 'register_n1': reg2})
+  inst = encode_inst_RR(CMP, reg1, reg2)
 
   state.reset()
   CORE.registers[reg1] = a
@@ -923,7 +897,7 @@ def test_cmpu_immediate(state, reg, a, b):
   LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
   LOGGER.debug('TEST: state=%r, reg=%d, a=0x%08X, b=0x%08X', state, reg, a, b)
 
-  inst = encode_inst(CMPU, {'register_n0': reg, 'immediate': b})
+  inst = encode_inst_RI(CMPU, reg, b)
 
   state.reset()
   CORE.registers[reg] = a
@@ -946,7 +920,7 @@ def test_cmpu_register(state, reg1, reg2, a, b):
   LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
   LOGGER.debug('TEST: state=%r, reg1=%d, reg2=%d, a=0x%08X, b=0x%08X', state, reg1, reg2, a, b)
 
-  inst = encode_inst(CMPU, {'register_n0': reg1, 'register_n1': reg2})
+  inst = encode_inst_RR(CMPU, reg1, reg2)
 
   state.reset()
   CORE.registers[reg1] = a
@@ -973,7 +947,7 @@ def test_dec(state, reg, a):
   LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
   LOGGER.debug('TEST: state=%r, reg=%d, a=0x%08X', state, reg, a)
 
-  inst = encode_inst(DEC, {'register_n0': reg})
+  inst = encode_inst_R(DEC, reg)
 
   value = a - 1
   expected_value = value % (2 ** 32)
@@ -1049,7 +1023,7 @@ def test_hlt_immediate(state, a):
   LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
   LOGGER.debug('TEST: state=%r, a=%d', state, a)
 
-  inst = encode_inst(HLT, {'immediate': a})
+  inst = encode_inst_I(HLT, a)
 
   expected_exit_code = sign_extend20(a)
 
@@ -1073,7 +1047,7 @@ def test_hlt_register(state, reg, a):
   LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
   LOGGER.debug('TEST: state=%r, reg=%d, a=%d', state, reg, a)
 
-  inst = encode_inst(HLT, {'register_n0': reg})
+  inst = encode_inst_R(HLT, reg)
 
   CORE.boot()
   state.reset()
@@ -1095,7 +1069,7 @@ def test_hlt_unprivileged(state):
   LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
   LOGGER.debug('TEST: state=%r', state)
 
-  inst = encode_inst(HLT, {'immediate': 20})
+  inst = encode_inst_I(HLT, 20)
 
   CORE.boot()
   state.reset()
@@ -1125,7 +1099,7 @@ def test_idle(state):
   LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
   LOGGER.debug('TEST: state=%r', state)
 
-  inst = encode_inst(IDLE, {})
+  inst = encode_inst(IDLE, [])
 
   state.reset()
 
@@ -1147,7 +1121,7 @@ def test_inc(state, reg, a):
   LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
   LOGGER.debug('TEST: state=%r, reg=%d, a=0x%08X', state, reg, a)
 
-  inst = encode_inst(INC, {'register_n0': reg})
+  inst = encode_inst_R(INC, reg)
 
   value = a + 1
   expected_value = value % (2 ** 32)
@@ -1175,7 +1149,7 @@ def test_int_immediate(state, index, ip, sp):
   LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
   LOGGER.debug('TEST: state=%r, index=%d, ip=0x%08X, sp=0x%08X', state, index, ip, sp)
 
-  inst = encode_inst(INT, {'immediate': index})
+  inst = encode_inst_I(INT, index)
 
   state.reset()
   CORE.mmu.memory.write_u32(CORE.evt_address + index * 8,     ip)
@@ -1194,7 +1168,7 @@ def test_int_immediate_out_of_range(state, index):
   LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
   LOGGER.debug('TEST: state=%r, index=%d', state, index)
 
-  inst = encode_inst(INT, {'immediate': index})
+  inst = encode_inst_I(INT, index)
 
   state.reset()
 
@@ -1221,7 +1195,7 @@ def test_int_register(state, reg, index, ip, sp):
   LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
   LOGGER.debug('TEST: state=%r, r=%d, index=%d, ip=0x%08X, sp=0x%08X', state, reg, index, ip, sp)
 
-  inst = encode_inst(INT, {'register_n0': reg})
+  inst = encode_inst_R(INT, reg)
 
   state.reset()
   CORE.registers[reg] = index
@@ -1241,7 +1215,7 @@ def test_int_register_out_of_range(state, reg, index):
   LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
   LOGGER.debug('TEST: state=%r, reg=%d, index=%d', state, reg, index)
 
-  inst = encode_inst(INT, {'register_n0': reg})
+  inst = encode_inst_R(INT, reg)
 
   state.reset()
   CORE.registers[reg] = index
@@ -1271,7 +1245,7 @@ def test_j_immediate(state, ip, offset):
   LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
   LOGGER.debug('TEST: state=%r, ip=0x%08X, offset=0x%08X', state, ip, offset)
 
-  inst = encode_inst(J, {'immediate': offset})
+  inst = encode_inst_I(J, offset)
 
   expected_value = (ip + sign_extend20(offset // 4) * 4) % (2 ** 32)
 
@@ -1291,7 +1265,7 @@ def test_j_register(state, ip, reg, addr):
   LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
   LOGGER.debug('TEST: state=%r, ip=0x%08X, reg=%d, addr=0x%08X', state, ip, reg, addr)
 
-  inst = encode_inst(J, {'register_n0': reg})
+  inst = encode_inst_R(J, reg)
 
   state.reset()
   CORE.registers[Registers.IP] = ip
@@ -1300,24 +1274,6 @@ def test_j_register(state, ip, reg, addr):
   execute_inst(CORE, J, inst)
 
   state.check((reg, addr), ip = addr)
-
-@given(offset = IMMEDIATE20)
-def test_j_unaligned(offset):
-  from ducky.cpu.instructions import J
-
-  assume(offset & 0x3 != 0)
-
-  LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
-  LOGGER.debug('TEST: offset=0x%08X' % offset)
-
-  try:
-    encode_inst(J, {'immediate': offset})
-
-  except UnalignedJumpTargetError:
-    pass
-
-  else:
-    assert False, 'Encoding expected to raise an error with un-aligned offset'
 
 
 #
@@ -1330,7 +1286,7 @@ def test_la(state, reg, ip, offset):
   LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
   LOGGER.debug('TEST: state=%r, reg=%d, ip=0x%08X, offset=0x%08X', state, reg, ip, offset)
 
-  inst = encode_inst(LA, {'register_n0': reg, 'immediate': offset})
+  inst = encode_inst_RI(LA, reg, offset)
 
   expected_value = (ip + sign_extend20(offset)) % (2 ** 32)
 
@@ -1369,7 +1325,7 @@ def test_li(state, reg, a):
   LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
   LOGGER.debug('TEST: state=%r, reg=%d, a=0x%08X', state, reg, a)
 
-  inst = encode_inst(LI, {'register_n0': reg, 'immediate': a})
+  inst = encode_inst_RI(LI, reg, a)
 
   expected_value = sign_extend20(a)
 
@@ -1390,7 +1346,7 @@ def test_liu(state, reg, a, b):
   LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
   LOGGER.debug('TEST: state=%r, reg=%d, a=0x%08X, b=0x%08X', state, reg, a, b)
 
-  inst = encode_inst(LIU, {'register_n0': reg, 'immediate': b})
+  inst = encode_inst_RI(LIU, reg, b)
 
   expected_value = ((b & 0xFFFF) << 16) | (a & 0xFFFF)
 
@@ -1414,7 +1370,7 @@ def test_lpm(state):
   LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
   LOGGER.debug('TEST: state=%r', state)
 
-  inst = encode_inst(LPM, {})
+  inst = encode_inst(LPM, [])
 
   state.reset()
 
@@ -1431,7 +1387,7 @@ def test_lpm_unprivileged(state):
   LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
   LOGGER.debug('TEST: state=%r', state)
 
-  inst = encode_inst(LPM, {})
+  inst = encode_inst(LPM, [])
 
   state.reset()
 
@@ -1547,7 +1503,7 @@ def test_mov(state, reg1, reg2, a, b):
   LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
   LOGGER.debug('TEST: state=%r, reg1=%d, reg2=%d, a=0x%08X, b=0x%08X', state, reg1, reg2, a, b)
 
-  inst = encode_inst(MOV, {'register_n0': reg1, 'register_n1': reg2})
+  inst = encode_inst_RR(MOV, reg1, reg2)
 
   state.reset()
   CORE.registers[reg1] = a
@@ -1594,7 +1550,7 @@ def test_nop(state):
   LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
   LOGGER.debug('TEST: state=%r', state)
 
-  inst = encode_inst(NOP, {})
+  inst = encode_inst(NOP, [])
 
   state.reset()
 
@@ -1616,7 +1572,7 @@ def test_not(state, reg, a):
   LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
   LOGGER.debug('TEST: state=%r, reg=%d, a=0x%08X', state, reg, a)
 
-  inst = encode_inst(NOT, {'register_n0': reg})
+  inst = encode_inst_R(NOT, reg)
 
   value = ~a
   expected_value = u32_t(value).value
@@ -1668,7 +1624,7 @@ def test_ret(state, fp, ip):
   LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
   LOGGER.debug('TEST: state=%r, fp=0x%08X, ip=0x%08X', state, fp, ip)
 
-  inst = encode_inst(RET, {})
+  inst = encode_inst(RET, [])
 
   state.reset()
 
@@ -1700,7 +1656,7 @@ def test_retint(state, fp, ip, user_flags, sp):
   LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
   LOGGER.debug('TEST: state=%r, fp=0x%08X, ip=0x%08X, user_flags=%r, sp=0x%08X', state, fp, ip, user_flags, sp)
 
-  inst = encode_inst(RETINT, {})
+  inst = encode_inst(RETINT, [])
 
   state.reset()
 
@@ -1730,7 +1686,7 @@ def test_retint_unprivileged(state):
   LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
   LOGGER.debug('TEST: state=%r', state)
 
-  inst = encode_inst(RETINT, {})
+  inst = encode_inst(RETINT, [])
 
   state.reset()
 
@@ -1758,7 +1714,7 @@ def test_rst(state):
   LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
   LOGGER.debug('TEST: state=%r', state)
 
-  inst = encode_inst(RST, {})
+  inst = encode_inst(RST, [])
 
   state.reset()
 
@@ -2247,7 +2203,7 @@ def test_sti(state):
   LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
   LOGGER.debug('TEST: state=%r', state)
 
-  inst = encode_inst(STI, {})
+  inst = encode_inst(STI, [])
 
   state.reset()
 
@@ -2264,7 +2220,7 @@ def test_sti_unprivileged(state):
   LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
   LOGGER.debug('TEST: state=%r', state)
 
-  inst = encode_inst(STI, {})
+  inst = encode_inst(STI, [])
 
   state.reset()
 
@@ -2314,7 +2270,7 @@ def test_swap(state, reg1, reg2, a, b):
   LOGGER.debug('----- ----- ----- ----- ----- ----- -----')
   LOGGER.debug('TEST: state=%r, reg1=%d, reg2=%d, a=0x%08X, b=0x%08X' % (state, reg1, reg2, a, b))
 
-  inst = encode_inst(SWP, {'register_n0': reg1, 'register_n1': reg2})
+  inst = encode_inst_RR(SWP, reg1, reg2)
 
   state.reset()
   CORE.registers[reg1] = a

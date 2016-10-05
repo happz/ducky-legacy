@@ -1,1 +1,1 @@
-loader.o: loader.s $HEADERSDIR/arch/ducky.hs $HEADERSDIR/arch/boot.hs $HEADERSDIR/arch/control.hs $HEADERSDIR/arch/bio.hs
+loader.o: loader.s $HEADERSDIR/arch/ducky.h $HEADERSDIR/arch/boot.h $HEADERSDIR/arch/control.h $HEADERSDIR/arch/bio.h

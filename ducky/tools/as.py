@@ -3,37 +3,29 @@ import sys
 
 from six import iteritems, PY2
 
-from ..errors import PatchTooLargeError
+from ..errors import PatchTooLargeError, AssemblerError
+from ..log import get_logger
 
-def translate_buffer(logger, buffer, file_in, options):
-  from ..cpu.assemble import AssemblerError, translate_buffer
+def get_assembler_process(logger, buffer, file_in, options):
+  from ..asm import AssemblerProcess
 
-  try:
-    return translate_buffer(logger, buffer, mmapable_sections = options.mmapable_sections, writable_sections = options.writable_sections, filename = file_in, defines = options.defines, includes = options.includes, verify_disassemble = options.verify_disassemble)
-
-  except AssemblerError as exc:
-    exc.log(logger.error)
-    sys.exit(1)
-
+  return AssemblerProcess(file_in, defines = options.defines, includes = options.includes, logger = logger)
 
 def encode_blob(logger, file_in, options):
+  logger = get_logger()
+
   logger.debug('encode_blob: file_in=%s', file_in)
 
-  from ..cpu.assemble import DataSection, SymbolsSection, IntSlot, Label, sizeof, BytesSlot, RelocSection, SourceLocation
-  from ..mm.binary import SectionFlags
+  from ..mm.binary import SectionTypes
+  from ..asm.ast import SourceLocation
+  from ..asm import Section, SymbolsSection, IntSlot, Label, BytesSlot, RelocSection
 
-  section_name = '__' + os.path.split(file_in)[1].replace('.', '_').replace('-', '_')
-  section = DataSection('.%s' % section_name, flags = SectionFlags.from_string(options.blob_flags.upper()))
+  s_name = '.__' + os.path.split(file_in)[1].replace('.', '_').replace('-', '_')
+  section = Section(s_name, s_type = SectionTypes.PROGBITS, s_flags = options.blob_flags.upper())
   section.base = section.ptr = 0
 
-  symtab = SymbolsSection('.symtab')
-  symtab.base = symtab.ptr = 0
-
-  reloc = RelocSection('.reloc')
-  reloc.base = reloc.ptr = 0
-
-  if options.mmapable_sections is True:
-    section.flags.mmapable = True
+  symtab = SymbolsSection()
+  reloc = RelocSection()
 
   logger.debug('section: %s', section)
 
@@ -44,178 +36,178 @@ def encode_blob(logger, file_in, options):
     else:
       data = f_in.read()
 
-  var_size = IntSlot()
-  var_size.name = Label('%s_size' % section_name, section, SourceLocation(filename = file_in, lineno = 0))
-  var_size.value = len(data)
-  var_size.section = section
-  var_size.section_ptr = 0
-  var_size.close()
+  loc = SourceLocation(filename = file_in, lineno = 0)
 
-  section.content += var_size.value
-  symtab.content.append(var_size)
+  slot_size = IntSlot(None, value = len(data), section = section, section_ptr = 0, location = loc, labels = [Label('%s_size' % s_name, section, loc)])
+  slot_size.finalize_value()
 
-  var_content = BytesSlot()
-  var_content.name = Label('%s_start' % section_name, section, SourceLocation(filename = file_in, lineno = 0))
-  var_content.value = data
-  var_content.section = section
-  var_content.section_ptr = sizeof(var_size)
-  var_content.close()
+  slot_content = BytesSlot(None, value = data, section = section, section_ptr = slot_size.size, location = loc, labels = [Label('%s_start' % s_name, section, loc)])
+  slot_content.finalize_value()
 
-  section.content += var_content.value
-  symtab.content.append(var_content)
+  section.content += slot_size.value
+  section.content += slot_content.value
+  section.content = bytearray(section.content)
+
+  symtab.content.append(slot_size)
+  symtab.content.append(slot_content)
 
   logger.debug('section: %s', section)
 
-  return {section.name: section, '.symtab': symtab, '.reloc': reloc}
+  return {s_name: section, '.symtab': symtab, '.reloc': reloc}
 
 def save_object_file(logger, sections, file_out, options):
+  logger = get_logger()
+  D = logger.debug
+
   if os.path.exists(file_out) and not options.force:
     logger.error('Output file %s already exists, use -f to force overwrite', file_out)
     sys.exit(1)
 
-  from ..cpu.assemble import sizeof
-  from ..mm.binary import File, SectionTypes, SymbolEntry, RelocEntry
+  from ..mm.binary import File, SectionTypes, SymbolEntry, SymbolFlags, RelocEntry
 
-  i = 0
-  for s_name, section in list(iteritems(sections)):
+  D('* Remove empty and unused sections')
+
+  for name, section in list(iteritems(sections)):
+    D('  %s', name)
+
     if section.type in (SectionTypes.SYMBOLS, SectionTypes.RELOC):
+      D('    RELOC or SYMTAB')
       continue
 
-    if section.flags.bss is True and section.data_size > 0:
+    if section.flags.bss is True and (section.ptr - section.base) > 0:
+      D('    BSS with non-zero payload')
       continue
 
     if section.data_size > 0:
+      D('    non-zero data length')
       continue
 
-    del sections[s_name]
+    D('    removing')
+    del sections[name]
 
   with File.open(logger, file_out, 'w') as f_out:
-    h_file = f_out.create_header()
-    h_file.flags.mmapable = 1 if options.mmapable_sections else 0
-
-    filenames = {}
-    symbols = {}
-    symbol_entries = []
-    section_name_to_index = {}
-    section_headers = {}
-
-    reloc_sections = []
-    i = 0
-
-    for s_name in sections.keys():
-      if sections[s_name].type == SectionTypes.RELOC:
-        reloc_sections.append(s_name)
-        continue
-
-      section_name_to_index[s_name] = i
-      i += 1
-
-    for s_name in reloc_sections:
-      section_name_to_index[s_name] = i
-      i += 1
-
-    for s_name, section in iteritems(sections):
-      if section.type != SectionTypes.SYMBOLS:
-        continue
-
-      for se in section.content:
-        entry = SymbolEntry()
-
-        symbols[se.name.name] = (se, entry)
-        symbol_entries.append(entry)
-
-        entry.flags = se.flags.to_encoding()
-        entry.name = f_out.string_table.put_string(se.name.name)
-        entry.address = se.section_ptr
-        entry.size = se.size
-        entry.section = section_name_to_index[se.section.name]
-
-        if se.location is not None:
-          loc = se.location
-
-          if loc.filename not in filenames:
-            filenames[loc.filename] = f_out.string_table.put_string(loc.filename)
-          entry.filename = filenames[loc.filename]
-
-          if loc.lineno:
-            entry.lineno = loc.lineno
-
-        entry.type = se.symbol_type
+    D('Create file sections for memory sections')
 
     def __init_section_entry(section):
-      h_section = f_out.create_section()
-      h_section.type = section.type
-      h_section.items = section.items
-      h_section.data_size = section.data_size
-      h_section.file_size = section.file_size
-      h_section.name = f_out.string_table.put_string(section.name)
-      h_section.base = section.base
+      f_section = f_out.get_section_by_name(section.name)
 
-      section_headers[section.name] = h_section
+      f_section.header.type = section.type
+      f_section.header.name = f_out.string_table.put_string(section.name)
 
-      return h_section
+      if section.type == SectionTypes.PROGBITS:
+        f_section.header.flags = section.flags.to_encoding()
+        f_section.header.base = section.base
+        f_section.header.data_size = section.data_size
 
-    for s_name, section in iteritems(sections):
-      if section.type  == SectionTypes.RELOC:
+      return f_section
+
+    for name, section in iteritems(sections):
+      f_out.create_section(name = name)
+
+    symbols = {}
+
+    D('Create symbol entries')
+
+    m_section = sections['.symtab']
+    f_section = __init_section_entry(m_section)
+
+    symtab_content = []
+
+    D('  %s', m_section)
+    D('  %s', f_section.header)
+
+    for slot in m_section.content:
+      D('  %s', slot)
+
+      for label in slot.labels:
+        D('    %s', label)
+
+        entry = SymbolEntry()
+
+        symbols[label.name] = (slot, entry)
+        symtab_content.append(entry)
+
+        entry.type = slot.symbol_type
+        entry.flags = SymbolFlags.create(globally_visible = label.globally_visible).to_encoding()
+        entry.name = f_out.string_table.put_string(label.name)
+        entry.address = slot.section_ptr
+        entry.size = slot.size
+        entry.section = f_out.get_section_by_name(slot.section.name).header.index
+
+        entry.filename = f_out.string_table.put_string(slot.location.filename)
+        entry.lineno = slot.location.lineno
+
+        D('    %s', entry)
+
+    f_section.payload = symtab_content
+
+    D('* Init sections and their payloads')
+
+    for s_name, m_section in iteritems(sections):
+      D('  memory section: %s', m_section)
+
+      if m_section.type == SectionTypes.RELOC:
         continue
 
-      h_section = __init_section_entry(section)
+      f_section = __init_section_entry(m_section)
+      D('  file section: %s', f_section.header)
 
-      if section.type == SectionTypes.SYMBOLS:
-        f_out.set_content(h_section, symbol_entries)
-        h_section.data_size = h_section.file_size = sizeof(SymbolEntry()) * len(symbol_entries)
+      if m_section.flags.bss is True:
+        f_section.payload = []
+        f_section.header.file_size = m_section.file_size
+        continue
+
+      if m_section.type == SectionTypes.SYMBOLS:
+        f_section.payload = symtab_content
 
       else:
-        h_section.flags = section.flags.to_encoding()
-        f_out.set_content(h_section, section.content)
+        f_section.payload = m_section.content
 
-    for s_name, section in iteritems(sections):
-      if section.type != SectionTypes.RELOC:
+    D('')
+    D('* Reloc entries')
+    D('')
+
+    f_section = __init_section_entry(sections['.reloc'])
+    reloc_content = []
+
+    for rs in sections['.reloc'].content:
+      re = RelocEntry()
+
+      re.name = f_out.string_table.put_string(rs.name)
+      re.flags = rs.flags.to_encoding()
+      re.patch_section = f_out.get_section_by_name(rs.patch_section.name).header.index
+      re.patch_address = rs.patch_address
+      re.patch_offset = rs.patch_offset or 0
+      re.patch_size = rs.patch_size
+      re.patch_add = rs.patch_add or 0
+
+      D('  %s', re)
+      if rs.name not in symbols:
+        reloc_content.append(re)
         continue
 
-      h_section = __init_section_entry(section)
+      slot, se = symbols[rs.name]
 
-      reloc_entries = []
+      if slot.section.name != rs.patch_section.name:
+        reloc_content.append(re)
+        continue
 
-      for rs in section.content:
-        re = RelocEntry()
-        re.name = f_out.string_table.put_string(rs.name)
-        re.flags = rs.flags.to_encoding()
-        re.patch_section = section_name_to_index[rs.patch_section.name]
-        re.patch_address = rs.patch_address
-        re.patch_offset = rs.patch_offset or 0
-        re.patch_size = rs.patch_size
-        re.patch_add = rs.patch_add or 0
+      if slot.section.flags.executable is not True:
+        reloc_content.append(re)
+        continue
 
-        if rs.name not in symbols:
-          reloc_entries.append(re)
-          continue
+      D('    Can resolve this entry')
 
-        symbol, se = symbols[rs.name]
+      from .ld import RelocationPatcher
 
-        if symbol.section.name != rs.patch_section.name:
-          reloc_entries.append(re)
-          continue
+      try:
+        RelocationPatcher(re, se, rs.name, f_out.get_section_by_name(rs.patch_section.name)).patch()
 
-        if symbol.section.type != SectionTypes.TEXT:
-          reloc_entries.append(re)
-          continue
+      except PatchTooLargeError as exc:
+        exc.log(logger.error)
+        sys.exit(1)
 
-        from .ld import RelocationPatcher
-
-        try:
-          RelocationPatcher(re, se, rs.name, section_headers[rs.patch_section.name], sections[rs.patch_section.name].content).patch()
-
-        except PatchTooLargeError as exc:
-          exc.log(logger.error)
-          sys.exit(1)
-
-      f_out.set_content(h_section, reloc_entries)
-      h_section.data_size = h_section.file_size = sizeof(RelocEntry()) * len(reloc_entries)
-
-    h_section = f_out.create_section()
-    h_section.type = SectionTypes.STRINGS
-    h_section.name = f_out.string_table.put_string('.strings')
+    f_section.payload = reloc_content
 
     f_out.save()
 
@@ -234,6 +226,7 @@ def main():
 
   group = optparse.OptionGroup(parser, 'Translation options')
   parser.add_option_group(group)
+  group.add_option('-E', dest = 'preprocess', action = 'store_true', default = False, help = 'Preprocess only')
   group.add_option('-D', dest = 'defines', action = 'append', default = [], help = 'Define variable', metavar = 'VAR')
   group.add_option('-I', dest = 'includes', action = 'append', default = [], help = 'Add directory to list of include dirs', metavar = 'DIR')
   group.add_option('--verify-disassemble', dest = 'verify_disassemble', action = 'store_true', default = False, help = 'Verify that disassebler instructions match input text')
@@ -265,10 +258,27 @@ def main():
     else:
       file_out = os.path.splitext(file_in)[0] + '.o'
 
-    if options.blob is True:
-      sections = encode_blob(logger, file_in, options)
+    if options.preprocess is True:
+      process = get_assembler_process(logger, buffer, file_in, options)
+      process.preprocess()
+
+      with open(file_out, 'w') as f_out:
+        f_out.write(process.preprocessed)
 
     else:
-      sections = translate_buffer(logger, buffer, file_in, options)
+      if options.blob is True:
+        sections = encode_blob(logger, file_in, options)
 
-    save_object_file(logger, sections, file_out, options)
+      else:
+        process = get_assembler_process(logger, buffer, file_in, options)
+
+        try:
+          process.translate()
+
+        except AssemblerError as e:
+          e.log(logger.error)
+          sys.exit(1)
+
+        sections = process.sections_pass3
+
+      save_object_file(logger, sections, file_out, options)

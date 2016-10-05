@@ -1,26 +1,19 @@
 import os
 
-from ducky.tools import setup_logger
 from ducky.mm import MalformedBinaryError
 from ducky.mm.binary import File, SectionFlags
 
-from .. import TestCase, get_tempfile
+from .. import get_tempfile, LOGGER
 
-class Tests(TestCase):
-  def test_bad_magic(self):
-    tmp = get_tempfile()
-    tmp.close()
+def test_bad_magic_save():
+  tmp = get_tempfile()
+  tmp.close()
 
-    logger = setup_logger()
-
-    with File.open(logger, tmp.name, 'w') as f_out:
-      h_file = f_out.create_header()
-      h_file.magic = File.MAGIC - 1
-      f_out.save()
+  with File.open(LOGGER, tmp.name, 'w') as f_out:
+    f_out.header.magic = File.MAGIC - 1
 
     try:
-      with File.open(logger, tmp.name, 'r') as f_in:
-        f_in.load()
+      f_out.save()
 
     except MalformedBinaryError as e:
       assert e.args[0] == 'Magic cookie not recognized!'
@@ -28,31 +21,23 @@ class Tests(TestCase):
     finally:
       os.unlink(tmp.name)
 
-  def test_bad_section_type(self):
-    tmp = get_tempfile()
-    tmp.close()
+def test_bad_section_type_save():
+  tmp = get_tempfile()
+  tmp.close()
 
-    logger = setup_logger()
+  with File.open(LOGGER, tmp.name, 'w') as f_out:
+    section = f_out.create_section(name = '.foo')
 
-    with File.open(logger, tmp.name, 'w') as f_out:
-      f_out.create_header()
+    section.header.type = 254  # should be safe, not so many section types exist
+    section.header.data_size = 0
+    section.header.file_size = 0
+    section.header.base = 0
+    section.header.flags = SectionFlags.create().to_encoding()
 
-      h_section = f_out.create_section()
-      h_section.type = 254  # should be safe, not so many section types exist
-      h_section.items = 0
-      h_section.data_size = 0
-      h_section.file_size = 0
-      h_section.name = f_out.string_table.put_string('.foo')
-      h_section.base = 0
-      h_section.flags = SectionFlags.create().to_encoding()
-
-      f_out.set_content(h_section, [])
-
-      f_out.save()
+    section.payload = []
 
     try:
-      with File.open(logger, tmp.name, 'r') as f_in:
-        f_in.load()
+      f_out.save()
 
     except MalformedBinaryError as e:
       assert e.args[0] == 'Unknown section header type 254'

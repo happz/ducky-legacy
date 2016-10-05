@@ -1,0 +1,24 @@
+#ifndef __DUCKY_ARCH_SVGA_H__
+#define __DUCKY_ARCH_SVGA_H__
+
+/*
+ * simpleVGA defines
+ */
+
+<%
+  from ducky.devices.svga import DEFAULT_MMIO_ADDRESS, SimpleVGACommands, SimpleVGAPorts
+%>
+
+#define VGA_MMIO_ADDRESS ${X(DEFAULT_MMIO_ADDRESS)}
+
+#define VGA_MMIO_COMMAND ${X(SimpleVGAPorts.CONTROL)}
+#define VGA_MMIO_DATA    ${X(SimpleVGAPorts.DATA)}
+
+#define VGA_CMD_REFRESH  ${X4(SimpleVGACommands.REFRESH)}
+
+#define VGA_CMD_GRAPHIC  ${X4(SimpleVGACommands.GRAPHIC)}
+#define VGA_CMD_COLS     ${X4(SimpleVGACommands.COLS)}
+#define VGA_CMD_ROWS     ${X4(SimpleVGACommands.ROWS)}
+#define VGA_CMD_DEPTH    ${X4(SimpleVGACommands.DEPTH)}
+
+#endif

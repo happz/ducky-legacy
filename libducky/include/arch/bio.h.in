@@ -1,0 +1,34 @@
+#ifndef __DUCKY_ARCH_BIO_H__
+#define __DUCKY_ARCH_BIO_H__
+
+/*
+ * BIO defines
+ */
+
+<%
+  import ducky.devices.storage
+  from ducky.devices.storage import BlockIOPorts
+%>
+
+#define BIO_BLOCK_SIZE ${ducky.devices.storage.BLOCK_SIZE}
+
+#define BIO_RDY   ${X2(ducky.devices.storage.BIO_RDY)}
+#define BIO_ERR   ${X2(ducky.devices.storage.BIO_ERR)}
+#define BIO_READ  ${X2(ducky.devices.storage.BIO_READ)}
+#define BIO_WRITE ${X2(ducky.devices.storage.BIO_WRITE)}
+#define BIO_BUSY  ${X2(ducky.devices.storage.BIO_BUSY)}
+#define BIO_DMA   ${X2(ducky.devices.storage.BIO_DMA)}
+#define BIO_SRST  ${X2(ducky.devices.storage.BIO_SRST)}
+
+#define BIO_USER  ${X2(ducky.devices.storage.BIO_USER)}
+
+#define BIO_MMIO_ADDRESS ${X(ducky.devices.storage.DEFAULT_MMIO_ADDRESS)}
+
+#define BIO_MMIO_STATUS  ${X(BlockIOPorts.STATUS)}
+#define BIO_MMIO_SID     ${X(BlockIOPorts.SID)}
+#define BIO_MMIO_BLOCK   ${X(BlockIOPorts.BLOCK)}
+#define BIO_MMIO_COUNT   ${X(BlockIOPorts.COUNT)}
+#define BIO_MMIO_ADDR    ${X(BlockIOPorts.ADDR)}
+#define BIO_MMIO_DATA    ${X(BlockIOPorts.DATA)}
+
+#endif

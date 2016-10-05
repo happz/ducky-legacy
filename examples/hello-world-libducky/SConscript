@@ -9,8 +9,7 @@ E = ENV.FullClone(
 if 'COVERAGEDIR' in E:
   E.Depends('main.o', E['COVERAGEDIR'])
 
-E.DuckyAsmFromC('main.s', source = ['main.c'])
-E.DuckyObjFromAsm('main.o', source = ['main.s'])
+E.DuckyObjFromC('main.o', source = ['main.c'])
 E.DuckyBinary(E.File('hello-world'), source = ['#libducky/libducky.tgz', 'main.o'], SECTION_BASES = ['.text.crt0=0x00000000'])
 E.Alias('hello-world-libducky', E.File('hello-world'))
 

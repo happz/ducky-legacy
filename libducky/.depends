@@ -1,5 +1,5 @@
-crt0.o: $HEADERSDIR/arch/ducky.hs
-_stdio.o: $HEADERSDIR/arch/tty.hs
+crt0.o: $HEADERSDIR/arch/ducky.h
+_stdio.o: $HEADERSDIR/arch/tty.h
 string.o: string.c $HEADERSDIR/types.h
 
 $HEADERSDIR/hdt.h: $HEADERSDIR/arch/hdt.h

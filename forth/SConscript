@@ -10,7 +10,9 @@ E = ENV.FullClone(
 
 E.Append(INCLUDE = '-I %s' % Dir('#forth').abspath)
 
-E.PassVarAsDefine('BUILD_STAMP', to_boolean = False)
+E.Append(DEFS = ['-D__BUILD_STAMP__=$BUILD_STAMP'])
+
+#E.PassVarAsDefine('BUILD_STAMP', to_boolean = False)
 E.PassVarAsDefine('FORTH_DEBUG')
 E.PassVarAsDefine('FORTH_DEBUG_FIND')
 E.PassVarAsDefine('FORTH_DIE_ON_UNDEF')
@@ -34,8 +36,8 @@ for f in c_word_files:
   object_files.append(dst)
 
 # Assembly code
-E.DuckyObject('boundaries-post.o', source = 'boundaries-post.s')
-E.DuckyObject('ducky-forth.o', source = 'ducky-forth.s')
+E.DuckyObjFromAsm('boundaries-post.o', source = 'boundaries-post.s')
+E.DuckyObjFromAsm('ducky-forth.o', source = 'ducky-forth.s')
 
 # boundaries must be last
 object_files += ['boundaries-post.o']

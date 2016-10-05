@@ -1,1 +1,1 @@
-smp.o: smp.s $HEADERSDIR/arch/ducky.hs $HEADERSDIR/arch/control.hs $HEADERSDIR/arch/hdt.hs $HEADERSDIR/arch/boot.hs $HEADERSDIR/arch/rtc.hs
+smp.o: smp.s $HEADERSDIR/arch/ducky.h $HEADERSDIR/arch/control.h $HEADERSDIR/arch/hdt.h $HEADERSDIR/arch/boot.h $HEADERSDIR/arch/rtc.h

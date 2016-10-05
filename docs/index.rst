@@ -30,6 +30,7 @@ Code Documentation
 .. toctree::
    :maxdepth: 3
 
+   ducky.asm
    ducky.boot
    ducky.config
    ducky.console
