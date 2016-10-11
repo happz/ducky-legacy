@@ -4,7 +4,6 @@ import logging
 from ...interfaces import ISnapshotable
 from ...errors import RegisterAccessError
 from . import Coprocessor
-from ...mm import u32_t
 from ...util import Flags
 
 class ControlRegisters(enum.IntEnum):
@@ -23,16 +22,16 @@ class CoreFlags(Flags):
 
 class ControlCoprocessor(ISnapshotable, Coprocessor):
   def read_cr0(self):
-    return u32_t((self.core.cpu.id << 16) | self.core.id).value
+    return ((self.core.cpu.id << 16) | self.core.id) & 0xFFFFFFFF
 
   def read_cr1(self):
-    return u32_t(self.core.evt_address).value
+    return self.core.evt_address & 0xFFFFFFFF
 
   def write_cr1(self, address):
     self.core.evt_address = address
 
   def read_cr2(self):
-    return u32_t(self.core.mmu.pt_address).value
+    return self.core.mmu.pt_address & 0xFFFFFFFF
 
   def write_cr2(self, address):
     self.core.mmu.pt_address = address
