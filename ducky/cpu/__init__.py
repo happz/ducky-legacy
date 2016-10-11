@@ -246,8 +246,14 @@ class MMU(ISnapshotable):
   translations, access control, and caching.
 
   :param ducky.cpu.CPUCore core: parent core.
-  :param ducky.mm.MemoryController memory_controller: memory controller that provides access
-    to the main memory.
+  :param ducky.mm.MemoryController memory_controller: memory controller that
+    provides access to the main memory.
+  :param bool memory.force-aligned-access: if set, MMU will disallow unaligned
+    reads and writes. ``False`` by default.
+  :param int cpu.pt-address: base address of page table.
+    :py:const:`ducky.cpu.DEFAULT_PT_ADDRESS` by default.
+  :param bool cpu.pt-enabled: if set, CPU core will start with page table
+    enabled. ``False`` by default.
   """
 
   def __init__(self, core, memory_controller):
@@ -259,19 +265,28 @@ class MMU(ISnapshotable):
     self.memory = memory_controller
 
     self.force_aligned_access = config.getbool('memory', 'force-aligned-access', default = False)
-    self.pt_address = config.getint('cpu', 'pt-address', DEFAULT_PT_ADDRESS)
+    self.pt_address = config.getint('cpu', 'pt-address', default = DEFAULT_PT_ADDRESS)
+    self._pt_enabled = config.getbool('cpu', 'pt-enabled', default = False)
 
-    self.pt_enabled = False
-
-    self.pte_cache = {}
+    self._pte_cache = {}
 
     self.DEBUG = core.DEBUG
 
     self.instruction_cache = InstructionCache(self, config.getint('cpu', 'inst-cache', default = DEFAULT_CORE_INST_CACHE_SIZE))
 
-    self.set_access_methods()
+    self._set_access_methods()
 
-  def __debug_wrapper_read(self, reader, *args, **kwargs):
+  def _get_pt_enabled(self):
+    return self._pt_enabled
+
+  def _set_pt_enabled(self, value):
+    self._pt_enabled = value
+
+    self._set_access_methods()
+
+  pt_enabled = property(_get_pt_enabled, _set_pt_enabled)
+
+  def _debug_wrapper_read(self, reader, *args, **kwargs):
     self.core.debug.pre_memory(args[0], read = True)
 
     if not self.core.running:
@@ -283,7 +298,7 @@ class MMU(ISnapshotable):
 
     return value
 
-  def __debug_wrapper_write(self, writer, *args, **kwargs):
+  def _debug_wrapper_write(self, writer, *args, **kwargs):
     self.core.debug.pre_memory(args[0], read = False)
 
     if not self.core.running:
@@ -293,127 +308,185 @@ class MMU(ISnapshotable):
 
     self.core.debug.post_memory(args[0], read = False)
 
-  def set_access_methods(self):
+  def _set_access_methods(self):
     """
-    Set parent core's memory-access methods to proper shortcuts.
+    Set parent core's memory-access methods to proper shortcuts. Methods named
+    ``MEM_{IN,OUT}{8,16,32}`` will be set to corresponding MMU methods.
     """
 
-    self.DEBUG('MMU.set_access_methods')
+    self.DEBUG('MMU._set_access_methods')
 
-    self.core.MEM_IN8   = self.full_read_u8
-    self.core.MEM_IN16  = self.full_read_u16
-    self.core.MEM_IN32  = self.full_read_u32
-    self.core.MEM_OUT8  = self.full_write_u8
-    self.core.MEM_OUT16 = self.full_write_u16
-    self.core.MEM_OUT32 = self.full_write_u32
+    def __set_methods(set_name):
+      self.core.MEM_IN8   = getattr(self, '_' + set_name + '_read_u8')
+      self.core.MEM_IN16  = getattr(self, '_' + set_name + '_read_u16')
+      self.core.MEM_IN32  = getattr(self, '_' + set_name + '_read_u32')
+      self.core.MEM_OUT8  = getattr(self, '_' + set_name + '_write_u8')
+      self.core.MEM_OUT16 = getattr(self, '_' + set_name + '_write_u16')
+      self.core.MEM_OUT32 = getattr(self, '_' + set_name + '_write_u32')
+
+    def __wrap_debug():
+      self.core.MEM_IN8   = partial(self._debug_wrapper_read,  self.core.MEM_IN8)
+      self.core.MEM_IN16  = partial(self._debug_wrapper_read,  self.core.MEM_IN16)
+      self.core.MEM_IN32  = partial(self._debug_wrapper_read,  self.core.MEM_IN32)
+      self.core.MEM_OUT8  = partial(self._debug_wrapper_write, self.core.MEM_OUT8)
+      self.core.MEM_OUT16 = partial(self._debug_wrapper_write, self.core.MEM_OUT16)
+      self.core.MEM_OUT32 = partial(self._debug_wrapper_write, self.core.MEM_OUT32)
+
+    if self._pt_enabled is True:
+      __set_methods('pt')
+
+    else:
+      __set_methods('nopt')
 
     if self.core.debug is not None:
-      self.core.MEM_IN8   = partial(self.__debug_wrapper_read,  self.core.MEM_IN8)
-      self.core.MEM_IN16  = partial(self.__debug_wrapper_read,  self.core.MEM_IN16)
-      self.core.MEM_IN32  = partial(self.__debug_wrapper_read,  self.core.MEM_IN32)
-      self.core.MEM_OUT8  = partial(self.__debug_wrapper_write, self.core.MEM_OUT8)
-      self.core.MEM_OUT16 = partial(self.__debug_wrapper_write, self.core.MEM_OUT16)
-      self.core.MEM_OUT32 = partial(self.__debug_wrapper_write, self.core.MEM_OUT32)
+      __wrap_debug()
 
   def reset(self):
+    """
+    Reset MMU. PT will be disabled, and all internal caches will be flushed.
+    """
+
     self.instruction_cache.clear()
 
     self.pt_enabled = False
-    self.pte_cache = {}
+    self._pte_cache = {}
 
   def halt(self):
     pass
 
   def release_ptes(self):
-    self.DEBUG('MMU.release_ptes')
+    """
+    Clear internal PTE cache.
+    """
 
-    self.pte_cache = {}
+    self.DEBUG('%s.release_ptes', self.__class__.__name__)
 
-  def get_pte(self, addr):
+    self._pte_cache = {}
+
+  def _get_pte(self, addr):
     """
     Find out PTE for particular physical address. If PTE is not in internal PTE cache, it is
     fetched from PTE table.
 
-    :param u24 addr: memory address.
+    :param int addr: memory address.
     """
 
     pg_index = (addr & PAGE_MASK) >> PAGE_SHIFT
+    pte_address = self.pt_address + pg_index
 
-    self.DEBUG('MMU.get_pte: addr=%s, pte-address=%s', UINT32_FMT(addr), UINT32_FMT(self.pt_address + pg_index))
+    self.DEBUG('%s._get_pte: addr=%s, pg=%s, pte-address=%s', self.__class__.__name__, UINT32_FMT(addr), pg_index, UINT32_FMT(pte_address))
 
-    if pg_index not in self.pte_cache:
-      self.pte_cache[pg_index] = pte = PageTableEntry.from_int(self.memory.read_u8(self.pt_address + pg_index))
+    if pg_index not in self._pte_cache:
+      self._pte_cache[pg_index] = pte = PageTableEntry.from_int(self.memory.read_u8(pte_address))
 
     else:
-      pte = self.pte_cache[pg_index]
+      pte = self._pte_cache[pg_index]
 
-    self.DEBUG('  pte=%s (%s)', pte.to_string(), pte.to_int())
+    self.DEBUG('%s._get_pte: pte=%s,%s', pte.to_string(), pte.to_int())
 
     return pte
 
-  def check_access(self, access, addr, align = None):
+  def _check_access(self, access, addr, align = None):
     """
-    Check attempted access against PTE. Be aware that each check can be turned off by configuration file.
+    Check attempted access against several criteria:
+
+     - PT is enabled - disabled PT implies different set of read/write methods
+       that don't use this method to check access
+     - access alignment if correct alignment is required
+     - privileged access implies granted access
+     - corresponding PTE settings
 
     :param access: ``read``, ``write`` or ``execute``.
-    :param u24 addr: memory address.
+    :param int addr: memory address.
     :param int align: if set, operation is expected to be aligned to this boundary.
     :raises ducky.errors.UnalignedAccessError: when unaligned access is not
       allowed, but requested.
     :raises ducky.errors.MemoryAccessError: when access is denied.
     """
 
-    self.DEBUG('%s.check_access: access=%s, addr=%s, align=%s', self.__class__.__name__, access, UINT32_FMT(addr), align)
+    self.DEBUG('%s._check_access: access=%s, addr=%s, align=%s', self.__class__.__name__, access, UINT32_FMT(addr), align)
 
-    if self.force_aligned_access and align is not None and addr % align:
+    if self.force_aligned_access is True and align is not None and addr % align:
       raise UnalignedAccessError(core = self.core)
 
     pg_index = (addr & PAGE_MASK) >> PAGE_SHIFT
 
-    if self.core.privileged or self.pt_enabled is not True:
+    if self.core.privileged is True:
       return self.memory.get_page(pg_index)
 
-    pte = self.get_pte(addr)
+    pte = self._get_pte(addr)
 
-    if getattr(pte, access) == 1:
+    if getattr(pte, access) is True:
       return self.memory.get_page(pg_index)
 
     raise MemoryAccessError(access, addr, pte)
 
-  def full_read_u8(self, addr):
-    self.DEBUG('MMU.raw_read_u8: addr=%s', UINT32_FMT(addr))
+  # "PT Disabled" methods - every access is effectively privileged
+  def _nopt_read_u8(self, addr):
+    self.DEBUG('MMU._nopt_read_u8: addr=%s', UINT32_FMT(addr))
 
-    return self.check_access('read', addr).read_u8(addr & (PAGE_SIZE - 1))
+    return self.memory.get_page((addr & PAGE_MASK) >> PAGE_SHIFT).read_u8(addr & (PAGE_SIZE - 1))
 
-  def full_read_u16(self, addr):
-    self.DEBUG('MMU.raw_read_u16: addr=%s', UINT32_FMT(addr))
+  def _nopt_read_u16(self, addr):
+    self.DEBUG('MMU._nopt_read_u16: addr=%s', UINT32_FMT(addr))
 
-    return self.check_access('read', addr, align = 2).read_u16(addr & (PAGE_SIZE - 1))
+    return self.memory.get_page((addr & PAGE_MASK) >> PAGE_SHIFT).read_u16(addr & (PAGE_SIZE - 1))
 
-  def full_read_u32(self, addr, not_execute = True):
-    self.DEBUG('MMU.raw_read_u32: addr=%s', UINT32_FMT(addr))
+  def _nopt_read_u32(self, addr, not_execute = True):
+    self.DEBUG('MMU._nopt_read_u32: addr=%s', UINT32_FMT(addr))
 
-    pg = self.check_access('read', addr, align = 4)
+    return self.memory.get_page((addr & PAGE_MASK) >> PAGE_SHIFT).read_u32(addr & (PAGE_SIZE - 1))
+
+  def _nopt_write_u8(self, addr, value):
+    self.DEBUG('MMU._nopt_write_u8: addr=%s, value=%s', UINT32_FMT(addr), UINT8_FMT(value))
+
+    return self.memory.get_page((addr & PAGE_MASK) >> PAGE_SHIFT).write_u8(addr & (PAGE_SIZE - 1), value)
+
+  def _nopt_write_u16(self, addr, value):
+    self.DEBUG('MMU._nopt_write_u16: addr=%s, value=%s', UINT32_FMT(addr), UINT8_FMT(value))
+
+    return self.memory.get_page((addr & PAGE_MASK) >> PAGE_SHIFT).write_u16(addr & (PAGE_SIZE - 1), value)
+
+  def _nopt_write_u32(self, addr, value):
+    self.DEBUG('MMU._nopt_write_u32: addr=%s, value=%s', UINT32_FMT(addr), UINT8_FMT(value))
+
+    return self.memory.get_page((addr & PAGE_MASK) >> PAGE_SHIFT).write_u32(addr & (PAGE_SIZE - 1), value)
+
+  # "PT Enabled" methods - checking access
+  def _pt_read_u8(self, addr):
+    self.DEBUG('MMU._pt_read_u8: addr=%s', UINT32_FMT(addr))
+
+    return self._check_access('read', addr).read_u8(addr & (PAGE_SIZE - 1))
+
+  def _pt_read_u16(self, addr):
+    self.DEBUG('MMU._pt_read_u16: addr=%s', UINT32_FMT(addr))
+
+    return self._check_access('read', addr, align = 2).read_u16(addr & (PAGE_SIZE - 1))
+
+  def _pt_read_u32(self, addr, not_execute = True):
+    self.DEBUG('MMU._pt_read_u32: addr=%s', UINT32_FMT(addr))
+
+    pg = self._check_access('read', addr, align = 4)
 
     if not_execute is not True:
-      pg = self.check_access('execute', addr)
+      pg = self._check_access('execute', addr)
 
     return pg.read_u32(addr & (PAGE_SIZE - 1))
 
-  def full_write_u8(self, addr, value):
-    self.DEBUG('MMU.raw_write_u8: addr=%s, value=%s', UINT32_FMT(addr), UINT8_FMT(value))
+  def _pt_write_u8(self, addr, value):
+    self.DEBUG('MMU._pt_write_u8: addr=%s, value=%s', UINT32_FMT(addr), UINT8_FMT(value))
 
-    return self.check_access('write', addr).write_u8(addr & (PAGE_SIZE - 1), value)
+    return self._check_access('write', addr).write_u8(addr & (PAGE_SIZE - 1), value)
 
-  def full_write_u16(self, addr, value):
-    self.DEBUG('MMU.raw_write_u16: addr=%s, value=%s', UINT32_FMT(addr), UINT16_FMT(value))
+  def _pt_write_u16(self, addr, value):
+    self.DEBUG('MMU._pt_write_u16: addr=%s, value=%s', UINT32_FMT(addr), UINT16_FMT(value))
 
-    return self.check_access('write', addr).write_u16(addr & (PAGE_SIZE - 1), value)
+    return self._check_access('write', addr).write_u16(addr & (PAGE_SIZE - 1), value)
 
-  def full_write_u32(self, addr, value):
-    self.DEBUG('MMU.raw_write_u32: addr=%s, value=%s', UINT32_FMT(addr), UINT32_FMT(value))
+  def _pt_write_u32(self, addr, value):
+    self.DEBUG('MMU._pt_write_u32: addr=%s, value=%s', UINT32_FMT(addr), UINT32_FMT(value))
 
-    return self.check_access('write', addr).write_u32(addr & (PAGE_SIZE - 1), value)
+    return self._check_access('write', addr).write_u32(addr & (PAGE_SIZE - 1), value)
 
 class CPUCore(ISnapshotable, IMachineWorker):
   """
@@ -554,7 +627,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
       from .. import debugging
       self.debug = debugging.DebuggingSet(self)
 
-      self.mmu.set_access_methods()
+      self.mmu._set_access_methods()
 
   def REG(self, reg):
     return self.registers[reg]
