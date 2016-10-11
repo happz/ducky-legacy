@@ -40,7 +40,7 @@ class KeyboardMMIOMemoryPage(MMIOMemoryPage):
 
     if offset == KeyboardPorts.DATA:
       b = self._device._read_char()
-      if not b:
+      if b is None:
         self.DEBUG('%s.get: empty input, signal it downstream', self.__class__.__name__)
         return 0xFF
 
@@ -208,39 +208,19 @@ class Backend(DeviceBackend):
       self._process_input_event(e)
 
   def _read_char(self):
-    self.machine.DEBUG('%s._read_char', self.__class__.__name__)
+    q = self._key_queue
 
-    def __do_read_char():
-      try:
-        b = self._key_queue.pop(0)
+    if not q:
+      self._process_input_events()
 
-      except IndexError:
-        self.machine.DEBUG('%s._read_char: no available chars in queue', self.__class__.__name__)
+      if not q:
         return None
 
-      return b
+    b = q.pop(0)
 
-    def __process_char(b):
-      self.machine.DEBUG('%s._read_char: queue now has %i bytes', self.__class__.__name__, len(self._key_queue))
+    if b == ControlMessages.HALT:
+      self.machine.halt()
 
-      if b == ControlMessages.HALT:
-        self.machine.DEBUG('%s._read_char: planned halt, execute', self.__class__.__name__)
-        self.machine.halt()
-
-        return None
-
-      self.machine.DEBUG('%s._read_char: c=%s ()', self.__class__.__name__, b)
-
-      return b
-
-    b = __do_read_char()
-    if b is not None:
-      return __process_char(b)
-
-    self._process_input_events()
-
-    b = __do_read_char()
-    if b is None:
       return None
 
-    return __process_char(b)
+    return b
