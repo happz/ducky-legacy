@@ -8,21 +8,21 @@ from ducky.log import create_logger
 from ducky.cpu.coprocessor.control import ControlRegisters
 from ducky.util import F
 
-from .. import common_run_machine, assert_raises, mock
+from .. import common_run_machine, assert_raises, mock, LOGGER
 
-def create_machine(evt_address = None, pt_address = None, privileged = True, jit = False, **kwargs):
+def create_machine(evt_address = None, pt_address = None, privileged = True, jit = False, pt_enabled = False, **kwargs):
   machine_config = ducky.config.MachineConfig()
 
-  if evt_address is not None or pt_address is not None:
-    machine_config.add_section('cpu')
-
-    if evt_address is not None:
-      machine_config.set('cpu', 'evt-address', evt_address)
-
-    if pt_address is not None:
-      machine_config.set('cpu', 'pt-address', pt_address)
-
+  machine_config.add_section('cpu')
   machine_config.add_section('machine')
+
+  if evt_address is not None:
+    machine_config.set('cpu', 'evt-address', evt_address)
+
+  if pt_address is not None:
+    machine_config.set('cpu', 'pt-address', pt_address)
+
+  machine_config.set('cpu', 'pt-enabled', pt_enabled)
   machine_config.set('machine', 'jit', jit)
 
   M = common_run_machine(machine_config = machine_config, post_setup = [lambda _M: False], **kwargs)
@@ -145,7 +145,43 @@ def test_vmdebug():
     assert logger.getEffectiveLevel() == logging.INFO
 
     logger.debug('This should not pass')
-    logger._log.assert_not_called()
+    logger._log.assert_called_with(logging.DEBUG, '%s MMU._set_access_methods', ('#0:#0:',))
 
   __check(True, CONTROL_FLAG_VMDEBUG)
+  __check(False, 0)
+
+def test_pt_enabled():
+  from ducky.cpu.coprocessor.control import CONTROL_FLAG_PT_ENABLED
+
+  def __check(pt_enabled, expect_flag):
+    LOGGER.debug('test_pt_enabled: pt_enabled=%s, expect_flag=0x%08X', pt_enabled, expect_flag)
+
+    M = create_machine(pt_enabled = pt_enabled)
+    core = M.cpus[0].cores[0]
+    mmu = core.mmu
+
+    core.privileged = True
+    assert core.privileged is True, 'Core is not in privileged mode'
+
+    v = core.control_coprocessor.read(ControlRegisters.CR3)
+    assert (v & CONTROL_FLAG_PT_ENABLED) == expect_flag
+    assert mmu.pt_enabled is pt_enabled
+
+    # Turn PT on
+    LOGGER.debug('test_pt_enabled: enable PT')
+    core.control_coprocessor.write(ControlRegisters.CR3, v | CONTROL_FLAG_PT_ENABLED)
+    w = core.control_coprocessor.read(ControlRegisters.CR3)
+    assert (w & CONTROL_FLAG_PT_ENABLED) == CONTROL_FLAG_PT_ENABLED
+    assert mmu.pt_enabled is True
+    assert core.MEM_IN8 == mmu._pt_read_u8
+
+    # Turn PT off
+    LOGGER.debug('test_pt_enabled: disable PT')
+    core.control_coprocessor.write(ControlRegisters.CR3, v & ~CONTROL_FLAG_PT_ENABLED)
+    w = core.control_coprocessor.read(ControlRegisters.CR3)
+    assert (w & CONTROL_FLAG_PT_ENABLED) == 0
+    assert mmu.pt_enabled is False
+    assert core.MEM_IN8 == mmu._nopt_read_u8
+
+  __check(True, CONTROL_FLAG_PT_ENABLED)
   __check(False, 0)
