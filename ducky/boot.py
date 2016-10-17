@@ -397,7 +397,7 @@ class ROMLoader(IMachineWorker):
 
     self.DEBUG('%s.setup_bootloader: filepath=%s, base=%s', self.__class__.__name__, filepath, UINT32_FMT(base) if base is not None else '<none>')
 
-    base = base or DEFAULT_BOOTLOADER_ADDRESS
+    base = DEFAULT_BOOTLOADER_ADDRESS if base is None else base
     mc = self.machine.memory
 
     with File.open(self.machine.LOGGER, filepath, 'r') as f:
@@ -409,6 +409,7 @@ class ROMLoader(IMachineWorker):
           continue
 
         section_base = base + section.header.base
+        self.DEBUG('%s.setup_bootloader:   place to %s', self.__class__.__name__, UINT32_FMT(section_base))
 
         pages_start, pages_cnt = area_to_pages(section_base, section.header.data_size)
 
@@ -443,7 +444,7 @@ class ROMLoader(IMachineWorker):
     self.setup_debugging()
 
     if self.config.has_section('bootloader'):
-      self.setup_bootloader(self.config.get('bootloader', 'file'))
+      self.setup_bootloader(self.config.get('bootloader', 'file'), base = self.config.getint('bootloader', 'base', DEFAULT_BOOTLOADER_ADDRESS))
 
   def halt(self):
     self.DEBUG('%s.halt', self.__class__.__name__)
