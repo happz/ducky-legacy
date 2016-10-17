@@ -364,7 +364,7 @@ def __asm_from_c(source, target, env):
     env.Exit(1)
 
   cmd = DuckyCommand(env, runner = '')
-  cmd.command = env.subst('$LLVMDIR/bin/clang -cc1 -S -fno-builtin -O3 -masm-verbose -mllvm -disable-tail-duplicate {defs} {include} -o {target} {inputs}'.format(
+  cmd.command = env.subst('$LLVMDIR/bin/clang -cc1 -S -fno-builtin -O0 -masm-verbose -mllvm -disable-tail-duplicate {defs} {include} -o {target} {inputs}'.format(
     inputs  = ' '.join([str(f) for f in source]),
     defs    = ' '.join(env['DEFS']) if 'DEFS' in env else '',
     include = ' '.join(env['INCLUDE']) if 'INCLUDE' in env else '',
@@ -378,7 +378,7 @@ def __object_from_c(source, target, env):
     env.Exit(1)
 
   cmd = DuckyCommand(env, runner = '')
-  cmd.command = env.subst('$LLVMDIR/bin/clang -c -fno-builtin -fno-integrated-as -O3 -mllvm -disable-tail-duplicate {defs} {include} -o {target} {inputs}'.format(
+  cmd.command = env.subst('$LLVMDIR/bin/clang -c -fno-builtin -fno-integrated-as -O0 -mllvm -disable-tail-duplicate {defs} {include} -o {target} {inputs}'.format(
     inputs  = ' '.join([str(f) for f in source]),
     defs    = ' '.join(env['DEFS']) if 'DEFS' in env else '',
     include = ' '.join(env['INCLUDE']) if 'INCLUDE' in env else '',
