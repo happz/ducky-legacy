@@ -3,7 +3,7 @@ import optparse
 import re
 import tabulate
 
-from six import viewkeys, itervalues
+from six import viewkeys, itervalues, iteritems
 from collections import defaultdict
 
 from . import add_common_options, parse_options
@@ -86,6 +86,24 @@ def show_disassemble(f):
   for symbols_list in itervalues(symbols):
     symbols_list.sort(key = lambda x: x[0])
 
+  symbols_maps = {}
+  for section_name, symbols_list in iteritems(symbols):
+    symbol_map = symbols_maps[section_name] = {}
+
+    symbol_count = len(symbols_list)
+
+    for i in range(0, symbol_count):
+      symbol_addr, symbol_name = symbols_list[i]
+
+      if i == symbol_count - 1:
+        limit_addr = symbol_addr + f.get_section_by_name(section_name).header.data_size
+
+      else:
+        limit_addr, _ = symbols_list[i + 1]
+
+      for addr in range(symbol_addr, limit_addr, 4):
+        symbol_map[addr] = symbol_name
+
   for section in f.sections:
     if section.header.type != SectionTypes.PROGBITS:
       continue
@@ -99,27 +117,18 @@ def show_disassemble(f):
       ['', '', '', '']
     ]
 
-    symbols_list = symbols[section.name]
-
+    symbols_map = symbols_maps[section.name]
     csp = section.header.base
 
-    for i in range(0, len(section.payload), WORD_SIZE):
-      raw_inst = section.payload[i] | (section.payload[i + 1] << 8) | (section.payload[i + 2] << 16) | (section.payload[i + 3] << 24)
+    payload = section.payload
+    for i in range(0, len(payload), WORD_SIZE):
+      raw_inst = payload[i] | (payload[i + 1] << 8) | (payload[i + 2] << 16) | (payload[i + 3] << 24)
 
-      prev_symbol_name = symbols_list[0][1]
-      for symbol_addr, symbol_name in symbols_list:
-        if csp == symbol_addr:
-          prev_symbol_name = symbol_name
-          break
-
-        if csp < symbol_addr:
-          break
-
-        prev_symbol_name = symbol_name
+      symbol_name = symbols_map[csp]
 
       inst, desc, opcode = instruction_set.decode_instruction(get_logger(), raw_inst)
 
-      table.append([UINT32_FMT(csp), UINT32_FMT(raw_inst), instruction_set.disassemble_instruction(get_logger(), raw_inst), prev_symbol_name])
+      table.append([UINT32_FMT(csp), UINT32_FMT(raw_inst), instruction_set.disassemble_instruction(get_logger(), raw_inst), symbol_name])
 
       if opcode == DuckyInstructionSet.opcodes.SIS:
         instruction_set = get_instruction_set(inst.immediate)
@@ -136,7 +145,7 @@ def show_reloc(f):
   I('')
 
   table = [
-    ['Name', 'Flags', 'Patch section', 'Patch address', 'Patch offset', 'Patch size']
+    ['Name', 'Flags', 'Patch section', 'Patch address', 'Patch offset', 'Patch size', 'Addition']
   ]
 
   for section in f.sections:
@@ -152,7 +161,8 @@ def show_reloc(f):
         patch_section.name,
         UINT32_FMT(entry.patch_address),
         entry.patch_offset,
-        entry.patch_size
+        entry.patch_size,
+        entry.patch_add
       ])
 
   get_logger().table(table)
@@ -161,16 +171,14 @@ def show_reloc(f):
 def show_symbols(options, f):
   I = get_logger().info
 
-  ascii_replacements = {
-    '\n':   '\\n',
-    '\r':   '\\r',
-    '\x00': '\\0'
-  }
+  def to_ascii(buff):
+    ret = ['' for _ in range(0, len(buff))]
 
-  def ascii_replacer(m):
-    return ascii_replacements[m.group(0)]
+    for i in range(0, len(buff)):
+      c = buff[i]
+      ret[i] = chr(c) if 32 <= c <= 126 else (r'\%02x' % c)
 
-  ascii_replace = re.compile(r'|'.join(viewkeys(ascii_replacements)))
+    return ret
 
   I('=== Symbols ===')
   I('')
@@ -229,16 +237,14 @@ def show_symbols(options, f):
         symbol_content = UINT8_FMT(section.payload[entry.address - section.header.base])
 
       elif entry.type == SymbolDataTypes.ASCII:
-        symbol_content = ''.join(['%s' % chr(c) for c in section.payload[entry.address - section.header.base:entry.address - section.header.base + entry.size]])
+        symbol_content = ''.join(to_ascii(section.payload[entry.address - section.header.base:entry.address - section.header.base + entry.size]))
 
       elif entry.type == SymbolDataTypes.STRING:
-        symbol_content = ''.join(['%s' % chr(c) for c in section.payload[entry.address - section.header.base:entry.address - section.header.base + entry.size]])
+        symbol_content = ''.join(to_ascii(section.payload[entry.address - section.header.base:entry.address - section.header.base + entry.size]))
 
       if entry.type == SymbolDataTypes.ASCII or entry.type == SymbolDataTypes.STRING:
         if options.full_strings is not True and len(symbol_content) > 20:
           symbol_content = symbol_content[0:17] + '...'
-
-        symbol_content = '"' + ascii_replace.sub(ascii_replacer, symbol_content) + '"'
 
     table_row.append(symbol_content)
     table.append(table_row)
