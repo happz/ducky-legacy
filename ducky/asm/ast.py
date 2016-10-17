@@ -1,3 +1,5 @@
+from six import integer_types, string_types
+
 class SourceLocation(object):
   __slots__ = ('filename', 'lineno', 'column', 'length')
 
@@ -192,6 +194,27 @@ class ShortNode(SlotNode):
 
 class WordNode(SlotNode):
   pass
+
+
+class ExpressionNode(ASTNode):
+  __slots__ = ASTNode.__slots__ + ('value',)
+
+  def __init__(self, value, *args, **kwargs):
+    super(ExpressionNode, self).__init__(*args, **kwargs)
+
+    self.value = value
+
+  def __repr__(self):
+    return '<%s: value="%s">' % (self.__class__.__name__, repr(self.value))
+
+  def is_int(self):
+    return isinstance(self.value, integer_types)
+
+  def is_str(self):
+    return isinstance(self.value, string_types)
+
+  def is_expr(self):
+    return isinstance(self.value, tuple)
 
 
 class Operand(object):

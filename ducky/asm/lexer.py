@@ -32,7 +32,7 @@ directives = (
 
 # Construct list of tokens, and map of reserved words
 tokens = instructions + math_instructions + (
-  'COMMA', 'COLON', 'HASH', 'LBRAC', 'RBRAC', 'DOT',
+  'COMMA', 'COLON', 'HASH', 'LBRAC', 'RBRAC', 'DOT', 'PLUS',
   'SCONST', 'ICONST',
   'ID', 'REGISTER'
 )
@@ -70,9 +70,10 @@ t_HASH           = r'\#'
 t_LBRAC = r'\['
 t_RBRAC = r'\]'
 t_DOT   = r'\.'
+t_PLUS           = r'\+'
 
 t_SCONST = r'\"([^\\\n]|(\\.))*?\"'
-t_ICONST = r'[+-]?(?:(?:0x[0-9a-fA-F][0-9a-fA-F]*)|(?:[0-9][0-9]*))'
+t_ICONST = r'-?(?:(?:0x[0-9a-fA-F][0-9a-fA-F]*)|(?:[0-9][0-9]*))'
 
 def t_ID(t):
   r'[a-zA-Z_\.][a-zA-Z0-9_\.]*'

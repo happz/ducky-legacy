@@ -10,7 +10,7 @@ from six.moves import UserDict
 from .lexer import AssemblyLexer
 from .parser import AssemblyParser
 from .ast import FileNode, LabelNode, GlobalDirectiveNode, FileDirectiveNode, SectionDirectiveNode, DataSectionDirectiveNode, TextSectionDirectiveNode, SetDirectiveNode
-from .ast import StringNode, AsciiNode, SpaceNode, AlignNode, ByteNode, ShortNode, WordNode, InstructionNode, SourceLocation
+from .ast import StringNode, AsciiNode, SpaceNode, AlignNode, ByteNode, ShortNode, WordNode, InstructionNode, SourceLocation, ExpressionNode
 
 from ..cpu.instructions import EncodingContext, encoding_to_u32
 
@@ -162,6 +162,13 @@ class RelocSlot(object):
   def __repr__(self):
     return '<RelocSlot: name=%s, flags=%s, section=%s, address=%s, offset=%s, size=%s, add=%s>' % (self.name, self.flags.to_string(), self.patch_section, UINT32_FMT(self.patch_address), self.patch_offset, self.patch_size, self.patch_add)
 
+class Reference(object):
+  def __init__(self, refers_to):
+    self.refers_to = refers_to
+
+  def __repr__(self):
+    return '<%s: refers to "%s">' % (self.__class__.__name__, self.refers_to)
+
 class NumberPayloadSlot(Slot):
   def unpack_value(self):
     raise NotImplemented()
@@ -169,22 +176,37 @@ class NumberPayloadSlot(Slot):
   def __init__(self, *args, **kwargs):
     super(NumberPayloadSlot, self).__init__(*args, **kwargs)
 
-    if isinstance(self.value, string_types):
-      self.refers_to = self.value
-      self.value = None
+    assert isinstance(self.value, ExpressionNode), repr(self.value)
+
+    if self.value.is_int():
+      self.unpack_value()
 
     else:
-      self.unpack_value()
+      self.refers_to = Reference(self.value)
+      self.value = None
 
   def resolve_reference(self, section, sections, references):
     assert self.refers_to is not None
 
-    reference, self.refers_to = self.refers_to, None
+    reference, self.refers_to = self.refers_to.refers_to, None
 
-    reloc = RelocSlot(reference, flags = RelocFlags.create(relative = False, inst_aligned = False),
-                      patch_section = section, patch_address = section.ptr, patch_size = self.size * 8, patch_offset = 0)
+    if reference.is_str():
+      re = RelocSlot(reference.value, flags = RelocFlags.create(relative = False, inst_aligned = False),
+                     patch_section = section, patch_address = section.ptr, patch_size = self.size * 8, patch_offset = 0)
+    else:
+      lh, op, rh = reference.value
 
-    sections['.reloc'].content.append(reloc)
+      if rh.is_str():
+        lh, rh = rh, lh
+
+      assert lh.is_str()
+      assert rh.is_int()
+      assert op == '+'
+
+      re = RelocSlot(lh.value, flags = RelocFlags.create(relative = False, inst_aligned = False),
+                     patch_section = section, patch_address = section.ptr, patch_size = self.size * 8, patch_offset = 0, patch_add = rh.value)
+
+    sections['.reloc'].content.append(re)
 
     self.value = [0x79] * self.size
 
@@ -193,22 +215,22 @@ class ByteSlot(NumberPayloadSlot):
   size = 1
 
   def unpack_value(self):
-    self.value = [(self.value & 0xFF) or 0]
+    self.value = [(self.value.value & 0xFF) or 0]
 
 class ShortSlot(NumberPayloadSlot):
   symbol_type = mm.binary.SymbolDataTypes.SHORT
   size = 2
 
   def unpack_value(self):
-    v = self.value
+    v = self.value.value
     self.value = [v & 0xFF, (v >> 8) & 0xFF]
 
-class IntSlot(NumberPayloadSlot):
+class WordSlot(NumberPayloadSlot):
   symbol_type = mm.binary.SymbolDataTypes.INT
   size = 4
 
   def unpack_value(self):
-    v = self.value
+    v = self.value.value
     self.value = [v & 0xFF, (v >> 8) & 0xFF, (v >> 16) & 0xFF, (v >> 24) & 0xFF]
 
 class CharSlot(NumberPayloadSlot):
@@ -265,7 +287,10 @@ class AlignSlot(Slot):
   size = 0
 
   def place_in_section(self, section, sections, references):
-    aligned_ptr = align(self.value, section.ptr)
+    assert isinstance(self.value, ExpressionNode)
+    assert self.value.is_int()
+
+    aligned_ptr = align(self.value.value, section.ptr)
 
     self.size = aligned_ptr - section.ptr
     self.value = [0] * self.size
@@ -449,7 +474,11 @@ class AssemblerProcess(LoggingCapable, object):
       location.filename = node.filepath
 
     def __do_handle_slot_definition(slot_klass, node):
-      value = variables.get(node.value, node.value)
+      value = node.value
+
+      if isinstance(value, ExpressionNode) and value.is_str():
+        if value.value in variables:
+          value.value = variables.get(value.value)
 
       slot = slot_klass(ctx = self, section = ctx.curr_section, location = node.location, labels = ctx.labels, value = value)
 
@@ -527,7 +556,7 @@ class AssemblerProcess(LoggingCapable, object):
       LabelNode:              __handle_label,
       ByteNode:      partial(__do_handle_slot_definition, ByteSlot),
       ShortNode:     partial(__do_handle_slot_definition, ShortSlot),
-      WordNode:      partial(__do_handle_slot_definition, IntSlot),
+      WordNode:      partial(__do_handle_slot_definition, WordSlot),
       StringNode:    partial(__do_handle_slot_definition, StringSlot),
       AsciiNode:     partial(__do_handle_slot_definition, AsciiSlot),
       SpaceNode:     partial(__do_handle_slot_definition, SpaceSlot),

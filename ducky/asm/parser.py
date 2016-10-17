@@ -2,7 +2,7 @@ import ply.yacc
 
 from .lexer import tokens  # NOQA
 from .ast import LabelNode, GlobalDirectiveNode, FileDirectiveNode, SectionDirectiveNode, DataSectionDirectiveNode, TextSectionDirectiveNode, SetDirectiveNode
-from .ast import StringNode, AsciiNode, SpaceNode, AlignNode, ByteNode, ShortNode, WordNode, InstructionNode
+from .ast import StringNode, AsciiNode, SpaceNode, AlignNode, ByteNode, ShortNode, WordNode, InstructionNode, ExpressionNode
 from .ast import SourceLocation
 from .ast import RegisterOperand, ImmediateOperand, ReferenceOperand, BOOperand
 from ..util import str2int
@@ -15,11 +15,15 @@ def pop_files_stack(p, filepath, offset):
   p.parser.location.filename = filepath[1:-1]
   p.parser.location.lineno = offset + 1
 
+
 def get_ast_node(p, klass, *args, **kwargs):
   _loc = p.parser.location
   kwargs['location'] = SourceLocation(filename = _loc.filename, lineno = p.lineno(0) - _loc.lineno)
 
-  node = klass(*args, **kwargs)
+  return klass(*args, **kwargs)
+
+def append_ast_node(p, klass, *args, **kwargs):
+  node = get_ast_node(p, klass, *args, **kwargs)
   p[0] = node
 
   p.parser.root.children.append(node)
@@ -50,6 +54,26 @@ def p_number(p):
   'number : ICONST'
 
   p[0] = str2int(p[1])
+
+# Right-hand expressions - these can be assigned to slots (e.g. `.word <expr>`)
+def p_expression_term(p):
+  '''expr-term : number
+               | ID
+               | DOT
+               '''
+
+  p[0] = get_ast_node(p, ExpressionNode, p[1])
+
+def p_expression_plus(p):
+  '''expr-plus : expr-term PLUS expr-term'''
+
+  p[0] = get_ast_node(p, ExpressionNode, (p[1], '+', p[3]))
+
+def p_expr(p):
+  '''expression : expr-term
+                | expr-plus
+                '''
+  p[0] = p[1]
 
 # Preprocesor linemarkers
 def p_linemarker_flags_1(p):
@@ -98,19 +122,19 @@ def p_directive(p):
   pass
 
 def p_align_directive(p):
-  'align-directive : ALIGN number'
+  'align-directive : ALIGN expression'
 
-  get_ast_node(p, AlignNode, str2int(p[2]))
+  append_ast_node(p, AlignNode, p[2])
 
 def p_file_directive(p):
   'file-directive : FILE SCONST'
 
-  get_ast_node(p, FileDirectiveNode, p[2][1:-1])
+  append_ast_node(p, FileDirectiveNode, p[2][1:-1])
 
 def p_global_directive(p):
   'global-directive : GLOBAL ID'
 
-  get_ast_node(p, GlobalDirectiveNode, p[2])
+  append_ast_node(p, GlobalDirectiveNode, p[2])
 
 def p_section_directive(p):
   '''section : SECTION ID
@@ -122,27 +146,27 @@ def p_section_directive(p):
              '''
 
   if len(p) == 3:
-    get_ast_node(p, SectionDirectiveNode, p[2], None)
+    append_ast_node(p, SectionDirectiveNode, p[2], None)
 
   else:
-    get_ast_node(p, SectionDirectiveNode, p[2], p[4][1:-1])
+    append_ast_node(p, SectionDirectiveNode, p[2], p[4][1:-1])
 
 def p_data_section(p):
   'data-section : DATA'
 
-  get_ast_node(p, DataSectionDirectiveNode)
+  append_ast_node(p, DataSectionDirectiveNode)
 
 def p_text_section(p):
   'text-section : TEXT'
 
-  get_ast_node(p, TextSectionDirectiveNode)
+  append_ast_node(p, TextSectionDirectiveNode)
 
 def p_set_directive(p):
   '''set-directive : SET ID COMMA number
                    | SET ID COMMA ID
                    | SET ID COMMA DOT
                    '''
-  get_ast_node(p, SetDirectiveNode, p[2], p[4])
+  append_ast_node(p, SetDirectiveNode, p[2], p[4])
 
 # Data slots
 def p_slot_definition(p):
@@ -157,18 +181,18 @@ def p_slot_definition(p):
 
 def __do_slot_definition(p, klass):
   if len(p) == 3:
-    get_ast_node(p, klass, p[2])
+    append_ast_node(p, klass, p[2])
 
   elif len(p) == 4:
-    get_ast_node(p, klass, p[3])
+    append_ast_node(p, klass, p[3])
 
   elif len(p) == 7:
-    get_ast_node(p, LabelNode, p[2])
-    get_ast_node(p, klass, p[6])
+    append_ast_node(p, LabelNode, p[2])
+    append_ast_node(p, klass, p[6])
 
   elif len(p) == 8:
-    get_ast_node(p, LabelNode, p[2])
-    get_ast_node(p, klass, p[7])
+    append_ast_node(p, LabelNode, p[2])
+    append_ast_node(p, klass, p[7])
 
   else:
     assert False, 'len(p) == %d' % len(p)
@@ -181,10 +205,8 @@ def p_ascii_definition(p):
   __do_slot_definition(p, AsciiNode)
 
 def p_byte_definition(p):
-  '''byte-definition : BYTE number
-                     | BYTE ID
-                     | TYPE ID COMMA BYTE COMMA number
-                     | TYPE ID COMMA BYTE COMMA ID
+  '''byte-definition : BYTE expression
+                     | TYPE ID COMMA BYTE COMMA expression
                      '''
 
   __do_slot_definition(p, ByteNode)
@@ -204,19 +226,15 @@ def p_space_definition(p):
   __do_slot_definition(p, SpaceNode)
 
 def p_short_definition(p):
-  '''short-definition : SHORT number
-                      | SHORT ID
-                      | TYPE ID COMMA SHORT COMMA number
-                      | TYPE ID COMMA SHORT COMMA ID
+  '''short-definition : SHORT expression
+                      | TYPE ID COMMA SHORT COMMA expression
                       '''
 
   __do_slot_definition(p, ShortNode)
 
 def p_word_definition(p):
-  '''word-definition : WORD number
-                     | WORD ID
-                     | TYPE ID COMMA WORD COMMA number
-                     | TYPE ID COMMA WORD COMMA ID
+  '''word-definition : WORD expression
+                     | TYPE ID COMMA WORD COMMA expression
                      '''
 
   __do_slot_definition(p, WordNode)
@@ -225,7 +243,7 @@ def p_word_definition(p):
 def p_label(p):
   'label : ID COLON'
 
-  get_ast_node(p, LabelNode, p[1])
+  append_ast_node(p, LabelNode, p[1])
 
 # Operands
 def p_operand(p):
@@ -313,7 +331,7 @@ def p_instr_noop(p):
                 | POPL
                 '''
 
-  get_ast_node(p, InstructionNode, p[1], ())
+  append_ast_node(p, InstructionNode, p[1], ())
 
 def p_instr_unop(p):
   '''unop-instr-r-name  : DEC
@@ -361,7 +379,7 @@ def p_instr_unop(p):
     p[0] = p[1]
     return
 
-  get_ast_node(p, InstructionNode, p[1], (p[2],))
+  append_ast_node(p, InstructionNode, p[1], (p[2],))
 
 def p_instr_binop(p):
   '''binop-instr-r-i-name  : LI
@@ -409,7 +427,7 @@ def p_instr_binop(p):
     p[0] = p[1]
     return
 
-  get_ast_node(p, InstructionNode, p[1], (p[2], p[4]))
+  append_ast_node(p, InstructionNode, p[1], (p[2], p[4]))
 
 def p_instr_load(p):
   '''load-instr-name : LB
@@ -422,7 +440,7 @@ def p_instr_load(p):
     p[0] = p[1]
     return
 
-  get_ast_node(p, InstructionNode, p[1], (p[2], p[4]))
+  append_ast_node(p, InstructionNode, p[1], (p[2], p[4]))
 
 def p_instr_save(p):
   '''save-instr-name : STB
@@ -435,12 +453,12 @@ def p_instr_save(p):
     p[0] = p[1]
     return
 
-  get_ast_node(p, InstructionNode, p[1], (p[2], p[4]))
+  append_ast_node(p, InstructionNode, p[1], (p[2], p[4]))
 
 def p_instr_triop(p):
   'triop-instr : CAS register-operand COMMA register-operand COMMA register-operand'
 
-  get_ast_node(p, InstructionNode, p[1], (p[2], p[4], p[6]))
+  append_ast_node(p, InstructionNode, p[1], (p[2], p[4], p[6]))
 
 def p_error(t):
   if not t:
