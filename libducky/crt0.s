@@ -5,8 +5,7 @@
 #include "arch/ducky.h"
 
 
-  .section .data.crt0.stack, "rwlb"
-
+  .section .bss.crt0.stack, "rwlb"
   .type _crt0_stack, space, PAGE_SIZE
 
 

@@ -4,6 +4,7 @@
 #include <config.h>
 
 #include <arch/ducky.h>
+#include <stddef.h>
 
 
 /*
@@ -349,20 +350,6 @@ extern ASM_CALLABLE(u32_t do_UWIDTH(u32_t));
   BYTE(__len_ ## label, len)               \
   ASCII(__name_ ## label, name)            \
   .align CELL
-
-/*
-  .align CELL                              \
-                                           \
-  .type name_ ## label, word, link         \
-  .set link, name_ ## label                \
-                                           \
-  .type __crc_ ## label, short, 0x7979     \
-  .type __flags_ ## label, byte, flags     \
-  .type __len_ ## label, byte, len         \
-  .type __name_ ## label, ascii, name      \
-                                           \
-  .align CELL
-*/
 
 #define DEFWORD(name, len, flags, label) \
   __DEFWORD(name, len, flags, label)     \

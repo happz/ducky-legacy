@@ -74,6 +74,8 @@ typedef struct {
   u32_t e_sp;
 } evt_entry_t;
 
+#define EVT_ENTRY(_ip, _sp) { .e_ip = (u32_t)_ip, .e_sp = (u32_t)_sp }
+
 #endif // __DUCKY_PURE_ASM__
 
-#endif
+#endif // __DUCKY_DUCKY_H__
