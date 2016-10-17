@@ -263,7 +263,10 @@ class Section(object):
 
     else:
       if self._payload:
-        self.header.file_size = len(self._payload) * sizeof(self._payload[0])
+        if isinstance(self._payload, bytearray):
+          self.header.file_size = len(self._payload)
+        else:
+          self.header.file_size = len(self._payload) * sizeof(self._payload[0])
       else:
         self.header.file_size = 0
 
@@ -348,7 +351,7 @@ class File(BinaryFile):
       self.ERROR('%s: magic cookie not recognized!', self.name)
 
       from ..mm import MalformedBinaryError
-      raise MalformedBinaryError('Magic cookie not recognized!')
+      raise MalformedBinaryError('%s: magic cookie not recognized!' % self.name)
 
     return self._header
 
