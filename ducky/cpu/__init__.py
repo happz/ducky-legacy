@@ -79,7 +79,7 @@ def do_log_cpu_core_state(core, logger = None, disassemble = True, inst_set = No
     s = ['r{:02d}={}'.format(reg, UINT32_FMT(core.registers[reg])) for reg in regs]
     logger(' '.join(s))
 
-  logger('fp=%s    sp=%s    ip=%s', UINT32_FMT(core.registers[Registers.FP]), UINT32_FMT(core.registers[Registers.SP]), UINT32_FMT(core.registers[Registers.IP]))
+  logger(' fp=%s  sp=%s  ip=%s', UINT32_FMT(core.registers[Registers.FP]), UINT32_FMT(core.registers[Registers.SP]), UINT32_FMT(core.registers[Registers.IP]))
   logger('flags=%s', core.flags.to_string())
   logger('cnt=%s, alive=%s, running=%s, idle=%s, exit=%i', core.registers[Registers.CNT], core.alive, core.running, core.idle, core.exit_code)
 
@@ -157,7 +157,7 @@ class InstructionCache(LoggingCapable, dict):
     self.misses  = 0
     self.prunes  = 0
 
-    if self._core.cpu.machine.config.getbool('machine', 'jit', False):
+    if self._core.jit is True:
       self._fetch = self._fetch_jit
 
   def _prune(self):
@@ -435,6 +435,9 @@ class MMU(ISnapshotable):
   def _nopt_read_u32(self, addr, not_execute = True):
     self.DEBUG('MMU._nopt_read_u32: addr=%s', UINT32_FMT(addr))
 
+    if not_execute is False and (addr % 4) != 0:
+      raise UnalignedAccessError(core = self.core)
+
     return self.memory.get_page((addr & PAGE_MASK) >> PAGE_SHIFT).read_u32(addr & (PAGE_SIZE - 1))
 
   def _nopt_write_u8(self, addr, value):
@@ -509,6 +512,9 @@ class CPUCore(ISnapshotable, IMachineWorker):
     self.cpuid = '#{}:#{}'.format(cpu.id, coreid)
     self.cpuid_prefix = self.cpuid + ':'
 
+    self.jit = config.getbool('machine', 'jit', default = False)
+    self.check_frames = cpu.machine.config.getbool('cpu', 'check-frames', default = False)
+
     def __log(logger, *args, **kwargs):
       args = ('%s ' + args[0],) + (self.cpuid_prefix,) + args[1:]
       logger(*args)
@@ -558,7 +564,6 @@ class CPUCore(ISnapshotable, IMachineWorker):
     self.exit_code = 0
 
     self.frames = []
-    self.check_frames = cpu.machine.config.getbool('cpu', 'check-frames', default = False)
 
     self.coprocessors = {}
 
@@ -660,26 +665,6 @@ class CPUCore(ISnapshotable, IMachineWorker):
     self.registers[Registers.IP] = new_ip
 
     self.mmu.reset()
-
-  def backtrace(self):
-    bt = []
-
-    if self.check_frames:
-      for frame in self.frames:
-        bt.append(repr(frame))
-
-      return bt
-
-    bt = []
-
-    for frame_index, frame in enumerate(self.frames):
-      ip = self.mmu.memory.read_u32(frame.address + 4)
-      bt.append(ip)
-
-    ip = self.registers[Registers.IP] - 4
-    bt.append(ip)
-
-    return bt
 
   def _run_safely(self, callable, *args, **kwargs):
     try:
@@ -787,8 +772,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
     self.push(Registers.IP, Registers.FP)
     self.registers[Registers.FP] = self.registers[Registers.SP]
 
-    if self.check_frames:
-      self.frames.append(StackFrame(self.registers[Registers.SP], ip = self.current_ip))
+    return StackFrame(self.registers[Registers.SP], ip = self.current_ip) if self.jit is True else None
 
   def destroy_frame(self):
     """
@@ -812,13 +796,17 @@ class CPUCore(ISnapshotable, IMachineWorker):
 
     self.DEBUG('destroy_frame')
 
-    if self.check_frames:
-      if self.frames[-1].sp != self.registers[Registers.SP]:
-        raise InvalidFrameError(self.frames[-1].sp, self.registers[Registers.SP])
-
-      self.frames.pop()
-
     self.pop(Registers.FP, Registers.IP)
+
+  def pop_frame(self):
+    if not self.jit:
+      return
+
+    if not self.check_frames:
+      return
+
+    if self.frames[-1].sp != self.registers[Registers.SP]:
+      raise InvalidFrameError(self.frames[-1].sp, self.registers[Registers.SP])
 
   def _enter_exception(self, index, *args):
     """
@@ -870,7 +858,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
 
     self._raw_push(old_SP)
     self.push_flags()
-    self.create_frame()
+    frame = self.create_frame()
 
     self.DEBUG('_enter_exception: pushing args')
     for arg in args:
@@ -881,8 +869,9 @@ class CPUCore(ISnapshotable, IMachineWorker):
 
     self.registers[Registers.IP] = iv.ip
 
-    if self.check_frames:
-      self.frames[-1].IP = iv.ip
+    if frame is not None:
+      frame.IP = iv.ip
+      self.frames.append(frame)
 
     self.instruction_set_stack.append(self.instruction_set)
     self.instruction_set = DuckyInstructionSet

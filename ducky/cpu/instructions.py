@@ -625,6 +625,7 @@ class RETINT(Descriptor):
   def execute(core, inst):
     core.check_protected_ins()
     core._exit_exception()
+    core.pop_frame()
 
   @staticmethod
   def jit(core, inst):
@@ -680,12 +681,13 @@ class CALL(_JUMP):
 
   @staticmethod
   def execute(core, inst):
-    core.create_frame()
+    frame = core.create_frame()
 
     JUMP(core, inst, 'reg')
 
-    if core.check_frames:
-      core.frames[-1].IP = core.registers[Registers.IP]
+    if frame is not None:
+      frame.IP = core.registers[Registers.IP]
+      core.frames.append(frame)
 
   @staticmethod
   def jit(core, inst):
@@ -754,6 +756,7 @@ class RET(Descriptor):
   @staticmethod
   def execute(core, inst):
     core.destroy_frame()
+    core.pop_frame()
 
   @staticmethod
   def jit(core, inst):
