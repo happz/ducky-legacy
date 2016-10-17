@@ -17,8 +17,14 @@ def parse_template(file_in, file_out):
   X8 = partial(_X, padding = 8)
 
   with open(file_in, 'r') as f_in:
+    s = Template(f_in.read()).render(X = X, X2 = X2, X4 = X4, X8 = X8)
+
+  if file_out == '-':
+    sys.stdout.write(s)
+
+  else:
     with open(file_out, 'w') as f_out:
-      f_out.write(Template(f_in.read()).render(X = X, X2 = X2, X4 = X4, X8 = X8))
+      f_out.write(s)
 
 def main():
   import optparse
