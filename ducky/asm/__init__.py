@@ -4,7 +4,7 @@ import functools
 import os.path
 import subprocess
 
-from six import iteritems, itervalues, integer_types, string_types, PY2
+from six import iteritems, itervalues, integer_types, PY2
 from six.moves import UserDict
 
 from .lexer import AssemblyLexer

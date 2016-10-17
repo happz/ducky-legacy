@@ -263,14 +263,12 @@ def fix_section_bases(info, f_out):
   dump_sections()
 
 def resolve_symbols(info, f_out, f_ins):
-  logger, D = get_logger(), get_logger().debug
+  D = get_logger().debug
 
   D('Resolve symbols - compute their new addresses')
 
   symbols = []
   symbol_map = []
-
-  duplicity_check = {}
 
   symbol_map = defaultdict(list)
 
@@ -427,7 +425,7 @@ class RelocationPatcher(object):
     content[content_index + 3] = (value >> 24) & 0xFF
 
 def resolve_relocations(info, f_out, f_ins):
-  D = get_logger().debug
+  logger, D = get_logger(), get_logger().debug
 
   D('')
   D('----- * ----- * ----- * ----- * -----')

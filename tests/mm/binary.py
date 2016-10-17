@@ -16,7 +16,7 @@ def test_bad_magic_save():
       f_out.save()
 
     except MalformedBinaryError as e:
-      assert e.args[0] == 'Magic cookie not recognized!'
+      assert e.args[0] == '%s: magic cookie not recognized!' % f_out.name
 
     finally:
       os.unlink(tmp.name)

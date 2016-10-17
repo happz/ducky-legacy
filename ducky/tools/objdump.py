@@ -1,9 +1,8 @@
 import sys
 import optparse
-import re
 import tabulate
 
-from six import viewkeys, itervalues, iteritems
+from six import itervalues, iteritems
 from collections import defaultdict
 
 from . import add_common_options, parse_options
