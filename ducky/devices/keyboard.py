@@ -143,6 +143,9 @@ class Frontend(DeviceFrontend):
 
     self.machine.DEBUG('%s._handle_raw_input: adding %i chars', self.__class__.__name__, len(buff))
 
+    if len(buff) == 1 and buff[0] == 0x0A:
+      buff = bytearray([0x0D, 0x0A])
+
     self._comm_queue.write_in(buff)
 
     self.machine.trigger_irq(self.backend)
