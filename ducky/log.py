@@ -24,7 +24,7 @@ COLORS = {
 COLOR_RESET = colorama.Fore.RESET + colorama.Back.RESET + colorama.Style.RESET_ALL
 
 class LogFormatter(logging.Formatter):
-  _default_format = '{stamp:.02f} [{level}] {message}'
+  _default_format = '[{level}] {message}'
 
   def __init__(self, format = None):
     super(LogFormatter, self).__init__()
@@ -79,7 +79,7 @@ class LogFormatter(logging.Formatter):
     return s
 
 class ColorizedLogFormatter(LogFormatter):
-  _default_format = '{color_start}{stamp:.02f} [{level}]{color_end} {message}'
+  _default_format = '{color_start}[{level}]{color_end} {message}'
 
   def _get_vars(self, record):
     vars = super(ColorizedLogFormatter, self)._get_vars(record)
