@@ -9,6 +9,7 @@ import tempfile
 
 from six import iteritems, integer_types
 from functools import partial
+from collections import defaultdict
 
 from ..mm import i32_t, UINT32_FMT, MalformedBinaryError, WORD_SIZE
 from ..mm.binary import File, SectionTypes, SymbolEntry, SectionFlags, SymbolFlags
@@ -271,6 +272,8 @@ def resolve_symbols(info, f_out, f_ins):
 
   duplicity_check = {}
 
+  symbol_map = defaultdict(list)
+
   for f_in, symbol_sections in iteritems(info.symbols):
     D('Processing file %s', f_in.name)
 
@@ -282,12 +285,6 @@ def resolve_symbols(info, f_out, f_ins):
         symbol._filename = f_in.string_table.get_string(symbol.filename)
 
         D('Symbol: %s', symbol_name)
-
-        old_symbol = duplicity_check.get(symbol_name)
-        if old_symbol is not None and (symbol.flags.globally_visible == 1 or old_symbol.flags.globally_visible == 1):
-          logger.warn('Symbol with name "%s" is already defined: first seen at %s:%d, new one is from %s:%d', symbol_name, old_symbol._filename, old_symbol.lineno, symbol._filename, symbol.lineno)
-
-        duplicity_check[symbol_name] = symbol
 
         src_symbol_section = f_in.get_section_by_index(symbol.section)
         D('  src section: %s', src_symbol_section.header)
@@ -311,7 +308,7 @@ def resolve_symbols(info, f_out, f_ins):
         dst_symbol.lineno = symbol.lineno
 
         symbols.append(dst_symbol)
-        symbol_map.append((symbol_name, f_in, dst_symbol))
+        symbol_map[symbol_name].append((dst_symbol, f_in))
 
         D('New symbol: %s', dst_symbol)
 
@@ -469,21 +466,40 @@ def resolve_relocations(info, f_out, f_ins):
         D('  dst section: %s', dst_section.name)
         D('  dst header: %s', dst_section.header)
         D('  symbol: %s', symbol_name)
+        D('  file: %s', f_in.name)
 
         # Find referenced symbol
-        for name, f_src, se in info.symbols:
-          if name != symbol_name:
-            continue
+        if symbol_name in info.symbols:
+          symbol_family = info.symbols[symbol_name]
+
+          if len(symbol_family) > 1:
+            D('  multiple candidates:')
+            for se, f_src in symbol_family:
+              D('    %s from file %s', se, f_src.name)
+
+            for se, f_src in symbol_family:
+              if f_in.name == f_src.name:
+                D('  found file match in %s from %s', se, f_in.name)
+                break
+
+            else:
+              logger.warn('Symbol with name "%s" has multiple candidates but no definitve match', symbol_name)
+              logger.warn('  file: %s', f_in.name)
+
+              for se, f_src in symbol_family:
+                logger.warn('  %s from file %s', se, f_src.name)
+
+              continue
+
+          else:
+            se, f_src = symbol_family[0]
 
           if f_src != f_in and se.flags.globally_visible == 0:
-            continue
-
-          break
+            raise UnknownSymbolError('Symbol "%s" is not globally visible' % symbol_name)
 
         else:
-          # Try searching sections
           if symbol_name not in section_symbols:
-            raise UnknownSymbolError('No such symbol: name=%s' % symbol_name)
+            raise UnknownSymbolError('No such symbol "%s", referenced from %s' % (symbol_name, f_in.name))
 
           se = section_symbols[symbol_name]
 
