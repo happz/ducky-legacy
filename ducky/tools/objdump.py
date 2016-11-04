@@ -6,7 +6,7 @@ from six import itervalues, iteritems
 from collections import defaultdict
 
 from . import add_common_options, parse_options
-from ..cpu.instructions import DuckyInstructionSet, get_instruction_set
+from ..cpu.instructions import DuckyInstructionSet, get_instruction_set, EncodingContext
 from ..mm import UINT16_FMT, SIZE_FMT, UINT32_FMT, UINT8_FMT, WORD_SIZE
 from ..mm.binary import File, SectionTypes, SECTION_TYPES, SYMBOL_DATA_TYPES, SymbolDataTypes, RelocFlags, SymbolFlags, SectionFlags
 from ..log import get_logger
@@ -58,7 +58,7 @@ def show_sections(options, f):
   I('')
 
 def show_disassemble(f):
-  I = get_logger().info
+  logger, I = get_logger(), get_logger().info
 
   I('=== Disassemble ==')
   I('')
@@ -103,6 +103,8 @@ def show_disassemble(f):
       for addr in range(symbol_addr, limit_addr, 4):
         symbol_map[addr] = symbol_name
 
+  ctx = EncodingContext(logger)
+
   for section in f.sections:
     if section.header.type != SectionTypes.PROGBITS:
       continue
@@ -125,7 +127,7 @@ def show_disassemble(f):
 
       symbol_name = symbols_map[csp]
 
-      inst, desc, opcode = instruction_set.decode_instruction(get_logger(), raw_inst)
+      inst, desc, opcode = ctx.decode(instruction_set, raw_inst)
 
       table.append([UINT32_FMT(csp), UINT32_FMT(raw_inst), instruction_set.disassemble_instruction(get_logger(), raw_inst), symbol_name])
 

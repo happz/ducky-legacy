@@ -19,28 +19,6 @@ def UINT20_FMT(i):
 def encoding_to_u32(inst):
   return ctypes.cast(ctypes.byref(inst), ctypes.POINTER(u32_t)).contents.value
 
-if hasattr(sys, 'pypy_version_info'):
-  def u32_to_encoding(u, encoding):
-    class _Cast(ctypes.Union):
-      _pack_ = 0
-      _fields_ = [
-        ('overall',  u32_t),
-        ('encoding', encoding)
-      ]
-
-    caster = _Cast()
-    caster.overall = u32_t(u).value
-    return caster.encoding
-
-else:
-  def u32_to_encoding(u, encoding):
-    u = u32_t(u)
-    e = encoding()
-
-    ctypes.cast(ctypes.byref(e), ctypes.POINTER(encoding))[0] = ctypes.cast(ctypes.byref(u), ctypes.POINTER(encoding)).contents
-
-    return e
-
 def IE_OPCODE():
   return ('opcode', u32_t, 6)
 
@@ -196,6 +174,32 @@ class EncodingContext(LoggingCapable, object):
   def __init__(self, logger):
     super(EncodingContext, self).__init__(logger)
 
+    if hasattr(sys, 'pypy_version_info'):
+      self.u32_to_encoding = self._u32_to_encoding_pypy
+
+    else:
+      self.u32_to_encoding = self._u32_to_encoding_python
+
+  def _u32_to_encoding_pypy(self, u, encoding):
+    class _Cast(ctypes.Union):
+      _pack_ = 0
+      _fields_ = [
+        ('overall',  u32_t),
+        ('encoding', encoding)
+      ]
+
+    caster = _Cast()
+    caster.overall = u32_t(u).value
+    return caster.encoding
+
+  def _u32_to_encoding_python(self, u, encoding):
+    u = u32_t(u)
+    e = encoding()
+
+    ctypes.cast(ctypes.byref(e), ctypes.POINTER(encoding))[0] = ctypes.cast(ctypes.byref(u), ctypes.POINTER(encoding)).contents
+
+    return e
+
   def encode(self, inst, field, size, value, raise_on_large_value = False):
     self.DEBUG('encode: inst=%s, field=%s, size=%s, value=%s, raise_on_large_value=%s', inst, field, size, value, raise_on_large_value)
 
@@ -210,6 +214,16 @@ class EncodingContext(LoggingCapable, object):
         raise e
 
       e.log(self.WARN)
+
+  def decode(self, instr_set, inst, core = None):
+    self.DEBUG('%s.decode: inst=%s, core=%s', self.__class__.__name__, inst, core)
+
+    opcode = inst & 0x3F
+
+    if opcode not in instr_set.opcode_desc_map:
+      raise InvalidOpcodeError(opcode, core = core)
+
+    return self.u32_to_encoding(inst, instr_set.opcode_encoding_map[opcode]), instr_set.opcode_desc_map[opcode], opcode
 
 class Descriptor(object):
   mnemonic      = None
@@ -430,17 +444,6 @@ class InstructionSet(object):
       cls.opcode_encoding_map[desc.opcode] = desc.encoding
 
   @classmethod
-  def decode_instruction(cls, logger, inst, core = None):
-    logger.debug('%s.decode_instruction: inst=%s, core=%s', cls.__name__, inst, core)
-
-    opcode = inst & 0x3F
-
-    if opcode not in cls.opcode_desc_map:
-      raise InvalidOpcodeError(opcode, core = core)
-
-    return u32_to_encoding(inst, cls.opcode_encoding_map[opcode]), cls.opcode_desc_map[opcode], opcode
-
-  @classmethod
   def disassemble_instruction(cls, logger, inst):
     logger.debug('%s.disassemble_instruction: inst=%s (%s)', cls.__name__, inst, inst.__class__.__name__)
 
@@ -448,7 +451,7 @@ class InstructionSet(object):
       inst, desc = inst, cls.opcode_desc_map[inst.opcode]
 
     else:
-      inst, desc, _ = cls.decode_instruction(logger, inst)
+      inst, desc, _ = EncodingContext(logger).decode(cls, inst)
 
     mnemonic = desc.disassemble_mnemonic(inst)
     operands = desc.disassemble_operands(logger, inst)
@@ -624,8 +627,8 @@ class RETINT(Descriptor):
   @staticmethod
   def execute(core, inst):
     core.check_protected_ins()
-    core._exit_exception()
     core.pop_frame()
+    core._exit_exception()
 
   @staticmethod
   def jit(core, inst):
@@ -685,9 +688,8 @@ class CALL(_JUMP):
 
     JUMP(core, inst, 'reg')
 
-    if frame is not None:
-      frame.IP = core.registers[Registers.IP]
-      core.frames.append(frame)
+    frame.IP = core.registers[Registers.IP]
+    core.frames.append(frame)
 
   @staticmethod
   def jit(core, inst):
@@ -755,8 +757,8 @@ class RET(Descriptor):
 
   @staticmethod
   def execute(core, inst):
-    core.destroy_frame()
     core.pop_frame()
+    core.destroy_frame()
 
   @staticmethod
   def jit(core, inst):

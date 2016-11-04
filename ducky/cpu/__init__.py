@@ -12,7 +12,7 @@ from .. import profiler
 from ..interfaces import IMachineWorker, ISnapshotable
 from ..mm import UINT8_FMT, UINT16_FMT, UINT32_FMT, PAGE_SIZE, PAGE_MASK, PAGE_SHIFT, PageTableEntry, UINT64_FMT, WORD_SIZE
 from .registers import Registers, REGISTER_NAMES
-from .instructions import DuckyInstructionSet
+from .instructions import DuckyInstructionSet, EncodingContext
 from ..errors import ExceptionList, AccessViolationError, InvalidResourceError, ExecutionException, InvalidOpcodeError, MemoryAccessError, InvalidExceptionError, PrivilegedInstructionError, InvalidFrameError, UnalignedAccessError
 from ..util import LoggingCapable, Flags
 from ..snapshot import SnapshotNode
@@ -115,7 +115,7 @@ def log_cpu_core_state(*args, **kwargs):
   do_log_cpu_core_state(*args, **kwargs)
 
 class StackFrame(object):
-  def __init__(self, sp, ip = None):
+  def __init__(self, sp, ip):
     super(StackFrame, self).__init__()
 
     self.sp = sp
@@ -128,15 +128,14 @@ class StackFrame(object):
     return super(StackFrame, self).__getattribute__(name)
 
   def __repr__(self):
-    return '<StackFrame: SP={}, IP={}>'.format(UINT32_FMT(self.sp), UINT32_FMT(self.ip if self.ip is not None else 0))
+    return '<StackFrame: SP={}, IP={}>'.format(UINT32_FMT(self.sp), UINT32_FMT(self.ip))
 
 
 class CoreFlags(Flags):
   _flags = ['privileged', 'hwint_allowed', 'equal', 'zero', 'overflow', 'sign']
   _labels = 'PHEZOS'
 
-
-class InstructionCache(LoggingCapable, dict):
+class InstructionCache(LoggingCapable, list):
   """
   Simple instruction cache class, based on a dictionary, with a limited size.
 
@@ -145,63 +144,44 @@ class InstructionCache(LoggingCapable, dict):
   """
 
   def __init__(self, mmu, size, *args, **kwargs):
-    super(InstructionCache, self).__init__(mmu.core.cpu.machine.LOGGER, *args, **kwargs)
+    super(InstructionCache, self).__init__(mmu.core.cpu.machine.LOGGER, [None for _ in range(0, mmu.memory.size >> 2)])
 
     self._mmu = mmu
     self._core = mmu.core
     self.size = size
 
     self.reads   = 0
-    self.inserts = 0
     self.hits    = 0
     self.misses  = 0
-    self.prunes  = 0
 
     if self._core.jit is True:
       self._fetch = self._fetch_jit
 
-  def _prune(self):
-    """
-    This method is called when there is no free space in cache. It's responsible
-    for freeing at least one slot, upper limit of removed entries is not enforced.
-    """
-
-    self.DEBUG('%s._prune', self.__class__.__name__)
-
-    self.popitem()
-    self.prunes += 1
+  def clear(self):
+    for i in range(0, self._mmu.memory.size >> 2):
+      self[i] = None
 
   def __getitem__(self, addr):
     """
     Get instruction from the specified address.
     """
 
-    self.DEBUG('%s.__getitem__: addr=%s', self.__class__.__name__, UINT32_FMT(addr))
-
     self.reads += 1
 
-    if addr in self:
+    index = addr >> 2
+
+    i = list.__getitem__(self, index)
+
+    if i is None:
+        self.misses += 1
+
+        i = self._fetch(addr)
+        list.__setitem__(self, index, i)
+
+    else:
       self.hits += 1
-      return super(InstructionCache, self).__getitem__(addr)
 
-    self.misses += 1
-    self[addr] = inst = self._fetch(addr)
-
-    return inst
-
-  def __setitem__(self, addr, inst):
-    """
-    Called to add instruction into cache. Size limit is checked and if there's no free
-    space in cache, ``_prune`` method is called.
-    """
-
-    self.DEBUG('%s.__setitem__: addr=%s, inst=%s', self.__class__.__name__, UINT32_FMT(addr), inst)
-
-    if len(self) == self.size:
-      self._prune()
-
-    super(InstructionCache, self).__setitem__(addr, inst)
-    self.inserts += 1
+    return i
 
   def _fetch(self, addr):
     """
@@ -215,7 +195,7 @@ class InstructionCache(LoggingCapable, dict):
 
     core = self._core
 
-    inst, desc, opcode = core.instruction_set.decode_instruction(core.LOGGER, core.MEM_IN32(addr, not_execute = False), core = core)
+    inst, desc, opcode = core.decode_instr(core.MEM_IN32(addr, not_execute = False))
     return inst, opcode, partial(desc.execute, core, inst)
 
   def _fetch_jit(self, addr):
@@ -230,7 +210,7 @@ class InstructionCache(LoggingCapable, dict):
 
     core = self._core
 
-    inst, desc, opcode = core.instruction_set.decode_instruction(core.LOGGER, core.MEM_IN32(addr, not_execute = False), core = core)
+    inst, desc, opcode = core.decode_instr(core.MEM_IN32(addr, not_execute = False))
 
     fn = desc.jit(core, inst)
 
@@ -351,6 +331,8 @@ class MMU(ISnapshotable):
     self.pt_enabled = False
     self._pte_cache = {}
 
+    self._page_cache = [None for _ in range(0, self.memory.pages_cnt)]
+
   def halt(self):
     pass
 
@@ -421,39 +403,49 @@ class MMU(ISnapshotable):
 
     raise MemoryAccessError(access, addr, pte)
 
+  def _get_pg_ops(self, address):
+    pg_index = address >> PAGE_SHIFT
+    pg_cache = self._page_cache
+
+    ops = pg_cache[pg_index]
+    if ops is not None:
+      return ops
+
+    pg = self.memory.get_page(pg_index)
+    pg_cache[pg_index] = ops = (pg.read_u8, pg.read_u16, pg.read_u32, pg.write_u8, pg.write_u16, pg.write_u32)
+
+    return ops
+
   # "PT Disabled" methods - every access is effectively privileged
   def _nopt_read_u8(self, addr):
     self.DEBUG('MMU._nopt_read_u8: addr=%s', UINT32_FMT(addr))
 
-    return self.memory.get_page((addr & PAGE_MASK) >> PAGE_SHIFT).read_u8(addr & (PAGE_SIZE - 1))
+    return self._get_pg_ops(addr)[0](addr & ~PAGE_MASK)
 
   def _nopt_read_u16(self, addr):
     self.DEBUG('MMU._nopt_read_u16: addr=%s', UINT32_FMT(addr))
 
-    return self.memory.get_page((addr & PAGE_MASK) >> PAGE_SHIFT).read_u16(addr & (PAGE_SIZE - 1))
+    return self._get_pg_ops(addr)[1](addr & ~PAGE_MASK)
 
   def _nopt_read_u32(self, addr, not_execute = True):
     self.DEBUG('MMU._nopt_read_u32: addr=%s', UINT32_FMT(addr))
 
-    if not_execute is False and (addr % 4) != 0:
-      raise UnalignedAccessError(core = self.core)
-
-    return self.memory.get_page((addr & PAGE_MASK) >> PAGE_SHIFT).read_u32(addr & (PAGE_SIZE - 1))
+    return self._get_pg_ops(addr)[2](addr & ~PAGE_MASK)
 
   def _nopt_write_u8(self, addr, value):
     self.DEBUG('MMU._nopt_write_u8: addr=%s, value=%s', UINT32_FMT(addr), UINT8_FMT(value))
 
-    return self.memory.get_page((addr & PAGE_MASK) >> PAGE_SHIFT).write_u8(addr & (PAGE_SIZE - 1), value)
+    return self._get_pg_ops(addr)[3](addr & ~PAGE_MASK, value)
 
   def _nopt_write_u16(self, addr, value):
     self.DEBUG('MMU._nopt_write_u16: addr=%s, value=%s', UINT32_FMT(addr), UINT8_FMT(value))
 
-    return self.memory.get_page((addr & PAGE_MASK) >> PAGE_SHIFT).write_u16(addr & (PAGE_SIZE - 1), value)
+    return self._get_pg_ops(addr)[4](addr & ~PAGE_MASK, value)
 
   def _nopt_write_u32(self, addr, value):
     self.DEBUG('MMU._nopt_write_u32: addr=%s, value=%s', UINT32_FMT(addr), UINT8_FMT(value))
 
-    return self.memory.get_page((addr & PAGE_MASK) >> PAGE_SHIFT).write_u32(addr & (PAGE_SIZE - 1), value)
+    return self._get_pg_ops(addr)[5](addr & ~PAGE_MASK, value)
 
   # "PT Enabled" methods - checking access
   def _pt_read_u8(self, addr):
@@ -549,6 +541,8 @@ class CPUCore(ISnapshotable, IMachineWorker):
 
     self.evt_address = config.getint('cpu', 'evt-address', DEFAULT_EVT_ADDRESS)
 
+    self.encoding_context = EncodingContext(self.LOGGER)
+
     self.instruction_set = DuckyInstructionSet
     self.instruction_set_stack = []
 
@@ -575,6 +569,15 @@ class CPUCore(ISnapshotable, IMachineWorker):
     if config.getbool('cpu', 'control-coprocessor', True):
       from .coprocessor import control
       self.control_coprocessor = self.coprocessors['control'] = control.ControlCoprocessor(self)
+
+  def _get_instruction_set(self):
+    return self._instruction_set
+
+  def _set_instruction_set(self, instr_set):
+    self._instruction_set = instr_set
+    self.decode_instr = partial(self.encoding_context.decode, instr_set, core = self)
+
+  instruction_set = property(_get_instruction_set, _set_instruction_set)
 
   def has_coprocessor(self, name):
     return hasattr(self, '{}_coprocessor'.format(name))
@@ -772,7 +775,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
     self.push(Registers.IP, Registers.FP)
     self.registers[Registers.FP] = self.registers[Registers.SP]
 
-    return StackFrame(self.registers[Registers.SP], ip = self.current_ip) if self.jit is True else None
+    return StackFrame(self.registers[Registers.SP], self.current_ip) if self.jit is False else None
 
   def destroy_frame(self):
     """
@@ -799,14 +802,13 @@ class CPUCore(ISnapshotable, IMachineWorker):
     self.pop(Registers.FP, Registers.IP)
 
   def pop_frame(self):
-    if not self.jit:
-      return
+    frame = self.frames.pop(-1)
 
     if not self.check_frames:
       return
 
-    if self.frames[-1].sp != self.registers[Registers.SP]:
-      raise InvalidFrameError(self.frames[-1].sp, self.registers[Registers.SP])
+    if frame.sp != self.registers[Registers.SP]:
+      raise InvalidFrameError(frame.sp, self.registers[Registers.SP])
 
   def _enter_exception(self, index, *args):
     """
@@ -1310,7 +1312,7 @@ def cmd_next(console, cmd):
     return core.registers.ip.value + offset
 
   try:
-    inst = core.instruction_set.decode_instruction(core.LOGGER, core.memory.read_u32(__ip_addr()))
+    inst = core.instruction_set.decode_instruction(core.memory.read_u32(__ip_addr()))
 
     if inst.opcode == core.instruction_set.opcodes.CALL:
       from ..debugging import add_breakpoint
