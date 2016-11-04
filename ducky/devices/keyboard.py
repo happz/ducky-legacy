@@ -5,6 +5,8 @@ Keyboard controller - provides events for pressed and released keys.
 import enum
 import io
 
+from collections import deque
+
 from . import DeviceFrontend, DeviceBackend, MMIOMemoryPage
 from ..errors import InvalidResourceError
 from ..mm import UINT8_FMT, addr_to_page, UINT32_FMT, u32_t
@@ -143,9 +145,6 @@ class Frontend(DeviceFrontend):
 
     self.machine.DEBUG('%s._handle_raw_input: adding %i chars', self.__class__.__name__, len(buff))
 
-    if len(buff) == 1 and buff[0] == 0x0A:
-      buff = bytearray([0x0D, 0x0A])
-
     self._comm_queue.write_in(buff)
 
     self.machine.trigger_irq(self.backend)
@@ -159,7 +158,7 @@ class Backend(DeviceBackend):
     self.irq = irq or DEFAULT_IRQ
 
     self._comm_queue = machine.comm_channel.create_queue(name)
-    self._key_queue = []
+    self._key_queue = deque()
 
   @staticmethod
   def create_from_config(machine, config, section):
@@ -187,19 +186,6 @@ class Backend(DeviceBackend):
 
     self.machine.memory.unregister_page(self._mmio_page)
 
-  def _process_input_event(self, e):
-    self.machine.DEBUG('%s.__process_input_event: e=%r', self.__class__.__name__, e)
-
-    if isinstance(e, (list, bytearray, bytes)):
-      for key in e:
-        self._key_queue.append(key)
-
-    elif isinstance(e, ControlMessages):
-      self._key_queue.append(e)
-
-    else:
-      raise InvalidResourceError('Unknown message: e=%s, type=%s' % (e, type(e)))
-
   def _process_input_events(self):
     self.machine.DEBUG('%s.__process_input_events', self.__class__.__name__)
 
@@ -208,7 +194,15 @@ class Backend(DeviceBackend):
       if e is None:
         return
 
-      self._process_input_event(e)
+      if isinstance(e, (list, bytearray, bytes)):
+        for key in e:
+          self._key_queue.append(key)
+
+      elif isinstance(e, ControlMessages):
+        self._key_queue.append(e)
+
+      else:
+        raise InvalidResourceError('Unknown message: e=%s, type=%s' % (e, type(e)))
 
   def _read_char(self):
     q = self._key_queue
@@ -219,7 +213,7 @@ class Backend(DeviceBackend):
       if not q:
         return None
 
-    b = q.pop(0)
+    b = q.popleft()
 
     if b == ControlMessages.HALT:
       self.machine.halt()
