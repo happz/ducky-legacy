@@ -11,7 +11,7 @@ import sys
 import time
 
 from six import iteritems, itervalues
-from collections import defaultdict, OrderedDict
+from collections import defaultdict, OrderedDict, deque
 
 from . import mm
 from . import snapshot
@@ -44,8 +44,8 @@ class CommQueue(object):
   def __init__(self, channel):
     self.channel = channel
 
-    self.queue_in = []
-    self.queue_out = []
+    self.queue_in = deque()
+    self.queue_out = deque()
 
   def is_empty_out(self):
     return not bool(self.queue_out)
@@ -62,12 +62,12 @@ class CommQueue(object):
   def read_out(self):
     q = self.queue_out
 
-    return q.pop(0) if q else None
+    return q.popleft() if q else None
 
   def read_in(self):
     q = self.queue_in
 
-    return q.pop(0) if q else None
+    return q.popleft() if q else None
 
 class CommChannel(object):
   def __init__(self, machine):
