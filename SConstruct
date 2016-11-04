@@ -20,6 +20,8 @@ import sys
 from functools import partial
 from six import iteritems, string_types
 
+DEFAULT_CFLAGS = '-fno-builtin -nostdinc -mllvm -disable-tail-duplicate'
+
 
 def print_(*args, **kwargs):
   """
@@ -49,6 +51,13 @@ def print_(*args, **kwargs):
 
 def generate_build_stamp():
   return subprocess.check_output('git log --date=iso --pretty=format:"%H %cd" -n 1 | cut -d" " -f1,2,3 | tr -d "-" | tr -d ":" | tr " " "-"', shell = True).strip()
+
+AddOption('--define',
+          metavar = 'NAME[=VALUE]',
+          dest = 'defines',
+          action = 'append',
+          default = [],
+          help = 'Define macro for C and assembly')
 
 AddOption('--no-color',
           dest = 'no_color',
@@ -364,7 +373,7 @@ def __asm_from_c(source, target, env):
     env.Exit(1)
 
   cmd = DuckyCommand(env, runner = '')
-  cmd.command = env.subst('$LLVMDIR/bin/clang -cc1 -S -fno-builtin -O0 -masm-verbose -mllvm -disable-tail-duplicate {defs} {include} -o {target} {inputs}'.format(
+  cmd.command = env.subst('$LLVMDIR/bin/clang -cc1 -S $CFLAGS {defs} {include} -o {target} {inputs}'.format(
     inputs  = ' '.join([str(f) for f in source]),
     defs    = ' '.join(env['DEFS']) if 'DEFS' in env else '',
     include = ' '.join(env['INCLUDE']) if 'INCLUDE' in env else '',
@@ -378,7 +387,7 @@ def __object_from_c(source, target, env):
     env.Exit(1)
 
   cmd = DuckyCommand(env, runner = '')
-  cmd.command = env.subst('$LLVMDIR/bin/clang -c -fno-builtin -fno-integrated-as -O0 -mllvm -disable-tail-duplicate {defs} {include} -o {target} {inputs}'.format(
+  cmd.command = env.subst('$LLVMDIR/bin/clang -c $CFLAGS -fno-integrated-as {defs} {include} -o {target} {inputs}'.format(
     inputs  = ' '.join([str(f) for f in source]),
     defs    = ' '.join(env['DEFS']) if 'DEFS' in env else '',
     include = ' '.join(env['INCLUDE']) if 'INCLUDE' in env else '',
@@ -711,6 +720,12 @@ ENV = Environment(
   HEADERSDIR = Dir('#libducky/include').abspath,
   INCLUDE = ['-I %s' % Dir('#libducky/include').abspath],
 
+  # Predefined macros
+  DEFS = [],
+
+  # Initial CFLAGS
+  CFLAGS = DEFAULT_CFLAGS,
+
   # Top-level directory of this Ducky repository
   TOPDIR = Dir('#.').abspath,
 
@@ -734,6 +749,13 @@ ENV = Environment(
 # If LLVMDIR wasn't specified on command line, maybe it exists in environment
 if 'LLVMDIR' not in ENV and 'LLVMDIR' in os.environ:
   ENV.Append(LLVMDIR = os.environ['LLVMDIR'])
+
+if 'CFLAGS' in os.environ:
+  ENV.Append(CFLAGS = ' ' + os.environ['CFLAGS'])
+
+# Import all predefined macros from command-line options
+for define in GetOption('defines'):
+  ENV.Append(DEFS = ['-D' + define])
 
 # Clone ENV to ENV, to add our methods
 ENV = __clone_env(ENV)
@@ -855,6 +877,7 @@ ENV.Help("""
 
   ${GREEN}Available options:${CLR}
 
+    --define=NAME[=VALUE]       Define macro for C/assembly.
     --no-color                  Do not colorize output.
     --testset=NAME              Store test results in this test set.
     --with-coverage             Run tests with coverage enabled.
