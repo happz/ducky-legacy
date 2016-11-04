@@ -11,6 +11,7 @@ from ..mm.binary import File, SectionTypes
 from ..cpu import CoreFlags
 from ..cpu.registers import Registers
 from ..util import str2int, align
+from ..log import get_logger
 
 def show_header(logger, state):
   state = state.get_child('machine')
@@ -94,15 +95,11 @@ def __load_forth_symbols(logger):
   symbols = {}
 
   with File.open(logger, 'forth/ducky-forth', 'r') as f:
-    f.load()
-
-    for i in range(0, f.get_header().sections):
-      header, content = f.get_section(i)
-
-      if header.type != SectionTypes.SYMBOLS:
+    for section in f.sections:
+      if section.header.type != SectionTypes.SYMBOLS:
         continue
 
-      for index, entry in enumerate(content):
+      for index, entry in enumerate(section.payload):
         symbols[entry.address] = f.string_table.get_string(entry.name)
 
   return symbols
@@ -122,7 +119,9 @@ def __read(state, cnt, address):
   if cnt == 4:
     return u32_t(pg.content[offset] | (pg.content[offset + 1] << 8) | (pg.content[offset + 2] << 16) | (pg.content[offset + 3] << 24))
 
-def __show_forth_word(logger, state, symbols, base_address, ending_addresses):
+def __show_forth_word(state, symbols, base_address, ending_addresses):
+  I = get_logger().info
+
   __read_u8  = partial(__read, state, 1)
   __read_u16 = partial(__read, state, 2)
   __read_u32 = partial(__read, state, 4)
@@ -131,18 +130,18 @@ def __show_forth_word(logger, state, symbols, base_address, ending_addresses):
 
   code_address = align(4, base_address + 8 + namelen)
 
-  logger.info('Base address: %s', UINT32_FMT(base_address))
-  logger.info('Link:         %s', UINT32_FMT(__read_u32(base_address)))
-  logger.info('CRC:          %s', UINT16_FMT(__read_u16(base_address + 4)))
-  logger.info('flags:        %s', UINT8_FMT(__read_u8(base_address + 6)))
-  logger.info('namelen:      %s', namelen)
-  logger.info('name:         %s', ''.join([chr(__read_u8(base_address + 8 + i).value) for i in range(0, namelen)]))
+  I('Base address: %s', UINT32_FMT(base_address))
+  I('Link:         %s', UINT32_FMT(__read_u32(base_address)))
+  I('CRC:          %s', UINT16_FMT(__read_u16(base_address + 4)))
+  I('flags:        %s', UINT8_FMT(__read_u8(base_address + 6)))
+  I('namelen:      %s', namelen)
+  I('name:         %s', ''.join([chr(__read_u8(base_address + 8 + i).value) for i in range(0, namelen)]))
 
   while True:
     code_token = __read_u32(code_address).value
     token_name = symbols.get(code_token, '<unknown>')
 
-    logger.info('  %s  %s - %s', UINT32_FMT(code_address), UINT32_FMT(code_token), token_name)
+    I('  %s  %s - %s', UINT32_FMT(code_address), UINT32_FMT(code_token), token_name)
 
     if code_token in ending_addresses:
       break
@@ -152,36 +151,19 @@ def __show_forth_word(logger, state, symbols, base_address, ending_addresses):
 
     code_address += 4
 
-def show_forth_trace(logger, state):
-  logger.info('=== FORTH call trace ===')
-
-  bottom = (state.get_child('machine').get_cpu_states()[0].get_core_states()[0].registers[21] & 0xFFFFFF00) / PAGE_SIZE
-  top    = 0xFFFFFA
-  pages  = [pg for pg in state.get_child('machine').get_child('memory').get_page_states() if bottom <= pg.index < top]
-
-  stack = sorted(pages, key = lambda x: x.index, reverse = True)
-
-  symbols = __load_forth_symbols(logger)
-
-  for pg in stack:
-    for i in range(PAGE_SIZE, 0, -4):
-      step = pg.content[i - 4] | (pg.content[i - 3] << 8) | (pg.content[i - 2] << 16) | (pg.content[i - 1] << 24)
-
-      if step != 0 and step in symbols:
-        logger.info('%s: %s', UINT32_FMT(step), symbols[step])
-
-      else:
-        logger.info('%s: %s', UINT32_FMT(step), UINT32_FMT(step))
-
 def show_forth_word(logger, state, base_address):
-  logger.info('=== FORTH word ===')
+  I = get_logger().info
+
+  I('=== FORTH word ===')
 
   symbols = __load_forth_symbols(logger)
 
-  __show_forth_word(logger, state, symbols, base_address, [[k for k, v in iteritems(symbols) if v == 'EXIT'][0]])
+  __show_forth_word(state, symbols, base_address, [[k for k, v in iteritems(symbols) if v == 'EXIT'][0]])
 
 def show_forth_dict(logger, state, last):
-  logger.info('== FORTH dictionary ===')
+  I = get_logger().info
+
+  I('== FORTH dictionary ===')
 
   __read_u32 = partial(__read, state, 4)
 
@@ -191,9 +173,37 @@ def show_forth_dict(logger, state, last):
   ending_addresses = [[k for k, v in iteritems(symbols) if v == 'EXIT'][0]]
 
   while base_address != 0x00000000:
-    logger.info('')
-    __show_forth_word(logger, state, symbols, base_address, ending_addresses)
+    I('')
+    __show_forth_word(state, symbols, base_address, ending_addresses)
     base_address = __read_u32(base_address).value
+
+def show_dump(state, dumps):
+  I = get_logger().info
+
+  __read_u8  = partial(__read, state, 1)
+  __read_u16 = partial(__read, state, 2)
+  __read_u32 = partial(__read, state, 4)
+
+  for i, dump in enumerate(dumps):
+    fmt, address = dump.split(':')
+
+    if fmt.lower() == 'w':
+      address = str2int(address.strip())
+      v = __read_u32(address)
+
+      I('%d: %s: %s', i, UINT32_FMT(address), UINT32_FMT(v))
+
+    elif fmt.lower() == 's':
+      address = str2int(address.strip())
+      v = __read_u16(address)
+
+      I('%d: %s: %s', i, UINT32_FMT(address), UINT16_FMT(v))
+
+    elif fmt.lower() == 'b':
+      address = str2int(address.strip())
+      v = __read_u8(address)
+
+      I('%d: %s: %s', i, UINT32_FMT(address), UINT8_FMT(v))
 
 def main():
   from . import add_common_options, parse_options
@@ -208,9 +218,9 @@ def main():
   parser.add_option('-M',         dest = 'memory',   default = False, action = 'store_true', help = 'Show memory')
   parser.add_option('--pages',    dest = 'pages',    default = False, action = 'store_true', help = 'Show pages')
   parser.add_option('--empty-pages', dest = 'empty_pages', default = False, action = 'store_true', help = 'Show empty pages')
-  parser.add_option('--forth-trace', dest = 'forth_trace', default = False, action = 'store_true', help = 'Show FORTH call trace')
   parser.add_option('--forth-word',  dest = 'forth_word',  default = None,  action = 'store',    help = 'Show FORTH word')
   parser.add_option('--forth-dict',  dest = 'forth_dict',  default = None,  action = 'store',      help = 'Show FORTH dictionary')
+  parser.add_option('--dump',  dest = 'dumps',  default = [],  action = 'append',      help = 'Show FORTH dictionary')
   parser.add_option('-a',         dest = 'all',      default = False, action = 'store_true', help = 'All of above')
 
   parser.add_option('-Q',         dest = 'queries',  default = [],    action = 'append',     help = 'Query snapshot')
@@ -244,14 +254,14 @@ def main():
       if options.pages:
         show_pages(logger, state, empty_pages = options.empty_pages)
 
-      if options.forth_trace:
-        show_forth_trace(logger, state)
-
       if options.forth_word:
         show_forth_word(logger, state, str2int(options.forth_word))
 
       if options.forth_dict:
         show_forth_dict(logger, state, str2int(options.forth_dict))
+
+      if options.dumps:
+        show_dump(state, options.dumps)
 
     else:
       for query in options.queries:
