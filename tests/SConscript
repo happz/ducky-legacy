@@ -48,6 +48,9 @@ Sanity = 50
 Default = 200
 CI = 4000
 
+[forth]
+dummy-storage = $FORTH_DUMMY_STORAGE
+
 [repeats]
 {repeats}
 """.format(coverage = 'yes' if 'COVERAGEDIR' in env else 'no',
@@ -56,6 +59,13 @@ CI = 4000
            profiledir = ('profile = %s' % env['PROFILEDIR']) if 'PROFILEDIR' in env else '',
            repeats = '\n'.join(['%s = %s' % (test, count) for test, count in repeats]) if repeats else '')
     ))
+
+def create_dummy_storage(env, target, source):
+  cmd = DuckyCommand(env, runner = '')
+
+  cmd.command = env.subst('dd if=/dev/random of=$FORTH_DUMMY_STORAGE bs=1024 count=200 iflag=fullblock')
+
+  return cmd.run(env, 'SETUP', env.subst('Creating dummy FORTH storage in $FORTH_DUMMY_STORAGE'))
 
 def run_testsuite(env, target, source, tests = None):
   tests = tests or []
@@ -176,6 +186,7 @@ if 'TESTSETDIR' in E:
   E.Append(CONFIGFILE   = File(E.subst('$CONFIGDIR/testsuite.conf')).abspath)
   E.Append(VMCONFIGFILE = File('forth/machine.conf').abspath)
   E.Append(TRACE_FILE   = File(E.subst('$LOGDIR/testsuite.trace')).abspath)
+  E.Append(FORTH_DUMMY_STORAGE = File(E.subst('$TMPDIR/forth-dummy-storage.bin')).abspath)
 
 
 #
@@ -202,7 +213,7 @@ E.ReadExternalDeps(E.Dir('.').abspath)
 if 'TESTSETDIR' in E:
   common_requirements     = [E[v] for v in ['TMPDIR', 'RESULTSDIR', 'LOGDIR', 'REPORTDIR', 'CONFIGFILE', 'SNAPSHOTDIR']]
   engine_requirements     = routines
-  forth_requirements      = [E.File('#forth/ducky-forth'), E['VMCONFIGFILE'], E['LOGDIR_FORTH']]
+  forth_requirements      = [E.File('#forth/ducky-forth'), E['VMCONFIGFILE'], E['LOGDIR_FORTH'], E['FORTH_DUMMY_STORAGE']]
   forth_unit_requirements = [E.Glob('forth-units/tests/*.f'), E.Glob('forth-units/tests/*.expected')]
   forth_ans_requirements  = []
   examples_requirements   = [E['LOGDIR_EXAMPLES'],
@@ -223,6 +234,7 @@ if 'TESTSETDIR' in E:
     common_requirements.append(E['PROFILEDIR'])
 
   E.Command(E['CONFIGFILE'], None, create_testsuite_config)
+  E.Command(E['FORTH_DUMMY_STORAGE'], None, create_dummy_storage)
 
   # Engine tests
   E.Command('.tests-engine', None, run_testsuite_engine)
