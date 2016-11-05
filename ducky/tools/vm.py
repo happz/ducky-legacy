@@ -154,9 +154,9 @@ def print_machine_stats(logger, M):
 
     table_inst_caches.append([
       str(core),
-      core.mmu.instruction_cache.reads,
-      core.mmu.instruction_cache.hits,
-      core.mmu.instruction_cache.misses,
+      core.mmu._instruction_cache.reads,
+      core.mmu._instruction_cache.hits,
+      core.mmu._instruction_cache.misses,
     ])
 
     table_cnts.append([

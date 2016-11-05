@@ -135,27 +135,61 @@ class CoreFlags(Flags):
   _flags = ['privileged', 'hwint_allowed', 'equal', 'zero', 'overflow', 'sign']
   _labels = 'PHEZOS'
 
-class InstructionCache(LoggingCapable, list):
+class InstructionCache_Base(LoggingCapable, dict):
   """
   Simple instruction cache class, based on a dictionary, with a limited size.
 
   :param ducky.cpu.CPUCore core: CPU core that owns this cache.
-  :param int size: maximal number of entries this cache can store.
   """
 
-  def __init__(self, mmu, size, *args, **kwargs):
-    super(InstructionCache, self).__init__(mmu.core.cpu.machine.LOGGER, [None for _ in range(0, mmu.memory.size >> 2)])
+  def __init__(self, mmu, *args, **kwargs):
+    super(InstructionCache_Base, self).__init__(mmu.core.cpu.machine.LOGGER)
 
     self._mmu = mmu
     self._core = mmu.core
-    self.size = size
 
     self.reads   = 0
     self.hits    = 0
     self.misses  = 0
 
-    if self._core.jit is True:
-      self._fetch = self._fetch_jit
+  def __getitem__(self, addr):
+    """
+    Get instruction from the specified address.
+    """
+
+    self.reads += 1
+
+    index = addr >> 2
+
+    i = dict.get(self, index)
+
+    if i is None:
+        self.misses += 1
+
+        i = self.fetch_instr(addr)
+        dict.__setitem__(self, index, i)
+
+    else:
+      self.hits += 1
+
+    return i
+
+class InstructionCache_Full(LoggingCapable, list):
+  """
+  Simple instruction cache class, based on a list, with unlimited size.
+
+  :param ducky.cpu.CPUCore core: CPU core that owns this cache.
+  """
+
+  def __init__(self, mmu, *args, **kwargs):
+    super(InstructionCache_Full, self).__init__(mmu.core.cpu.machine.LOGGER, [None for _ in range(0, mmu.memory.size >> 2)])
+
+    self._mmu = mmu
+    self._core = mmu.core
+
+    self.reads   = 0
+    self.hits    = 0
+    self.misses  = 0
 
   def clear(self):
     for i in range(0, self._mmu.memory.size >> 2):
@@ -175,49 +209,13 @@ class InstructionCache(LoggingCapable, list):
     if i is None:
         self.misses += 1
 
-        i = self._fetch(addr)
+        i = self.fetch_instr(addr)
         list.__setitem__(self, index, i)
 
     else:
       self.hits += 1
 
     return i
-
-  def _fetch(self, addr):
-    """
-    Read instruction from memory. This method is responsible for the real job of
-    fetching instructions and filling the cache.
-
-    :param u24 addr: absolute address to read from
-    :return: instruction
-    :rtype: ``InstBinaryFormat_Master``
-    """
-
-    core = self._core
-
-    inst, desc, opcode = core.decode_instr(core.MEM_IN32(addr, not_execute = False))
-    return inst, opcode, partial(desc.execute, core, inst)
-
-  def _fetch_jit(self, addr):
-    """
-    Read instruction from memory. This method is responsible for the real job of
-    fetching instructions and filling the cache.
-
-    :param u24 addr: absolute address to read from
-    :return: instruction
-    :rtype: ``InstBinaryFormat_Master``
-    """
-
-    core = self._core
-
-    inst, desc, opcode = core.decode_instr(core.MEM_IN32(addr, not_execute = False))
-
-    fn = desc.jit(core, inst)
-
-    if fn is None:
-      return inst, opcode, partial(desc.execute, core, inst)
-
-    return inst, opcode, fn
 
 class MMU(ISnapshotable):
   """
@@ -244,15 +242,25 @@ class MMU(ISnapshotable):
     self.core = core
     self.memory = memory_controller
 
-    self.force_aligned_access = config.getbool('memory', 'force-aligned-access', default = False)
-    self.pt_address = config.getint('cpu', 'pt-address', default = DEFAULT_PT_ADDRESS)
-    self._pt_enabled = config.getbool('cpu', 'pt-enabled', default = False)
+    self.force_aligned_access = config.memory_force_aligned_access()
+    self.pt_address = config.cpu_pt_address()
+    self._pt_enabled = config.cpu_page_cache()
 
     self._pte_cache = {}
 
     self.DEBUG = core.DEBUG
 
-    self.instruction_cache = InstructionCache(self, config.getint('cpu', 'inst-cache', default = DEFAULT_CORE_INST_CACHE_SIZE))
+    if config.get('cpu', 'instr-cache', 'simple') == 'full':
+      self._instruction_cache = InstructionCache_Full(self)
+
+    else:
+      self._instruction_cache = InstructionCache_Base(self)
+
+    if config.get('cpu', 'page-cache', 'simple') == 'full':
+      self._page_cache = [None for _ in range(0, self.memory.pages_cnt)]
+
+    else:
+      self._page_cache = dict()
 
     self._set_access_methods()
 
@@ -321,17 +329,25 @@ class MMU(ISnapshotable):
     if self.core.debug is not None:
       __wrap_debug()
 
+    self._instruction_cache.fetch_instr = self._fetch_instr_jit if self.core.jit is True else self._fetch_instr
+    self._get_pg_ops = self._get_pg_ops_list if self.core.cpu.machine.config.get('cpu', 'page-cache', 'simple') == 'full' else self._get_pg_ops_dict
+    self.core.fetch_instr = self._instruction_cache.__getitem__
+
   def reset(self):
     """
     Reset MMU. PT will be disabled, and all internal caches will be flushed.
     """
 
-    self.instruction_cache.clear()
+    self._instruction_cache.clear()
+
+    if isinstance(self._page_cache, list):
+      for i in range(0, self.memory.pages_cnt):
+        self._page_cache[i] = None
+    else:
+      self._page_cache.clear()
 
     self.pt_enabled = False
     self._pte_cache = {}
-
-    self._page_cache = [None for _ in range(0, self.memory.pages_cnt)]
 
   def halt(self):
     pass
@@ -403,7 +419,7 @@ class MMU(ISnapshotable):
 
     raise MemoryAccessError(access, addr, pte)
 
-  def _get_pg_ops(self, address):
+  def _get_pg_ops_list(self, address):
     pg_index = address >> PAGE_SHIFT
     pg_cache = self._page_cache
 
@@ -415,6 +431,54 @@ class MMU(ISnapshotable):
     pg_cache[pg_index] = ops = (pg.read_u8, pg.read_u16, pg.read_u32, pg.write_u8, pg.write_u16, pg.write_u32)
 
     return ops
+
+  def _get_pg_ops_dict(self, address):
+    pg_index = address >> PAGE_SHIFT
+    pg_cache = self._page_cache
+
+    if pg_index in pg_cache:
+      return pg_cache[pg_index]
+
+    pg = self.memory.get_page(pg_index)
+    pg_cache[pg_index] = ops = (pg.read_u8, pg.read_u16, pg.read_u32, pg.write_u8, pg.write_u16, pg.write_u32)
+
+    return ops
+
+  def _fetch_instr(self, addr):
+    """
+    Read instruction from memory. This method is responsible for the real job of
+    fetching instructions and filling the cache.
+
+    :param u24 addr: absolute address to read from
+    :return: instruction
+    :rtype: ``InstBinaryFormat_Master``
+    """
+
+    core = self.core
+
+    inst, desc, opcode = core.decode_instr(core.MEM_IN32(addr, not_execute = False))
+    return inst, opcode, partial(desc.execute, core, inst)
+
+  def _fetch_instr_jit(self, addr):
+    """
+    Read instruction from memory. This method is responsible for the real job of
+    fetching instructions and filling the cache.
+
+    :param u24 addr: absolute address to read from
+    :return: instruction
+    :rtype: ``InstBinaryFormat_Master``
+    """
+
+    core = self.core
+
+    inst, desc, opcode = core.decode_instr(core.MEM_IN32(addr, not_execute = False))
+
+    fn = desc.jit(core, inst)
+
+    if fn is None:
+      return inst, opcode, partial(desc.execute, core, inst)
+
+    return inst, opcode, fn
 
   # "PT Disabled" methods - every access is effectively privileged
   def _nopt_read_u8(self, addr):
@@ -500,6 +564,12 @@ class CPUCore(ISnapshotable, IMachineWorker):
     super(CPUCore, self).__init__()
 
     config = cpu.machine.config
+
+    config.memory_force_aligned_access = partial(config.getbool, 'memory', 'force-aligned-access', default = False)
+    config.cpu_pt_address = partial(config.getint, 'cpu', 'pt-address', default = DEFAULT_PT_ADDRESS)
+    config.cpu_pt_enabled = partial(config.getbool, 'cpu', 'pt-enabled', default = False)
+    config.cpu_instr_cache = partial(config.get, 'cpu', 'instr-cache', default = 'simple')
+    config.cpu_page_cache = partial(config.get, 'cpu', 'page-cache', default = 'simple')
 
     self.cpuid = '#{}:#{}'.format(cpu.id, coreid)
     self.cpuid_prefix = self.cpuid + ':'
@@ -666,6 +736,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
     self.flags = CoreFlags.create(privileged = True)
 
     self.registers[Registers.IP] = new_ip
+    self.current_ip = new_ip
 
     self.mmu.reset()
 
@@ -985,7 +1056,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
     self.DEBUG('fetch instruction: ip=%s', UINT32_FMT(ip))
 
     def __do_step():
-      self.current_instruction, opcode, execute = self.mmu.instruction_cache[ip]
+      self.current_instruction, opcode, execute = self.fetch_instr(ip)
       regset[Registers.IP] = (ip + 4) % 4294967296
 
       self.DEBUG('"EXECUTE" phase: %s %s', UINT32_FMT(ip), self.instruction_set.disassemble_instruction(self.LOGGER, self.current_instruction))
@@ -1091,9 +1162,9 @@ class CPUCore(ISnapshotable, IMachineWorker):
       self.core_profiler.enable()
 
     self.cpu.machine.tenh('%r: CPU core is up', self)
-    if self.mmu.instruction_cache is not None:
-      self.cpu.machine.tenh('%r:  %d IC slots', self, self.mmu.instruction_cache.size)
     self.cpu.machine.tenh('%r:  check-frames: %s', self, 'yes' if self.check_frames else 'no')
+    self.cpu.machine.tenh('%r:  instruction cache: %s', self, self.cpu.machine.config.get('cpu', 'instr-cache', 'simple'))
+    self.cpu.machine.tenh('%r:  page cache: %s', self, self.cpu.machine.config.get('cpu', 'page-cache', 'simple'))
     if self.coprocessors:
       self.cpu.machine.tenh('%r:  coprocessor: %s', self, ' '.join(sorted(iterkeys(self.coprocessors))))
 
@@ -1128,13 +1199,6 @@ class CPU(ISnapshotable, IMachineWorker):
 
       self.halted_cores.append(__core)
       self.suspended_cores.append(__core)
-
-    self.machine.console.register_commands([
-      ('sc', cmd_set_core),
-      ('st', cmd_core_state),
-      ('cont', cmd_cont),
-      ('step', cmd_step),
-    ])
 
   def __repr__(self):
     return '#%i' % self.id
@@ -1245,114 +1309,3 @@ class CPU(ISnapshotable, IMachineWorker):
       core.boot()
 
     self.machine.tenh('%r: CPU is up', self)
-
-def cmd_set_core(console, cmd):
-  """
-  Set core address of default core used by control commands: sc <coreid>
-  """
-
-  M = console.master.machine
-
-  try:
-    core = M.core(cmd[1])
-
-  except InvalidResourceError:
-    console.writeln('go away')
-    return
-
-  console.default_core = core
-
-  console.writeln('# OK: default core is %s', core.cpuid)
-
-def cmd_cont(console, cmd):
-  """
-  Continue execution until next breakpoint is reached: cont
-  """
-
-  if console.default_core is None:
-    console.writeln('# ERR: no core selected')
-    return
-
-  if console.default_core.running:
-    console.writeln('# ERR: core is not suspended')
-    return
-
-  console.default_core.wake_up()
-
-  console.writeln('# OK')
-
-def cmd_step(console, cmd):
-  """
-  Step one instruction forward
-  """
-
-  if console.default_core is None:
-    console.writeln('# ERR: no core selected')
-    return
-
-  if console.default_core.running:
-    console.writeln('# ERR: core is not suspended')
-    return
-
-  console.default_core.run()
-
-  console.writeln('# OK')
-
-def cmd_next(console, cmd):
-  """
-  Proceed to the next instruction in the same stack frame.
-  """
-
-  core = console.default_core if hasattr(console, 'default_core') else console.machine.cpus[0].cores[0]
-
-  if not core.is_suspended():
-    return
-
-  def __ip_addr(offset = 0):
-    return core.registers.ip.value + offset
-
-  try:
-    inst = core.instruction_set.decode_instruction(core.memory.read_u32(__ip_addr()))
-
-    if inst.opcode == core.instruction_set.opcodes.CALL:
-      from ..debugging import add_breakpoint
-
-      add_breakpoint(core, core.registers.ip.value + 4, ephemeral = True)
-
-      core.wake_up()
-
-    else:
-      core.step()
-      core.check_for_events()
-
-      log_cpu_core_state(core, logger = core.INFO)
-
-  except ExecutionException as e:
-    core.die(e)
-
-def cmd_core_state(console, cmd):
-  """
-  Print core state
-  """
-
-  M = console.master.machine
-  core = console.default_core if console.default_core is not None else M.cpus[0].cores[0]
-
-  do_log_cpu_core_state(core, logger = functools.partial(console.log, core.INFO))
-
-def cmd_bt(console, cmd):
-  """
-  Print current backtrace
-  """
-
-  M = console.master.machine
-  core = console.default_core if console.default_core is not None else M.cpus[0].cores[0]
-
-  table = [
-    ['Index', 'symbol', 'offset', 'ip']
-  ]
-
-  for index, (ip, symbol, offset) in enumerate(core.backtrace()):
-    table.append([index, symbol, UINT32_FMT(offset), UINT32_FMT(ip)])
-
-  console.table(table)
