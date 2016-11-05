@@ -439,7 +439,6 @@ def __base_store_test(state, reg1, reg2, address, value, inst_class, size, offse
   memory_value = reader(memory_address)
   assert expected_value == memory_value, 'Memory contains 0x%08X, 0x%08X expected' % (memory_value, value)
 
-
 #
 # ADD
 #
@@ -1633,6 +1632,8 @@ def test_ret(state, fp, ip):
   CORE.mmu.memory.write_u32(state.sp, ip)
   state.sp = (state.sp + 4) % (2 ** 32)
 
+  CORE.frames.append(None)
+
   execute_inst(CORE, RET, inst)
 
   state.check(fp = fp, ip = ip)
@@ -1670,6 +1671,8 @@ def test_retint(state, fp, ip, user_flags, sp):
   state.sp = (state.sp + 4) % (2 ** 32)
   CORE.mmu.memory.write_u32(state.sp, sp)
   state.sp = (state.sp + 4) % (2 ** 32)
+
+  CORE.frames.append(None)
 
   execute_inst(CORE, RETINT, inst)
 
