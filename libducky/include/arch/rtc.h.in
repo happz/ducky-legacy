@@ -23,7 +23,7 @@
 
 #include <hdt.h>
 
-typedef struct {
+typedef struct __attribute__((packed)) {
   hdt_entry_device_t e_header;
   u32_t              e_mmio_address;
 } hdt_entry_device_rtc_t;
