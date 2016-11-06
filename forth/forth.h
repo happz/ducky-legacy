@@ -37,17 +37,6 @@
 #define ASM_BYTE(_type, _name)    extern _type __attribute__ ((aligned (1))) _name
 #define ASM_STRUCT(_type, _name)  extern _type __attribute__ ((aligned (4))) _name
 
-/*
- * Use this to declare C-defined functions as assembly-friendly.
- */
-#if 0
-#define ASM_CALLABLE(_fn)         _fn __attribute__((preserve_all))
-#define ASM_CC                    preserve_all
-#else
-#define ASM_CALLABLE(_fn)         _fn __attribute__((noinline))
-#define ASM_CC                    noinline
-#endif
-
 
 /**
  * Internal kernel structures
@@ -57,26 +46,26 @@
 
 typedef u32_t cell_t;
 
-typedef struct {
+typedef struct __attribute__((packed)) {
   u8_t  cs_len;
   char  cs_str; // first character of string
-} __attribute__((packed)) counted_string_t;
+} counted_string_t;
 
 /* FORTH word header */
 typedef struct word_header word_header_t;
 
 typedef cell_t cf_t;
 
-struct word_header {
+struct __attribute__((packed)) word_header {
   word_header_t *      wh_link;
   u16_t                wh_name_crc;
   u8_t                 wh_flags;
 
   counted_string_t     wh_name;
-} __attribute__((packed));
+};
 
-extern ASM_CALLABLE(int fw_search(char *, u32_t, word_header_t **));
-extern ASM_CALLABLE(cf_t *fw_cfa(word_header_t *word));
+extern int fw_search(counted_string_t *needle, word_header_t **);
+extern cf_t *fw_cfa(word_header_t *word);
 
 #endif // __DUCKY_PURE_ASM__
 
@@ -113,7 +102,13 @@ struct input_desc {
   u32_t            id_length;
   u32_t            id_index;
   u32_t            id_max_length;
+
+  u32_t            id_blk;  // BLK - non-zero if descriptor handles block
 };
+
+#define INPUT_IS_KBD()  (current_input->id_source_id == 0)
+#define INPUT_IS_EVAL() (current_input->id_source_id == -1)
+#define INPUT_IS_BLK()  (current_input->id_blk != 0)
 
 #endif // __DUCKY_PURE_ASM__
 
@@ -134,6 +129,8 @@ struct input_desc {
 #define ERR_INPUT_STACK_UNDERFLOW   8
 #define ERR_UNALIGNED_MEMORY_ACCESS 9
 #define ERR_INTERPRET_FAIL          10
+#define ERR_BIO_FAIL                11
+#define ERR_WORD_TOO_LONG           12
 
 
 /**
@@ -155,62 +152,72 @@ extern void __idle(void);
 
 // String/memory helpers
 extern int __c_strcmp(char *s1, char *s2, u32_t len1, u32_t len2);
-extern ASM_CALLABLE(void bzero(char *, u32_t));
+extern void bzero(char *, u32_t);
 extern void __c_memcpy(char *dst, char *src, u32_t len);
-extern u16_t __c_strcrc(char *s, u8_t len);
+extern void memset(u8_t *dst, u32_t c, u32_t len);
+
+extern u16_t strcrc(char *s, u8_t len);
+
+static inline u16_t cs_crc(counted_string_t *cs) { return strcrc(&cs->cs_str, cs->cs_len); }
+extern int cs_cmp(counted_string_t *s1, counted_string_t *s2);
 
 // TTY output
-extern ASM_CALLABLE(void putc(char ));
-extern ASM_CALLABLE(void puts(char *, u32_t));
-extern ASM_CALLABLE(void putcs(char *));
-extern ASM_CALLABLE(void putnl(void));
+extern void putc(char );
+extern void puts(char *, u32_t);
+extern void putcs(char *);
+extern void putnl(void);
 
 #define BR() do { putc('\r'); putc('\n'); } while(0)
 
 // "Print <something>" helpers
-extern ASM_CALLABLE(void do_print_prompt(void));
-extern ASM_CALLABLE(void print_prompt(u32_t));
+extern void do_print_prompt(void);
+extern void print_prompt(u32_t);
 
-extern ASM_CALLABLE(void print_buffer(char *, u32_t));
-extern ASM_CALLABLE(void print_word_name(word_header_t *));
-extern ASM_CALLABLE(void print_input_buffer(void));
-extern ASM_CALLABLE(void print_word_buffer(void));
-extern ASM_CALLABLE(void print_input(void));
+#include <stdarg.h>
 
-extern ASM_CALLABLE(void print_hex(u32_t u));
+extern int mini_vsnprintf(char* buffer, unsigned int buffer_len, char *fmt, va_list va);
+extern int mini_snprintf(char* buffer, unsigned int buffer_len, char *fmt, ...);
+extern int printf(char *fmt, ...);
+extern char printf_buffer[];
+
+#define vsnprintf mini_vsnprintf
+#define snprintf mini_snprintf
 
 // Errors and exceptions
 extern void halt(int errno) __attribute__((noreturn));
 extern void __ERR_die(char *msg, int errno) __attribute__((noreturn));
 extern void __ERR_die_with_input(char *msg, int exit_code) __attribute__((noreturn));
-#ifdef FORTH_DIE_ON_UNDEF
+#ifdef CONFIG_DIE_ON_UNDEF
 extern void __ERR_undefined_word(void) __attribute__((noreturn));
 #else
 extern void __ERR_undefined_word(void);
 #endif
 extern void __ERR_no_interpretation_semantics(void) __attribute__((noreturn));
-extern void __ERR_malformed_HDT(void) __attribute__((noreturn));
 extern void __ERR_input_stack_overflow(void) __attribute__((noreturn));
 extern void __ERR_input_stack_underflow(void) __attribute__((noreturn));
 extern void __ERR_unknown(void) __attribute__((noreturn));
 extern void __ERR_interpret_fail(void) __attribute__((noreturn));
+extern void __ERR_bio_fail(u32_t storage, u32_t bid, u32_t status, int errno) __attribute__((noreturn));
+extern void __ERR_word_too_long(void) __attribute__((noreturn));
 
 // Input processing
 extern input_desc_t *current_input;
 
-extern ASM_CALLABLE(void input_stack_pop(void));
-extern ASM_CALLABLE(void input_stack_push(input_desc_t *));
+extern void input_stack_pop(void);
+extern void input_stack_push(input_desc_t *);
 
-extern ASM_CALLABLE(void __refill_input_buffer(void));
-extern ASM_CALLABLE(u32_t __read_line_from_kbd(char *, u32_t));
+extern void __refill_input_buffer(void);
+extern u32_t __read_line_from_kbd(char *, u32_t);
 
-extern ASM_CALLABLE(u8_t __read_char(void));
-extern ASM_CALLABLE(u8_t *__read_word(char));
-extern ASM_CALLABLE(u8_t *__read_word_with_refill(char delimiter));
-extern ASM_CALLABLE(u8_t *__read_dword(void));
-extern ASM_CALLABLE(u8_t *__read_dword_with_refill(void));
+extern u8_t __read_char(void);
+extern counted_string_t *__read_word(char delimiter);
+extern counted_string_t *__read_word_with_refill(char delimiter);
+extern counted_string_t *__read_dword(void);
+extern counted_string_t *__read_dword_with_refill(void);
 
-extern ASM_CALLABLE(void flush_input_buffer(void));
+// Heap allocations
+extern void *malloc(u32_t);
+extern void free(void *);
 
 // Enviroment queries
 typedef enum {
@@ -226,22 +233,30 @@ typedef struct __attribute__((packed)) {
   u32_t                      number_hi;
 } environment_query_result_t;
 
-// Number parsing
-typedef struct __attribute__((packed)) {
-  i32_t nr_number;
+
+/* ----------------------------------------------------------------------
+ * Number parsing
+ */
+
+typedef struct {
   i32_t nr_remaining;
+  i32_t nr_number_lo;
+  i32_t nr_number_hi;
 } parse_number_result_t;
 
-extern ASM_CALLABLE(void parse_number(char *, u32_t, parse_number_result_t * __attribute__((align_value(4)))));
-extern ASM_CALLABLE(void print_unsigned(u32_t));
-extern ASM_CALLABLE(void print_signed(u32_t));
+extern int parse_number(counted_string_t *s, parse_number_result_t * __attribute__((align_value(4))) result);
+
+extern void print_unsigned(u32_t);
+extern void print_signed(u32_t);
+extern void pno_reset_buffer(void);
 
 // Interpreter loop
 typedef enum {
-  NOP          = 0,
-  EXECUTE_WORD = 1,
-  EXECUTE_LIT  = 2,
-  COMPILE_LIT  = 3
+  INTERPRET_NOP          = 0,
+  INTERPRET_EMPTY        = 1,
+  INTERPRET_EXECUTE_WORD = 2,
+  INTERPRET_EXECUTE_LIT  = 3,
+  INTERPRET_EXECUTE_2LIT = 4
 } interpret_status_t;
 
 typedef struct __attribute__((packed)) {
@@ -250,10 +265,11 @@ typedef struct __attribute__((packed)) {
   union {
     cf_t *             id_cfa;
     u32_t              id_number;
+    u32_t              id_double_number[2];
   } u;
 } interpret_decision_t;
 
-typedef struct {
+typedef struct __attribute__((packed)) {
   char * pr_word;
   u32_t  pr_length;
 } parse_result_t;
@@ -264,21 +280,37 @@ typedef struct {
  * by their assembly wrappers.
  */
 
-extern void do_BYE(void) __attribute__((ASM_CC,noreturn));
-extern ASM_CALLABLE(void do_PAREN(void));
-extern ASM_CALLABLE(void do_COMMA(u32_t));
-extern ASM_CALLABLE(void do_CR(void));
-extern ASM_CALLABLE(void do_DOT_PAREN(void));
-extern ASM_CALLABLE(environment_query_status_t do_ENVIRONMENT_QUERY(char *, u32_t, environment_query_result_t *));
-extern ASM_CALLABLE(void do_EVALUATE(char *, u32_t));
-extern ASM_CALLABLE(void do_INTERPRET(interpret_decision_t *));
-extern ASM_CALLABLE(void do_LITSTRING(cf_t *));
-extern ASM_CALLABLE(void do_PARSE(char, parse_result_t *));
-extern ASM_CALLABLE(void do_SPACE(void));
-extern ASM_CALLABLE(void do_SPACES(i32_t n));
-extern ASM_CALLABLE(cf_t *do_TCFA(word_header_t *));
-extern ASM_CALLABLE(u32_t *do_TOIN(void));
-extern ASM_CALLABLE(u32_t do_UWIDTH(u32_t));
+extern void do_BACKSLASH(void);
+extern void do_BYE(void) __attribute__((noreturn));
+extern void do_PAREN(void);
+extern void do_COMMA(u32_t);
+extern void do_CR(void);
+extern void do_DOT_PAREN(void);
+extern environment_query_status_t do_ENVIRONMENT_QUERY(char *, u32_t, environment_query_result_t *);
+extern void do_EVALUATE(char *, u32_t);
+extern void do_INTERPRET(interpret_decision_t *);
+extern int do_ISNUMBER(counted_string_t *needle, i32_t *num);
+extern void do_LITSTRING(cf_t *);
+extern void do_PARSE(char, parse_result_t *);
+extern void do_SPACE(void);
+extern void do_SPACES(i32_t n);
+extern cf_t *do_TCFA(word_header_t *);
+extern u32_t *do_TOIN(void);
+extern u32_t do_UWIDTH(u32_t);
+extern void do_POSTPONE(void);
+extern u32_t do_REFILL(void);
+extern u32_t do_SAVE_INPUT(u32_t *buffer);
+extern void do_RESTORE_INPUT(u32_t n, u32_t *buffer);
+extern void *do_BLK(void);
+extern void *do_BLOCK(u32_t bid);
+extern void *do_BUFFER(u32_t bid);
+extern void do_EMPTY_BUFFERS(void);
+extern void do_FLUSH(void);
+extern void do_LIST(u32_t bid);
+extern void do_SAVE_BUFFERS(void);
+extern void do_UPDATE(void);
+extern void do_BLK_LOAD(u32_t bid);
+extern void do_THRU(u32_t u1, u32_t u2);
 
 #endif // __DUCKY_PURE_ASM__
 
@@ -382,12 +414,53 @@ code_ ## label:
   .type var_ ## label, word, initial             \
   .global var_ ## label
 
-#define DEFCSTUB(name, len, flags, label)        \
+#define DEFCONST(name, len, flags, label, initial) \
+  DEFCODE(name, len, flags, label)                 \
+                                                   \
+  push TOS                                         \
+  li TOS, initial                                  \
+  NEXT
+
+#define DEFCSTUB_00(name, len, flags, label)     \
   DEFCODE(name, len, flags, label)               \
                                                  \
   call do_ ## label                              \
   NEXT
 
+#define DEFCSTUB_10(name, len, flags, label)     \
+  DEFCODE(name, len, flags, label)               \
+                                                 \
+  mov r0, TOS                                    \
+  call do_ ## label                              \
+  pop TOS                                        \
+  NEXT
+
+#define DEFCSTUB_20(name, len, flags, label)     \
+  DEFCODE(name, len, flags, label)               \
+                                                 \
+  mov r1, TOS                                    \
+  pop r0                                         \
+  call do_ ## label                              \
+  pop TOS                                        \
+  NEXT
+
+#define DEFCSTUB_11(name, len, flags, label)     \
+  DEFCODE(name, len, flags, label)               \
+                                                 \
+  mov r0, TOS                                    \
+  call do_ ## label                              \
+  mov TOS, r0                                    \
+  NEXT
+
+#define DEFCSTUB_01(name, len, flags, label)     \
+  DEFCODE(name, len, flags, label)               \
+                                                 \
+  push TOS                                       \
+  call do_ ## label                              \
+  mov TOS, r0                                    \
+  NEXT
+
+#define DEFCSTUB DEFCSTUB_00
 
 // Compare words have always the same epilog...
 #define TF_FINISH(name, true_test) \
@@ -412,11 +485,23 @@ __tf_finish_ ## name:              \
   add reg, 3            \
   and reg, 0x7FFC
 
-#define UNPACK_WORD_FOR_FIND() \
-   mov r1, r0    /* copy c-addr to r1 */  \
-   inc r0        /* point r0 to string */ \
-   lb r1, r1     /* load string length */
-
 #endif // __DUCKY_PURE_ASM__
+
+
+/*
+ * Debugging options
+ */
+
+#if 0
+#  define DEBUG_BLOCKS 1
+#  define DEBUG_printf printf
+#  define DEBUG_puts puts
+#  define DEBUG_putcs putcs
+#else
+#  define DEBUG_BLOCKS 0
+#  define DEBUG_printf(...) (void)0
+#  define DEBUG_puts(a, b)  (void)0
+#  define DEBUG_putcs(a)    (void)0
+#endif
 
 #endif

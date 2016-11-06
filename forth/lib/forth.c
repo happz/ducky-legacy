@@ -2,17 +2,17 @@
 
 ASM_INT(u32_t,   var_LATEST);
 
-int fw_search(char *needle, u32_t needle_len, word_header_t **found)
+int fw_search(counted_string_t *needle, word_header_t **found)
 {
   *found = NULL;
 
-  if (!needle_len)
+  if (needle->cs_len == 0)
     return 0;
 
   if (var_LATEST == 0)
     return 0;
 
-  u16_t needle_crc = __c_strcrc(needle, needle_len);
+  u16_t needle_crc = cs_crc(needle);
   word_header_t *header = (word_header_t *)var_LATEST;
 
   for (; header != NULL; header = header->wh_link) {
@@ -22,7 +22,7 @@ int fw_search(char *needle, u32_t needle_len, word_header_t **found)
     if (header->wh_name_crc != needle_crc)
       continue;
 
-    if (__c_strcmp(needle, &header->wh_name.cs_str, needle_len, header->wh_name.cs_len))
+    if (cs_cmp(needle, &header->wh_name))
       continue;
 
     *found = header;

@@ -9,19 +9,13 @@ E = ENV.FullClone(
 )
 
 E.Append(INCLUDE = '-I %s' % Dir('#forth').abspath)
-
 E.Append(DEFS = ['-D__BUILD_STAMP__=$BUILD_STAMP'])
-
-#E.PassVarAsDefine('BUILD_STAMP', to_boolean = False)
-E.PassVarAsDefine('FORTH_DEBUG')
-E.PassVarAsDefine('FORTH_DEBUG_FIND')
-E.PassVarAsDefine('FORTH_DIE_ON_UNDEF')
 
 object_files = [ 'ducky-forth.o' ]
 
 # C code
-c_lib_files = ['boot', 'errors', 'forth', 'input', 'math', 'number', 'string', 'tty']
-c_word_files = ['compile', 'env', 'interpret', 'number', 'output', 'system']
+c_lib_files = ['boot', 'errors', 'forth', 'input', 'malloc', 'math', 'number', 'printf', 'string', 'tty']
+c_word_files = ['block', 'compile', 'env', 'interpret', 'number', 'output', 'system']
 
 for f in c_lib_files:
   dst, src = os.path.join('lib', f + '.o'), os.path.join('lib', f + '.c')

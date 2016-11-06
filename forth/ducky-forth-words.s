@@ -119,20 +119,7 @@ DEFWORD("[COMPILE]", 9, F_IMMED, BCOMPILE)
   .word EXIT
 
 
-DEFCODE("POSTPONE", 8, F_IMMED, POSTPONE)
-  call __read_dword_with_refill
-  UNPACK_WORD_FOR_FIND()
-  la r2, __found_word
-  call fw_search
-  cmp r0, 0x00
-  bz __ERR_undefined_word
-  la r0, __found_word
-  lw r0, r0
-  call do_TCFA
-  call do_COMMA
-  NEXT
-
-
+DEFCSTUB("POSTPONE", 8, F_IMMED, POSTPONE)
 
 
 // - Character constants -----------------------------------------------------------------
@@ -267,8 +254,7 @@ DEFCODE("HEX", 3, 0x00, HEX)
 
 DEFCODE("FORGET", 6, 0x00, FORGET)
   hlt 0x25
-  call __read_dword_with_refill
-  UNPACK_WORD_FOR_FIND()
+  call __read_dword
   //call __FIND
   la W, var_LATEST
   la X, var_DP
@@ -611,60 +597,6 @@ DEFVAR("HEAP-START", 10, 0x00, HEAP_START, 0xFFFFFFFF)
 DEFVAR("HEAP", 4, 0x00, HEAP, 0xFFFFFFFF)
 
 
-//
-// void *__malloc(u32_t length)
-//
-// Allocate a memory area of at least LENGTH bytes, starting at word-aligned
-// address. Length of the area is extended by 1 word, and the length is then
-// stored in the first allocated word. Caller then gets an area starting at
-// the address of the second word.
-//
-__malloc:
-  push r1
-  push r2
-  push r3
-  push r4
-
-  add r0, CELL                        // add space for stored length
-  mov r4, r0                           // save length for later
-
-  la r1, var_HEAP                     // get current heap pointer
-  lw r3, r1
-
-  sub r3, r0                           // move it down, and align it
-  li r0, 0xFFFC
-  liu r0, 0xFFFF
-  and r3, r0
-
-  stw r1, r3                           // store heap pointer
-
-  mov r0, r3
-  mov r1, r4
-  li r2, 0x79
-  call memset
-
-  stw r3, r4                           // store length
-  add r3, CELL
-
-  mov r0, r3
-  pop r4
-  pop r3
-  pop r2
-  pop r1
-  ret
-
-__free:
-  push r1
-  push r2
-  sub r0, CELL
-  lw r1, r0
-  li r2, 0x97
-  call memset
-  pop r2
-  pop r1
-  ret
-
-
 DEFCODE(">BODY", 5, 0x00, TOBODY)
   // ( xt -- a-addr )
   add TOS, CELL
@@ -744,16 +676,10 @@ DEFCODE("UNUSED", 6, 0x00, UNUSED)
 
 DEFCODE("FILL", 4, 0x00, FILL)
   // ( c-addr u char -- )
-  pop W // u
-  pop X // c-addr
-  cmp W, 0x00
-  ble __FILL_next
-__FILL_loop:
-  stb X, TOS
-  inc X
-  dec W
-  bnz __FILL_loop
-__FILL_next:
+  mov r1, TOS
+  pop r2
+  pop r0
+  call memset
   pop TOS
   NEXT
 
@@ -771,15 +697,12 @@ DEFCODE("BUFFER:", 7, 0x00, BUFFER_COLON)
   // ( u "<spaces>name" -- )
   // name Execution: ( -- a-addr )
 
-  call __read_dword_with_refill       // first, create header for new word
-  mov r1, r0
-  inc r0
-  lb r1, r1
-  call __HEADER_COMMA
+  call __read_dword
+  call do_HEADER_COMMA
 
   mov r0, TOS
   pop TOS
-  call __malloc
+  call malloc
 
   la W, var_DP                       // now, compile simple word to push address on stack
   lw Z, W
@@ -817,8 +740,7 @@ DEFCODE("MOVE", 4, 0x00, MOVE)
 DEFCODE("ALLOCATE", 8, 0x00, ALLOCATE)
   // ( u -- a-addr ior )
   mov r0, TOS
-  mov X, TOS
-  call __malloc
+  call malloc
   push r0
   li TOS, 0x00
   NEXT
@@ -827,7 +749,7 @@ DEFCODE("ALLOCATE", 8, 0x00, ALLOCATE)
 DEFCODE("FREE", 4, 0x00, FREE)
   // ( a-addr - ior )
   mov r0, TOS
-  call __free
+  call free
   li TOS, 0x00
   NEXT
 
@@ -838,7 +760,7 @@ DEFCODE("RESIZE", 6, 0x00, RESIZE)
   pop X                               // a-addr
 
   mov r0, W                           // allocate new area
-  call __malloc
+  call malloc
   mov Y, r0                           // save new area address
 
   mov r2, X                           // load length of the original area
@@ -863,7 +785,7 @@ __RESIZE_copy:
   call memcpy
 
   mov r0, W
-  call __free
+  call free
 
   push Y
   li TOS, 0x00
@@ -876,11 +798,8 @@ DEFCODE("MARKER", 6, 0x00, MARKER)
   la X, var_DP                       // and keep DP and its value, too
   lw Y, X
 
-  call __read_dword_with_refill
-  mov r1, r0
-  inc r0
-  lb r1, r1
-  call __HEADER_COMMA
+  call __read_dword
+  call do_HEADER_COMMA
 
   lw Z, X                            // load new DP - it has been modified by HEADER,
 
@@ -1009,64 +928,13 @@ __ABS_next:
 
 // - Printing ----------------------------------------------------------------------------
 
-  .data
-
-  .type pno_buffer, space, PNO_BUFFER_SIZE
-  .type pno_ptr, word, 0x00
-  .type pno_chars, string, "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-
-  .text
-
-__reset_pno_buffer:
-  push r0
-  push r1
-  push r2
-  la r0, pno_buffer
-  la r1, pno_ptr
-  add r0, PNO_BUFFER_SIZE
-  stw r1, r0
-  sub r0, PNO_BUFFER_SIZE
-  li r1, PNO_BUFFER_SIZE
-  li r2, 0xBF
-  call memset
-  pop r2
-  pop r1
-  pop r0
-  ret
-
-__pno_append_char:
-  push r1
-  push r2
-  la r1, pno_ptr
-  lw r2, r1
-  dec r2
-  stb r2, r0
-  stw r1, r2
-  pop r2
-  pop r1
-  ret
-
-__pno_append_number:
-  push r1
-  la r1, pno_chars
-  add r0, r1
-  lb r0, r0
-  pop r1
-  j __pno_append_char
-
-
-DEFCODE("<#", 2, 0x00, LESSNUMBERSIGN)
-  // ( -- )
-  call __reset_pno_buffer
-  NEXT
-
 DEFCODE("#>", 2, 0x00, NUMBERSIGNGREATER)
   // ( xd -- c-addr u )
   la X, pno_ptr    // pno_ptr addr
   lw Y, X          // pno_ptr
 
   la W, pno_buffer
-  add W, PNO_BUFFER_SIZE
+  add W, CONFIG_PNO_BUFFER_SIZE
   sub W, Y
   stw sp, Y
   mov TOS, W
@@ -1078,7 +946,7 @@ DEFCODE("SIGN", 4, 0x00, SIGN)
   cmp r0, 0x00
   bns __SIGN_next
   li r0, 0x2D
-  call __pno_append_char
+  call pno_add_char
 __SIGN_next:
   NEXT
 
@@ -1086,8 +954,12 @@ __SIGN_next:
 DEFCODE("HOLD", 4, 0x00, HOLD)
   mov r0, TOS
   pop TOS
-  call __pno_append_char
+  call pno_add_char
   NEXT
+
+
+DEFCSTUB_20("HOLDS", 5, 0x00, HOLDS)
+  // ( c-addr u -- )
 
 
 DEFCODE("#", 1, 0x00, NUMBERSIGN)
@@ -1105,7 +977,7 @@ DEFCODE("#", 1, 0x00, NUMBERSIGN)
   save TOS, X      // split quot between TOS and stack
   sis DUCKY_INST_SET
   push X
-  call __pno_append_number
+  call pno_add_number
   NEXT
 
 
@@ -1126,7 +998,7 @@ __NUMBERSIGNS_loop:
   dup                // quot quot
   save Y, Z        // quot
   sis DUCKY_INST_SET
-  call __pno_append_number
+  call pno_add_number
 
   cmp Y, Z
   bnz __NUMBERSIGNS_loop
@@ -1197,15 +1069,6 @@ DEFCODE("U.R", 3, 0x00, UDOTR)
   NEXT
 
 
-DEFCODE("U.", 2, 0x00, UDOT)
-  // ( u -- )
-  mov r0, TOS
-  pop TOS
-  call print_unsigned
-  call do_SPACE
-  NEXT
-
-
 DEFCODE(".R", 2, 0x00, DOTR)
   // ( n n -- )
   li X, 0x00                             // is N negative?
@@ -1227,43 +1090,31 @@ __DOTR_unsigned:
   NEXT
 
 
-DEFCODE(".", 1, 0x00, DOT)
-  // ( n -- )
-  mov r0, TOS
-  pop TOS
-  call print_signed
-  call do_SPACE
-  NEXT
-
-
-DEFCODE("?", 1, 0x00, QUESTION)
-  // ( a-addr -- )
-  lw r0, TOS
-  pop TOS
-  call print_signed
-  call do_SPACE
-  NEXT
-
-
 DEFCODE(".S", 2, 0x00, DOTS)
   la W, var_SZ
   lw W, W
+  mov X, W
   sub W, sp
-  bz __DOTS_next
-  mov r0, TOS
-  call print_unsigned
-  call do_SPACE
-  sub W, CELL
-  mov sp, X
+
+  sub X, CELL                          // point to the first cell...
+  sub X, CELL                          // and skip it because it's the initial TOS value
+  div W, CELL
+  dec W
 __DOTS_loop:
-  bz __DOTS_next
+  bz __DOTS_TOS
   lw r0, X
   call print_unsigned
   call do_SPACE
-  add X, CELL
+  sub X, CELL
   dec W
   j __DOTS_loop
-__DOTS_next:
+
+__DOTS_TOS:
+  // print TOS
+  mov r0, TOS
+  call print_unsigned
+  call do_SPACE
+
   NEXT
 
 

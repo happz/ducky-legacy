@@ -1,46 +1,28 @@
 #include <forth.h>
 
-static char *__input_buffer_label = "Input buffer: ";
-static char *__word_buffer_label  = "Word buffer: ";
+ASM_STRUCT(counted_string_t, word_buffer_length);
 
-static char __buffer_prefix[]      = ">>>";
-static char __buffer_postfix[]     = "<<<";
+#define cs_print(_s) do { puts(&(_s)->cs_str, (_s)->cs_len); } while(0)
 
-ASM_BYTE(char, word_buffer);
-ASM_BYTE(u8_t, word_buffer_length);
-
-void print_buffer(char *buff, u32_t len)
+static void print_buffer(char *buff, u32_t len)
 {
-  putcs(__buffer_prefix);
-  puts(buff, len);
-  putcs(__buffer_postfix);
+  putcs(">>>"); puts(buff, len); putcs("<<<");
 }
 
-void print_word_name(word_header_t *header)
+static void print_input_buffer(void)
 {
-  puts(&header->wh_name.cs_str, header->wh_name.cs_len);
-  BR();
+  print_buffer(current_input->id_buffer, current_input->id_length); BR();
 }
 
-void print_input_buffer(void)
+static void print_word_buffer(counted_string_t *wb)
 {
-  print_buffer(current_input->id_buffer, current_input->id_length);
-  BR();
+  print_buffer(&wb->cs_str, wb->cs_len); BR();
 }
 
-void print_word_buffer(void)
+static void print_input(void)
 {
-  print_buffer(&word_buffer, word_buffer_length);
-  BR();
-}
-
-void print_input(void)
-{
-  putcs(__input_buffer_label);
-  print_input_buffer();
-
-  putcs(__word_buffer_label);
-  print_word_buffer();
+  putcs("Input buffer: "); print_input_buffer();
+  putcs("Word buffer: "); print_word_buffer(&word_buffer_length);
 }
 
 
@@ -64,11 +46,11 @@ void __ERR_die_with_input(char *msg, int exit_code)
 /*
  * Raised when word is not in dictionary, and it is not a number.
  */
-void __ERR_undefined_word(void)
+void __ERR_undefined_word()
 {
   putcs("\r\nERROR: " XSTR(ERR_UNDEFINED_WORD) ": Undefined word\r\n");
   print_input();
-#ifdef FORTH_DIE_ON_UNDEF
+#ifdef CONFIG_DIE_ON_UNDEF
   halt(ERR_UNDEFINED_WORD);
 #endif
 }
@@ -80,14 +62,6 @@ void __ERR_undefined_word(void)
 void __ERR_no_interpretation_semantics(void) 
 {
   __ERR_die_with_input("\r\nERROR: " XSTR(ERR_NO_INTERPRET_SEMANTICS) ": Word has undefined interpretation semantics\r\n", ERR_NO_INTERPRET_SEMANTICS);
-}
-
-/*
- * Raised when HDT is malformed.
- */
-void __ERR_malformed_HDT(void)
-{
-  halt(ERR_MALFORMED_HDT);
 }
 
 /*
@@ -120,6 +94,23 @@ void __ERR_input_stack_underflow(void)
 void __ERR_interpret_fail()
 {
   __ERR_die("\r\nERROR: " XSTR(ERR_INTERPRET_FAIL) ": Interpret fail\r\n", ERR_INTERPRET_FAIL);
+}
+
+/*
+ * Raised when BIO operation failed for some reason.
+ */
+void __ERR_bio_fail(u32_t storage, u32_t bid, u32_t status, int errno)
+{
+  printf("\r\nERROR: %d: BIO fail: storage=0x%08X, bid=0x%08X, status=0x%08X, errno=%d\r\n", ERR_BIO_FAIL, storage, bid, status, errno);
+  halt(ERR_BIO_FAIL);
+}
+
+/*
+ * Raised on word buffer overflow.
+ */
+void __ERR_word_too_long()
+{
+  __ERR_die_with_input("\r\nERROR: " XSTR(ERR_WORD_TOO_LONG) ": word too long:\r\n", ERR_WORD_TOO_LONG);
 }
 
 /*

@@ -137,9 +137,6 @@ AddOption('--repeats',
 VARS = Variables(None, ARGUMENTS)
 VARS.Add(             'BUILD_STAMP',        'Set to force FORTH kernel build stamp', generate_build_stamp())
 VARS.Add(BoolVariable('BOOT_IMAGE',         'Set to true to build boot loader with support for Ducky images', True))
-VARS.Add(BoolVariable('FORTH_DEBUG',        'Build FORTH kernel with debugging enabled', False))
-VARS.Add(BoolVariable('FORTH_DEBUG_FIND',   'Build FORTH kernel with FIND debugging enabled', False))
-VARS.Add(BoolVariable('FORTH_DIE_ON_UNDEF', 'Die when undefined word is encountered', False))
 VARS.Add(             'LLVMDIR',            'Path to LLVM tools', None)
 
 

@@ -95,18 +95,6 @@ halt:
   hlt r0
 
 
-memset:
-  cmp r1, 0x00
-__memset_loop:
-  bz __memset_finished
-  stb r0, r2
-  inc r0
-  dec r1
-  j __memset_loop
-__memset_finished:
-  ret
-
-
 //
 // void memcpy(void *src, void *dst, u32_t length)
 //
@@ -150,61 +138,6 @@ __memcpy4_loop:
   bnz __memcpy4_loop
   pop r3
 __memcpy4_quit:
-  ret
-
-
-//
-// u32_t strcmp(char *s1, u32_t s1_length, char *s2, u32_t s2_length)
-//
-// Returns 0 if string are equal, 1 otherwise
-//
-strcmp:
-  cmp r1, r3
-  bne __strcmp_neq
-  bz __strcmp_eq
-  // save working registers
-  push r4 // curr s1 char
-  push r5 // curr s2 char
-__strcmp_loop:
-  lb r4, r0
-  lb r5, r2
-  inc r0
-  inc r2
-  cmp r4, r5
-  be __strcmp_next
-  pop r5
-  pop r4
-__strcmp_neq:
-  li r0, 1
-  ret
-__strcmp_next:
-  dec r1
-  bnz __strcmp_loop
-  pop r5
-  pop r4
-__strcmp_eq:
-  li r0, 0x00
-  ret
-
-
-//
-// u32_t strcrc(char *s, u32_t len)
-//
-strcrc:
-  push r1 // original len
-  push r2 // saved str ptr
-  push r3 // current char
-  mov r2, r0
-  li r0, 0x00
-.strcrc_loop:
-  lb r3, r2
-  add r0, r3
-  inc r2
-  dec r1
-  bnz .strcrc_loop
-  pop r3
-  pop r2
-  pop r1
   ret
 
 
@@ -260,18 +193,6 @@ __relocate_sections:
   la r1, __data_boundary_end
   call __relocate_section
 
-  li r0, USERSPACE_BASE
-  li r1, BOOT_LOADER_ADDRESS
-  add r0, r1
-  mov r1, r0
-  add r1, USERSPACE_SIZE
-  call __relocate_section
-
-  // No other sections needs to be relocated - yet. C code may
-  // produce some sections as well, but as long as such code is not
-  // being called after boot phase #1 is jumped to, it is not necessary
-  // to move its sections. And so far I intend to use C only for
-  // parsing HDT, and that happens in boot phase #1. We're safe.
   ret
 
 
@@ -287,7 +208,7 @@ boot_phase1:
   add sp, PAGE_SIZE
 
   // Next, turn of debugging.
-  //call __vmdebug_off
+  call __vmdebug_off
 
   // There's nothing blocking us from relocating our sections to more convenient
   // place since the .text section should start at 0xA00, at least, leaving
@@ -338,7 +259,7 @@ boot_phase2:
   ctw CONTROL_EVT, r0
 
   // init pictured numeric output buffer
-  call __reset_pno_buffer
+  call pno_reset_buffer
 
   // Invalidate all CPU caches
   fptc
@@ -419,17 +340,6 @@ cold_start:
   WORD(rstack_top, 0xFFFFFE00)
   WORD(jiffies, 0x00000000)
 
-  // Memory-related info - where do interesting things start?
-  WORD(memory_size, 0x01000000)
-  WORD(__mm_evt, 0xDEADBEEF)
-  WORD(__mm_heap, 0xDEADBEEF)
-  WORD(__mm_rtc_esr_sp, 0xDEADBEEF)
-  WORD(__mm_kbd_esr_sp, 0xDEADBEEF)
-  WORD(__mm_failsafe_esr_sp, 0xDEADBEEF)
-  WORD(__mm_rsp, 0xDEADBEEF)
-  WORD(__mm_sp, 0xDEADBEEF)
-
-
   // Temporary stack
   // Keep it in a separate section, so it can be BSS, and reused when not needed anymore
   .section .bootstack, "rwbl"
@@ -438,7 +348,7 @@ cold_start:
   // User data area
   // Keep it in separate section to keep it aligned, clean, unpoluted
   .section .userspace, "rwbl"
-  .space USERSPACE_SIZE
+  .space CELL
 
 
   // Welcome ducky
@@ -451,8 +361,8 @@ cold_start:
 // Variables
 //
 DEFVAR("EVT", 3, 0x00, EVT, 0x00000000)
-DEFVAR("TEST-MODE", 9, 0x00, TEST_MODE, 0x00000000)
-DEFVAR("ECHO", 4, 0x00, ECHO, 0x00)
+DEFVAR("TEST-MODE", 9, 0x00, TEST_MODE, CONFIG_TEST_MODE)
+DEFVAR("ECHO", 4, 0x00, ECHO, CONFIG_ECHO)
 DEFVAR("UP", 2, 0x00, UP, USERSPACE_BASE)
 DEFVAR("STATE", 5, 0x00, STATE, 0x00)
 DEFVAR("DP", 2, 0x00, DP, USERSPACE_BASE)
@@ -516,7 +426,6 @@ DEFWORD("WELCOME", 7, 0x00, WELCOME)
   .word TRUE
   .word ECHO
   .word STORE
-  .word VMDEBUGON
   .word EXIT
 
 
@@ -537,6 +446,7 @@ DEFCODE("VMDEBUGON", 9, F_IMMED, VMDEBUGON)
 
 
 DEFCODE("VMDEBUGOFF", 10, F_IMMED, VMDEBUGOFF)
+  // ( -- )
   call __vmdebug_off
   NEXT
 
@@ -555,24 +465,21 @@ DEFCODE("PROMPT", 6, 0x00, PROMPT)
 //
 //****************************
 
-  .data
-
-  // word_buffer lies right next to word_buffer_length, pretending it's
-  // a standard counted string <length><chars...>
-  BYTE(word_buffer_length, 0x00)
-  SPACE(word_buffer, WORD_BUFFER_SIZE)
-
+  /* Word buffer lies right next to its length, pretending it's a standard
+   * counted string <length><chars...>. It starts at aligned address, to allow
+   * seamless coopoeration with C code.
+   */
+  .section .bss
   .align CELL
 
-  WORD(kbd_mmio_address, 0xFAFAFAFA)
-  WORD(tty_mmio_address, 0xFBFBFBFB)
-  WORD(rtc_mmio_address, 0xFCFCFCFC)
+  BYTE(word_buffer_length, 0x00)
+  SPACE(word_buffer, WORD_BUFFER_SIZE)
 
 
 DEFCODE("WORD", 4, 0x00, WORD)
   // ( char "<chars>ccc<char>" -- c-addr )
   mov r0, TOS
-  call __read_word_with_refill
+  call __read_word
   mov TOS, r0
   NEXT
 
@@ -580,18 +487,15 @@ DEFCODE("WORD", 4, 0x00, WORD)
 DEFCODE("DWORD", 5, 0x00, DWORD)
   // ( "<chars>ccc<char>" -- c-addr )
   // like WORD but with space as a delimiter ("default WORD")
-  call __read_dword_with_refill
+  call __read_dword
   push TOS
   mov TOS, r0
   NEXT
 
 
-//
-// PARSE
-//
-
-// f_parse_result_t instance
-  .data
+// fw_parse_result_t instance
+  .section .bss
+  .align CELL
 __PARSE_result:
   .word 0x00000000  // pr_word = NULL
   .word 0x00000000  // pr_length = NULL
@@ -629,9 +533,9 @@ DEFCODE("ACCEPT", 6, 0x00, ACCEPT)
 
 DEFCODE("REFILL", 6, 0x00, REFILL)
   // ( -- flag )
-  call __refill_input_buffer
+  call do_REFILL
   push TOS
-  LOAD_TRUE(TOS)
+  mov TOS, r0
   NEXT
 
 
@@ -684,9 +588,10 @@ DEFCODE("TYPE", 4, 0x00, TYPE)
 
 
 DEFCODE("SOURCE-ID", 9, 0x00, SOURCE_ID)
-  la W, current_input
   push TOS
-  lw TOS, W
+  la TOS, current_input  // TOS = &current_input
+  lw TOS, TOS            // TOS = current_input, aka address of the current input desc
+  lw TOS, TOS            // TOS = current_input->id_source_id
   NEXT
 
 
@@ -707,6 +612,26 @@ DEFCODE("SOURCE", 6, 0x00, SOURCE)
   NEXT
 
 
+DEFCODE("RESTORE-INPUT", 13, 0x00, RESTORE_INPUT)
+  // ( xn ... x1 n -- flag )
+  mov r0, TOS
+  mov r1, sp
+  call do_RESTORE_INPUT
+  add sp, 8
+  li TOS, FORTH_FALSE
+  NEXT
+
+
+DEFCODE("SAVE-INPUT", 10, 0x00, SAVE_INPUT)
+  // ( -- xn ... x1 n )
+  push TOS
+  sub sp, 8                            // make space for 2 items on stack
+  mov r0, sp
+  call do_SAVE_INPUT
+  mov TOS, r0
+  NEXT
+
+
   .data
 
   .type __found_word, word, 0x00000000
@@ -715,10 +640,7 @@ DEFCODE("FIND", 4, 0x00, FIND)
   // ( c-addr -- c-addr 0 | xt 1 | xt -1 )
   mov X, TOS                         // save c-addr for later
   mov r0, TOS
-  inc r0
-  mov r1, TOS
-  lb r1, r1
-  la r2, __found_word
+  la r1, __found_word
   call fw_search
   cmp r0, 0x00
   bz __FIND_notfound
@@ -739,9 +661,8 @@ __FIND_next:
 
 DEFCODE("'", 1, F_IMMED, TICK)
   // ( "<spaces>name" -- xt )
-  call __read_dword_with_refill
-  UNPACK_WORD_FOR_FIND()
-  la r2, __found_word
+  call __read_dword
+  la r1, __found_word
   call fw_search
   cmp r0, 0x00
   bz __ERR_undefined_word
@@ -790,82 +711,16 @@ DEFCODE("LIT", 3, 0x00, LIT)
   NEXT
 
 
-DEFCODE("HEADER,", 7, 0x00, HEADER_COMMA)
-  // ( c-addr -- )
-  mov r0, TOS
-  inc r0
-  mov r1, TOS
-  lb r1, r1
-  pop TOS
-  call __HEADER_COMMA
-  NEXT
-
-__HEADER_COMMA:
-  // r0: str ptr, r1: str len
-  // save working registers
-  push r2 // DP address
-  push r3 // DP value
-  push r4 // LATEST address
-  push r5 // LATEST value
-  push r6 // flags/length
-  push r7 // current word char
-  // init registers
-  la r2, var_DP
-  lw r3, r2
-  la r4, var_LATEST
-  lw r5, r4
-  // align DP, I want words aligned
-  ALIGN_CELL(r3)
-  // store LATEST as a link value of new word
-  stw r3, r5
-  mov r5, r3
-  stw r4, r5
-  // and move DP to next cell
-  add r3, CELL
-  // save name crc
-  push r0
-  push r1
-  call strcrc
-  sts r3, r0
-  pop r1
-  pop r0
-  // and move DP to next position which is only a half-cell further
-  add r3, HALFCELL
-  // save flags
-  li r6, 0x00
-  stb r3, r6
-  // and move 1 byte further - our ptr will be then 1 byte before next cell-aligned address
-  inc r3
-  // save unaligned length ...
-  stb r3, r1
-  // and again, move 1 byte further - now, this address should be cell-aligned, 8 bytes from the beginning of the word
-  inc r3
-  // copy word name, using its original length
-  mov r6, r1
-__HEADER_COMMA_loop:
-  lb r7, r0
-  stb r3, r7
-  inc r3
-  inc r0
-  dec r6
-  bnz __HEADER_COMMA_loop
-  // align DP - this will add padding bytes to name automagicaly
-  ALIGN_CELL(r3)
-  // save vars
-  stw r2, r3 // DP
-  stw r4, r5 // LATEST
-  // restore working registers
-  pop r7
-  pop r6
-  pop r5
-  pop r4
-  pop r3
-  pop r2
-  ret
-
-
 DEFCODE(",", 1, 0x00, COMMA)
   // ( x -- )
+  mov r0, TOS
+  pop TOS
+  call do_COMMA
+  NEXT
+
+
+DEFCODE("COMPILE,", 8, 0x00, COMPILE_COMMA)
+  // ( xt -- )
   mov r0, TOS
   pop TOS
   call do_COMMA
@@ -947,40 +802,97 @@ DEFCODE("0BRANCH", 7, 0x00, ZBRANCH)
   NEXT
 
 
-  .data
+  .section .bss
+  .align CELL
+__isnumber_result:
+  .word 0x00000000
+  .word 0x00000000
+
+DEFCODE("?NUMBER", 7, 0x00, ISNUMBER)
+  // ( c-addr -- n true | c-addr false )
+  mov r0, TOS
+  la r1, __isnumber_result
+  call do_ISNUMBER
+  cmp r0, 0x00
+  bz __ISNUMBER_fail
+  la W, __isnumber_result
+  lw W, W
+  push W
+  j __ISNUMBER_next
+__ISNUMBER_fail:
+  push TOS
+__ISNUMBER_next:
+  mov TOS, r0
+  j code_DOTS
+  NEXT
+
+
+  .section .bss
+  .align CELL
 __interpret_decision:
   .word 0x00000000
   .word 0x00000000
+  .word 0x00000000
 
+  .text
 
-DEFCODE("INTERPRET", 9, 0x00, INTERPRET)
+__INTERPRET:
+  push r0                              // save handler of EMPTY result
+
   la r0, __interpret_decision
   call do_INTERPRET
 
-  la r0, __interpret_decision
-  lw r1, r0
+  pop r0
+
+  la r1, __interpret_decision
+  lw r2, r1
   bz __INTERPRET_next
 
-  cmp r1, 0x01
+  cmp r2, 0x01
+  be r0
+
+  cmp r2, 0x02
   be __INTERPRET_execute_word
 
-  cmp r1, 0x02
+  cmp r2, 0x03
   be __INTERPRET_execute_lit
+
+  cmp r2, 0x04
+  be __INTERPRET_execute_2lit
 
   j __ERR_interpret_fail
 
+__INTERPRET_exit:
+  POPRSP(FIP)
+  NEXT
+
 __INTERPRET_execute_word:
-  la r0, __interpret_decision
-  lw W, r0[WORD_SIZE]
+  lw W, r1[WORD_SIZE]
   lw X, W
   j X
 
 __INTERPRET_execute_lit:
-  lw r1, r0[CELL]
   push TOS
-  mov TOS, r1
+  lw TOS, r1[WORD_SIZE]
 __INTERPRET_next:
   NEXT
+
+__INTERPRET_execute_2lit:
+  push TOS
+  lw TOS, r1[CELL]
+  push TOS
+  lw TOS, r1[DOUBLECELL]
+  NEXT
+
+
+DEFCODE("INTERPRET", 9, 0x00, INTERPRET)
+  la r0, __INTERPRET_next
+  j __INTERPRET
+
+
+DEFCODE("EMBED_INTERPRET", 10, 0x00, INTERPRET3)
+  la r0, __INTERPRET_exit
+  j __INTERPRET
 
 
 DEFWORD("QUIT", 4, 0x00, QUIT)
@@ -1315,7 +1227,7 @@ DEFCODE("2SWAP", 5, 0x00, TWOSWAP)
 
 DEFCODE("CHAR", 4, 0x00, CHAR)
   // ( -- n )
-  call __read_dword_with_refill
+  call __read_dword
   inc r0
   push TOS
   lb TOS, r0
@@ -1323,7 +1235,7 @@ DEFCODE("CHAR", 4, 0x00, CHAR)
 
 
 DEFCODE("[CHAR]", 6, F_IMMED, BRACKETCHAR)
-  call __read_dword_with_refill
+  call __read_dword
   inc r0
   lb W, r0
   la r0, LIT
@@ -1841,9 +1753,8 @@ DEFWORD("VALUE", 5, 0x00, VALUE)
 
 
 DEFCODE("TO", 2, F_IMMED, TO)
-  call __read_dword_with_refill
-  UNPACK_WORD_FOR_FIND()
-  la r2, __found_word
+  call __read_dword
+  la r1, __found_word
   call fw_search
   cmp r0, 0x00
   bz __ERR_undefined_word
@@ -1884,11 +1795,14 @@ __TO_quit:
 // Include non-kernel words
 #include "ducky-forth-words.s"
 #include "words/double-cell-ints.s"
+#include "words/compile.s"
+#include "words/core-ext.s"
+#include "words/block.s"
+#include "words/double.s"
+#include "words/number.s"
 
 
-DEFCODE("\\\\", 1, F_IMMED, BACKSLASH)
-  call flush_input_buffer
-  NEXT
+DEFCSTUB("\\\\", 1, F_IMMED, BACKSLASH)
 
 
 DEFCODE("HERE", 4, 0x00, HERE)

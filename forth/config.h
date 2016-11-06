@@ -1,6 +1,60 @@
 #ifndef __DUCKY_FORTH_CONFIG_H__
 #define __DUCKY_FORTH_CONFIG_H__
 
+
+//-----------------------------------------------------------------------------
+// Hardware setup
+//-----------------------------------------------------------------------------
+
+#ifndef CONFIG_RTC_MMIO_BASE
+#  define CONFIG_RTC_MMIO_BASE         0x700
+#endif
+
+#ifndef CONFIG_KBD_MMIO_BASE
+#  define CONFIG_KBD_MMIO_BASE         0x800
+#endif
+
+#ifndef CONFIG_TTY_MMIO_BASE
+#  define CONFIG_TTY_MMIO_BASE         0x900
+#endif
+
+#ifndef CONFIG_BIO_MMIO_BASE
+#  define CONFIG_BIO_MMIO_BASE         0x600
+#endif
+
+#ifndef CONFIG_RAM_SIZE
+#  define CONFIG_RAM_SIZE              0x1000000
+#endif
+
+
+//-----------------------------------------------------------------------------
+// Optional settings
+//-----------------------------------------------------------------------------
+
+/*
+ * Enable test mode - no "ok" prompt, for example.
+ */
+#ifndef CONFIG_TEST_MODE
+#  define CONFIG_TEST_MODE             0x00000000
+#endif
+
+
+/*
+ * Enable initial terminal echo.
+ */
+#ifndef CONFIG_ECHO
+#  define CONFIG_ECHO                  0xFFFFFFFF
+#endif
+
+
+/*
+ * If defined, interpreter will quit with error when undefined word is
+ * encountered.
+ */
+#ifndef CONFIG_DIE_ON_UNDEF
+#endif
+
+
 /*
  * Cell width, in bytes. This is not actually configurable, changing this value
  * might lead to very strange things...
@@ -11,10 +65,22 @@
 #define HALFCELL_WIDTH                 2
 #define HALFCELL                       HALFCELL_WIDTH
 
+#define DOUBLECELL_WIDTH               8
+#define DOUBLECELL                     DOUBLECELL_WIDTH
+
 
 #define INPUT_BUFFER_SIZE 512
 #define INPUT_STACK_DEPTH 8
-#define PNO_BUFFER_SIZE   64
+
+/*
+ * Pictured numeric output buffer size, in bytes.
+ *
+ * Should be at least (2 * n) + 2 bytes, where N is number of bits in cell.
+ */
+#ifndef CONFIG_PNO_BUFFER_SIZE
+#  define CONFIG_PNO_BUFFER_SIZE       66
+#endif
+
 
 /*
  * Counted string length, in characters.
@@ -74,7 +140,7 @@
  * This must match the corresponding values in linker script.
  */
 #ifndef USERSPACE_BASE
-# define USERSPACE_BASE                0x9000
+# define USERSPACE_BASE                0x0000A000
 #endif
 
 /*
@@ -85,6 +151,32 @@
  */
 #ifndef USERSPACE_SIZE
 # define USERSPACE_SIZE                8192
+#endif
+
+
+/*
+ * Length of PAD region
+ *
+ * PAD region could be allocated dynamicaly but I rather have it
+ * prepared statically.
+ */
+#ifndef CONFIG_PAD_SIZE
+#  define CONFIG_PAD_SIZE              STRING_SIZE
+#endif
+
+
+/*
+ * Number of blocks kernel can keep in memory simultaneously.
+ */
+#ifndef CONFIG_BLOCK_CACHE_SIZE
+#  define CONFIG_BLOCK_CACHE_SIZE      8
+#endif
+
+/*
+ * ID of the mass storage available for FORTH code.
+ */
+#ifndef CONFIG_BLOCK_STORAGE
+#  define CONFIG_BLOCK_STORAGE         1
 #endif
 
 
@@ -105,5 +197,45 @@
 #define Y                              r25  // Scratch register
 #define Z                              r24  // Scratch register
 #define TOS                            r23  // Top Of the Stack
+
+
+/*
+ * Size of internal printf buffer.
+ */
+#ifndef CONFIG_PRINTF_BUFFER_SIZE
+#  define CONFIG_PRINTF_BUFFER_SIZE   PAGE_SIZE
+#endif
+
+
+/*
+ * Number of lines per screen when LISTing blocks.
+ */
+#ifndef CONFIG_LIST_LPS
+#  define CONFIG_LIST_LPS              16
+#endif
+
+/*
+ * Number of characters per line when LISTing blocks.
+ */
+#ifndef CONFIG_LIST_CPL
+#  define CONFIG_LIST_CPL              64
+#endif
+
+//-----------------------------------------------------------------------------
+// Debugging options
+//-----------------------------------------------------------------------------
+
+#ifndef DEBUG
+#  define DEBUG                        0
+#endif
+
+
+/*
+ * Set this to 1 if you want to set malloc()'ed and free()'ed memory to
+ * specific, "red-zone" values.
+ */
+#ifndef CONFIG_MALLOC_REDZONE
+#  define CONFIG_MALLOC_REDZONE 0
+#endif
 
 #endif

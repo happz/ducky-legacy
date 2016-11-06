@@ -1,6 +1,7 @@
 #include <forth.h>
+#include <arch/tty.h>
 
-ASM_PTR(char *, tty_mmio_address);
+static char *tty_mmio_address = (char *)(CONFIG_TTY_MMIO_BASE + TTY_MMIO_DATA);
 
 
 //-----------------------------------------------------------------------------
@@ -14,18 +15,16 @@ void putc(char c)
 
 void puts(char *s, u32_t len)
 {
-  char *tty = tty_mmio_address;
-
   while(len--)
-    *tty = *s++;
+    *tty_mmio_address = *s++;
 }
 
 void putcs(char *s)
 {
-  char *tty = tty_mmio_address, c;
+  char c;
 
   while((c = *s++) != '\0')
-    *tty = c;
+    *tty_mmio_address = c;
 }
 
 void putnl()
@@ -58,17 +57,18 @@ void print_prompt(u32_t enabled)
 // Formatting output
 //-----------------------------------------------------------------------------
 
-static char __hex_digits[] = "0123456789ABCDEF";
+char printf_buffer[CONFIG_PRINTF_BUFFER_SIZE] __attribute__((section(".bss")));
 
-void print_hex(u32_t u)
+int printf(char *fmt, ...)
 {
-  putc('0'); putc('x');
+  int ret;
+  va_list va;
 
-  int i;
-  u32_t v;
+  va_start(va, fmt);
+  ret = mini_vsnprintf(printf_buffer, CONFIG_PRINTF_BUFFER_SIZE, fmt, va);
+  va_end(va);
 
-  for(i = 0; i < 8; i++) {
-    v = (u >> (28 - (i * 4))) & 0x0000000F;
-    putc(__hex_digits[v]);
-  }
+  puts(printf_buffer, ret);
+
+  return ret;
 }

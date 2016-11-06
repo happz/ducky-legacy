@@ -41,6 +41,8 @@ NUMBER(max_int_unsigned, 0xFFFFFFFF);
 DOUBLE_NUMBER(max_double, 0xFFFFFFFF, 0x7FFFFFFF);
 DOUBLE_NUMBER(max_double_unsigned, 0xFFFFFFFF, 0xFFFFFFFF);
 
+SUPPORTED(block);
+SUPPORTED(block_ext);
 
 #define QUERY(_name, _label, _len) { .label = _label, .label_len = _len, .handler = __query_ ## _name }
 
@@ -58,10 +60,12 @@ environment_query_t __queries[] __attribute__((section(".rodata"))) = {
   QUERY(max_int, "MAX-N", 5),
   QUERY(max_int_unsigned, "MAX-U", 5),
   QUERY(memory_alloc, "MEMORY-ALLOC", 12),
-  QUERY(memory_alloc_ext, "MEMORY-ALLOC-EXT", 16)
+  QUERY(memory_alloc_ext, "MEMORY-ALLOC-EXT", 16),
+  QUERY(block,            "BLOCK", 5),
+  QUERY(block_ext,        "BLOCK-EXT", 9)
 };
 
-#define NUM_QUERIES 15
+#define NUM_QUERIES 17
 
 environment_query_status_t do_ENVIRONMENT_QUERY(char *buff, u32_t len, environment_query_result_t *result)
 {

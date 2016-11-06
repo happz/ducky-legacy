@@ -2,22 +2,30 @@
 
 ASM_INT(u32_t, var_BASE);
 
-void parse_number(char *s, u32_t len, parse_number_result_t *result)
+/*
+ * Parse string S, and try to convert it to an integer. Returns 0 on success,
+ * or 1 on success when the result is a double-cell integer, -1 otherwise.
+ */
+int parse_number(counted_string_t *s, parse_number_result_t *result)
 {
-  //putc('#'); putc(' '); print_buffer(s, len); putc(' ');
+#define error()         do { result->nr_remaining = len; return -1; } while(0);
+#define quit(_ret)      do { result->nr_number_lo = i; result->nr_remaining = len; return _ret; } while(0);
+#define getch()         do { c = *t++; len--; } while(0)
+#define getch_checked() do { if (!len) error(); c = *t++; len--; } while(0)
 
-#define error()         do { result->nr_remaining = len; return; } while(0);
-#define quit()          do { result->nr_number = i; result->nr_remaining = len; return; } while(0);
-#define getch()         do { c = *s++; len--; } while(0)
-#define getch_checked() do { if (!len) error(); c = *s++; len--; } while(0)
+  u8_t len = s->cs_len;
 
   // Let's say an empty string is wrong...
   if (!len)
     error();
 
-  char c;
+  char c, *t = &s->cs_str;
   int base = 0;
   i32_t i = 0;
+
+  // Reset high cell - no large strings, suppose anything we can parse fits
+  // into a single cell.
+  result->nr_number_hi = 0;
 
   // check whether the first char is a base-denoting prefix
   getch();
@@ -42,13 +50,13 @@ void parse_number(char *s, u32_t len, parse_number_result_t *result)
 
       // if there's no trailing char, it's all good
       if (!len)
-        quit();
+        quit(0);
 
       // if there is trailing char, it must be '
       getch();
 
       if (c == '\'')
-        quit();
+        quit(0);
 
     default:
       // we'll set base in the next step
@@ -73,6 +81,20 @@ void parse_number(char *s, u32_t len, parse_number_result_t *result)
 
   // now it's time to parse the rest of characters
   do {
+    // if the char is dot, it denotes double cell
+    // it is also the last - whatever characters are behind
+    // this one, it *is* the last one...
+    if (c == '.') {
+      if (negative) {
+        i *= -1;
+
+        // don't forget to flip the upper cell as well
+        result->nr_number_hi = 0xFFFFFFFF;
+      }
+
+      quit(1);
+    }
+
     // c cannot be bellow '0', the first digit in ASCII table
     if (c < '0')
       error();
@@ -108,8 +130,9 @@ void parse_number(char *s, u32_t len, parse_number_result_t *result)
   if (negative)
     i *= -1;
 
-  quit();
+  quit(0);
 }
+
 
 // Using buffer to avoid recursion - I just put all chars in the buff,
 // and then print them in reversed order. And 64 is maximal length of

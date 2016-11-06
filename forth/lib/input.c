@@ -3,6 +3,7 @@
  */
 
 #include <forth.h>
+#include <arch/keyboard.h>
 
 
 //-----------------------------------------------------------------------------
@@ -10,14 +11,15 @@
 //-----------------------------------------------------------------------------
 
 // Bottom of the input stack is a keyboard "input".
-static ASM_CALLABLE(input_refiller_status_t __refill_input_buffer_kbd(input_desc_t *));
+static input_refiller_status_t __refill_input_buffer_kbd(input_desc_t *);
 static char  __kbd_input_buffer[INPUT_BUFFER_SIZE];
 
 static input_desc_t kbd_input = {
   .id_source_id    = 0,
   .id_refiller     = __refill_input_buffer_kbd,
   .id_buffer       = __kbd_input_buffer,
-  .id_max_length   = INPUT_BUFFER_SIZE
+  .id_max_length   = INPUT_BUFFER_SIZE,
+  .id_blk          = 0
 };
 
 // Input stack, with its unremovable, default "bottom".
@@ -55,7 +57,7 @@ void input_stack_push(input_desc_t *input)
 // Refilling input buffer
 //-----------------------------------------------------------------------------
 
-ASM_PTR(u8_t *, kbd_mmio_address);
+static u8_t *kbd_mmio_address = (u8_t *)(CONFIG_KBD_MMIO_BASE + KBD_MMIO_DATA);
 
 /*
  * Read 1 character from keyboard's data port.
@@ -175,15 +177,6 @@ static input_refiller_status_t __refill_input_buffer_kbd(input_desc_t *input)
   return OK;
 }
 
-/*
- * Signal to others that we have reached the end of input buffer.
- * Subsequent attempts to read from it should result in its refilling.
- */
-void flush_input_buffer()
-{
-  current_input->id_index = current_input->id_length;
-}
-
 
 //-----------------------------------------------------------------------------
 // Input buffer processing
@@ -192,9 +185,7 @@ void flush_input_buffer()
 // These are defined in assembly - word buffer and its index can
 // make use of extra ordering without any alignment between them,
 // it's possible to consider them as a single counted string then.
-ASM_BYTE(char, word_buffer);
-ASM_BYTE(u8_t, word_buffer_length);
-
+ASM_STRUCT(counted_string_t, word_buffer_length);
 ASM_INT(u32_t, var_SHOW_PROMPT);
 
 /*
@@ -204,6 +195,8 @@ ASM_INT(u32_t, var_SHOW_PROMPT);
 u8_t __read_char()
 {
   u8_t c;
+
+  DEBUG_printf("__read_char: buffer=0x%08X, index=%u, current position=0x%08X\r\n", (u32_t)current_input->id_buffer, current_input->id_index, (u32_t)(current_input->id_buffer + current_input->id_index));
 
   if (current_input->id_index == current_input->id_length) {
     c = '\0';
@@ -219,22 +212,28 @@ u8_t __read_char()
  *
  * Read characters from input buffer. Skip leading delimiters, then copy the following
  * characters into word buffer, until raching the end of input buffer or the delimiter
- * is encountered. Sets word_buffer_length properly.
+ * is encountered. Return pointer to the read word - which is actually *always*
+ * pointer to word_buffer_length.
  *
  * If the input buffer is empty when __read_word is called, word buffer length is set
  * to zero.
  */
-u8_t *__read_word(char delimiter)
+counted_string_t *__read_word(char delimiter)
 {
+  DEBUG_printf("__read_word: delimiter=%x, id_blk=%u\r\n", delimiter, current_input->id_blk);
+
   u8_t c;
+
+  counted_string_t *wb = &word_buffer_length;
+  wb->cs_len = 0;
 
   do {
     c = __read_char();
 
-    if (c == '\0') {
-      word_buffer_length = 0;
-      return &word_buffer_length;
-    }
+    DEBUG_printf("__read_word: c=%x\r\n", c);
+
+    if (c == '\0')
+      return wb;
 
     if (c == delimiter)
       continue;
@@ -245,12 +244,13 @@ u8_t *__read_word(char delimiter)
     break;
   } while(1);
 
-  char *buff = &word_buffer;
-  u8_t len = 0;
+  DEBUG_printf("__read_word: parsing word\r\n");
+
+  char *buff = &wb->cs_str;
 
   do {
     // using "*buff++ = c" makes llvm to add some offset of -1 to the store :/
-    buff[len++] = c;
+    buff[wb->cs_len++] = c;
 
     c = __read_char();
 
@@ -263,28 +263,28 @@ u8_t *__read_word(char delimiter)
     if (c < ' ')
       break;
 
-    if (len == WORD_BUFFER_SIZE) {
-      print_buffer(buff, len);
-      __ERR_unknown();
-    }
+    if (wb->cs_len == WORD_BUFFER_SIZE)
+      __ERR_word_too_long();
 
   } while(1);
 
-  word_buffer_length = len;
+  DEBUG_printf("__read_word: got word: '%C', len=%d\r\n", &wb->cs_str, wb->cs_len, wb->cs_len);
 
-  return &word_buffer_length;
+  return wb;
 }
 
 /*
  * Does the same as __read_word, however when there's no word available in
  * input buffer (e.g. only white space remains un-parsed), it asks for refill.
  */
-u8_t *__read_word_with_refill(char delimiter)
+counted_string_t *__read_word_with_refill(char delimiter)
 {
-  do {
-    __read_word(delimiter);
+  counted_string_t *word;
 
-    if (word_buffer_length != 0)
+  do {
+    word = __read_word(delimiter);
+
+    if (word->cs_len != 0)
       break;
 
     print_prompt(var_SHOW_PROMPT);
@@ -292,13 +292,13 @@ u8_t *__read_word_with_refill(char delimiter)
     __refill_input_buffer();
   } while(1);
 
-  return &word_buffer_length;
+  return word;
 }
 
 /*
  * __read_word with space as a delimiter.
  */
-u8_t *__read_dword()
+counted_string_t *__read_dword()
 {
   return __read_word(' ');
 }
@@ -306,7 +306,7 @@ u8_t *__read_dword()
 /*
  * __read_word_with_refill with space as a delimiter.
  */
-u8_t *__read_dword_with_refill()
+counted_string_t *__read_dword_with_refill()
 {
   return __read_word_with_refill(' ');
 }

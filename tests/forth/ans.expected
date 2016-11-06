@@ -51,7 +51,7 @@ TESTING DIVIDE: FM/MOD SM/REM UM/MOD */ */MOD / /MOD MOD
 TESTING HERE , @ ! CELL+ CELLS C, C@ C! CHARS 2@ 2! ALIGN ALIGNED +! ALLOT
 TESTING CHAR [CHAR] [ ] BL S"
 TESTING ' ['] FIND EXECUTE IMMEDIATE COUNT LITERAL POSTPONE STATE (*** DUCKY PATCH **)
-TESTING IF ELSE THEN BEGIN WHILE REPEAT UNTIL RECURSE (*** DUCKY PATCH **)
+TESTING IF ELSE THEN BEGIN WHILE REPEAT UNTIL RECURSE
 TESTING DO LOOP +LOOP I J UNLOOP LEAVE EXIT
 TESTING DEFINING WORDS: : ; CONSTANT VARIABLE CREATE DOES> >BODY
 TESTING EVALUATE
@@ -99,5 +99,203 @@ You should see 2345: 2345
 TESTING number prefixes # $ % and 'c' character input
 TESTING definition names
 TESTING FIND with a zero length string and a non-existent word
+TESTING DOES> doesn't cause a problem with a CREATEd address
 
 End of additional Core tests
+
+Test utilities loaded
+TESTING Core Extension words
+TESTING TRUE FALSE
+TESTING <> U>   (contributed by James Bowman)
+TESTING 0<> 0>   (contributed by James Bowman)
+TESTING NIP TUCK ROLL PICK   (contributed by James Bowman)
+TESTING 2>R 2R@ 2R>   (contributed by James Bowman)
+TESTING HEX   (contributed by James Bowman)
+TESTING WITHIN   (contributed by James Bowman)
+TESTING UNUSED  (contributed by James Bowman & Peter Knaggs)
+TESTING AGAIN   (contributed by James Bowman)
+TESTING MARKER   (contributed by James Bowman)
+TESTING ?DO (*** DUCKY PATCH **)
+TESTING BUFFER:
+TESTING VALUE TO
+TESTING CASE OF ENDOF ENDCASE
+TESTING C"
+TESTING SAVE-INPUT and RESTORE-INPUT with a string source
+TESTING .(
+
+
+Output from .(
+You should see -9876: -9876 
+and again: -9876
+
+
+On the next 2 lines you should see First then Second messages:
+First message via .( 
+Second message via ."
+
+TESTING .R and U.R - has to handle different cell sizes
+
+
+Output from .R and U.R
+You should see lines duplicated:
+indented by 0 spaces
+1984383623 
+1984383623
+-2088648480 
+-2088648480
+1984383623 
+1984383623
+2206318816 
+2206318816
+
+indented by 0 spaces
+1984383623 
+1984383623
+-2088648480 
+-2088648480
+1984383623 
+1984383623
+2206318816 
+2206318816
+
+indented by 5 spaces
+     1984383623 
+     1984383623
+     -2088648480 
+     -2088648480
+     1984383623 
+     1984383623
+     2206318816 
+     2206318816
+
+TESTING PAD ERASE
+TESTING PARSE
+TESTING HOLDS  (Forth 2012)
+TESTING REFILL SOURCE-ID
+
+End of Core Extension word tests
+TESTING Block word set
+TESTING Random Number Utilities
+TESTING BLOCK ( read-only mode )
+TESTING BUFFER ( read-only mode )
+TESTING Read and Write access with UPDATE and FLUSH
+TESTING SAVE-BUFFERS
+TESTING BLK
+TESTING LOAD and EVALUATE
+TESTING LIST and SCR
+Screen 93 not modified
+00 Should show a (mostly) blank screen                             
+01                                                                 
+02                                                                 
+03                                                                 
+04                                                                 
+05                                                                 
+06                                                                 
+07                                                                 
+08                                                                 
+09                                                                 
+10                                                                 
+11                                                                 
+12                                                                 
+13                                                                 
+14                                                                 
+15                                                                 
+Screen 1 not modified
+00 List of the First test block                                    
+01                                                                 
+02                                                                 
+03                                                                 
+04                                                                 
+05                                                                 
+06                                                                 
+07                                                                 
+08                                                                 
+09                                                                 
+10                                                                 
+11                                                                 
+12                                                                 
+13                                                                 
+14                                                                 
+15                                                                 
+Screen 100 not modified
+00 List of the Last test block                                     
+01                                                                 
+02                                                                 
+03                                                                 
+04                                                                 
+05                                                                 
+06                                                                 
+07                                                                 
+08                                                                 
+09                                                                 
+10                                                                 
+11                                                                 
+12                                                                 
+13                                                                 
+14                                                                 
+15                                                                 
+Screen 14 not modified
+00                                                                 
+01                                                                 
+02                                                                 
+03                                                                 
+04                                                                 
+05                                                                 
+06                                                                 
+07                                                                 
+08                                                                 
+09                                                                 
+10                                                                 
+11                                                                 
+12                                                                 
+13                                                                 
+14                                                                 
+15                                                    End of Screen
+Screen 31 not modified
+00 Should show another (mostly) blank screen                       
+01                                                                 
+02                                                                 
+03                                                                 
+04                                                                 
+05                                                                 
+06                                                                 
+07                                                                 
+08                                                                 
+09                                                                 
+10                                                                 
+11                                                                 
+12                                                                 
+13                                                                 
+14                                                                 
+15                                                                 
+TESTING EMPTY-BUFFERS
+TESTING >IN manipulation from a block source
+TESTING \, SAVE-INPUT, RESTORE-INPUT and REFILL from a block source
+Given Characters per Line: 64 
+TESTING THRU
+
+End of Block word tests
+
+---------------------------
+        Error Report
+Word Set             Errors
+---------------------------
+Core                    0
+Core extension          0
+Block                   0
+Double number           -
+Exception               -
+Facility                -
+File-access             -
+Locals                  -
+Memory-allocation       -
+Programming-tools       -
+Search-order            -
+String                  -
+---------------------------
+Total                   0
+---------------------------
+
+
+Forth tests completed 
+
