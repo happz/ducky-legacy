@@ -23,6 +23,7 @@ class TTYMMIOMemoryPage(MMIOMemoryPage):
 
     if offset == TTYPorts.DATA:
       self._device.comm_queue.write_out(value)
+      self._device.frontend.wakeup_flush()
       return
 
     self.WARN('%s.write_u8: attempt to write to a virtual page: offset=%s', self.__class__.__name__, UINT8_FMT(offset))
@@ -43,6 +44,7 @@ class FrontendFlushTask(IReactorTask):
   def __init__(self, frontend, queue, stream):
     super(FrontendFlushTask, self).__init__()
 
+    self._frontend = frontend
     self._machine = frontend.machine
     self._queue = queue
     self._stream = stream
@@ -56,6 +58,7 @@ class FrontendFlushTask(IReactorTask):
     b = self._queue.read_out()
     if b is None:
       self._machine.DEBUG('%s.run: no events', self.__class__.__name__)
+      self._frontend.sleep_flush()
       return
 
     self._machine.DEBUG('%s.run: event=%r', self.__class__.__name__, b)
@@ -83,7 +86,6 @@ class Frontend(DeviceFrontend):
 
     self._flush_task = FrontendFlushTask(self, self._comm_queue, self._stream)
     self.machine.reactor.add_task(self._flush_task)
-    self.machine.reactor.task_runnable(self._flush_task)
 
     self.backend.boot()
 
@@ -105,6 +107,18 @@ class Frontend(DeviceFrontend):
   def flush(self):
     while not self._comm_queue.is_empty_out():
       self._flush_task.run()
+
+  def wakeup_flush(self):
+    if self._flush_task is None:
+      return
+
+    self.machine.reactor.task_runnable(self._flush_task)
+
+  def sleep_flush(self):
+    if self._flush_task is None:
+      return
+
+    self.machine.reactor.task_suspended(self._flush_task)
 
   def close(self, allow = False):
     if allow is True:
@@ -144,6 +158,8 @@ class Backend(DeviceBackend):
 
     for c in s:
       self.comm_queue.write_out(ord(c))
+
+    self.frontend.wakeup_flush()
 
   def tenh_enable(self):
     self.frontend.tenh_enable()
