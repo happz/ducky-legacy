@@ -75,7 +75,7 @@ class RTCMMIOMemoryPage(MMIOMemoryPage):
 
 class RTCTask(RunInIntervalTask):
   def __init__(self, machine, rtc):
-    super(RTCTask, self).__init__(10, self.on_tick)
+    super(RTCTask, self).__init__(50, self.on_tick)
 
     self.machine = machine
     self.rtc = rtc
