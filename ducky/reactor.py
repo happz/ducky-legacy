@@ -183,12 +183,16 @@ class Reactor(object):
     Register task with reactor's main loop.
     """
 
+    self.machine.DEBUG('%s.add_task: task=%s', self.__class__.__name__, task)
+
     self.tasks.append(task)
 
   def remove_task(self, task):
     """
     Unregister task, it will never be ran again.
     """
+
+    self.machine.DEBUG('%s.remove_task: task=%s', self.__class__.__name__, task)
 
     self.task_suspended(task)
     self.tasks.remove(task)
@@ -198,6 +202,8 @@ class Reactor(object):
     If not yet marked as such, task is marked as runnable, and its ``run()``
     method will be called every iteration of reactor's main loop.
     """
+
+    self.machine.DEBUG('%s.task_runnable: task=%s', self.__class__.__name__, task)
 
     if task not in self.runnable_tasks:
       self.runnable_tasks.append(task)
@@ -209,6 +215,8 @@ class Reactor(object):
     will not quit, and task can be later easily re-enabled by calling
     :py:meth:`ducky.reactor.Reactor.task_runnable`.
     """
+
+    self.machine.DEBUG('%s.task_suspend: task=%s', self.__class__.__name__, task)
 
     if task in self.runnable_tasks:
       self.runnable_tasks.remove(task)
