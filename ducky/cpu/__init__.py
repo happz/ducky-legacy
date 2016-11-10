@@ -744,7 +744,7 @@ class CPUCore(ISnapshotable, IMachineWorker):
       return True
 
     if isinstance(exc, (AccessViolationError, InvalidResourceError)):
-      self.die(e)
+      self.die(exc)
       return False
 
     raise
