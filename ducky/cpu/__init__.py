@@ -148,29 +148,18 @@ class InstructionCache_Base(LoggingCapable, dict):
     self._mmu = mmu
     self._core = mmu.core
 
-    self.reads   = 0
-    self.hits    = 0
-    self.misses  = 0
-
   def __getitem__(self, addr):
     """
     Get instruction from the specified address.
     """
-
-    self.reads += 1
 
     index = addr >> 2
 
     i = dict.get(self, index)
 
     if i is None:
-        self.misses += 1
-
         i = self.fetch_instr(addr)
         dict.__setitem__(self, index, i)
-
-    else:
-      self.hits += 1
 
     return i
 
@@ -740,25 +729,25 @@ class CPUCore(ISnapshotable, IMachineWorker):
 
     self.mmu.reset()
 
-  def _run_safely(self, callable, *args, **kwargs):
-    try:
-      callable(*args, **kwargs)
-      return True
+  def _handle_python_exception(self, exc):
+    if isinstance(exc, ExecutionException):
+      if exc.core is None:
+        exc.core = self
 
-    except ExecutionException as e:
-      if e.core is None:
-        e.core = self
+      if exc.ip is None:
+        exc.ip = self.current_ip
 
-      if e.ip is None:
-        e.ip = self.current_ip
-
-      if e.runtime_handle() is not True:
-        self.die(e)
+      if exc.runtime_handle() is not True:
+        self.die(exc)
         return False
 
-    except (AccessViolationError, InvalidResourceError) as e:
+      return True
+
+    if isinstance(exc, (AccessViolationError, InvalidResourceError)):
       self.die(e)
       return False
+
+    raise
 
   def _raw_push(self, val):
     """
@@ -1003,7 +992,13 @@ class CPUCore(ISnapshotable, IMachineWorker):
     :param int index: exception ID - EVT index
     """
 
-    self._run_safely(self._enter_exception, index)
+    try:
+      self._enter_exception(index)
+
+    except Exception as exc:
+      if self._handle_python_exception(exc) is not True:
+        return
+
     self.change_runnable_state(idle = False)
 
   def __get_flags(self):
@@ -1031,6 +1026,15 @@ class CPUCore(ISnapshotable, IMachineWorker):
     if not self.privileged:
       raise PrivilegedInstructionError(core = self)
 
+  def do_step(self, ip, regset):
+    self.current_instruction, opcode, execute = self.fetch_instr(ip)
+    regset[Registers.IP] = (ip + 4) % 4294967296
+
+    self.DEBUG('"EXECUTE" phase: %s %s', UINT32_FMT(ip), self.instruction_set.disassemble_instruction(self.LOGGER, self.current_instruction))
+    log_cpu_core_state(self)
+
+    execute()
+
   def step(self):
     """
     Perform one "step" - fetch next instruction, increment IP, and execute instruction's code (see inst_* methods)
@@ -1055,17 +1059,12 @@ class CPUCore(ISnapshotable, IMachineWorker):
 
     self.DEBUG('fetch instruction: ip=%s', UINT32_FMT(ip))
 
-    def __do_step():
-      self.current_instruction, opcode, execute = self.fetch_instr(ip)
-      regset[Registers.IP] = (ip + 4) % 4294967296
+    try:
+      self.do_step(ip, regset)
 
-      self.DEBUG('"EXECUTE" phase: %s %s', UINT32_FMT(ip), self.instruction_set.disassemble_instruction(self.LOGGER, self.current_instruction))
-      log_cpu_core_state(self)
-
-      execute()
-
-    if self._run_safely(__do_step) is not True:
-      return
+    except Exception as exc:
+      if self._handle_python_exception(exc) is not True:
+        return
 
     regset[Registers.CNT] += 1
 
