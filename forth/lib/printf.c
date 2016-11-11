@@ -49,50 +49,6 @@ static char *_puts(char *s, unsigned int len, char *pbuffer, char *buffer, unsig
 }
 
 static unsigned int
-mini_itoa(int value, unsigned int radix, unsigned int uppercase,
-	 char *buffer, unsigned int zero_pad)
-{
-	char	*pbuffer = buffer;
-	int	negative = 0;
-	unsigned int	i, len;
-
-	/* No support for unusual radixes. */
-	if (radix > 16)
-		return 0;
-
-	if (value < 0) {
-		negative = 1;
-		value = -value;
-	}
-
-	/* This builds the string back to front ... */
-	do {
-		int digit = value % radix;
-		*(pbuffer++) = (digit < 10 ? '0' + digit : (uppercase ? 'A' : 'a') + digit - 10);
-		value /= radix;
-	} while (value > 0);
-
-	for (i = (pbuffer - buffer); i < zero_pad; i++)
-		*(pbuffer++) = '0';
-
-	if (negative)
-		*(pbuffer++) = '-';
-
-	*(pbuffer) = '\0';
-
-	/* ... now we reverse it (could do it recursively but will
-	 * conserve the stack space) */
-	len = (pbuffer - buffer);
-	for (i = 0; i < len / 2; i++) {
-		char j = buffer[i];
-		buffer[i] = buffer[len-i-1];
-		buffer[len-i-1] = j;
-	}
-
-	return len;
-}
-
-static unsigned int
 mini_utoa(unsigned int value, unsigned int radix, unsigned int uppercase,
 	 char *buffer, unsigned int zero_pad)
 {
@@ -164,13 +120,20 @@ mini_vsnprintf(char *buffer, unsigned int buffer_len, char *fmt, va_list va)
 				case 0:
 					goto end;
 
-				case 'd':
-					len = mini_itoa(va_arg(va, unsigned int), 10, 0, bf, zero_pad);
+				case 'd': {
+          int i = va_arg(va, int);
+          unsigned int u = (unsigned int)(i >= 0 ? i : -i);
+
+          if ((unsigned int)i != u)
+            pbuffer = _putc('-', pbuffer, buffer, buffer_len);
+
+					len = mini_utoa(u, 10, 0, bf, zero_pad);
 					pbuffer = _puts(bf, len, pbuffer, buffer, buffer_len);
+                  }
 					break;
 
 				case 'u':
-          len = mini_utoa(va_arg(va, int), 10, 0, bf, zero_pad);
+          len = mini_utoa(va_arg(va, unsigned int), 10, 0, bf, zero_pad);
           pbuffer = _puts(bf, len, pbuffer, buffer, buffer_len);
           break;
 

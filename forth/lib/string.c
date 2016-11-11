@@ -58,8 +58,6 @@ void __c_memcpy(char *dst, char *src, u32_t len)
     *dst++ = *src++;
 }
 
-ASM_INT(u32_t, var_DP);
-
 void memmove(char *dst, char *src, u32_t len)
 {
   if (len == 0)

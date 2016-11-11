@@ -65,7 +65,10 @@ struct __attribute__((packed)) word_header {
 };
 
 extern int fw_search(counted_string_t *needle, word_header_t **);
-extern cf_t *fw_cfa(word_header_t *word);
+
+extern u32_t *fw_code_field(word_header_t *word);
+extern u32_t *fw_data_field(word_header_t *word);
+extern u32_t *fw_value_field(word_header_t *word);
 
 #endif // __DUCKY_PURE_ASM__
 
@@ -111,6 +114,10 @@ struct input_desc {
 #define INPUT_IS_BLK()  (current_input->id_blk != 0)
 
 #endif // __DUCKY_PURE_ASM__
+
+/* Interpret state */
+#define STATE_COMPILE                  1
+#define STATE_INTERPRET                0
 
 
 /* FORTH boolean "flags" */
@@ -246,8 +253,9 @@ typedef struct {
 
 extern int parse_number(counted_string_t *s, parse_number_result_t * __attribute__((align_value(4))) result);
 
-extern void print_unsigned(u32_t);
-extern void print_signed(u32_t);
+extern void print_u32(u32_t u);
+extern void print_i32(i32_t i);
+
 extern void pno_reset_buffer(void);
 
 // Interpreter loop
@@ -276,20 +284,42 @@ typedef struct __attribute__((packed)) {
 
 
 /*
+ * Compilation helper - it's not necessary to perform full call to do_COMMA.
+ */
+ASM_PTR(u32_t *, var_DP);
+
+extern void __COMPILE(u32_t u);
+#define COMPILE(_u)      do { __COMPILE((u32_t)(_u)); } while(0)
+
+
+/*
+ * Compilation/interpreting state
+ */
+ASM_INT(u32_t, var_STATE);
+#define IS_COMPILATION() (var_STATE == STATE_COMPILE)
+#define IS_INTERPRET()   (var_STATE == STATE_INTERPRET)
+
+
+/*
  * These functions implement different FORTH words. As such, they are callable
  * by their assembly wrappers.
  */
 
+extern void do_AGAIN(u32_t *dest);
 extern void do_BACKSLASH(void);
 extern void do_BYE(void) __attribute__((noreturn));
 extern void do_PAREN(void);
+extern void do_COLON(void);
 extern void do_COMMA(u32_t);
 extern void do_CR(void);
 extern void do_DOT_PAREN(void);
 extern environment_query_status_t do_ENVIRONMENT_QUERY(char *, u32_t, environment_query_result_t *);
 extern void do_EVALUATE(char *, u32_t);
+extern void do_HEADER_COMMA(counted_string_t *name);
+extern u32_t *do_IF(void);
 extern void do_INTERPRET(interpret_decision_t *);
 extern int do_ISNUMBER(counted_string_t *needle, i32_t *num);
+extern void do_LITERAL(u32_t u);
 extern void do_LITSTRING(cf_t *);
 extern void do_PARSE(char, parse_result_t *);
 extern void do_SPACE(void);
@@ -300,6 +330,7 @@ extern u32_t do_UWIDTH(u32_t);
 extern void do_POSTPONE(void);
 extern u32_t do_REFILL(void);
 extern u32_t do_SAVE_INPUT(u32_t *buffer);
+extern void do_SEMICOLON(void);
 extern void do_RESTORE_INPUT(u32_t n, u32_t *buffer);
 extern void *do_BLK(void);
 extern void *do_BLOCK(u32_t bid);
@@ -314,12 +345,16 @@ extern void do_THRU(u32_t u1, u32_t u2);
 
 #endif // __DUCKY_PURE_ASM__
 
+
+
 /*
  * Following macros and definitions are used in the assembly
  * sources.
  */
 
 #ifdef __DUCKY_PURE_ASM__
+
+#define COMPILE __COMPILE
 
 // Syntax sugar, to help me define variables in assembly
 #define WORD(_name, _init) \

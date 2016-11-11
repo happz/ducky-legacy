@@ -36,3 +36,16 @@ void free(void *ptr)
   memset(chunk, 0x69, chunk->h_length);
 #endif
 }
+
+void *realloc(void *ptr, u32_t size)
+{
+  chunk_header_t *chunk = (chunk_header_t *)(ptr - sizeof(chunk_header_t));
+
+  if (chunk->h_length >= size)
+    return ptr;
+
+  void *new = malloc(size);
+  __c_memcpy(new, ptr, chunk->h_length);
+
+  return new;
+}

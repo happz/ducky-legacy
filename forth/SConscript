@@ -14,8 +14,8 @@ E.Append(DEFS = ['-D__BUILD_STAMP__=$BUILD_STAMP'])
 object_files = [ 'ducky-forth.o' ]
 
 # C code
-c_lib_files = ['boot', 'errors', 'forth', 'input', 'malloc', 'math', 'number', 'printf', 'string', 'tty']
-c_word_files = ['block', 'compile', 'env', 'interpret', 'number', 'output', 'system']
+c_lib_files = ['boot', 'errors', 'forth', 'input', 'malloc', 'number', 'printf', 'string', 'tty']
+c_word_files = ['block', 'compile', 'control', 'double', 'env', 'interpret', 'number', 'output', 'system', 'value']
 
 for f in c_lib_files:
   dst, src = os.path.join('lib', f + '.o'), os.path.join('lib', f + '.c')

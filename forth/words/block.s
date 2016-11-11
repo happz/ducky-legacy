@@ -33,6 +33,9 @@ DEFWORD("LOAD", 4, 0x00, LOAD)
   .word BRANCH
   .word -8
 
+DEFCSTUB_10("SAVE-BUFFER", 11, 0x00, SAVE_BUFFER)
+  // ( u -- )
+
 DEFCSTUB("SAVE-BUFFERS", 12, 0x00, SAVE_BUFFERS)
   // ( -- )
 

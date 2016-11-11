@@ -294,6 +294,26 @@ void do_LIST(u32_t bid)
   var_SCR = current_block->b_id;
 }
 
+void do_SAVE_BUFFER(u32_t bid)
+{
+  DEBUG_printf("do_SAVE_BUFFER: %u\r\n", bid);
+
+  int i;
+  u32_t mask;
+
+  for (i = 0, mask = 1; i < CONFIG_BLOCK_CACHE_SIZE; i++, mask <<= 1) {
+    if (!(assigned_blocks & mask) || blocks[i].b_id != bid)
+      continue;
+
+    if (!(dirty_blocks & mask))
+      return;
+
+    DEBUG_print_block(&blocks[i]);
+    block_write(&blocks[i]);
+    dirty_blocks &= ~mask;
+  }
+}
+
 void do_SAVE_BUFFERS()
 {
   DEBUG_printf("do_SAVE_BUFFERS:\r\n");

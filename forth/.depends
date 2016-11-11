@@ -9,25 +9,29 @@ words/core-ext.s: forth.h
 words/double.s: forth.h
 words/double-cell-ints.s: forth.h $HEADERSDIR/arch/math.h
 words/number.s: forth.h
+words/output.s: forth.h
+words/peephole.s: forth.h
 
 # Object files
 boundaries-post.o: boundaries-post.s
-ducky-forth.o: ducky-forth.s forth.h ducky-forth-words.s words/block.s words/compile.s words/core-ext.s words/double.s words/double-cell-ints.s $HEADERSDIR/arch/control.h $HEADERSDIR/arch/keyboard.h $HEADERSDIR/arch/rtc.h $HEADERSDIR/arch/boot.h $HEADERSDIR/arch/tty.h $HEADERSDIR/arch/hdt.h $HEADERSDIR/arch/ducky.h
+ducky-forth.o: ducky-forth.s forth.h ducky-forth-words.s words/block.s words/compile.s words/core-ext.s words/double.s words/double-cell-ints.s words/output.s words/peephole.s $HEADERSDIR/arch/control.h $HEADERSDIR/arch/keyboard.h $HEADERSDIR/arch/rtc.h $HEADERSDIR/arch/boot.h $HEADERSDIR/arch/tty.h $HEADERSDIR/arch/hdt.h $HEADERSDIR/arch/ducky.h
 
 lib/boot.o:             lib/boot.c forth.h $HEADERSDIR/types.h $HEADERSDIR/arch/rtc.h $HEADERSDIR/arch/keyboard.h $HEADERSDIR/arch/tty.h $HEADERSDIR/arch/boot.h
 lib/errors.o:           lib/errors.c forth.h
 lib/forth.o:            lib/forth.c forth.h
 lib/input.o:            lib/input.c forth.h $HEADERSDIR/arch/keyboard.h
 lib/malloc.o:           lib/malloc.c forth.h
-lib/math.o:             lib/math.c forth.h
 lib/number.o:           lib/number.c forth.h
 lib/printf.o:           lib/printf.c $HEADERSDIR/stdarg.h
 lib/string.o:           lib/string.c forth.h
 lib/tty.o:              lib/tty.c forth.h $HEADERSDIR/arch/tty.h
 words/block.o:          words/block.c forth.h $HEADERSDIR/arch/bio.h
 words/compile.o:        words/compile.c forth.h
+words/control.o:        words/control.c forth.h
+words/double.o:         words/double.c forth.h
 words/env.o:            words/env.c forth.h
 words/interpret.o:      words/interpret.c forth.h
 words/number.o:         words/number.c forth.h
 words/output.o:         words/output.c forth.h
 words/system.o:         words/system.c forth.h
+words/value.o:          words/value.c forth.h

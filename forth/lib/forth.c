@@ -32,7 +32,17 @@ int fw_search(counted_string_t *needle, word_header_t **found)
   return 0;
 }
 
-cf_t *fw_cfa(word_header_t *word)
+u32_t *fw_code_field(word_header_t *word)
 {
-  return (cf_t *)align4((u32_t)word + sizeof(word_header_t) - 1 + word->wh_name.cs_len);
+  return (u32_t *)align4((u32_t)word + sizeof(word_header_t) - 1 + word->wh_name.cs_len);
+}
+
+u32_t *fw_data_field(word_header_t *word)
+{
+  return fw_code_field(word) + 1;
+}
+
+u32_t *fw_value_field(word_header_t *word)
+{
+  return fw_data_field(word) + 1;
 }

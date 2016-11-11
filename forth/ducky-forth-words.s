@@ -35,18 +35,12 @@ DEFCSTUB("CR", 2, 0x00, CR)
   // ( -- )
 
 
-DEFCODE("SPACE", 5, 0x00, SPACE)
+DEFCSTUB("SPACE", 5, 0x00, SPACE)
   // ( -- )
-  call do_SPACE
-  NEXT
 
 
-DEFCODE("SPACES", 6, 0x00, SPACES)
+DEFCSTUB_10("SPACES", 6, 0x00, SPACES)
   // ( n -- )
-  mov r0, TOS
-  pop TOS
-  call do_SPACES
-  NEXT
 
 
   .data
@@ -124,77 +118,26 @@ DEFCSTUB("POSTPONE", 8, F_IMMED, POSTPONE)
 
 // - Character constants -----------------------------------------------------------------
 
-DEFCODE("'\\\\n'", 4, 0x00, CHAR_NL)
-  // ( -- <newline char> )
-  push TOS
-  li TOS, 10
+#define DEFCHAR(_name, _len, _label, _c) \
+DEFCODE(_name, _len, 0x00, _label) \
+  push TOS                         \
+  li TOS, _c                       \
   NEXT
 
-
-DEFCODE("'\\\\r'", 4, 0x00, CHAR_CR)
-  // ( -- <carriage return char>
-  push TOS
-  li TOS, 13
-  NEXT
-
-
-DEFCODE("BL", 2, 0x00, CHAR_SPACE)
-  // ( -- <space> )
-  push TOS
-  li TOS, 32
-  NEXT
-
-
-DEFWORD("':'", 3, 0x00, CHAR_COLON)
-  .word LIT
-  .word 58
-  .word EXIT
-
-DEFWORD("'//'", 3, 0x00, CHAR_SEMICOLON)
-  .word LIT
-  .word 59
-  .word EXIT
-
-DEFWORD("'('", 3, 0x00, CHAR_LPAREN)
-  .word LIT
-  .word 40
-  .word EXIT
-
-DEFWORD("')'", 3, 0x00, CHAR_RPAREN)
-  .word LIT
-  .word 41
-  .word EXIT
-
-DEFWORD("'\"'", 3, 0x00, CHAR_DOUBLEQUOTE)
-  .word LIT
-  .word 34
-  .word EXIT
-
-DEFWORD("'A'", 3, 0x00, CHAR_A)
-  .word LIT
-  .word 65
-  .word EXIT
-
-DEFWORD("'0'", 3, 0x00, CHAR_ZERO)
-  .word LIT
-  .word 48
-  .word EXIT
-
-DEFWORD("'-'", 3, 0x00, CHAR_MINUS)
-  .word LIT
-  .word 45
-  .word EXIT
-
-DEFWORD("'.'", 3, 0x00, CHAR_DOT)
-  .word LIT
-  .word 46
-  .word EXIT
+DEFCHAR("'\\\\n'", 4, CHAR_NL,          10)
+DEFCHAR("'\\\\r'", 4, CHAR_CR,          13)
+DEFCHAR("BL",      2, CHAR_SPACE,       32)
+DEFCHAR("':'",     3, CHAR_COLON,       58)
+DEFCHAR("'//'",    3, CHAR_SEMICOLON,   59)
+DEFCHAR("'('",     3, CHAR_LPAREN,      40)
+DEFCHAR("')'",     3, CHAR_RPAREN,      41)
+DEFCHAR("'\"'",    3, CHAR_DOUBLEQUOTE, 34)
+DEFCHAR("'0'",     3, CHAR_ZERO,        48)
+DEFCHAR("'-'",     3, CHAR_MINUS,       45)
+DEFCHAR("'.'",     3, CHAR_DOT,         46)
 
 
 // - Helpers -----------------------------------------------------------------------------
-
-
-
 
 DEFCODE("NOT", 3, 0x00, NOT)
   // ( flag -- flag )
@@ -212,12 +155,8 @@ DEFCODE("NEGATE", 6, 0x00, NEGATE)
   NEXT
 
 
-DEFWORD("LITERAL", 7, F_IMMED, LITERAL)
-  .word LIT
-  .word LIT
-  .word COMMA
-  .word COMMA
-  .word EXIT
+DEFCSTUB_10("LITERAL", 7, F_IMMED, LITERAL)
+  // ( x -- )
 
 
 DEFWORD("WITHIN", 6, 0x00, WITHIN)
@@ -327,119 +266,43 @@ DEFCODE("2R>", 3, 0x00, TWORFROM)
   push W
   NEXT
 
+
 // - Control structures --------------------------------------------------------------------------
 
-DEFWORD("IF", 2, F_IMMED, IF)
-  .word LIT
-  .word ZBRANCH
-  .word COMMA
-  .word HERE
-  .word LIT
-  .word 0x00
-  .word COMMA
-  .word EXIT
+DEFCSTUB_01("IF", 2, F_IMMED, IF)
+  // ( C: -- orig )
+  // ( R: x -- )
 
+DEFCSTUB_11("ELSE", 4, F_IMMED, ELSE)
+  // ( C: orig1 -- orig2 )
+  // ( R: -- )
 
-DEFWORD("ELSE", 4, F_IMMED, ELSE)
-  .word LIT
-  .word BRANCH
-  .word COMMA
-  .word HERE
-  .word LIT
-  .word 0x00
-  .word COMMA
-  .word SWAP
-  .word DUP
-  .word HERE
-  .word SWAP
-  .word SUB
-  .word SWAP
-  .word STORE
-  .word EXIT
+DEFCSTUB_10("THEN", 4, F_IMMED, THEN)
+  // (C: orig -- )
+  // (R: -- )
 
-
-DEFWORD("THEN", 4, F_IMMED, THEN)
-  .word DUP
-  .word HERE
-  .word SWAP
-  .word SUB
-  .word SWAP
-  .word STORE
-  .word EXIT
-
-
-DEFCODE("RECURSE", 7, F_IMMED, RECURSE)
-  la r0, var_LATEST
-  lw r0, r0
-  call do_TCFA
-  call do_COMMA
-  NEXT
-
-
-DEFCODE("BEGIN", 5, F_IMMED, BEGIN)
-  // ( -- HERE )
-  push TOS
-  la TOS, var_DP
-  lw TOS, TOS
-  NEXT
-
+DEFCSTUB_01("BEGIN", 5, F_IMMED, BEGIN)
+  // ( C: -- dest )
+  // ( R: -- )
 
 DEFCODE("WHILE", 5, F_IMMED, WHILE)
-  // ( -- HERE )
-  la r0, ZBRANCH
-  call do_COMMA
-  push TOS
-  la TOS, var_DP
-  lw TOS, TOS
-  li r0, 0x00
-  call do_COMMA
+  // ( C: dest -- orig dest )
+  // ( R: x -- )
+  call do_WHILE
+  push r0
   NEXT
 
+DEFCSTUB_10("UNTIL", 5, F_IMMED, UNTIL)
+  // ( C: dest -- )
+  // ( R: x -- )
 
-DEFWORD("UNTIL", 5, F_IMMED, UNTIL)
-  .word LIT
-  .word ZBRANCH
-  .word COMMA
-  .word HERE
-  .word SUB
-  .word COMMA
-  .word EXIT
+DEFCSTUB_20("REPEAT", 6, F_IMMED, REPEAT)
+  // ( C: orig dest -- )
+  // ( R: -- )
 
-
-DEFWORD("REPEAT", 6, F_IMMED, REPEAT)
-  .word BRACKET_TICK
-  .word BRANCH
-  .word COMMA
-  .word SWAP
-  .word HERE
-  .word SUB
-  .word COMMA
-  .word DUP
-  .word HERE
-  .word SWAP
-  .word SUB
-  .word SWAP
-  .word STORE
-  .word EXIT
-
-
-DEFWORD("AGAIN", 5, F_IMMED, AGAIN)
-  .word BRACKET_TICK
-  .word BRANCH
-  .word COMMA
-  .word HERE
-  .word SUB
-  .word COMMA
-  .word EXIT
-
-
-DEFWORD("UNLESS", 6, F_IMMED, UNLESS)
-  .word BRACKET_TICK
-  .word NOT
-  .word COMMA
-  .word IF
-  .word EXIT
-
+DEFCSTUB_10("AGAIN", 5, F_IMMED, AGAIN)
+  // ( C: dest -- )
+  // ( R: -- )
 
 DEFWORD("CASE", 4, F_IMMED, CASE)
   .word LIT
@@ -477,6 +340,13 @@ DEFWORD("ENDCASE", 7, F_IMMED, ENDCASE)
   .word BRANCH
   .word 0xFFFFFFEC
   .word EXIT
+
+DEFCODE("RECURSE", 7, F_IMMED, RECURSE)
+  la r0, var_LATEST
+  lw r0, r0
+  call fw_code_field
+  call COMPILE
+  NEXT
 
 
 // - Stack -------------------------------------------------------------------------------
@@ -739,10 +609,18 @@ DEFCODE("MOVE", 4, 0x00, MOVE)
 
 DEFCODE("ALLOCATE", 8, 0x00, ALLOCATE)
   // ( u -- a-addr ior )
+  li W, 0xFFFF
+  liu W, 0xFFFF
+  cmp TOS, W
+  be __ALLOCATE_fail
   mov r0, TOS
   call malloc
   push r0
   li TOS, 0x00
+  NEXT
+__ALLOCATE_fail:
+  push 0x00
+  li TOS, 0x01
   NEXT
 
 
@@ -756,39 +634,18 @@ DEFCODE("FREE", 4, 0x00, FREE)
 
 DEFCODE("RESIZE", 6, 0x00, RESIZE)
   // ( a-addr1 u -- a-addr2 ior )
-  mov W, TOS                         // u
-  pop X                               // a-addr
-
-  mov r0, W                           // allocate new area
-  call malloc
-  mov Y, r0                           // save new area address
-
-  mov r2, X                           // load length of the original area
-  sub r2, CELL
-  lw r2, r2
-  sub r2, CELL                        // length includes the info cell at the beginning - subtract it
-
-  cmp W, r2
-  ble __RESIZE_shrink
-
-                                       // r0 is set already
-  mov r1, X
-                                       // r2 is set already
-  j __RESIZE_copy
-
-__RESIZE_shrink:
-                                       // r0 is set already
-  mov r1, X
-  mov r2, W
-
-__RESIZE_copy:
-  call memcpy
-
-  mov r0, W
-  call free
-
-  push Y
+  li W, 0xFFFF
+  liu W, 0xFFFF
+  cmp TOS, W
+  be __RESIZE_fail
+  pop r0
+  mov r1, TOS
+  call realloc
+  push r0
   li TOS, 0x00
+  NEXT
+__RESIZE_fail:
+  li TOS, 0x01
   NEXT
 
 
@@ -1064,7 +921,7 @@ DEFCODE("U.R", 3, 0x00, UDOTR)
   swp TOS, r0
   call do_SPACES
   mov r0, X
-  call print_unsigned
+  call print_u32
   pop TOS
   NEXT
 
@@ -1085,7 +942,7 @@ __DOTR_unsigned:
   swp TOS, r0
   call do_SPACES
   mov r0, Y
-  call print_signed
+  call print_i32
   pop TOS
   NEXT
 
@@ -1103,7 +960,7 @@ DEFCODE(".S", 2, 0x00, DOTS)
 __DOTS_loop:
   bz __DOTS_TOS
   lw r0, X
-  call print_unsigned
+  call print_u32
   call do_SPACE
   sub X, CELL
   dec W
@@ -1112,7 +969,7 @@ __DOTS_loop:
 __DOTS_TOS:
   // print TOS
   mov r0, TOS
-  call print_unsigned
+  call print_u32
   call do_SPACE
 
   NEXT
@@ -1159,5 +1016,3 @@ __WORDS_quit:
   pop r10
   pop r0
   ret
-
-

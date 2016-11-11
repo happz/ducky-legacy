@@ -10,6 +10,18 @@
 #include <forth.h>
 
 
+void do_AT_XY(u32_t col, u32_t row)
+{
+  printf("\033[%d;%dH", row, col);
+}
+
+
+void do_PAGE()
+{
+  putcs("\033[2J;");
+}
+
+
 /*
  * Cause subsequent output to appear at the beginning of the next line.
  */

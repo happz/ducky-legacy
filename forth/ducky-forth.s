@@ -297,12 +297,16 @@ rtc_esr:
   .global rtc_esr
 
 
+  .global DOCOL
+
 DOCOL:
   PUSHRSP(FIP)
   add W, CELL
   mov FIP, W
   NEXT
 
+
+  .global DODOES
 
 DODOES:
   // DODES is entered in the very same way as DOCOL:
@@ -351,15 +355,27 @@ cold_start:
   .space CELL
 
 
-  // Welcome ducky
-  .section .rodata
+/*
+ * Include superinstructions, and place them at the very bottom of dictionary.
+ */
+#include "words/peephole.s"
 
-  .type __ducky_welcome, string, "\r\n\n                     ____             _          _____ ___  ____ _____ _   _ \r\n          \033[93m__\033[0m        |  _ \ _   _  ___| | ___   _|  ___/ _ \|  _ \_   _| | | |\r\n        \033[31m<\033[0m\033[93m(o )___\033[0m    | | | | | | |/ __| |/ / | | | |_ | | | | |_) || | | |_| |\r\n         \033[93m( ._> /\033[0m    | |_| | |_| | (__|   <| |_| |  _|| |_| |  _ < | | |  _  |\r\n          \033[93m`---'\033[0m     |____/ \__,_|\___|_|\_\\\\__, |_|   \___/|_| \_\|_| |_| |_|\r\n                                           |___/                             \r\n\n\n"
+
+DEFCSTUB("WELCOME", 7, 0x00, WELCOME)
+
+DEFCODE("BUILD-STAMP", 11, 0x00, BUILD_STAMP)
+  // ( -- c-addr u )
+  push TOS
+  la X, __build_stamp_length
+  lb TOS, X
+  inc X
+  push X
+  NEXT
 
 
-//
-// Variables
-//
+/*
+ * Variables.
+ */
 DEFVAR("EVT", 3, 0x00, EVT, 0x00000000)
 DEFVAR("TEST-MODE", 9, 0x00, TEST_MODE, CONFIG_TEST_MODE)
 DEFVAR("ECHO", 4, 0x00, ECHO, CONFIG_ECHO)
@@ -370,73 +386,6 @@ DEFVAR("LATEST", 6, 0x00, LATEST, name_BYE)
 DEFVAR("S0", 2, 0x00, SZ, 0xFFFFFF00)
 DEFVAR("BASE", 4, 0x00, BASE, 10)
 DEFVAR("SHOW-PROMPT", 11, 0x00, SHOW_PROMPT, 0x00)
-
-
-DEFCODE("DUCKY", 5, F_HIDDEN, DUCKY)
-  la r0, __ducky_welcome
-  call putcs
-  NEXT
-
-
-
-DEFWORD("WELCOME", 7, 0x00, WELCOME)
-  .word TEST_MODE
-  .word FETCH
-  .word NOT
-  .word ZBRANCH
-  .word 0x000000A8
-  .word DUCKY
-  .word SQUOTE_LITSTRING
-  .word 0x63754413
-  .word 0x4F46796B
-  .word 0x20485452
-  .word 0x53524556
-  .word 0x204E4F49
-  .word TELL
-  .word VERSION
-  .word DOT
-  .word CR
-  .word SQUOTE_LITSTRING
-  .word 0x69754206
-  .word 0x0020646C
-  .word TELL
-  .word BUILD_STAMP
-  .word TYPE
-  .word CR
-  .word UNUSED
-  .word DOT
-  .word SQUOTE_LITSTRING
-  .word 0x4C45430F
-  .word 0x5220534C
-  .word 0x49414D45
-  .word 0x474E494E
-  .word TELL
-  .word CR
-  .word SQUOTE_LITSTRING
-  .word 0x70795413
-  .word 0x42222065
-  .word 0x20224559
-  .word 0x65206F74
-  .word 0x20746978
-  .word TELL
-  .word CR
-  .word TRUE
-  .word SHOW_PROMPT
-  .word STORE
-  .word TRUE
-  .word ECHO
-  .word STORE
-  .word EXIT
-
-
-DEFCODE("BUILD-STAMP", 11, 0x00, BUILD_STAMP)
-  // ( -- addr u )
-  push TOS
-  la X, __build_stamp_length
-  lb TOS, X
-  inc X
-  push X
-  NEXT
 
 
 DEFCODE("VMDEBUGON", 9, F_IMMED, VMDEBUGON)
@@ -467,7 +416,7 @@ DEFCODE("PROMPT", 6, 0x00, PROMPT)
 
   /* Word buffer lies right next to its length, pretending it's a standard
    * counted string <length><chars...>. It starts at aligned address, to allow
-   * seamless coopoeration with C code.
+   * seamless cooperation with C code.
    */
   .section .bss
   .align CELL
@@ -531,17 +480,13 @@ DEFCODE("ACCEPT", 6, 0x00, ACCEPT)
   NEXT
 
 
-DEFCODE("REFILL", 6, 0x00, REFILL)
+DEFCSTUB_01("REFILL", 6, 0x00, REFILL)
   // ( -- flag )
-  call do_REFILL
-  push TOS
-  mov TOS, r0
-  NEXT
 
 
 DEFCODE("KEY", 3, 0x00, KEY)
   // ( -- n )
-  call __read_char
+  call __read_raw_kbd_char
   push TOS
   mov TOS, r0
   NEXT
@@ -555,27 +500,12 @@ DEFCODE("EMIT", 4, 0x00, EMIT)
   NEXT
 
 
-DEFCODE("EVALUATE", 8, 0x00, EVALUATE)
+DEFCSTUB_20("EVALUATE", 8, 0x00, EVALUATE)
   // ( i*x c-addr u -- j*x )
-  //
-  // Save the current input source specification. Store minus-one (-1)
-  // in SOURCE-ID if it is present. Make the string described by c-addr
-  // and u both the input source and input buffer, set >IN to zero, and
-  // interpret. When the parse area is empty, restore the prior input
-  // source specification. Other stack effects are due to the words EVALUATEd.
-  mov r1, TOS
-  pop r0
-  pop TOS
-  call do_EVALUATE
-  NEXT
 
 
-DEFCODE(">IN", 3, 0x00, TOIN)
+DEFCSTUB_01(">IN", 3, 0x00, TOIN)
   // ( -- a-addr )
-  call do_TOIN
-  push TOS
-  mov TOS, r0
-  NEXT
 
 
 DEFCODE("TYPE", 4, 0x00, TYPE)
@@ -647,7 +577,7 @@ DEFCODE("FIND", 4, 0x00, FIND)
   push r0 // save find's result for later
   la r0, __found_word
   lw r0, r0
-  call do_TCFA
+  call fw_code_field
   pop r1
   push r0
   mov TOS, r1
@@ -668,7 +598,7 @@ DEFCODE("'", 1, F_IMMED, TICK)
   bz __ERR_undefined_word
   la r0, __found_word
   lw r0, r0
-  call do_TCFA
+  call fw_code_field
   push TOS
   mov TOS, r0
   NEXT
@@ -681,20 +611,12 @@ DEFCODE("[']", 3, 0x00, BRACKET_TICK)
   NEXT
 
 
-DEFCODE(">CFA", 4, 0x00, TCFA)
+DEFCSTUB_11(">CFA", 4, 0x00, TCFA)
   // ( address -- address )
-  mov r0, TOS
-  call do_TCFA
-  mov TOS, r0
-  NEXT
 
 
-DEFWORD(">DFA", 4, 0x00, TDFA)
-  .word TCFA
-  .word LIT
-  .word CELL
-  .word ADD
-  .word EXIT
+DEFCSTUB_11(">DFA", 4, 0x00, TDFA)
+  // ( address -- address )
 
 
 DEFCODE("EXECUTE", 7, 0x00, EXECUTE)
@@ -711,58 +633,38 @@ DEFCODE("LIT", 3, 0x00, LIT)
   NEXT
 
 
-DEFCODE(",", 1, 0x00, COMMA)
+DEFCSTUB_10(",", 1, 0x00, COMMA)
   // ( x -- )
-  mov r0, TOS
-  pop TOS
-  call do_COMMA
-  NEXT
 
 
 DEFCODE("COMPILE,", 8, 0x00, COMPILE_COMMA)
   // ( xt -- )
   mov r0, TOS
   pop TOS
-  call do_COMMA
+  call COMPILE
   NEXT
 
 
 DEFCODE("[", 1, F_IMMED, LBRAC)
-  li W, 0x00
+  li W, STATE_INTERPRET
   la X, var_STATE
   stw X, W
   NEXT
 
 
 DEFCODE("]", 1, 0x00, RBRAC)
-  li W, 1
+  li W, STATE_COMPILE
   la X, var_STATE
   stw X, W
   NEXT
 
 
-DEFWORD(":", 1, 0x00, COLON)
-  .word DWORD
-  .word HEADER_COMMA
-  .word LIT
-  .word DOCOL
-  .word COMMA
-  .word LATEST
-  .word FETCH
-  .word HIDDEN
-  .word RBRAC
-  .word EXIT
+DEFCSTUB(":", 1, 0x00, COLON)
+  // ( -- )
 
 
-DEFWORD(";", 1, F_IMMED, SEMICOLON)
-  .word LIT
-  .word EXIT
-  .word COMMA
-  .word LATEST
-  .word FETCH
-  .word HIDDEN
-  .word LBRAC
-  .word EXIT
+DEFCSTUB(";", 1, F_IMMED, SEMICOLON)
+  // ( -- )
 
 
 DEFCODE("IMMEDIATE", 9, F_IMMED, IMMEDIATE)
@@ -1155,8 +1057,8 @@ DEFCODE("DROP", 4, 0x00, DROP)
 
 DEFCODE("SWAP", 4, 0x00, SWAP)
   // ( a b -- b a )
-  pop W
-  push TOS
+  lw W, sp
+  stw sp, TOS
   mov TOS, W
   NEXT
 
@@ -1196,7 +1098,7 @@ DEFCODE("-ROT", 4, 0x00, NROT)
 
 DEFCODE("2DROP", 5, 0x00, TWODROP)
   // ( n n -- )
-  pop TOS
+  add sp, CELL
   pop TOS
   NEXT
 
@@ -1239,9 +1141,9 @@ DEFCODE("[CHAR]", 6, F_IMMED, BRACKETCHAR)
   inc r0
   lb W, r0
   la r0, LIT
-  call do_COMMA
+  call COMPILE
   mov r0, W
-  call do_COMMA
+  call COMPILE
   NEXT
 
 
@@ -1737,58 +1639,28 @@ DEFWORD("DOES>", 5, 0x00, DOESTO)
   .word EXIT
 
 
-DEFWORD("VALUE", 5, 0x00, VALUE)
-  .word DWORD
-  .word HEADER_COMMA
-  .word __DOCOL
-  .word COMMA
-  .word BRACKET_TICK
-  .word LIT
-  .word COMMA
-  .word COMMA
-  .word BRACKET_TICK
-  .word EXIT
-  .word COMMA
-  .word EXIT
+DEFCSTUB_10("VALUE", 5, 0x00, VALUE)
+  // ( x "<spaces>name" -- )
 
 
 DEFCODE("TO", 2, F_IMMED, TO)
-  call __read_dword
-  la r1, __found_word
-  call fw_search
+  // ( C: "<spaces>name" -- )
+  // ( R: i*x "<spaces>name" -- )
+  mov r1, TOS
+  lw r0, sp
+  call do_TO
   cmp r0, 0x00
-  bz __ERR_undefined_word
-  la r0, __found_word
-  lw r0, r0
-  call do_TCFA
-  add r0, CELL                        // point to Data Field
-  add r0, CELL                        // point to value field
-
-  la W, var_STATE
-  lw W, W
-  bz __TO_store
-
-  la W, var_DP
-  lw X, W
-
-  la Z, LIT
-  stw X, Z
-  add X, CELL
-
-  stw X, r0
-  add X, CELL
-
-  la Z, STORE
-  stw X, Z
-  add X, CELL
-
-  stw W, X
-  j __TO_quit
-
-__TO_store:
-  stw r0, TOS
+  bz __TO_zero
+  cmp r0, 0x01
+  be __TO_one
+  cmp r0, 0x02
+  be __TO_two
+  hlt 0x59
+__TO_two:
   pop TOS
-__TO_quit:
+__TO_one:
+  pop TOS
+__TO_zero:
   NEXT
 
 
@@ -1800,6 +1672,7 @@ __TO_quit:
 #include "words/block.s"
 #include "words/double.s"
 #include "words/number.s"
+#include "words/output.s"
 
 
 DEFCSTUB("\\\\", 1, F_IMMED, BACKSLASH)

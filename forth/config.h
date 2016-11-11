@@ -140,7 +140,7 @@
  * This must match the corresponding values in linker script.
  */
 #ifndef USERSPACE_BASE
-# define USERSPACE_BASE                0x0000A000
+# define USERSPACE_BASE                0x0000B000
 #endif
 
 /*
@@ -180,6 +180,10 @@
 #endif
 
 
+//-----------------------------------------------------------------------------
+// Optimization settings
+//-----------------------------------------------------------------------------
+
 /*
  * Registers
  *
@@ -197,6 +201,16 @@
 #define Y                              r25  // Scratch register
 #define Z                              r24  // Scratch register
 #define TOS                            r23  // Top Of the Stack
+
+/*
+ * Peep hole optimization.
+ * If enabled, compiler will try to optimize words by replacing sequence
+ * of words with more effective equivalents (e.g. sequence of "LIT", "1"
+ * will be replaced by a single word).
+ */
+#ifndef CONFIG_PEEPHOLE
+#  define CONFIG_PEEPHOLE              1
+#endif
 
 
 /*

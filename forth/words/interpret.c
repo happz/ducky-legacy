@@ -1,6 +1,5 @@
 #include <forth.h>
 
-ASM_INT(u32_t,   var_STATE);
 ASM_INT(u32_t,   var_SHOW_PROMPT);
 
 
@@ -54,6 +53,13 @@ void do_EVALUATE(char *buff, u32_t length)
 ASM_INT(cell_t, LIT);
 ASM_INT(cell_t, TWOLIT);
 
+#if (CONFIG_PEEPHOLE == 1)
+ASM_INT(cell_t, SI_LIT_0);
+ASM_INT(cell_t, SI_LIT_1);
+ASM_INT(cell_t, SI_LIT_2);
+ASM_INT(cell_t, SI_LIT_FFFFFFFF);
+#endif
+
 void do_INTERPRET(interpret_decision_t *decision)
 {
 #define SIGNAL_NOP()       do { decision->id_status = INTERPRET_NOP;          return; } while(0)
@@ -75,12 +81,14 @@ void do_INTERPRET(interpret_decision_t *decision)
   int found = fw_search(wb, &word);
 
   if (found) {
-    decision->u.id_cfa = do_TCFA(word);
+    cf_t *cfa = fw_code_field(word);
 
-    if (word->wh_flags & F_IMMED || var_STATE == 0)
+    if (IS_INTERPRET() || word->wh_flags & F_IMMED) {
+      decision->u.id_cfa = cfa;
       SIGNAL_EXEC_WORD();
+    }
 
-    do_COMMA((u32_t)decision->u.id_cfa);
+    COMPILE(cfa);
     SIGNAL_NOP();
   }
 
@@ -90,29 +98,50 @@ void do_INTERPRET(interpret_decision_t *decision)
   if (ret == -1 || pnr.nr_remaining != 0) {
     __ERR_undefined_word();
 
-    var_STATE = 0;
+    var_STATE = STATE_INTERPRET;
     __refill_input_buffer();
     SIGNAL_NOP();
   }
 
   if (ret == 0) {
-    if (var_STATE == 0) {
+    if (IS_INTERPRET()) {
       decision->u.id_number = pnr.nr_number_lo;
       SIGNAL_EXEC_LIT();
     }
 
-    do_COMMA((u32_t)&LIT);
-    do_COMMA(pnr.nr_number_lo);
+#if (CONFIG_PEEPHOLE == 1)
+    switch(pnr.nr_number_lo) {
+      case 0:
+        COMPILE(&SI_LIT_0);
+        break;
+      case 1:
+        COMPILE(&SI_LIT_1);
+        break;
+      case 2:
+        COMPILE(&SI_LIT_2);
+        break;
+      case 0xFFFFFFFF:
+        COMPILE(&SI_LIT_FFFFFFFF);
+        break;
+      default:
+        COMPILE(&LIT);
+        COMPILE(pnr.nr_number_lo);
+        break;
+    }
+#else
+    COMPILE(&LIT);
+    COMPILE(pnr.nr_number_lo);
+#endif
   } else {
-    if (var_STATE == 0) {
+    if (IS_INTERPRET()) {
       decision->u.id_double_number[0] = pnr.nr_number_lo;
       decision->u.id_double_number[1] = pnr.nr_number_hi;
       SIGNAL_EXEC_2LIT();
     }
 
-    do_COMMA((u32_t)&TWOLIT);
-    do_COMMA(pnr.nr_number_lo);
-    do_COMMA(pnr.nr_number_hi);
+    COMPILE((u32_t)&TWOLIT);
+    COMPILE(pnr.nr_number_lo);
+    COMPILE(pnr.nr_number_hi);
   }
 
   SIGNAL_NOP();
@@ -274,7 +303,16 @@ u32_t do_SAVE_INPUT(u32_t *buff)
  */
 cf_t *do_TCFA(word_header_t *word)
 {
-  return fw_cfa(word);
+  return fw_code_field(word);
+}
+
+
+/*
+ * >DFA
+ */
+u32_t *do_TDFA(word_header_t *word)
+{
+  return fw_data_field(word);
 }
 
 

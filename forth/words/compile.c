@@ -1,11 +1,47 @@
 #include <forth.h>
 
-ASM_INT(u32_t,   var_STATE);
 ASM_INT(u32_t,   var_LATEST);
 ASM_PTR(u32_t *, var_DP);
 
+ASM_STRUCT(counted_string_t, word_buffer_length);
+
+ASM_INT(cell_t, DOCOL);
+ASM_INT(cell_t, COMMA);
+ASM_INT(cell_t, EXIT);
+ASM_INT(cell_t, LIT);
+
 
 #define FWD_DP(_len) do { var_DP = (u32_t *) CELL_ALIGN((u32_t)var_DP + (_len)); } while(0)
+
+void __COMPILE(u32_t u)
+{
+  *var_DP++ = u;
+}
+
+
+void do_COLON()
+{
+  counted_string_t *name = __read_word(' ');
+
+  do_HEADER_COMMA(name);
+
+  COMPILE(&DOCOL);
+
+  word_header_t *word = (word_header_t *)var_LATEST;
+  word->wh_flags |= F_HIDDEN;
+
+  var_STATE = STATE_COMPILE;
+}
+
+void do_SEMICOLON()
+{
+  COMPILE(&EXIT);
+
+  word_header_t *word = (word_header_t *)var_LATEST;
+  word->wh_flags &= ~F_HIDDEN;
+
+  var_STATE = STATE_INTERPRET;
+}
 
 
 /*
@@ -16,7 +52,7 @@ ASM_PTR(u32_t *, var_DP);
  */
 void do_COMMA(u32_t u)
 {
-  *var_DP++ = u;
+  COMPILE(u);
 }
 
 void do_HEADER_COMMA(counted_string_t *name)
@@ -47,13 +83,16 @@ void do_HEADER_COMMA(counted_string_t *name)
   header->wh_name.cs_len = name->cs_len;
   __c_memcpy(&header->wh_name.cs_str, &name->cs_str, name->cs_len);
 
-  // Extend DP to point right after the name
+  // Extend DP to point right after the name, and align it.
   // Subtract 1 - 1 char of the name is already member of
   // word_header_t's wh_name!
-  var_DP = (u32_t *)((u32_t)var_DP + sizeof(word_header_t) + name->cs_len - 1);
+  FWD_DP(sizeof(word_header_t) + name->cs_len - 1);
+}
 
-  // Re-align DP once again - name could produce arbitrary alignment...
-  CELL_ALIGN_DP();
+void do_LITERAL(u32_t u)
+{
+  COMPILE(&LIT);
+  COMPILE(u);
 }
 
 
@@ -63,10 +102,10 @@ void do_HEADER_COMMA(counted_string_t *name)
  */
 void do_LITSTRING(cf_t *cfa)
 {
-  if (var_STATE == 0)
+  if (IS_INTERPRET())
     __ERR_no_interpretation_semantics();
 
-  do_COMMA((u32_t)cfa);
+  COMPILE(cfa);
 
   counted_string_t *payload = (counted_string_t *)var_DP;
 
@@ -78,10 +117,6 @@ void do_LITSTRING(cf_t *cfa)
 
   FWD_DP(payload->cs_len + 1);
 }
-
-ASM_STRUCT(counted_string_t, word_buffer_length);
-ASM_INT(cell_t, COMMA);
-ASM_INT(cell_t, LIT);
 
 void do_POSTPONE()
 {
@@ -100,13 +135,13 @@ void do_POSTPONE()
     return;
   }
 
-  cf_t *cfa = do_TCFA(word);
+  cf_t *cfa = fw_code_field(word);
 
   if (word->wh_flags & F_IMMED) {
-    do_COMMA((u32_t)cfa);
+    COMPILE(cfa);
   } else {
-    do_COMMA((u32_t)&LIT);
-    do_COMMA((u32_t)cfa);
-    do_COMMA((u32_t)&COMMA);
+    COMPILE(&LIT);
+    COMPILE(cfa);
+    COMPILE(&COMMA);
   }
 }

@@ -65,7 +65,7 @@ static u8_t *kbd_mmio_address = (u8_t *)(CONFIG_KBD_MMIO_BASE + KBD_MMIO_DATA);
  * If there are no characters available in keyboard buffer, the function
  * will block until interrupt arrives (possible race condition...).
  */
-static u8_t __read_raw_kbd_char(void)
+u8_t __read_raw_kbd_char(void)
 {
   u8_t c;
 

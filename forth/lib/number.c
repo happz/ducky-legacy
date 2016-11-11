@@ -136,46 +136,54 @@ int parse_number(counted_string_t *s, parse_number_result_t *result)
 
 // Using buffer to avoid recursion - I just put all chars in the buff,
 // and then print them in reversed order. And 64 is maximal length of
-// any number in most verbose base, 2.
-static char __print_unsigned_buffer[64];
+// any number in most verbose base, 2, plus one for '-'.
+static char __number_fmt_buffer[65];
 
-void print_unsigned(u32_t u)
+static void __print_number_buffer(int index)
 {
-  int i = 0;
-  u32_t r;
-
-  do {
-    r = u % var_BASE;
-
-    __print_unsigned_buffer[i++] = (r < 10 ? (r + 48) : (r - 10 + 65));
-
-    u /= var_BASE;
-  } while(u != 0);
-
-  i -= 1;
-
-  // TODO: this is way too complicated, but for some reason unknown
-  // llvm creates something that simply does not work as expected for
-  // a shorter C code:
-  //
-  //   while(i >= 0)
-  //     putc(__print_unsigned_buffer[i--]);
-
+  /* TODO: this is way too complicated, but for unknown reason
+   * llvm creates something that simply does not work as expected
+   * for a shorter C code:
+   *
+   * while(i >= 0)
+   *   putc(__number_fmt_buffer[i--]);
+   */
   while(1) {
-    putc(__print_unsigned_buffer[i--]);
+    putc(__number_fmt_buffer[index--]);
 
-    if (i == -1)
+    if (index == -1)
       break;
   }
 }
 
-void print_signed(u32_t u)
+static int __format_u32(u32_t u)
 {
-  if (u & 0x80000000) {
+  int i = 0;
+  u32_t r, base = (u32_t)var_BASE;
+
+  do {
+    r = u % base;
+
+    __number_fmt_buffer[i++] = (r < 10 ? (r + 48) : (r - 10 + 65));
+
+    u /= base;
+  } while(u != 0);
+
+  return i - 1;
+}
+
+void print_i32(i32_t i)
+{
+  if (i & 0x80000000) {
     putc('-');
 
-    u = 0 - u;
+    i = 0 - i;
   }
 
-  print_unsigned(u);
+  __print_number_buffer(__format_u32((u32_t)i));
+}
+
+void print_u32(u32_t u)
+{
+  __print_number_buffer(__format_u32(u));
 }
