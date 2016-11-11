@@ -6,7 +6,6 @@ install_requires = [
   'colorama',
   'enum34',
   'tabulate',
-  'pycparser',
   'six',
   'mako',
   'Twisted',

@@ -3,7 +3,6 @@ tabulate
 colorama
 six
 beautifulsoup4
-pycparser
 mock
 sphinx
 sphinx-rtd-theme
