@@ -10,6 +10,8 @@ ANS_TESTS = [
   'errorreport.fth',
   'coreexttest.fth',
   'blocktest.fth',
+  'doubletest.fth',
+  'memorytest.fth'
 ]
 
 @repeat('tests.forth.ans', 'tests.forth')

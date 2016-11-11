@@ -50,7 +50,7 @@ TESTING MULTIPLY: S>D * M* UM*
 TESTING DIVIDE: FM/MOD SM/REM UM/MOD */ */MOD / /MOD MOD
 TESTING HERE , @ ! CELL+ CELLS C, C@ C! CHARS 2@ 2! ALIGN ALIGNED +! ALLOT
 TESTING CHAR [CHAR] [ ] BL S"
-TESTING ' ['] FIND EXECUTE IMMEDIATE COUNT LITERAL POSTPONE STATE (*** DUCKY PATCH **)
+TESTING ' ['] FIND EXECUTE IMMEDIATE COUNT LITERAL POSTPONE STATE
 TESTING IF ELSE THEN BEGIN WHILE REPEAT UNTIL RECURSE
 TESTING DO LOOP +LOOP I J UNLOOP LEAVE EXIT
 TESTING DEFINING WORDS: : ; CONSTANT VARIABLE CREATE DOES> >BODY
@@ -275,6 +275,31 @@ Given Characters per Line: 64
 TESTING THRU
 
 End of Block word tests
+TESTING interpreter and compiler reading double numbers, with/without prefixes
+TESTING 2CONSTANT
+TESTING DNEGATE
+TESTING D+ with small integers
+TESTING D+ with mid range integers
+TESTING D+ with large double integers
+TESTING D- with small integers
+TESTING D- with mid-range integers
+TESTING D- with large integers
+TESTING D0< D0=
+TESTING D2* D2/
+TESTING D< D=
+TESTING 2LITERAL 2VARIABLE
+TESTING DMAX DMIN
+TESTING D>S DABS
+TESTING 2ROT DU< (Double Number extension words)
+TESTING 2VALUE
+
+End of Double-Number word tests
+TESTING Memory-Allocation word set
+TESTING ALLOCATE FREE RESIZE
+TESTING failure of RESIZE and ALLOCATE (unlikely to be enough memory)
+TESTING @  and ! work in ALLOCATEd memory (provided by Peter Knaggs)
+
+End of Memory-Allocation word tests
 
 ---------------------------
         Error Report
@@ -283,12 +308,12 @@ Word Set             Errors
 Core                    0
 Core extension          0
 Block                   0
-Double number           -
+Double number           0
 Exception               -
 Facility                -
 File-access             -
 Locals                  -
-Memory-allocation       -
+Memory-allocation       0
 Programming-tools       -
 Search-order            -
 String                  -
