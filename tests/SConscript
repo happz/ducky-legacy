@@ -63,7 +63,7 @@ dummy-storage = $FORTH_DUMMY_STORAGE
 def create_dummy_storage(env, target, source):
   cmd = DuckyCommand(env, runner = '')
 
-  cmd.command = env.subst('dd if=/dev/random of=$FORTH_DUMMY_STORAGE bs=1024 count=200 iflag=fullblock')
+  cmd.command = env.subst('dd if=/dev/zero of=$FORTH_DUMMY_STORAGE bs=1024 count=200 iflag=fullblock')
 
   return cmd.run(env, 'SETUP', env.subst('Creating dummy FORTH storage in $FORTH_DUMMY_STORAGE'))
 
