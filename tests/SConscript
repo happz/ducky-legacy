@@ -120,6 +120,9 @@ def run_testsuite_forth(env, target, source):
 def run_testsuite_examples(env, target, source):
   return run_testsuite(env, target, source, tests = ['tests.examples'])
 
+def run_testsuite_ci(env, target, source):
+  return run_testsuite(env, target, source, tests = ['tests.%s' % p for p in ['assembly', 'cpu', 'devices', 'hdt', 'instructions', 'mm', 'storage', 'forth.units:test_welcome', 'examples']])
+
 def run_testsuite_all(env, target, source):
   return run_testsuite(env, target, source, tests = ['tests.%s' % p for p in ['assembly', 'cpu', 'devices', 'hdt', 'instructions', 'mm', 'storage', 'forth.units', 'forth.ans', 'examples']])
 
@@ -256,6 +259,10 @@ if 'TESTSETDIR' in E:
   E.Command('.tests-examples', None, run_testsuite_examples)
   E.Depends('.tests-examples', common_requirements + examples_requirements)
 
+  # CI
+  E.Command('.tests-ci', None, run_testsuite_ci)
+  E.Depends('.tests-ci', common_requirements + engine_requirements + forth_requirements + forth_unit_requirements + examples_requirements)
+
   # Full testsuite
   E.Command('.tests-all', None, run_testsuite_all)
   E.Depends('.tests-all', common_requirements + engine_requirements + forth_requirements + forth_unit_requirements + forth_ans_requirements + examples_requirements)
@@ -286,6 +293,9 @@ if 'TESTSETDIR' in E:
 
   elif E['BUILD_TARGET'] == 'tests-examples':
     E.Depends('.tests', '.tests-examples')
+
+  elif E['BUILD_TARGET'] == 'tests-ci':
+    E.Depends('.tests', '.tests-ci')
 
   else:
     E.ERROR('Unhandled tests target: %s' % E['BUILD_TARGET'])

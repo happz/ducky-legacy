@@ -18,13 +18,8 @@ test:
     - git submodule init
     - git submodule update
     - /usr/bin/python /usr/bin/scons -sQc --clean-testsets
-    - tox -e py27:
-        timeout: 1200
-    - tox -e py33:
-        timeout: 1200
-    - tox -e py34:
-        timeout: 1200
-    - tox -e py35:
-        timeout: 1200
-    - tox -e pypy:
-        timeout: 1200
+    - tox -e py27 -- tests-ci
+    - tox -e py33 -- tests-ci
+    - tox -e py34 -- tests-ci
+    - tox -e py35 -- tests-ci
+    - tox -e pypy -- tests
