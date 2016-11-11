@@ -142,22 +142,12 @@ def print_machine_stats(logger, M):
     ['Core', 'Exit code']
   ]
 
-  table_inst_caches = [
-    ['Core', 'Reads', 'Inserts', 'Hits', 'Misses', 'Prunes']
-  ]
   table_cnts = [
     ['Core', 'Ticks']
   ]
 
   def __check_stats(core):
     table_exits.append([str(core), UINT32_FMT(core.exit_code)])
-
-    table_inst_caches.append([
-      str(core),
-      core.mmu._instruction_cache.reads,
-      core.mmu._instruction_cache.hits,
-      core.mmu._instruction_cache.misses,
-    ])
 
     table_cnts.append([
       str(core),
@@ -170,9 +160,6 @@ def print_machine_stats(logger, M):
   logger.info('')
   logger.info('Exit codes')
   logger.table(table_exits)
-  logger.info('')
-  logger.info('Instruction caches')
-  logger.table(table_inst_caches)
   logger.info('')
   logger.table(table_cnts)
   logger.info('')
@@ -482,7 +469,17 @@ def main():
 
       M.poke(str2int(address), str2int(value), str2int(length))
 
-    M.run()
+    try:
+      M.run()
+
+    except:
+      logger.exception('Unhandled exception')
+
+      try:
+        M.halt()
+
+      except:
+        logger.exception('Exception raised when handling an exception')
 
     print_machine_stats(logger, M)
     exit_code = 1 if M.exit_code != 0 else 0
