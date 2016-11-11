@@ -233,19 +233,19 @@ class MMU(ISnapshotable):
 
     self.force_aligned_access = config.memory_force_aligned_access()
     self.pt_address = config.cpu_pt_address()
-    self._pt_enabled = config.cpu_page_cache()
+    self._pt_enabled = config.cpu_pt_enabled()
 
     self._pte_cache = {}
 
     self.DEBUG = core.DEBUG
 
-    if config.get('cpu', 'instr-cache', 'simple') == 'full':
+    if config.cpu_instr_cache() == 'full':
       self._instruction_cache = InstructionCache_Full(self)
 
     else:
       self._instruction_cache = InstructionCache_Base(self)
 
-    if config.get('cpu', 'page-cache', 'simple') == 'full':
+    if config.cpu_page_cache() == 'full':
       self._page_cache = [None for _ in range(0, self.memory.pages_cnt)]
 
     else:
