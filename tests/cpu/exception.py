@@ -84,7 +84,7 @@ def __base_exception_test(state, index, evt, stack, exc_stack, exc_routine, trap
   M.memory.write_u32(evt + InterruptVector.SIZE * index + WORD_SIZE, exc_stack)
 
   CORE.evt_address = evt
-  CORE.registers.sp = stack
+  CORE.registers[Registers.SP] = stack
 
   trigger(state, CORE)
   test(state, CORE)
@@ -117,6 +117,6 @@ def test_divide_by_zero(state, evt, stack, exc_stack, exc_routine, trap):
     core.step()
 
   def test(state, core):
-    __base_exception_test_test(state, core, exc_routine, exc_stack, [userspace_ip])
+    __base_exception_test_test(state, core, exc_routine, exc_stack, [userspace_ip], cnt = state.cnt + 1)
 
   __base_exception_test(state, ExceptionList.DivideByZero, evt, stack, exc_stack, exc_routine, trap, trigger, test)
