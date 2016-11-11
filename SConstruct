@@ -376,7 +376,7 @@ def __asm_from_c(source, target, env):
     include = ' '.join(env['INCLUDE']) if 'INCLUDE' in env else '',
     target  = target[0]))
 
-  return cmd.run(env, 'C-to-ASM', target[0])
+  return cmd.run(env, 'C => ASM', target[0])
 
 def __object_from_c(source, target, env):
   if 'LLVMDIR' not in env:
@@ -390,7 +390,7 @@ def __object_from_c(source, target, env):
     include = ' '.join(env['INCLUDE']) if 'INCLUDE' in env else '',
     target  = target[0]))
 
-  return cmd.run(env, 'C-to-OBJ', target[0])
+  return cmd.run(env, 'C => OBJ', target[0])
 
 def __compile_ducky_object(source, target, env):
   defs = '-D__DUCKY_PURE_ASM__ '
@@ -414,7 +414,7 @@ def __compile_ducky_object(source, target, env):
   if GetOption('debug') is True:
     cmd.wrap_by_debugging(env)
 
-  return cmd.run(env, 'ASM-to-OBJ', target[0])
+  return cmd.run(env, 'ASM => OBJ', target[0])
 
 def __link_ducky_binary(source, target, env):
   cmd = DuckyCommand(env)
@@ -443,7 +443,7 @@ def __archive_from_objs(source, target, env):
   if GetOption('debug') is True:
     cmd.wrap_by_debugging(env)
 
-  return cmd.run(env, 'OBJs-to-ARCH', target[0])
+  return cmd.run(env, 'OBJs => ARCH', target[0])
 
 def __run_ducky_binary(self, config, set_options = None, add_options = None, environ = None, expected_exit = 0):
   set_options = set_options or []
@@ -590,6 +590,8 @@ def print_info(source, target, env):
 
     if 'PROFILEDIR' in ENV:
       env.INFO('Profile dir:           %s' % ENV['PROFILEDIR'])
+
+  env.INFO('CFLAGS:                %s' % ENV['CFLAGS'])
 
   for test, count in env.ParseRepeats():
     env.INFO('  Repeat %s %d times' % (test, count))
