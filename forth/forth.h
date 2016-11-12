@@ -194,10 +194,10 @@ extern char printf_buffer[];
 extern void halt(int errno) __attribute__((noreturn));
 extern void __ERR_die(char *msg, int errno) __attribute__((noreturn));
 extern void __ERR_die_with_input(char *msg, int exit_code) __attribute__((noreturn));
-#ifdef CONFIG_DIE_ON_UNDEF
-extern void __ERR_undefined_word(void) __attribute__((noreturn));
-#else
+#if (CONFIG_DIE_ON_UNDEF == 0)
 extern void __ERR_undefined_word(void);
+#else
+extern void __ERR_undefined_word(void) __attribute__((noreturn));
 #endif
 extern void __ERR_no_interpretation_semantics(void) __attribute__((noreturn));
 extern void __ERR_input_stack_overflow(void) __attribute__((noreturn));

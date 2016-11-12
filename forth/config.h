@@ -52,6 +52,7 @@
  * encountered.
  */
 #ifndef CONFIG_DIE_ON_UNDEF
+#  define CONFIG_DIE_ON_UNDEF          0
 #endif
 
 

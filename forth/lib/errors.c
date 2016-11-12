@@ -50,7 +50,7 @@ void __ERR_undefined_word()
 {
   putcs("\r\nERROR: " XSTR(ERR_UNDEFINED_WORD) ": Undefined word\r\n");
   print_input();
-#ifdef CONFIG_DIE_ON_UNDEF
+#if (CONFIG_DIE_ON_UNDEF != 0)
   halt(ERR_UNDEFINED_WORD);
 #endif
 }
