@@ -23,3 +23,4 @@ test:
     - tox -e py34 -- tests-ci
     - tox -e py35 -- tests-ci
     - tox -e pypy -- tests
+    - tox -e pypy -- tests-forth --define=CONFIG_PEEPHOLE=0
