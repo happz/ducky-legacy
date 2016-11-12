@@ -21,6 +21,7 @@ from functools import partial
 from six import iteritems, string_types
 
 DEFAULT_CFLAGS = '-fno-builtin -nostdinc -mllvm -disable-tail-duplicate'
+DEFAULT_ASMFLAGS = '-D__DUCKY_PURE_ASM__'
 
 
 def print_(*args, **kwargs):
@@ -242,7 +243,7 @@ def __pass_var_as_define(self, name, to_boolean = True, ignore_false = True):
   else:
     value = str(self[name])
 
-  self.Append(DEFS = ['-D %s=%s' % (name, value)])
+  self.Append(DEFS = '-D %s=%s' % (name, value))
 
 def __run_something(_env, label, target, runner, *args, **kwargs):
   expected_exit = 0
@@ -370,9 +371,8 @@ def __asm_from_c(source, target, env):
     env.Exit(1)
 
   cmd = DuckyCommand(env, runner = '')
-  cmd.command = env.subst('$LLVMDIR/bin/clang -cc1 -S $CFLAGS {defs} {include} -o {target} {inputs}'.format(
+  cmd.command = env.subst('$LLVMDIR/bin/clang -cc1 -S $CFLAGS $DEFS {include} -o {target} {inputs}'.format(
     inputs  = ' '.join([str(f) for f in source]),
-    defs    = ' '.join(env['DEFS']) if 'DEFS' in env else '',
     include = ' '.join(env['INCLUDE']) if 'INCLUDE' in env else '',
     target  = target[0]))
 
@@ -384,24 +384,17 @@ def __object_from_c(source, target, env):
     env.Exit(1)
 
   cmd = DuckyCommand(env, runner = '')
-  cmd.command = env.subst('$LLVMDIR/bin/clang -c $CFLAGS -fno-integrated-as {defs} {include} -o {target} {inputs}'.format(
+  cmd.command = env.subst('$LLVMDIR/bin/clang -c $CFLAGS $DEFS -fno-integrated-as {include} -o {target} {inputs}'.format(
     inputs  = ' '.join([str(f) for f in source]),
-    defs    = ' '.join(env['DEFS']) if 'DEFS' in env else '',
     include = ' '.join(env['INCLUDE']) if 'INCLUDE' in env else '',
     target  = target[0]))
 
   return cmd.run(env, 'C => OBJ', target[0])
 
 def __compile_ducky_object(source, target, env):
-  defs = '-D__DUCKY_PURE_ASM__ '
-
-  if 'DEFS' in env:
-    defs += ' '.join(env['DEFS'])
-
   cmd = DuckyCommand(env)
-  cmd.command = env.subst('$VIRTUAL_ENV/bin/ducky-as {inputs} {defs} {include} -o {target}'.format(
+  cmd.command = env.subst('$VIRTUAL_ENV/bin/ducky-as {inputs} $ASMFLAGS $DEFS {include} -o {target}'.format(
     inputs  = ' '.join(['-i %s' % f for f in source]),
-    defs    = defs,
     include = ' '.join(env['INCLUDE']) if 'INCLUDE' in env else '',
     target  = target[0]))
 
@@ -591,7 +584,8 @@ def print_info(source, target, env):
     if 'PROFILEDIR' in ENV:
       env.INFO('Profile dir:           %s' % ENV['PROFILEDIR'])
 
-  env.INFO('CFLAGS:                %s' % ENV['CFLAGS'])
+  env.INFO('CFLAGS:                %s' % ENV.subst('$CFLAGS $DEFS'))
+  env.INFO('ASMFLAGS:              %s' % ENV.subst('$ASMFLAGS $DEFS'))
 
   for test, count in env.ParseRepeats():
     env.INFO('  Repeat %s %d times' % (test, count))
@@ -720,10 +714,13 @@ ENV = Environment(
   INCLUDE = ['-I %s' % Dir('#libducky/include').abspath],
 
   # Predefined macros
-  DEFS = [],
+  DEFS = '',
 
   # Initial CFLAGS
   CFLAGS = DEFAULT_CFLAGS,
+
+  # Initial ASMFLAGS
+  ASMFLAGS = DEFAULT_ASMFLAGS,
 
   # Top-level directory of this Ducky repository
   TOPDIR = Dir('#.').abspath,
@@ -750,7 +747,10 @@ if 'LLVMDIR' not in ENV and 'LLVMDIR' in os.environ:
   ENV.Append(LLVMDIR = os.environ['LLVMDIR'])
 
 if 'CFLAGS' in os.environ:
-  ENV.Append(CFLAGS = ' ' + os.environ['CFLAGS'])
+  ENV.Append(CFLAGS = [os.environ['CFLAGS']])
+
+if 'ASMFLAGS' in os.environ:
+  ENV.Append(ASMFLAGS = [os.eviron['ASMFLAGS']])
 
 # Import all predefined macros from command-line options
 for define in GetOption('defines'):
