@@ -146,6 +146,8 @@ class Slot(object):
     self.do_finalize_value()
 
 class RelocSlot(object):
+  __slots__ = ('name', 'flags', 'patch_section', 'patch_address', 'patch_offset', 'patch_size', 'patch_add', 'size')
+
   def __init__(self, name, flags = None, patch_section = None, patch_address = None, patch_offset = None, patch_size = None, patch_add = None):
     super(RelocSlot, self).__init__()
 
@@ -163,6 +165,8 @@ class RelocSlot(object):
     return '<RelocSlot: name=%s, flags=%s, section=%s, address=%s, offset=%s, size=%s, add=%s>' % (self.name, self.flags.to_string(), self.patch_section, UINT32_FMT(self.patch_address), self.patch_offset, self.patch_size, self.patch_add)
 
 class Reference(object):
+  __slots__ = ('refers_to',)
+
   def __init__(self, refers_to):
     self.refers_to = refers_to
 
@@ -171,7 +175,7 @@ class Reference(object):
 
 class NumberPayloadSlot(Slot):
   def unpack_value(self):
-    raise NotImplemented()
+    raise NotImplementedError()
 
   def __init__(self, *args, **kwargs):
     super(NumberPayloadSlot, self).__init__(*args, **kwargs)
